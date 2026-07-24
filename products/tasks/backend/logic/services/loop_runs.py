@@ -75,6 +75,21 @@ LOOP_FRAMING_BLOCK = (
 )
 
 
+def render_loop_run_message(loop_instructions: str, execution_context: str) -> str:
+    # PostHog Code strips this established wrapper from user-message bubbles while still sending
+    # its contents to the agent, keeping run-only guidance out of the user's saved prompt.
+    escaped_execution_context = execution_context.replace(
+        "</user_custom_instructions>", "&lt;/user_custom_instructions&gt;"
+    )
+    hidden_context = (
+        "<user_custom_instructions>\n"
+        "The following system-generated instructions apply to this unattended loop run. Follow them.\n\n"
+        f"{escaped_execution_context}\n"
+        "</user_custom_instructions>"
+    )
+    return f"{hidden_context}\n\n{loop_instructions}"
+
+
 # Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
 # file_system scopes only, added on top of whatever posthog_mcp_scopes the loop already carries,
 # rather than escalating the run to the broad `full` write surface. resolve_scopes() re-adds the
@@ -493,6 +508,150 @@ def _team_rate_capped(loop: Loop) -> bool:
     return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
+def _seed_skill_bundles_and_dispatch(
+    *,
+    task_run: TaskRun,
+    team_id: int,
+    user_id: int | None,
+    task_id: str,
+    run_id: str,
+    create_pr: bool,
+    posthog_mcp_scopes: PosthogMcpScopes,
+) -> None:
+    """Post-commit tail of a fire: seed the run's snapshotted skill bundles, then
+    dispatch the Temporal workflow. Seeding copies S3 objects, and
+    ``_fire_loop_committed`` holds the team-wide advisory lock for its whole transaction
+    — an external call under that lock would serialize every fire for the team behind S3
+    latency (the same reason the usage gate runs before the lock and dispatch runs after
+    commit). Post-commit there is no rollback to lean on, so a failed seed compensates
+    instead: the run is terminalized as failed (feeding the loop's failure bookkeeping)
+    and the workflow is never dispatched, so the agent can't run with silently missing
+    skills."""
+    try:
+        _seed_skill_bundle_artifacts(task_run)
+    except Exception as exc:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"task_run_id": run_id, "error": str(exc)},
+        )
+        from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — breaks the temporal.client -> loop_runs import cycle
+            _terminalize_unstarted_task_run,
+        )
+
+        _terminalize_unstarted_task_run(run_id, "Failed to stage the loop's skill bundles for this run")
+        return
+
+    _execute_task_processing_workflow_for_loop(
+        team_id=team_id,
+        user_id=user_id,
+        task_id=task_id,
+        run_id=run_id,
+        create_pr=create_pr,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+    )
+
+
+def ensure_loop_skill_bundles_seeded(task_run: TaskRun) -> bool:
+    """Idempotently seed a loop run's skill bundles ahead of an out-of-band dispatch.
+
+    The orphaned-QUEUED reconciler recovers runs whose create-time ``on_commit`` callback
+    was lost — the same callback that seeds skill bundles — so re-dispatching without this
+    check would silently start the run with its skills missing. Seeds strictly from the
+    snapshot captured on the run at fire time, never from the live loop: the loop's
+    bundles (and its owner) may have changed since, and the run executes with the
+    credentials captured at fire time. Returns False when seeding was needed but failed;
+    the caller must not dispatch (the next sweep retries)."""
+    task = task_run.task
+    if task.origin_product != Task.OriginProduct.LOOP or task.loop_id is None:
+        return True
+    already_seeded = any(
+        isinstance(entry, dict) and entry.get("type") == "skill_bundle" for entry in (task_run.artifacts or [])
+    )
+    if already_seeded:
+        return True
+    try:
+        _seed_skill_bundle_artifacts(task_run)
+    except Exception:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"task_run_id": str(task_run.id)},
+        )
+        return False
+    return True
+
+
+def _snapshot_skill_bundle_seeds(loop: Loop) -> list[dict]:
+    """The bundle entries a fire freezes onto its run's state. Seeding always reads this
+    snapshot rather than the loop row, so a later replace or ownership takeover can't
+    swap which skills an already-created run installs."""
+    return [entry for entry in (loop.skill_bundles or []) if isinstance(entry, dict) and entry.get("storage_path")]
+
+
+def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
+    """Copy the run's snapshotted skill bundles into place: S3 objects under the run's
+    artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
+    agent-server installs them exactly like bundles a client uploaded at task creation.
+    Raises on a failed copy; the caller compensates. Already-copied objects are deleted
+    best-effort before re-raising, since nothing would ever reference them."""
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    seeds = state.get("skill_bundle_seeds")
+    bundles = [entry for entry in (seeds or []) if isinstance(entry, dict) and entry.get("storage_path")]
+    if not bundles:
+        return
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    # `state` is a client-PATCHable surface (the seeds key is server-protected, but this
+    # copy primitive must not trust it anyway): every source path has to sit under the
+    # owning loop's own bundle prefix, and the target segments are re-sanitized, or a
+    # forged entry would read or write arbitrary bucket keys via the recovery path.
+    loop_id = task_run.task.loop_id
+    if loop_id is None:
+        raise ValueError("skill bundle seeds on a run without a loop")
+    loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, loop_id)}/"
+
+    run_prefix = task_run.get_artifact_s3_prefix()
+    manifest = list(task_run.artifacts or [])
+    copied_paths: list[str] = []
+    try:
+        for bundle in bundles:
+            entry = dict(bundle)
+            source_path = str(entry["storage_path"])
+            if not source_path.startswith(loop_prefix):
+                raise ValueError("skill bundle seed escapes the loop's storage prefix")
+            entry_id = str(entry["id"])
+            if not re.fullmatch(r"[0-9a-f]{8,64}", entry_id):
+                raise ValueError("skill bundle seed has a malformed id")
+            entry["name"] = get_safe_artifact_name(str(entry["name"]))
+            target_path = f"{run_prefix}/{entry_id[:8]}_{entry['name']}"
+            object_storage.copy(source_path, target_path)
+            copied_paths.append(target_path)
+            try:
+                object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})
+            except Exception as exc:
+                logger.warning(
+                    "loop_run.skill_bundle_tag_failed",
+                    extra={"task_run_id": str(task_run.id), "storage_path": target_path, "error": str(exc)},
+                )
+            entry["storage_path"] = target_path
+            manifest.append(entry)
+
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+    except Exception:
+        if copied_paths:
+            try:
+                object_storage.delete_objects(copied_paths)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "loop_run.skill_bundle_seed_cleanup_failed",
+                    extra={"task_run_id": str(task_run.id), "paths": copied_paths, "error": str(cleanup_exc)},
+                )
+        raise
+
+
 def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:
     repository: str | None = None
     github_integration_id: int | None = None
@@ -506,9 +665,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
-    description = "\n\n".join(
-        part for part in [LOOP_FRAMING_BLOCK, loop.instructions, context_block, trigger_context] if part
-    )
+    execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
+    pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
     feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
 
@@ -516,7 +674,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         team_id=loop.team_id,
         created_by_id=loop.created_by_id,
         title=title,
-        description=description,
+        description=loop.instructions,
         origin_product=Task.OriginProduct.LOOP,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -548,6 +706,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "model": effective_model,
         "reasoning_effort": reasoning_effort,
         "config_snapshot": config_snapshot,
+        "pending_user_message": pending_user_message,
     }
     # Carries the loop's sandbox secrets/network policy into the run the same way a
     # regular task's sandbox_environment_id flows through Task._build_task.
@@ -580,6 +739,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "slack_thread_context": None,
         "workflow_id_prefix": None,
     }
+    # Freeze the bundle set on the run itself: seeding (post-commit and reconciler
+    # recovery alike) reads only this snapshot, so a later replace or ownership takeover
+    # can't change which skills this run installs under its captured credentials.
+    bundle_seeds = _snapshot_skill_bundle_seeds(loop)
+    if bundle_seeds:
+        extra_state["skill_bundle_seeds"] = bundle_seeds
+
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
     team_id = loop.team_id
@@ -588,7 +754,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     run_id = str(task_run.id)
 
     transaction.on_commit(
-        lambda: _execute_task_processing_workflow_for_loop(
+        lambda: _seed_skill_bundles_and_dispatch(
+            task_run=task_run,
             team_id=team_id,
             user_id=user_id,
             task_id=task_id,

@@ -5715,7 +5715,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             "id"
         ]
 
-        # Scopes don't apply to session auth — without Code access, opting in must be rejected
+        # Scopes don't apply to session auth — without Desktop access, opting in must be rejected
         # on both actions that can open a cleanup PR.
         with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
             resp = self.client.post(
@@ -5732,7 +5732,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
 
-            # Not opting in still ends the experiment without Code access.
+            # Not opting in still ends the experiment without Desktop access.
             resp = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
                 {"conclusion": "won", "open_cleanup_pr": False},
@@ -5740,7 +5740,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-        # With Code access, opting in succeeds on both actions ("end first, ship later" flow).
+        # With Desktop access, opting in succeeds on both actions ("end first, ship later" flow).
         with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
             resp = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",

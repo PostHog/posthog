@@ -72,11 +72,6 @@ const panelTriggerItems: {
         label: 'Tools',
         icon: <IconApps />,
     },
-    {
-        identifier: 'Shortcuts',
-        label: 'Starred',
-        icon: <IconStar />,
-    },
 ]
 
 function getItemName(item: FileSystemEntry): string {

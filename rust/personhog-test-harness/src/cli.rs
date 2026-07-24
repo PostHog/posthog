@@ -273,6 +273,22 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 30)]
     pub leader_lease_ttl: i64,
 
+    /// Create the persons through the personhog-identity service
+    /// (GetOrCreatePersonsByDistinctIds with initial properties) instead of
+    /// seeding SQL directly. The create acks are journaled like any other
+    /// write, so the gate also asserts create visibility: the initial
+    /// properties must survive into strong reads and Postgres. A spawned
+    /// stack brings up its own identity service; with
+    /// --external-router-url, pass --external-identity-url too.
+    #[arg(long, default_value_t = false)]
+    pub create_via_identity: bool,
+
+    /// Identity service URL for --create-via-identity against an
+    /// already-running stack (the dev stack runs it at
+    /// http://127.0.0.1:50055). Ignored for spawned stacks.
+    #[arg(long)]
+    pub external_identity_url: Option<String>,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]
