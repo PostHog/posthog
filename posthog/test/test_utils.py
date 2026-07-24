@@ -457,6 +457,18 @@ class TestRelativeDateParse(TestCase):
             "2019-12-31",
         )
 
+    @freeze_time("2020-01-31")
+    def test_out_of_range_relative_date_clamps_instead_of_crashing(self):
+        # An extreme magnitude pushes the result past datetime's range; clamp rather than raise OverflowError
+        self.assertEqual(
+            relative_date_parse("-999999y", ZoneInfo("UTC")),
+            datetime.min.replace(tzinfo=ZoneInfo("UTC")),
+        )
+        self.assertEqual(
+            relative_date_parse("999999y", ZoneInfo("UTC"), increase=True),
+            datetime.max.replace(tzinfo=ZoneInfo("UTC")),
+        )
+
 
 class TestDefaultEventName(BaseTest):
     def setUp(self):

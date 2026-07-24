@@ -242,10 +242,16 @@ def relative_date_parse_with_delta_mapping(
             days_to_add = 6 - weekday_index
             parsed_dt += datetime.timedelta(days=days_to_add)
 
-    if increase:
-        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
-    else:
-        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    try:
+        if increase:
+            parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+        else:
+            parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    except OverflowError:
+        # An extreme relative date (e.g. "-999999y") can push the result past datetime's
+        # representable range. Clamp to the boundary instead of crashing the caller.
+        boundary = datetime.datetime.max if increase else datetime.datetime.min
+        parsed_dt = boundary.replace(tzinfo=parsed_dt.tzinfo)
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed
