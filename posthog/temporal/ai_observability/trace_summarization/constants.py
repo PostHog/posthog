@@ -105,9 +105,25 @@ SUMMARIZE_AND_SAVE_RETRY_POLICY = RetryPolicy(
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow — must be well under coordinator timeout
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
+# Max concurrent sampling queries per worker process. The summarization,
+# generation, clustering and eval-report coordinators all fan out many sampling
+# activities at once, every one firing a HogQL query on the shared `default`
+# ClickHouse user — collectively they were exhausting its simultaneous-query cap
+# and surfacing as ClickHouseAtCapacity. This bounds how many run concurrently
+# per worker so the offline pool keeps headroom for other query sources. Well
+# below DEFAULT_MAX_CONCURRENT_TEAMS (20) on purpose — sampling is quick, so the
+# rest of a batch just waits its turn rather than piling onto ClickHouse.
+MAX_CONCURRENT_SAMPLING_QUERIES = 8
+
 # Retry policies
+# ClickHouseAtCapacity (TOO_MANY_SIMULTANEOUS_QUERIES) is retryable, so back off
+# and retry a few times: a query rejected because the pool is momentarily full
+# usually succeeds once concurrent load drains, instead of surfacing as an error.
 SAMPLE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=30),
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

@@ -1,9 +1,12 @@
 """Tests for batch trace summarization workflow and sampling."""
 
+import asyncio
+import weakref
+import threading
 from contextlib import asynccontextmanager
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.placeholders import replace_placeholders
@@ -347,6 +350,58 @@ class TestSampleItemsInWindowActivity:
 
             assert result == []
             mock_execute.assert_called_once()
+
+
+class TestSampleItemsConcurrencyGate:
+    @pytest.mark.asyncio
+    async def test_bounds_concurrent_clickhouse_queries(self):
+        # Guards the per-worker ceiling that keeps the coordinators' fan-out of
+        # sampling activities under ClickHouse's `default`-user simultaneous-query
+        # cap: without the gate all activities would query at once.
+        from posthog.temporal.ai_observability.trace_summarization import sampling
+
+        limit = 2
+        total = 5
+        lock = threading.Lock()
+        active = 0
+        peak = 0
+        reached_limit = threading.Event()
+
+        def fake_query(*args, **kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+                if active >= limit:
+                    reached_limit.set()
+            # Hold each slot until `limit` queries overlap, so the first wave piles
+            # up to exactly the cap before any releases — deterministic, no sleeps.
+            reached_limit.wait(timeout=5)
+            with lock:
+                active -= 1
+            result = MagicMock()
+            result.results = []
+            return result
+
+        inputs = BatchSummarizationInputs(
+            team_id=1,
+            max_items=10,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with (
+            patch.object(sampling, "MAX_CONCURRENT_SAMPLING_QUERIES", limit),
+            patch.object(sampling, "_sampling_semaphores", weakref.WeakKeyDictionary()),
+            patch.object(sampling, "Heartbeater", _noop_heartbeater),
+            patch.object(sampling, "Team") as mock_team_cls,
+            patch.object(sampling, "execute_hogql_query", side_effect=fake_query),
+        ):
+            mock_team_cls.objects.get.return_value = MagicMock(project_id=1)
+            await asyncio.gather(*[sample_items_in_window_activity(inputs) for _ in range(total)])
+
+        assert peak == limit
 
 
 class TestBatchTraceSummarizationWorkflow:
