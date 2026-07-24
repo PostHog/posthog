@@ -17,6 +17,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
+    deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
     queue_recording_deletions_activity,
     send_organization_deleted_email_activity,
@@ -212,6 +213,27 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
+        # Deprovision the org's managed warehouse (duckgres) first: the org-record cascade
+        # below destroys the DuckgresServer pointer, and without this the warehouse would
+        # survive the org fully alive — external writers keep ingesting, storage keeps being
+        # metered, and its credentials stay valid. Gated with `patched` so in-flight deletions
+        # from before this deploy don't fail replay on a new command. The rest of the deletion
+        # is CONDITIONAL on duckgres accepting the deprovision: proceeding past a failure
+        # would drop the only pointer to a live warehouse and foreclose any later automatic
+        # cleanup, so the activity retries indefinitely with capped backoff (like the bulky
+        # delete phases) — a persistent control-plane outage stalls this workflow visibly
+        # (ops-alertable) and the deletion completes once duckgres is reachable again.
+        # Orgs without a warehouse and already-torn-down warehouses succeed immediately
+        # inside the activity.
+        if temporalio.workflow.patched("deprovision-managed-warehouse"):
+            await temporalio.workflow.execute_activity(
+                deprovision_managed_warehouse_activity,
+                OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+
         if inputs.team_ids:
             await _delete_teams_data_child(
                 DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),

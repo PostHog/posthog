@@ -1120,6 +1120,92 @@ def test_block_team_deletion_lets_unonboarded_team_through_on_control_plane_erro
     assert managed_warehouse.block_team_deletion(team.id, org.id) is None
 
 
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.deprovision")
+def test_deprovision_for_org_deletion_skips_orgs_without_warehouse(mock_deprovision: MagicMock) -> None:
+    # Orgs with no managed warehouse must never trigger a control-plane call.
+    org = Organization.objects.create(name="Org")
+
+    managed_warehouse.deprovision_for_org_deletion(org.id)
+
+    mock_deprovision.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.deprovision")
+def test_deprovision_for_org_deletion_deprovisions_the_orgs_warehouse(mock_deprovision: MagicMock) -> None:
+    # The flag is bypassed: org deletion must not depend on flag evaluation on the Temporal worker.
+    org, _team, _server = _provisioned_org()
+    mock_deprovision.return_value = Response({"status": "deprovisioning started", "org": str(org.id)}, status=202)
+
+    managed_warehouse.deprovision_for_org_deletion(org.id)
+
+    mock_deprovision.assert_called_once_with(org.id, require_enabled=False)
+
+
+@parameterized.expand(
+    [
+        ("unknown_to_duckgres", 404),
+        ("teardown_already_started", 409),
+        ("provisioning_api_not_configured", 501),
+    ]
+)
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.deprovision")
+def test_deprovision_for_org_deletion_treats_converged_states_as_done(
+    _name: str, cp_status: int, mock_deprovision: MagicMock
+) -> None:
+    # 404 (no warehouse in duckgres), 409 (teardown already started/finished — deprovision is not
+    # re-POSTable), and 501 (no provisioning API configured) all mean there is nothing to start.
+    org, _team, _server = _provisioned_org()
+    mock_deprovision.return_value = Response({"error": "nope"}, status=cp_status)
+
+    managed_warehouse.deprovision_for_org_deletion(org.id)  # must not raise
+
+    mock_deprovision.assert_called_once_with(org.id, require_enabled=False)
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_rejected_for_org_pending_deletion(mock_request: MagicMock) -> None:
+    # The deletion workflow's deprovision step runs once, early: a warehouse provisioned for a
+    # pending-deletion org afterwards would be cascade-deleted without ever being deprovisioned,
+    # so the control plane must never be reached.
+    org = Organization.objects.create(name="Org", is_pending_deletion=True)
+    team = Team.objects.create(organization=org, name="Env")
+
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "myschema", require_enabled=False)
+
+    assert resp.status_code == 409
+    assert "pending deletion" in resp.data["error"]
+    mock_request.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+def test_onboard_team_rejected_for_org_pending_deletion(mock_create_team: MagicMock) -> None:
+    org = Organization.objects.create(name="Org", is_pending_deletion=True)
+    team = Team.objects.create(organization=org, name="Env")
+
+    resp = managed_warehouse.onboard_team(org.id, team.id, "myschema", require_enabled=False)
+
+    assert resp.status_code == 409
+    assert "pending deletion" in resp.data["error"]
+    mock_create_team.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.deprovision")
+def test_deprovision_for_org_deletion_raises_on_control_plane_error(mock_deprovision: MagicMock) -> None:
+    # A transient failure must raise so the Temporal activity retries instead of silently
+    # orphaning the warehouse.
+    org, _team, _server = _provisioned_org()
+    mock_deprovision.return_value = Response({"error": "unreachable"}, status=502)
+
+    with pytest.raises(RuntimeError, match="deprovision failed"):
+        managed_warehouse.deprovision_for_org_deletion(org.id)
+
+
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
 @override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
 def test_update_team_puts_only_passed_fields_to_org_team_route(mock_internal: MagicMock) -> None:
