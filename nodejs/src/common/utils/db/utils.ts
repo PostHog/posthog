@@ -41,11 +41,17 @@ export function timeoutGuard(
     sendException = true,
     reportMetric?: () => void
 ): NodeJS.Timeout {
+    // Build the Error here, at the call site, rather than passing a bare string to captureException
+    // inside the timer callback. A string forces posthog-node to synthesize a stack from the current
+    // frame — always the setTimeout callback — so every timeout collapses into one mislabeled issue.
+    // A real Error created here keeps the originating stack, letting error tracking group timeouts by
+    // their actual origin and message.
+    const error = new Error(message)
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
         if (sendException) {
-            captureException(message, ctx ? { extra: ctx } : undefined)
+            captureException(error, ctx ? { extra: ctx } : undefined)
         }
         if (reportMetric) {
             reportMetric()
