@@ -9,7 +9,6 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -73,10 +72,11 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
-        # the metrics API and ignores this attr; once posthoganalytics is bumped to
-        # >=7.23 it's picked up by setup(), so metrics get a real service.name
-        # instead of 'unknown_service'.
+        # Internal, unstable SDK switch: our AI SDK wrapper events ride the dedicated
+        # AI capture lane instead of /batch/. setup() syncs this onto the lazily
+        # auto-instantiated default client, whenever it gets constructed.
+        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
+        # Config for the SDK's `client.metrics` API, picked up by setup().
         posthoganalytics.metrics = {  # type: ignore[attr-defined]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.
@@ -137,10 +137,6 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
-
-        # The feature_flag_definitions() call above constructs the default client, so
-        # the dedicated-AI-endpoint flag can only be applied from this point on.
-        enable_dedicated_ai_endpoint_for_default_client()
 
         from posthog.async_migrations.setup import setup_async_migrations
 
