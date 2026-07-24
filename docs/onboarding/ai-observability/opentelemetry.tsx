@@ -261,7 +261,9 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP traces and logs over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. Exporters append \`/v1/traces\` and \`/v1/logs\` to the base endpoint.
+
+                            Log EventRecords named \`gen_ai.evaluation.result\` become \`$ai_evaluation\` events when their attributes include a non-empty \`gen_ai.evaluation.name\` and either a non-empty \`gen_ai.evaluation.score.label\` or a finite \`gen_ai.evaluation.score.value\`. PostHog groups records with the same evaluation name as one imported evaluator while retaining a separate replay-stable identity for each record. Include valid OTLP \`traceId\` and \`spanId\` fields to attach the result to a specific span; without them, the evaluation is imported but isn't linked to a trace span.
                         `}
                     </Markdown>
 
@@ -271,8 +273,8 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Environment',
                                 code: dedent`
-                                    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="<ph_client_api_host>/i/v0/ai/otel"
-                                    OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer <ph_project_token>"
+                                    OTEL_EXPORTER_OTLP_ENDPOINT="<ph_client_api_host>/i/v0/ai/otel"
+                                    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <ph_project_token>"
                                 `,
                             },
                             {
@@ -294,7 +296,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                                     exporters:
                                       otlphttp/posthog:
-                                        traces_endpoint: "<ph_client_api_host>/i/v0/ai/otel"
+                                        endpoint: "<ph_client_api_host>/i/v0/ai/otel"
                                         headers:
                                           Authorization: "Bearer <ph_project_token>"
 
@@ -304,6 +306,32 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                           receivers: [otlp]
                                           processors: [memory_limiter, batch]
                                           exporters: [otlphttp/posthog]
+                                        logs:
+                                          receivers: [otlp]
+                                          processors: [memory_limiter, batch]
+                                          exporters: [otlphttp/posthog]
+                                `,
+                            },
+                            {
+                                language: 'json',
+                                file: 'Evaluation log',
+                                code: dedent`
+                                    {
+                                      "resourceLogs": [{
+                                        "scopeLogs": [{
+                                          "logRecords": [{
+                                            "timeUnixNano": "1784900000000000000",
+                                            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+                                            "spanId": "00f067aa0ba902b7",
+                                            "eventName": "gen_ai.evaluation.result",
+                                            "attributes": [
+                                              { "key": "gen_ai.evaluation.name", "value": { "stringValue": "helpfulness" } },
+                                              { "key": "gen_ai.evaluation.score.value", "value": { "doubleValue": 0.9 } }
+                                            ]
+                                          }]
+                                        }]
+                                      }]
+                                    }
                                 `,
                             },
                         ]}
@@ -316,7 +344,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             - **Only AI spans are ingested.** Spans whose name and attribute keys don't start with \`gen_ai.\`, \`llm.\`, \`ai.\`, or \`traceloop.\` are dropped server-side, so it's safe to send a mixed trace stream.
                             - **HTTP only, no gRPC.** The endpoint speaks OTLP over HTTP in either \`application/x-protobuf\` or \`application/json\`. If your collector or SDK is configured for gRPC, switch to HTTP.
                             - **Request body is capped at 4 MB.** Large or unbounded traces (for example, long chat histories with base64-encoded images) can exceed this. Use a collector with the \`batch\` processor to keep individual exports small.
-                            - **Missing traces?** Make sure you're pointing at the traces-specific OTLP variable (\`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT\` / \`traces_endpoint\`) rather than the general one, and that your project token is set correctly in the \`Authorization: Bearer\` header.
+                            - **Missing traces or evaluations?** Make sure the exporter uses the base \`OTEL_EXPORTER_OTLP_ENDPOINT\` so it can append the signal path, and that your project token is set correctly in the \`Authorization: Bearer\` header.
                         `}
                     </Markdown>
                 </>

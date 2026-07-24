@@ -1502,10 +1502,12 @@ const EventContent = React.memo(
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        // Badges are context-sensitive: a generation shows its own results, the trace root shows
-        // trace-target results. Other events (spans, embeddings) have no evaluation context.
+        const eventSpanId =
+            event && isLLMEvent(event) && typeof event.properties.$ai_span_id === 'string'
+                ? event.properties.$ai_span_id
+                : undefined
         const isTraceRoot = !!event && !isLLMEvent(event)
-        const showEvalBadges = isGenerationEvent || isTraceRoot
+        const showEvalBadges = isTraceRoot || isGenerationEvent || !!eventSpanId
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
         // If the user is viewing the Tags tab but it's no longer available (flag off or
@@ -1618,6 +1620,7 @@ const EventContent = React.memo(
                                         <EvalResultBadges
                                             traceId={trace.id}
                                             generationEventId={isGenerationEvent ? event.id : undefined}
+                                            spanId={eventSpanId}
                                         />
                                     )}
                                 </div>

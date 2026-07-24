@@ -9,7 +9,7 @@ import { hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
-import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { EvaluationResultType, EvaluationRun, EvaluationRuntime, EvaluationSource } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -1041,24 +1041,34 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string | null,
+    result: boolean | string | number | null,
     reasoning: string | null,
     applicable: boolean | string | null,
     evaluation_type: string | null,
     result_type: string | null,
     sentiment_label: string | null,
     sentiment_score: number | string | null,
+    target_span_id: string | null,
+    evaluation_run_id: string | null,
+    evaluation_source: string | null,
 ]
 
-export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
-    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment') {
+export function normalizeEvaluationRuntime(value: unknown): EvaluationRuntime | undefined {
+    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment' || value === 'otel') {
         return value
     }
     return undefined
 }
 
-export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
-    if (value === 'boolean' || value === 'sentiment') {
+function normalizeEvaluationSource(value: unknown): EvaluationSource | undefined {
+    if (value === 'online' || value === 'imported') {
+        return value
+    }
+    return undefined
+}
+
+export function normalizeEvaluationOutputType(value: unknown): EvaluationResultType | undefined {
+    if (value === 'boolean' || value === 'sentiment' || value === 'label' || value === 'number') {
         return value
     }
     return undefined
@@ -1107,23 +1117,25 @@ export function normalizeEvaluationResultProperties({
     EvaluationRun,
     'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
 > {
-    const evaluationType = normalizeEvaluationType(rawEvaluationType)
+    const evaluationRuntime = normalizeEvaluationRuntime(rawEvaluationType)
     const sentimentLabel =
         typeof rawSentimentLabel === 'string' && rawSentimentLabel.length > 0 ? rawSentimentLabel : null
     const resultType =
         normalizeEvaluationOutputType(rawResultType) ??
-        (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
-
-    const result =
-        resultType === 'sentiment' ||
-        isExplicitEvaluationNotApplicable(rawApplicable) ||
-        rawResult === null ||
-        rawResult === undefined
-            ? null
-            : isExplicitEvaluationPass(rawResult)
+        (evaluationRuntime === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
+    let result: EvaluationRun['result'] = null
+    if (!isExplicitEvaluationNotApplicable(rawApplicable) && rawResult !== null && rawResult !== undefined) {
+        if (resultType === 'label') {
+            result = typeof rawResult === 'string' && rawResult.length > 0 ? rawResult : null
+        } else if (resultType === 'number') {
+            result = normalizeOptionalNumber(rawResult)
+        } else if (resultType !== 'sentiment') {
+            result = isExplicitEvaluationPass(rawResult)
+        }
+    }
 
     return {
-        evaluation_type: evaluationType,
+        evaluation_type: evaluationRuntime,
         result_type: resultType,
         result,
         sentiment_label: sentimentLabel,
@@ -1146,9 +1158,12 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         id: row[0],
         timestamp: row[1],
         evaluation_id: row[2],
+        evaluation_run_id: row[14] || null,
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
+        target_span_id: row[13] || null,
         trace_id: row[5],
+        evaluation_source: normalizeEvaluationSource(row[15]),
         ...normalizedResult,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
@@ -1184,7 +1199,10 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_evaluation_runtime as evaluation_type,
             properties.$ai_evaluation_result_type as result_type,
             properties.$ai_sentiment_label as sentiment_label,
-            properties.$ai_sentiment_score as sentiment_score
+            properties.$ai_sentiment_score as sentiment_score,
+            properties.$ai_target_span_id as target_span_id,
+            properties.$ai_evaluation_run_id as evaluation_run_id,
+            properties.$ai_evaluation_type as evaluation_source
         FROM events
         WHERE
             event = '$ai_evaluation'

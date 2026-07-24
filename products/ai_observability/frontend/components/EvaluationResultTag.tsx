@@ -23,6 +23,9 @@ const SENTIMENT_DISPLAY: Record<string, Pick<EvaluationResultDisplay, 'type' | '
     negative: { type: 'danger', icon: <IconX />, sortValue: 1 },
 }
 
+const POSITIVE_RESULT_LABELS = new Set(['pass', 'passed', 'true', 'success'])
+const NEGATIVE_RESULT_LABELS = new Set(['fail', 'failed', 'false', 'failure'])
+
 export function isSentimentRun(run: EvaluationResultLike): boolean {
     return run.result_type === 'sentiment' || run.evaluation_type === 'sentiment' || !!run.sentiment_label
 }
@@ -45,6 +48,19 @@ export function getEvaluationResultDisplay(run: EvaluationResultLike): Evaluatio
             ...display,
             label: capitalize(sentimentLabel),
         }
+    }
+    if (run.result_type === 'label' && typeof run.result === 'string') {
+        const normalizedLabel = run.result.toLowerCase()
+        if (POSITIVE_RESULT_LABELS.has(normalizedLabel)) {
+            return { type: 'success', icon: <IconCheck />, label: capitalize(run.result), sortValue: 1 }
+        }
+        if (NEGATIVE_RESULT_LABELS.has(normalizedLabel)) {
+            return { type: 'danger', icon: <IconX />, label: capitalize(run.result), sortValue: 0 }
+        }
+        return { type: 'none', icon: <IconMinus />, label: capitalize(run.result), sortValue: 0.5 }
+    }
+    if (run.result_type === 'number' && typeof run.result === 'number') {
+        return { type: 'none', icon: <IconMinus />, label: String(run.result), sortValue: run.result }
     }
     if (run.result === null) {
         return { type: 'muted', icon: <IconMinus />, label: 'N/A', sortValue: 0.5 }

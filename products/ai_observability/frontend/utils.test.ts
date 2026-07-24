@@ -36,6 +36,9 @@ interface EvaluationRunRowOverrides {
     resultType?: EvaluationRunRow[10]
     sentimentLabel?: EvaluationRunRow[11]
     sentimentScore?: EvaluationRunRow[12]
+    targetSpanId?: EvaluationRunRow[13]
+    evaluationRunId?: EvaluationRunRow[14]
+    evaluationSource?: EvaluationRunRow[15]
 }
 
 function makeEvaluationRunRow({
@@ -45,6 +48,9 @@ function makeEvaluationRunRow({
     resultType = 'boolean',
     sentimentLabel = null,
     sentimentScore = null,
+    targetSpanId = '',
+    evaluationRunId = '',
+    evaluationSource = 'online',
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -60,6 +66,9 @@ function makeEvaluationRunRow({
         resultType,
         sentimentLabel,
         sentimentScore,
+        targetSpanId,
+        evaluationRunId,
+        evaluationSource,
     ]
 }
 
@@ -102,6 +111,38 @@ describe('mapEvaluationRunRow', () => {
         const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: null }))
 
         expect(run.result).toBeNull()
+    })
+
+    it('maps an imported label result without coercing it to a boolean', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: 'pass', resultType: 'label' }))
+
+        expect(run.result).toBe('pass')
+    })
+
+    it('maps an imported numeric result', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: '0.9', resultType: 'number' }))
+
+        expect(run.result).toBe(0.9)
+    })
+
+    it('maps imported evaluator and run identities separately', () => {
+        const run = mapEvaluationRunRow(
+            makeEvaluationRunRow({
+                evaluationType: 'otel',
+                evaluationSource: 'imported',
+                evaluationRunId: 'run-id',
+                targetSpanId: 'span-id',
+            })
+        )
+
+        expect(run).toMatchObject({
+            evaluation_id: 'eval-1',
+            evaluation_run_id: 'run-id',
+            evaluation_type: 'otel',
+            evaluation_source: 'imported',
+            target_span_id: 'span-id',
+        })
+        expect(run.evaluation_id).not.toBe(run.evaluation_run_id)
     })
 
     it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {

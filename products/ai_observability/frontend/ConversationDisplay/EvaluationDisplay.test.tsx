@@ -43,4 +43,22 @@ describe('EvaluationDisplay', () => {
         expect(screen.getByText('N/A')).toBeInTheDocument()
         expect(screen.queryByText('False')).not.toBeInTheDocument()
     })
+
+    it('renders an imported evaluation result and links to the target span', () => {
+        render(
+            <Provider>
+                <EvaluationDisplay
+                    eventProperties={{
+                        $ai_trace_id: 'trace-1',
+                        $ai_target_span_id: '0123456789abcdef',
+                        $ai_evaluation_result: 'pass',
+                        $ai_evaluation_result_type: 'label',
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('Pass')).toBeInTheDocument()
+        expect(screen.getByText('0123456789ab...')).toHaveAttribute('href', expect.stringContaining('0123456789abcdef'))
+    })
 })

@@ -59,12 +59,14 @@ Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
 | Property                     | Meaning                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                   |
+| `$ai_evaluation_id`          | Evaluation config UUID or deterministic imported evaluator UUID |
+| `$ai_evaluation_run_id`      | Replay-stable identity for an imported evaluation record        |
 | `$ai_evaluation_name`        | Human-readable name                                             |
 | `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
+| `$ai_target_span_id`         | OTel span ID targeted by an imported evaluation                 |
 | `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                   |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                           |
-| `$ai_evaluation_result`      | For boolean evaluations: `true` = pass, `false` = fail          |
+| `$ai_evaluation_result_type` | Result kind: `boolean`, `sentiment`, `label`, or `number`       |
+| `$ai_evaluation_result`      | Evaluation result, normalized from native or imported records   |
 | `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)        |
 | `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A        |
 | `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative` |
@@ -73,7 +75,20 @@ Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
 
-## Workflow: investigate why an evaluation is failing
+## Choose the investigation workflow
+
+First inspect the result's `$ai_evaluation_type` and `$ai_evaluation_runtime` properties:
+
+- Use the native workflow for configured `hog`, `llm_judge`, and `sentiment`
+  evaluations. Their `$ai_evaluation_id` points to an `Evaluation` row, so the
+  `llma-evaluation-*` tools can inspect and summarize them.
+- Use the imported workflow when `$ai_evaluation_type = 'imported'` and
+  `$ai_evaluation_runtime = 'otel'`. Imported evaluator IDs are deterministic
+  identities derived from the evaluation name, not `Evaluation` rows, so
+  `llma-evaluation-list`, `llma-evaluation-get`, and
+  `llma-evaluation-summary-create` cannot resolve them.
+
+## Workflow: investigate why a native evaluation is failing
 
 Works the same way for boolean `llm_judge` and `hog` evaluations — the differences
 only matter when you eventually go to fix the evaluator (edit the prompt vs. edit
@@ -166,6 +181,39 @@ LIMIT 25
 
 The N/A guard (`IS NULL OR != false`) is important — it matches the same logic the
 backend uses to bucket runs.
+
+## Workflow: investigate an imported OTLP evaluation
+
+Use `execute-sql` to find imported runs by evaluator ID or name and inspect every
+supported result type:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_evaluation_id AS evaluation_id,
+    properties.$ai_evaluation_run_id AS run_id,
+    properties.$ai_evaluation_name AS evaluation_name,
+    properties.$ai_evaluation_result_type AS result_type,
+    properties.$ai_evaluation_result AS result,
+    properties.$ai_evaluation_reasoning AS reasoning,
+    properties.$ai_trace_id AS trace_id,
+    properties.$ai_target_span_id AS target_span_id,
+    timestamp
+FROM events
+WHERE event = '$ai_evaluation'
+    AND properties.$ai_evaluation_type = 'imported'
+    AND properties.$ai_evaluation_runtime = 'otel'
+    AND properties.$ai_evaluation_id = '<imported_evaluator_uuid>'
+    AND timestamp >= now() - INTERVAL 7 DAY
+ORDER BY timestamp DESC
+LIMIT 100
+```
+
+Use `$ai_evaluation_run_id` to identify one replay-stable imported record. Use
+`$ai_trace_id` with `query-llm-trace` to inspect its trace, and
+`$ai_target_span_id` to find the exact targeted span within that trace. Imported
+results can be `label` or `number`, so do not apply boolean pass/fail filters
+unless `$ai_evaluation_result_type = 'boolean'`.
 
 ## Workflow: run an evaluation against a specific generation
 
@@ -376,7 +424,7 @@ or wiring evaluations into a larger agent loop.
 ## Constructing UI links
 
 - **Evaluations list**: `https://app.posthog.com/ai-evals/evaluations`
-- **Single evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
+- **Single native evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>` (imported evaluators have no configuration page)
 - **Underlying generation/trace**: see the `exploring-llm-traces` skill's URL conventions
 
 Always surface the relevant link so the user can verify in the UI.
