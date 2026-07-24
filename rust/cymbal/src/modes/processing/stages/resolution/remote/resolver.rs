@@ -5,9 +5,11 @@ use std::time::{Duration, Instant};
 use cymbal_proto::cymbal::resolution::v1::ResolveItem;
 use futures::future::join_all;
 use tokio::sync::Semaphore;
+use tracing::warn;
 
 use crate::{
     error::UnhandledError,
+    metric_consts::REMOTE_RESOLUTION_UNRESOLVED_PASSTHROUGH,
     stages::{
         pipeline::ParsedPipelineItem,
         resolution::{
@@ -168,6 +170,26 @@ struct ResolvedRemoteItem {
     exception: Exception,
 }
 
+/// An item the pool could not resolve because it ran out of retry budget
+/// against a transient capacity condition (pool empty, all endpoints ejected
+/// after overload, retryable per-item outcomes). It carries no resolved
+/// exception; the orchestration layer falls back to the original unresolved
+/// exception so a saturated pool degrades symbolication for that one item
+/// instead of failing the whole `/process` batch.
+struct ExhaustedRemoteItem {
+    event_slot: usize,
+    exception_slot: usize,
+    last_error: String,
+}
+
+/// Terminal outcome of a single work item's reroute loop. Terminal item errors
+/// (poison, invalid payload) don't reach here — they short-circuit as
+/// `Err(UnhandledError)` and still fail the batch until DLQ plumbing exists.
+enum RemoteItemOutcome {
+    Resolved(ResolvedRemoteItem),
+    Exhausted(ExhaustedRemoteItem),
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Local resolution path (passthrough to the inline stage)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -214,24 +236,51 @@ async fn resolve_remote_events(
     .await;
 
     for result in resolved {
-        let item = result?;
-        let Some(event_slot) = event_slots.get_mut(item.event_slot) else {
-            return Err(UnhandledError::Other(format!(
-                "remote resolution returned invalid event slot {}",
-                item.event_slot
-            )));
-        };
-        let Some(slot) = event_slot.resolved.get_mut(item.exception_slot) else {
-            return Err(UnhandledError::Other(format!(
-                "remote resolution returned invalid exception slot {} for event slot {}",
-                item.exception_slot, item.event_slot
-            )));
-        };
-        if slot.replace(item.exception).is_some() {
-            return Err(UnhandledError::Other(format!(
-                "remote resolution filled event slot {} exception slot {} twice",
-                item.event_slot, item.exception_slot
-            )));
+        match result? {
+            RemoteItemOutcome::Resolved(item) => {
+                fill_exception_slot(
+                    &mut event_slots,
+                    item.event_slot,
+                    item.exception_slot,
+                    item.exception,
+                )?;
+            }
+            // Transient capacity exhaustion: keep the original unresolved
+            // exception so this one item degrades to raw frames rather than
+            // sinking the batch. Downstream fingerprinting already handles a
+            // non-resolved stack.
+            RemoteItemOutcome::Exhausted(item) => {
+                metrics::counter!(REMOTE_RESOLUTION_UNRESOLVED_PASSTHROUGH).increment(1);
+                let Some(event_slot) = event_slots.get(item.event_slot) else {
+                    return Err(UnhandledError::Other(format!(
+                        "remote resolution returned invalid event slot {}",
+                        item.event_slot
+                    )));
+                };
+                let original = event_slot
+                    .evt
+                    .exception_list
+                    .get(item.exception_slot)
+                    .cloned()
+                    .ok_or_else(|| {
+                        UnhandledError::Other(format!(
+                            "remote resolution missing original exception for event slot {} exception slot {}",
+                            item.event_slot, item.exception_slot
+                        ))
+                    })?;
+                warn!(
+                    event_slot = item.event_slot,
+                    exception_slot = item.exception_slot,
+                    error = %item.last_error,
+                    "remote resolution exhausted retries under load; passing exception through unresolved"
+                );
+                fill_exception_slot(
+                    &mut event_slots,
+                    item.event_slot,
+                    item.exception_slot,
+                    original,
+                )?;
+            }
         }
     }
 
@@ -257,6 +306,32 @@ async fn resolve_remote_events(
             Ok((event.batch_index, Ok(event.evt)))
         })
         .collect()
+}
+
+/// Place a resolved (or unresolved-passthrough) exception into its slot,
+/// enforcing that every slot is filled exactly once.
+fn fill_exception_slot(
+    event_slots: &mut [RemoteEventSlot],
+    event_slot: usize,
+    exception_slot: usize,
+    exception: Exception,
+) -> Result<(), UnhandledError> {
+    let Some(event_slot_ref) = event_slots.get_mut(event_slot) else {
+        return Err(UnhandledError::Other(format!(
+            "remote resolution returned invalid event slot {event_slot}"
+        )));
+    };
+    let Some(slot) = event_slot_ref.resolved.get_mut(exception_slot) else {
+        return Err(UnhandledError::Other(format!(
+            "remote resolution returned invalid exception slot {exception_slot} for event slot {event_slot}"
+        )));
+    };
+    if slot.replace(exception).is_some() {
+        return Err(UnhandledError::Other(format!(
+            "remote resolution filled event slot {event_slot} exception slot {exception_slot} twice"
+        )));
+    }
+    Ok(())
 }
 
 fn build_work_items(

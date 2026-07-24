@@ -503,19 +503,24 @@ async fn partial_sample_rate_is_deterministic_for_same_event() {
 }
 
 #[tokio::test]
-async fn sampled_remote_failure_does_not_fall_back_to_local_resolution() {
+async fn sampled_remote_failure_passes_through_unresolved_without_local_fallback() {
     let (addr, hits) = spawn_stub_server(ServerBehavior::AlwaysUnavailable).await;
     let ctx = make_ctx_with_sample_rate(&[addr], 0, Duration::from_secs(5), 1.0).await;
     let resolver = Arc::new(CountingResolver::default());
 
-    let err = process_one(
+    // An exhausted remote item degrades to its original unresolved exception
+    // rather than sinking the batch — and must not silently fall back to local
+    // resolution (which would defeat the point of offloading to the pool).
+    let resolved = process_one(
         remote_stage_with_resolver(ctx, resolver.clone()),
         build_dart_event(Uuid::from_u128(42)),
     )
     .await
-    .expect_err("sampled remote failure must surface");
+    .expect("exhausted remote resolution must pass the event through unresolved");
 
-    assert!(format!("{err}").contains("exhausted"));
+    // Left unresolved: the local dart resolver would have rewritten this to
+    // "ResolvedDart".
+    assert_eq!(resolved.exception_list[0].exception_type, "minified:Foo");
     assert!(hits.lock().unwrap().is_empty());
     assert_eq!(resolver.dart_name_calls.load(Ordering::SeqCst), 0);
     assert_eq!(resolver.raw_frame_calls.load(Ordering::SeqCst), 0);
@@ -594,15 +599,13 @@ async fn terminal_setup_status_closes_mux_without_processing_items() {
     let ctx = make_ctx(&[addr], 1, Duration::from_secs(5)).await;
     let evt = build_event(1);
 
-    let err = process_one(remote_stage(ctx), evt)
+    // The closed mux drops the session, the item exhausts its retries, and the
+    // event passes through unresolved instead of failing the batch.
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("closed mux must surface as unhandled error");
+        .expect("closed mux exhausts retries and passes the event through unresolved");
 
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("exhausted"),
-        "expected exhaustion after closed stream, got: {msg}"
-    );
+    assert_eq!(resolved.exception_list.len(), 1);
     assert!(items.lock().unwrap().is_empty());
     assert_eq!(streams.lock().unwrap().len(), 1);
 }
@@ -626,32 +629,26 @@ async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
 }
 
 #[tokio::test]
-async fn empty_pool_fails_clearly_without_local_fallback() {
+async fn empty_pool_passes_event_through_unresolved_without_local_fallback() {
     let ctx = make_ctx(&[], 0, Duration::from_secs(1)).await;
     let evt = build_event(1);
-    let err = process_one(remote_stage(ctx), evt)
+    // No routable endpoint: the item exhausts immediately and passes through
+    // unresolved rather than failing the whole batch.
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("empty pool must surface as unhandled error");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("pool unavailable"),
-        "expected pool-empty error, got: {msg}"
-    );
+        .expect("empty pool must degrade to unresolved passthrough, not fail the batch");
+    assert_eq!(resolved.exception_list.len(), 1);
 }
 
 #[tokio::test]
-async fn exhausting_retries_returns_unhandled_error_with_no_local_fallback() {
+async fn exhausting_retries_passes_event_through_unresolved_with_no_local_fallback() {
     let (addr, hits) = spawn_stub_server(ServerBehavior::AlwaysUnavailable).await;
     let ctx = make_ctx(&[addr], 1, Duration::from_secs(5)).await;
     let evt = build_event(1);
-    let err = process_one(remote_stage(ctx), evt)
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("exhausted retries must surface as unhandled error");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("exhausted"),
-        "expected exhaustion error, got: {msg}"
-    );
+        .expect("exhausted retries must degrade to unresolved passthrough, not fail the batch");
+    assert_eq!(resolved.exception_list.len(), 1);
     assert!(
         hits.lock().unwrap().is_empty(),
         "setup-level Unavailable should fail before any items are processed"
