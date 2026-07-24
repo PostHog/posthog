@@ -339,6 +339,27 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
+    def test_search_ranks_distance_inside_subquery_to_avoid_ann_prefilter(self, mock_embed, mock_hogql):
+        # Guards against collapsing the vector ranking back onto a flat
+        # "ORDER BY cosineDistance(...) LIMIT n FROM document_embeddings". document_embeddings
+        # is a shared table with an approximate vector index; a flat ORDER BY ... LIMIT makes
+        # ClickHouse pick the globally-nearest rows via that index *before* the team/product
+        # WHERE filter, so on a busy project this team's interviews get filtered out and the
+        # search returns []. The distance must be computed and ranked in a subquery so the
+        # outer ORDER BY sits on the alias, not on the raw scan.
+        mock_embed.return_value = self._embedding_response()
+        mock_hogql.return_value = self._hogql_rows([])
+
+        self.client.post(self._url(), {"query": "x"}, content_type="application/json")
+
+        query = mock_hogql.call_args.kwargs["query"]
+        self.assertIn("FROM (", query)
+        outer = query[query.rindex(")") :]
+        self.assertIn("ORDER BY distance", outer)
+        self.assertNotIn("cosineDistance", outer)
+
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_does_not_leak_across_teams(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
