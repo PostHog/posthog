@@ -439,10 +439,14 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         self.assertEqual(task.github_integration_id, integration.id)
         self.assertEqual(task.created_by_id, self.user.id)
         self.assertEqual(task.loop_id, loop.id)
-        self.assertIn("rendered context", task.description)
-        self.assertIn(loop.instructions, task.description)
+        self.assertEqual(task.description, loop.instructions)
 
         task_run = TaskRun.objects.get(id=result.task_run_id)
+        pending_user_message = task_run.state["pending_user_message"]
+        self.assertTrue(pending_user_message.startswith(loop.instructions))
+        self.assertIn("This is an unattended loop run", pending_user_message)
+        self.assertIn("rendered context", pending_user_message)
+        self.assertIn("<user_custom_instructions>", pending_user_message)
         self.assertEqual(task_run.state["loop_id"], str(loop.id))
         self.assertEqual(task_run.state["loop_trigger_id"], str(trigger.id))
         self.assertEqual(task_run.state["trigger_context"], "rendered context")
@@ -647,12 +651,12 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         result, _ = self.fire_and_capture(loop, trigger)
 
-        assert result.task_id is not None
-        description = Task.objects.get(id=result.task_id).description
+        assert result.task_run_id is not None
+        pending_user_message = TaskRun.objects.get(id=result.task_run_id).state["pending_user_message"]
         for expected_id in expected_ids:
-            self.assertIn(expected_id, description)
+            self.assertIn(expected_id, pending_user_message)
         for fragment in expected_tool_fragments:
-            self.assertIn(fragment, description)
+            self.assertIn(fragment, pending_user_message)
 
     @parameterized.expand(
         [
@@ -687,7 +691,8 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         result, scopes = self.fire_and_capture(loop, trigger)
 
         assert result.task_id is not None
-        self.assertNotIn("desktop-file-system", Task.objects.get(id=result.task_id).description)
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
@@ -699,7 +704,8 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         assert result.task_id is not None
         task = Task.objects.get(id=result.task_id)
         self.assertIsNone(task.channel_id)
-        self.assertNotIn("desktop-file-system", task.description)
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
 
 
 class TestHandleLoopRunTerminal(LoopRunsTestCase):
