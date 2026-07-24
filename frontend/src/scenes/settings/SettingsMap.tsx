@@ -12,7 +12,6 @@ import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreS
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -999,14 +998,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 // FIXME: should not be in settings
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                description: 'Set revenue targets to track performance against your business objectives.',
-                component: <GoalsConfiguration />,
-                keywords: ['target', 'mrr', 'arr', 'goal'],
-            },
-            {
-                // FIXME: should not be in settings
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
@@ -1569,6 +1560,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',

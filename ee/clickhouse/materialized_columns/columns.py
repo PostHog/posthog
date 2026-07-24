@@ -18,7 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import (
+from posthog.clickhouse.materialized_column_types import (
     MATERIALIZATION_VALID_TABLES,
     ColumnName,
     TablesWithMaterializedColumns,

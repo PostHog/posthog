@@ -15,7 +15,7 @@ export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -24,7 +24,7 @@ export const EngineeringAnalyticsBrokenTestsQueryParams = /* @__PURE__ */ zod.ob
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     source_id: zod
         .string()
@@ -41,13 +41,13 @@ export const EngineeringAnalyticsCiFailureLogsParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number whose CI failure logs to fetch.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()
@@ -63,7 +63,7 @@ export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -86,7 +86,7 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     source_id: zod
         .string()
@@ -103,13 +103,13 @@ export const EngineeringAnalyticsPrCostParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsPrCostQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number to estimate cost for.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()
@@ -125,13 +125,13 @@ export const EngineeringAnalyticsPrLifecycleParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsPrLifecycleQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number to inspect.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()
@@ -147,7 +147,7 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -158,7 +158,7 @@ export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     source_id: zod
         .string()
@@ -175,7 +175,7 @@ export const EngineeringAnalyticsRunFailureLogsParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -184,7 +184,7 @@ export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     run_id: zod.number().describe('Workflow run id whose failure logs to fetch.'),
     source_id: zod
@@ -202,7 +202,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -213,7 +213,7 @@ export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -222,7 +222,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas."
+            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the \*_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating \*_prior counts and overstating deltas."
         ),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     limit: zod.number().optional().describe('Maximum number of teams to return (1-200). Defaults to 100.'),
@@ -247,7 +247,7 @@ export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -264,13 +264,13 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     run_scope: zod
         .enum(['all', 'pull_request'])
         .optional()
         .describe(
-            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master\/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
         ),
     source_id: zod
         .string()
@@ -287,7 +287,7 @@ export const EngineeringAnalyticsWorkflowJobsParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -296,7 +296,7 @@ export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     run_attempt: zod
         .number()
@@ -320,7 +320,7 @@ export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -333,7 +333,7 @@ export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = /* @__PURE__ *
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
-    repo: zod.string().describe("'owner/name' repository the workflow belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the workflow belongs to."),
     source_id: zod
         .string()
         .optional()
