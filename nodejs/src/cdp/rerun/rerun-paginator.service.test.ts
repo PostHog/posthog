@@ -7,7 +7,6 @@ import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { UUIDT } from '~/common/utils/utils'
-import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
@@ -15,7 +14,6 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
-import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -32,9 +30,8 @@ const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer')
  * Integration test for RerunPaginatorService.
  *
  * Instead of mocking the ClickHouse client, this test seeds real lifecycle rows
- * through `HogInvocationResultsService.queueLifecycleRow` → Kafka → ClickHouse
- * Kafka MV → `hog_invocation_results`, then runs the paginator against the real
- * data. Only the side effects the paginator emits (the running lifecycle row +
+ * directly to Kafka → ClickHouse MV → `hog_invocation_results`, then runs the
+ * paginator against the real data. Only the side effects the paginator emits (the running lifecycle row +
  * the cyclotron re-enqueue) are mocked, so we can assert what got produced.
  *
  * This proves the whole pipeline end-to-end: the queueLifecycleRow shape that
@@ -49,7 +46,6 @@ describe('RerunPaginatorService integration', () => {
     let team: Team
     let clickhouse: Clickhouse
     let hogFunction: HogFunctionType
-    let seedingService: HogInvocationResultsService
     let chClient: ClickHouseClient
     let paginator: RerunPaginatorService
     // hog functions re-enqueue to the kafka queue, hog flows to postgres-v2.
@@ -90,7 +86,11 @@ describe('RerunPaginatorService integration', () => {
             scheduledAt?: Date
         }>
     ): Promise<void> => {
-        for (const r of rows) {
+        // Produce directly to Kafka instead of going through
+        // seedingService.flush() which silently swallows produce errors
+        // (its .catch() logs but never rethrows). This matches the pattern
+        // used by seedRawRow which never flakes.
+        const messages = rows.map((r) => {
             const globals = createHogExecutionGlobals({
                 project: { id: team.id } as any,
                 event: {
@@ -100,24 +100,42 @@ describe('RerunPaginatorService integration', () => {
                     timestamp: '2026-05-10T09:00:00Z',
                 } as any,
             })
-            const invocation: CyclotronJobInvocationHogFunction = {
-                id: r.invocation_id,
-                state: {
-                    globals: globals as any,
-                    timings: [],
-                    attempts: 0,
-                    rerunAttempts: r.rerunAttempts,
-                },
-                teamId: team.id,
-                functionId: hogFunction.id,
-                hogFunction,
-                queue: 'hog',
-                queuePriority: 0,
-                queueScheduledAt: r.scheduledAt ? ({ toJSDate: () => r.scheduledAt } as any) : undefined,
+            const rerunAttempts = r.rerunAttempts ?? 0
+            const scheduledAt = r.scheduledAt ?? new Date()
+            const errorMessage = r.error ? r.error.message : null
+            const errorKind = r.errorKind ?? (r.error ? 'unhandled_error' : null)
+
+            return {
+                key: r.invocation_id,
+                value: JSON.stringify({
+                    team_id: team.id,
+                    function_kind: 'hog_function',
+                    function_id: hogFunction.id,
+                    invocation_id: r.invocation_id,
+                    parent_run_id: '',
+                    status: r.status,
+                    attempts: rerunAttempts,
+                    is_retry: rerunAttempts > 0 ? 1 : 0,
+                    scheduled_at: DateTime.fromJSDate(scheduledAt).toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
+                    started_at: null,
+                    finished_at: null,
+                    duration_ms: null,
+                    error_kind: errorKind,
+                    error_message: errorMessage,
+                    event_uuid: `evt-${r.invocation_id}`,
+                    distinct_id: '',
+                    person_id: '',
+                    invocation_globals: JSON.stringify(globals),
+                    version: String(BigInt(Date.now()) * 1000n),
+                    is_deleted: 0,
+                }),
             }
-            seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
-        }
-        await seedingService.flush()
+        })
+
+        await kafkaProducer.queueMessages({
+            topic: KAFKA_HOG_INVOCATION_RESULTS,
+            messages,
+        })
         await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
@@ -201,14 +219,6 @@ describe('RerunPaginatorService integration', () => {
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         team = await getFirstTeam(hub.postgres)
-
-        // Real seeding path: outputs → kafka → MV → CH.
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
-        const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, {
-            ...hub,
-            HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
-        } as any)
-        seedingService = new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true })
 
         hogFunction = await _insertHogFunction(hub.postgres, team.id, {
             type: 'destination',
