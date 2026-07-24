@@ -413,7 +413,7 @@ jobs:
                   # Create dedicated persons database for postgres-parity tests
                   cd nodejs && pnpm run setup:test:persons-parity
 
-            # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests; the shard env must match Jest's, or turbo's build cache key differs between the steps and the addon rebuilds inside Jest anyway.
+            # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
             - name: Prepare Node.js workspace
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
