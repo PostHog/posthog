@@ -139,7 +139,10 @@ def reconcile_clickhouse_schemas(
     source_schema_names = [s.name for s in source_schemas]
     default_database = (source.job_inputs or {}).get("database")
     schema_models = {
-        s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        s.name: s
+        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
+            "table"
+        )
     }
 
     schema_models_by_location: dict[ClickHouseSourceLocation, ExternalDataSchema] = {}

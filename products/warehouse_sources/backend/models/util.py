@@ -554,8 +554,15 @@ def clickhouse_column_to_dwh_column(_column_name: str, clickhouse_type: str, nul
     # The source is already ClickHouse, so the type string is a valid ClickHouse type — used verbatim.
     # `system.columns.type` usually already encodes nullability, so only wrap when it doesn't.
     ch_type = clickhouse_type.strip()
-    if nullable and not (ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")):
-        ch_type = f"Nullable({ch_type})"
+    already_nullable = ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")
+    if nullable and not already_nullable:
+        if ch_type.startswith("LowCardinality(") and ch_type.endswith(")"):
+            # LowCardinality must stay the outermost wrapper — ClickHouse rejects
+            # Nullable(LowCardinality(...)), so nest Nullable inside it instead.
+            inner = ch_type[len("LowCardinality(") : -1]
+            ch_type = f"LowCardinality(Nullable({inner}))"
+        else:
+            ch_type = f"Nullable({ch_type})"
     raw_clickhouse_type = clean_type(ch_type)
     return {
         "clickhouse": ch_type,

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
-from sqlparse.sql import Function, TokenList
+from sqlparse.sql import TokenList
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -73,9 +73,25 @@ _RAW_CLICKHOUSE_BLOCKED_TABLE_FUNCTIONS = frozenset(
         "INPUT",
         "AZUREBLOBSTORAGE",
         "AZUREBLOBSTORAGECLUSTER",
+        # Lakehouse table functions and every `*Cluster` twin — each reads a remote/object-store
+        # dataset the same way the base function does, so the cluster form must be blocked too.
         "DELTALAKE",
+        "DELTALAKECLUSTER",
+        "DELTALAKES3",
+        "DELTALAKEAZURE",
+        "DELTALAKELOCAL",
         "HUDI",
+        "HUDICLUSTER",
         "ICEBERG",
+        "ICEBERGCLUSTER",
+        "ICEBERGS3",
+        "ICEBERGAZURE",
+        "ICEBERGHDFS",
+        "ICEBERGLOCAL",
+        # `merge('.*', '.*')` reads across every table/db the server can see, bypassing per-source
+        # scoping; `dictionary(...)` can be backed by a remote source.
+        "MERGE",
+        "DICTIONARY",
         "EXECUTABLE",
     }
 )
@@ -88,19 +104,33 @@ def clickhouse_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
-def _iter_function_names(token: TokenList) -> "Iterator[str]":
-    """Yield the name of every function call in the statement, recursing into groups.
+def _normalize_function_name(name: str) -> str:
+    """Strip ClickHouse identifier quoting so a quoted callee matches the blocklist by its bare name."""
+    name = name.strip()
+    if len(name) >= 2 and name[0] == name[-1] and name[0] in ('"', "`"):
+        name = name[1:-1]
+    return name
 
-    Table functions in a FROM clause (``url(...)``, ``s3(...)``) and scalar calls both parse as
-    ``sqlparse.sql.Function``; a bare identifier of the same spelling (``SELECT url``) does not.
+
+def _iter_function_names(statement: TokenList) -> "Iterator[str]":
+    """Yield the name of every function call in the statement.
+
+    A call is a name token immediately followed by ``(``. Detecting it on the flattened token
+    stream (rather than trusting ``sqlparse.sql.Function`` nodes) catches quoted callees: a
+    double-quoted name like ``"remote"(...)`` parses as an identifier plus a *separate* parenthesis,
+    never a Function, so a node-based check skips it entirely. Quoting is stripped so ``"remote"``
+    and ```remote``` both match ``remote``. A bare identifier of the same spelling (``SELECT url``)
+    has no following ``(`` and is unaffected.
     """
-    for child in token.tokens:
-        if isinstance(child, Function):
-            name = child.get_name()
-            if name:
-                yield name
-        if child.is_group:
-            yield from _iter_function_names(child)
+    significant = [
+        token for token in statement.flatten() if not token.is_whitespace and token.ttype not in sqlparse_tokens.Comment
+    ]
+    for idx, token in enumerate(significant):
+        if not (token.ttype in sqlparse_tokens.Name or token.ttype in sqlparse_tokens.String.Symbol):
+            continue
+        following = significant[idx + 1] if idx + 1 < len(significant) else None
+        if following is not None and following.ttype is sqlparse_tokens.Punctuation and following.value == "(":
+            yield _normalize_function_name(token.value)
 
 
 def _has_settings_clause(statement: TokenList) -> bool:

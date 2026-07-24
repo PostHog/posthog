@@ -78,12 +78,3 @@ def upsert_direct_clickhouse_table(
 def hide_direct_clickhouse_table(table: DataWarehouseTable | None) -> None:
     if table is not None and not table.deleted:
         table.soft_delete()
-
-
-def rename_direct_clickhouse_join_references(*, team_id: int, old_name: str, new_name: str) -> None:
-    if old_name == new_name:
-        return
-    from products.data_tools.backend.models.join import DataWarehouseJoin
-
-    DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
-    DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)

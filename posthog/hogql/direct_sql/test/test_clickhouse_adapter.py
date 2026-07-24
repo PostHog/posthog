@@ -91,6 +91,15 @@ class TestClickHouseReadOnlyGuard(SimpleTestCase):
             # Nested inside a subquery — the whole tree is walked.
             ("nested", "SELECT * FROM (SELECT * FROM url('http://x'))"),
             ("uppercase", "SELECT * FROM URL('http://x')"),
+            # `*Cluster` twins read remotely just like their base function.
+            ("iceberg_cluster", "SELECT * FROM icebergCluster('c', 'http://169.254.169.254/')"),
+            ("delta_lake_cluster", "SELECT * FROM deltaLakeCluster('c', 'http://x')"),
+            # merge() reads across every table the server can see; dictionary() can be remote-backed.
+            ("merge", "SELECT * FROM merge('.*', '.*')"),
+            ("dictionary", "SELECT * FROM dictionary('dict')"),
+            # Quoted callees must still be caught — a double-quoted name doesn't parse as a Function.
+            ("double_quoted_remote", "SELECT * FROM \"remote\"('other-host', db.t)"),
+            ("backtick_remote", "SELECT * FROM `remote`('other-host', db.t)"),
         ]
     )
     def test_rejects_dangerous_table_functions(self, _name, sql):
