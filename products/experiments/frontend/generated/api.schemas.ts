@@ -2337,6 +2337,26 @@ export interface ExperimentSessionContextResponseApi {
     results: ExperimentSessionContextItemApi[]
 }
 
+/**
+ * Request body for the batch session-context endpoint.
+ */
+export interface ExperimentSessionContextsRequestApi {
+    /**
+     * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+     * @minItems 1
+     * @maxItems 20
+     */
+    session_ids: string[]
+}
+
+/**
+ * Experiment/variant context for a batch of session recordings.
+ */
+export interface ExperimentSessionContextsResponseApi {
+    /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+    results: ExperimentSessionContextResponseApi[]
+}
+
 export type ExperimentHoldoutsListParams = {
     /**
      * Number of results to return per page.

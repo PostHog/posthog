@@ -22,6 +22,8 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
+    ExperimentSessionContextsRequestApi,
+    ExperimentSessionContextsResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -1064,6 +1066,35 @@ export const experimentsSessionContextRetrieve = async (
     return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExperimentsSessionContextsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/session_contexts/`
+}
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are sessions
+ * beyond the batch's recording-day budget (each distinct recording day costs its own set
+ * of ClickHouse scans, so only the most recent days are computed per request).
+ */
+export const experimentsSessionContextsCreate = async (
+    projectId: string,
+    experimentSessionContextsRequestApi: ExperimentSessionContextsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionContextsResponseApi> => {
+    return apiMutator<ExperimentSessionContextsResponseApi>(getExperimentsSessionContextsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionContextsRequestApi),
     })
 }
 

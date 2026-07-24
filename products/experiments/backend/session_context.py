@@ -23,7 +23,7 @@ import logging
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Optional
 
@@ -44,7 +44,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, uuidv7_session_lower_bound
 from posthog.utils import get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -58,7 +58,7 @@ from products.experiments.backend.metric_events import (
     MetricHit,
     SharedHogQLDatabase,
     resolve_metric_events,
-    scan_session_for_metric_events,
+    scan_sessions_for_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment
 
@@ -76,8 +76,20 @@ MAX_EXPOSURE_ROWS = 10_000
 # Short-lived because the context is not immutable — late-arriving events, experiment edits,
 # and access-control changes must all surface within minutes. The key includes the viewer:
 # the experiment set is filtered by per-user access control, so entries must never be shared
-# across users.
-SESSION_CONTEXT_CACHE_TTL = 5 * 60
+# across users. That per-viewer key is also why the TTL is an acceptable ACL boundary: there
+# is no cross-user leak to begin with, the only exposure is a bounded revocation lag for a
+# viewer who legitimately had access moments before — matching how other short-TTL caches in
+# this codebase behave on permission changes. Per-endpoint ACL-version invalidation would add
+# complexity and a lookup to a path that exists to cut latency.
+SESSION_CONTEXT_CACHE_TTL = 10 * 60
+# Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
+# extra session widens the grouped scans; anything larger should arrive as separate batches.
+MAX_SESSION_CONTEXT_BATCH = 20
+# Each distinct recording day in a batch runs its own set of scans, so ids scattered across
+# many days would fan one throttled HTTP request out into dozens of ClickHouse queries. The
+# most recent days win (recordings lists sort by recency); sessions beyond the budget are
+# omitted — never cached — so the single-session endpoint computes them on demand.
+MAX_SESSION_CONTEXT_BATCH_DAYS = 5
 
 
 @dataclass(frozen=True)
@@ -109,6 +121,35 @@ class ExperimentSessionContextItem:
     metrics_in_session: list[MetricHit]
 
 
+@dataclass(frozen=True)
+class _SessionWindow:
+    """One session's recording bounds — the unit the batch compute fans out over."""
+
+    session_id: str
+    recording_start: datetime
+    recording_end: datetime
+
+
+@dataclass(frozen=True)
+class _ResolvedCandidates:
+    """The batch's overlapping experiments and their resolved exposure metadata, computed once
+    over the union of the sessions' recording windows and shared by every day-chunk. The
+    capped candidate slice is per chunk, not here — see _compute_session_experiment_contexts."""
+
+    overlapping: QuerySet[Experiment]
+    flag_key_by_id: dict[int, str]
+    variant_keys_by_id: dict[int, set[str]]
+    batchable_ids: set[int]
+    all_variant_keys: set[str]
+    branch_meta: list[tuple[int, "_ResolvedExposure", set[str]]]
+
+
+def _cache_key(team: Team, user: User, session_id: str) -> str:
+    # The version segment must be bumped whenever the cached dataclasses change shape: entries are
+    # pickled, so a deploy would otherwise restore instances missing the new fields.
+    return f"experiment_session_context_v2_{team.pk}_{user.pk}_{session_id}"
+
+
 def get_session_experiment_context(
     team: Team, session_id: str, experiments: QuerySet[Experiment], user: User
 ) -> Optional[list[ExperimentSessionContextItem]]:
@@ -124,56 +165,130 @@ def get_session_experiment_context(
     a recording doesn't re-run the ClickHouse scans. "Recording not found" is not cached: the
     recording may simply still be ingesting.
     """
-    # The version segment must be bumped whenever the cached dataclasses change shape: entries are
-    # pickled, so a deploy would otherwise restore instances missing the new fields.
-    cache_key = f"experiment_session_context_v2_{team.pk}_{user.pk}_{session_id}"
+    cache_key = _cache_key(team, user, session_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
-    items = _compute_session_experiment_context(team, session_id, experiments, user)
-    if items is not None:
-        cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
-    return items
-
-
-def _compute_session_experiment_context(
-    team: Team, session_id: str, experiments: QuerySet[Experiment], user: User
-) -> Optional[list[ExperimentSessionContextItem]]:
     metadata = SessionReplayEvents().get_metadata(session_id, team)
     if metadata is None:
         return None
+    window = _SessionWindow(
+        session_id=session_id, recording_start=metadata["start_time"], recording_end=metadata["end_time"]
+    )
+    # fail_open=False: unlike the best-effort batch prefetch, the player's request must surface
+    # a scan failure as an error, never as a false "recording not found".
+    items = _compute_session_experiment_contexts(team, [window], experiments, user, fail_open=False)[session_id]
+    cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
+    return items
 
-    recording_start = metadata["start_time"]
-    recording_end = metadata["end_time"]
 
-    # Launched experiments whose run window overlaps the recording. Archived experiments are
-    # kept on purpose: the session really saw their variant while they ran.
+def get_session_experiment_contexts(
+    team: Team, session_ids: list[str], experiments: QuerySet[Experiment], user: User
+) -> dict[str, list[ExperimentSessionContextItem]]:
+    """Batch variant of get_session_experiment_context: session_id -> items, in input order.
+
+    Reads and writes the same per-(team, viewer, session) cache entries as the single-session
+    endpoint — already-warm sessions are skipped, cold ones are computed in shared scans and
+    written back so a later single-session request hits cache. Sessions whose recording
+    metadata doesn't exist (yet) are omitted and never cached, mirroring the single endpoint's
+    not-found rule. The batch is best-effort: a day-chunk whose scans fail is logged and
+    omitted rather than failing the whole request.
+    """
+    unique_ids = list(dict.fromkeys(session_ids))
+    results: dict[str, list[ExperimentSessionContextItem]] = {}
+    cold_ids: list[str] = []
+    for session_id in unique_ids:
+        cached = get_safe_cache(_cache_key(team, user, session_id))
+        if cached is not None:
+            results[session_id] = cached
+        else:
+            cold_ids.append(session_id)
+
+    if cold_ids:
+        # Bounded below by the batch's oldest uuidv7-derived session start (with clock-skew
+        # slack). An id that defeats the bound is simply not found here and never cached as
+        # absent, so the single-session endpoint — whose lookup falls back to an unbounded
+        # scan — still resolves it on demand.
+        metadata_by_id = SessionReplayEvents().get_group_metadata(
+            cold_ids, team, recordings_min_timestamp=_batch_metadata_lower_bound(cold_ids)
+        )
+        windows = [
+            _SessionWindow(
+                session_id=session_id,
+                recording_start=metadata["start_time"],
+                recording_end=metadata["end_time"],
+            )
+            for session_id, metadata in metadata_by_id.items()
+            if metadata is not None
+        ]
+        computed = _compute_session_experiment_contexts(team, windows, experiments, user, fail_open=True)
+        for session_id, items in computed.items():
+            cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
+        results.update(computed)
+
+    return {session_id: results[session_id] for session_id in unique_ids if session_id in results}
+
+
+def _batch_metadata_lower_bound(session_ids: list[str]) -> Optional[datetime]:
+    """Lower bound for the batch metadata scan, from the uuidv7 timestamps the session ids
+    embed (with clock-skew slack). None — an unbounded scan — as soon as one id carries no
+    parseable timestamp."""
+    bounds: list[datetime] = []
+    for session_id in session_ids:
+        bound = uuidv7_session_lower_bound(session_id)
+        if bound is None:
+            return None
+        bounds.append(bound)
+    return min(bounds) if bounds else None
+
+
+def _chunk_windows_by_recording_day(windows: list[_SessionWindow]) -> list[list[_SessionWindow]]:
+    """Group sessions by recording start day. Each chunk scans one contiguous timestamp range,
+    so a batch mixing old and new recordings doesn't widen every scan to the full span and
+    destroy the events table's date-partition pruning."""
+    by_day: dict[date, list[_SessionWindow]] = {}
+    for window in windows:
+        by_day.setdefault(window.recording_start.date(), []).append(window)
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def _compute_session_experiment_contexts(
+    team: Team,
+    windows: list[_SessionWindow],
+    experiments: QuerySet[Experiment],
+    user: User,
+    *,
+    fail_open: bool,
+) -> dict[str, list[ExperimentSessionContextItem]]:
+    if not windows:
+        return {}
+
+    union_start = min(window.recording_start for window in windows)
+    union_end = max(window.recording_end for window in windows)
+
+    # Launched experiments whose run window overlaps any of the recordings (the union of the
+    # windows here; each session re-checks its own bounds when surfacing). Archived experiments
+    # are kept on purpose: the session really saw their variant while they ran.
     overlapping = (
         experiments.filter(team_id=team.pk)
         .exclude(deleted=True)
-        .filter(start_date__isnull=False, start_date__lte=recording_end)
-        .filter(Q(end_date__isnull=True) | Q(end_date__gte=recording_start))
+        .filter(start_date__isnull=False, start_date__lte=union_end)
+        .filter(Q(end_date__isnull=True) | Q(end_date__gte=union_start))
         .select_related("feature_flag")
     )
-    # The stamped-property query needs one column per flag, so its candidate set must be capped;
-    # newest-first keeps the slice deterministic and biased toward the most relevant experiments.
-    candidates = list(overlapping.order_by("-start_date")[:MAX_CANDIDATE_EXPERIMENTS])
-    if not candidates:
-        return []
-
-    window_start = recording_start - EVENT_WINDOW_SLACK
-    window_end = recording_end + EVENT_WINDOW_SLACK
-
     # Every overlapping experiment's flag key (uncapped — the rescue below must be able to see
-    # beyond the candidate cap), its exposure criteria, and its defined variant names. Filtering
-    # the exposure queries to these bounds their cardinality by real configuration: sessions call
-    # plenty of non-experiment flags, and event payloads can carry arbitrary keys/variants.
+    # beyond the candidate cap), its exposure criteria, its defined variant names, and its run
+    # window (so each day-chunk can pick its own candidate slice below). Filtering the exposure
+    # queries to these bounds their cardinality by real configuration: sessions call plenty of
+    # non-experiment flags, and event payloads can carry arbitrary keys/variants.
     flag_meta = list(
         overlapping.order_by("-start_date").values_list(
-            "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria"
+            "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria", "start_date", "end_date"
         )
     )
+    if not flag_meta:
+        return {window.session_id: [] for window in windows}
     # Each experiment's exposure criteria resolve (through the shared helpers) to what counts
     # as its exposure event and which property carries the variant. Experiments with the plain
     # default shape take their exposure moment straight from the shared flag-evaluations query;
@@ -184,7 +299,7 @@ def _compute_session_experiment_context(
     batchable_ids: set[int] = set()
     all_variant_keys: set[str] = set()
     branch_meta: list[tuple[int, _ResolvedExposure, set[str]]] = []
-    for experiment_id, flag_key, filters, exposure_criteria in flag_meta:
+    for experiment_id, flag_key, filters, exposure_criteria, _start_date, _end_date in flag_meta:
         variant_keys = _variant_keys_from_filters(filters)
         if not variant_keys:
             continue
@@ -198,15 +313,49 @@ def _compute_session_experiment_context(
             branch_meta.append((experiment_id, resolution, variant_keys))
     if not flag_key_by_id:
         # No overlapping experiment defines variants, so nothing could surface a variant seen.
-        return []
+        return {window.session_id: [] for window in windows}
+
+    chunks = _chunk_windows_by_recording_day(windows)
+    if len(chunks) > MAX_SESSION_CONTEXT_BATCH_DAYS:
+        # Ascending day order, so the slice keeps the most recent days' chunks. The dropped
+        # sessions are omitted from the result (never cached as anything).
+        dropped = [window.session_id for chunk in chunks[:-MAX_SESSION_CONTEXT_BATCH_DAYS] for window in chunk]
+        logger.warning(
+            "Session-context batch spans more than %s recording days; omitting sessions %s",
+            MAX_SESSION_CONTEXT_BATCH_DAYS,
+            dropped,
+        )
+        chunks = chunks[-MAX_SESSION_CONTEXT_BATCH_DAYS:]
+
+    # The stamped-property query needs one column per flag, so each chunk's candidate set must
+    # be capped; newest-first keeps a slice deterministic and biased toward the most relevant
+    # experiments. Capping per chunk — against the chunk's own recording window — means a batch
+    # mixing old and new recordings surfaces the same experiments N single-session requests
+    # would: a global slice over the union window could displace an older chunk's experiments
+    # behind newer ones, and stamped-only evidence is never rescued.
+    candidate_ids_by_chunk: list[list[int]] = []
+    for chunk in chunks:
+        chunk_start = min(window.recording_start for window in chunk)
+        chunk_end = max(window.recording_end for window in chunk)
+        candidate_ids_by_chunk.append(
+            [
+                experiment_id
+                for experiment_id, _flag_key, _filters, _criteria, start_date, end_date in flag_meta
+                if start_date is not None and start_date <= chunk_end and (end_date is None or end_date >= chunk_start)
+            ][:MAX_CANDIDATE_EXPERIMENTS]
+        )
+    all_candidate_ids = {experiment_id for chunk_ids in candidate_ids_by_chunk for experiment_id in chunk_ids}
+    if not all_candidate_ids:
+        return {window.session_id: [] for chunk in chunks for window in chunk}
+    experiments_by_id = {experiment.pk: experiment for experiment in overlapping.filter(id__in=all_candidate_ids)}
 
     # Every scan below goes through HogQL, and constructing the virtual database dominates this
     # endpoint's wall time on teams with a large warehouse schema — several seconds per query,
     # paid once per query, while ClickHouse itself answers in well under a second. Build the
     # database once here and share it across all the scans, including across the thread pool
-    # below. Sound only while every scan sticks to plain table reads — SharedHogQLDatabase
-    # documents the two query shapes that mutate a database at query time, and
-    # test_uncached_request_shares_one_readonly_hogql_database pins that these scans don't.
+    # and every day-chunk. Sound only while every scan sticks to plain table reads —
+    # SharedHogQLDatabase documents the two query shapes that mutate a database at query time,
+    # and test_uncached_request_shares_one_readonly_hogql_database pins that these scans don't.
     # The build modifiers travel with the database so every scan queries the schema it was
     # built for; no scan may pass its own modifiers. Postgres foreign-key lazy joins are
     # skipped — the single most expensive build step, and these queries only ever read the
@@ -222,6 +371,51 @@ def _compute_session_experiment_context(
         modifiers=hogql_modifiers,
     )
 
+    resolved = _ResolvedCandidates(
+        overlapping=overlapping,
+        flag_key_by_id=flag_key_by_id,
+        variant_keys_by_id=variant_keys_by_id,
+        batchable_ids=batchable_ids,
+        all_variant_keys=all_variant_keys,
+        branch_meta=branch_meta,
+    )
+
+    results: dict[str, list[ExperimentSessionContextItem]] = {}
+    for chunk, candidate_ids in zip(chunks, candidate_ids_by_chunk):
+        candidates = [
+            experiments_by_id[experiment_id] for experiment_id in candidate_ids if experiment_id in experiments_by_id
+        ]
+        if not candidates:
+            # No experiment overlaps this chunk's recordings — the same empty answer a
+            # single-session request would compute (and cache) without running any scan.
+            results.update({window.session_id: [] for window in chunk})
+            continue
+        try:
+            results.update(_compute_chunk_contexts(team, user, shared_hogql, resolved, chunk, candidates))
+        except Exception:
+            if not fail_open:
+                raise
+            # Best-effort batch: one pathological chunk must not take down the others. Its
+            # sessions are omitted (and never cached), so they can still compute on demand.
+            logger.exception(
+                "Session-context scan failed for sessions %s; omitting them from the batch",
+                [window.session_id for window in chunk],
+            )
+    return results
+
+
+def _compute_chunk_contexts(
+    team: Team,
+    user: User,
+    shared_hogql: SharedHogQLDatabase,
+    resolved: _ResolvedCandidates,
+    windows: list[_SessionWindow],
+    candidates: list[Experiment],
+) -> dict[str, list[ExperimentSessionContextItem]]:
+    session_ids = [window.session_id for window in windows]
+    window_start = min(window.recording_start for window in windows) - EVENT_WINDOW_SLACK
+    window_end = max(window.recording_end for window in windows) + EVENT_WINDOW_SLACK
+
     # Flag evaluations are variant evidence for every experiment — the replay shows exactly
     # what the session was served, whatever the exposure criteria say — and double as the
     # exposure moment for experiments with the default criteria shape.
@@ -230,11 +424,11 @@ def _compute_session_experiment_context(
         team,
         user,
         shared_hogql,
-        session_id,
+        session_ids,
         window_start,
         window_end,
-        set(flag_key_by_id.values()),
-        all_variant_keys,
+        set(resolved.flag_key_by_id.values()),
+        resolved.all_variant_keys,
     )
     # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
     # (unlike the constant-width flag-evaluations query) non-batchable experiments beyond the
@@ -245,14 +439,21 @@ def _compute_session_experiment_context(
         team,
         user,
         shared_hogql,
-        session_id,
+        session_ids,
         window_start,
         window_end,
-        branch_meta[:MAX_CANDIDATE_EXPERIMENTS],
+        resolved.branch_meta[:MAX_CANDIDATE_EXPERIMENTS],
     )
     candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     query_stamped = partial(
-        _query_stamped_flag_properties, team, user, shared_hogql, session_id, candidate_keys, window_start, window_end
+        _query_stamped_flag_properties,
+        team,
+        user,
+        shared_hogql,
+        session_ids,
+        candidate_keys,
+        window_start,
+        window_end,
     )
 
     # The three scans are independent given the pre-rescue candidate set (only the rescue
@@ -274,110 +475,141 @@ def _compute_session_experiment_context(
             branch_exposures = branch_exposures_future.result()
             stamped = stamped_future.result()
 
-    exposures: dict[int, list[tuple[str, datetime]]] = {
-        experiment_id: flag_evaluations[flag_key]
-        for experiment_id, flag_key in flag_key_by_id.items()
-        if experiment_id in batchable_ids and flag_key in flag_evaluations
-    }
-    exposures.update(branch_exposures)
+    # Per-session exposure evidence keyed by experiment id: batchable experiments read the
+    # shared flag-evaluations query, the rest their own union branch.
+    exposures: dict[str, dict[int, list[tuple[str, datetime]]]] = {}
+    for session_id in session_ids:
+        session_flag_evaluations = flag_evaluations.get(session_id, {})
+        exposures[session_id] = {
+            experiment_id: session_flag_evaluations[flag_key]
+            for experiment_id, flag_key in resolved.flag_key_by_id.items()
+            if experiment_id in resolved.batchable_ids and flag_key in session_flag_evaluations
+        }
+        exposures[session_id].update(branch_exposures.get(session_id, {}))
 
     # The exposure queries cover every overlapping experiment's flag (not just the capped
     # candidates), so a flag with verifiable in-session evidence rescues its experiment even
     # when it fell outside the cap above. Rescued keys join the stamped-property evidence too,
     # through a follow-up query for just those keys (the main stamped scan already ran on the
     # pre-rescue candidates) — it stays bounded, since rescues are limited to real overlapping
-    # experiments the session demonstrably called.
-    evidenced_keys = set(flag_evaluations) | {flag_key_by_id[experiment_id] for experiment_id in exposures}
+    # experiments a session in the chunk demonstrably called.
+    evidenced_keys: set[str] = set()
+    for session_id in session_ids:
+        evidenced_keys |= set(flag_evaluations.get(session_id, {}))
+        evidenced_keys |= {resolved.flag_key_by_id[experiment_id] for experiment_id in exposures[session_id]}
     rescued_keys = evidenced_keys - candidate_keys
     if rescued_keys:
-        candidates += list(overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
-        stamped.update(
-            _query_stamped_flag_properties(team, user, shared_hogql, session_id, rescued_keys, window_start, window_end)
+        candidates = candidates + list(resolved.overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
+        rescued_stamped = _query_stamped_flag_properties(
+            team, user, shared_hogql, session_ids, rescued_keys, window_start, window_end
         )
+        for session_id, values_by_key in rescued_stamped.items():
+            stamped.setdefault(session_id, {}).update(values_by_key)
 
-    surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]] = []
-    for experiment in candidates:
-        flag_key = experiment.feature_flag.key
-        # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
-        # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
-        # `$feature_flag_response: false`, which must not surface as a variant named "false".
-        defined_variants = variant_keys_by_id.get(experiment.pk, set())
-        exposure_rows = [row for row in exposures.get(experiment.pk, []) if row[0] in defined_variants]
-        flag_rows = [row for row in flag_evaluations.get(flag_key, []) if row[0] in defined_variants]
-        stamped_values = [value for value in stamped.get(flag_key, []) if value in defined_variants]
-        variants_seen = sorted(
-            {variant for variant, _ in exposure_rows} | {variant for variant, _ in flag_rows} | set(stamped_values)
-        )
-        if not variants_seen:
-            continue
+    surfaced_by_session: dict[str, list[tuple[Experiment, str, list[str], Optional[datetime]]]] = {}
+    for window in windows:
+        session_id = window.session_id
+        session_exposures = exposures.get(session_id, {})
+        session_flag_evaluations = flag_evaluations.get(session_id, {})
+        session_stamped = stamped.get(session_id, {})
+        surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]] = []
+        for experiment in candidates:
+            # Candidates overlap the union of the batch's recording windows; re-check this
+            # session's own bounds so a batch surfaces exactly what N single requests would.
+            if experiment.start_date is None or experiment.start_date > window.recording_end:
+                continue
+            if experiment.end_date is not None and experiment.end_date < window.recording_start:
+                continue
+            flag_key = experiment.feature_flag.key
+            # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
+            # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
+            # `$feature_flag_response: false`, which must not surface as a variant named "false".
+            defined_variants = resolved.variant_keys_by_id.get(experiment.pk, set())
+            exposure_rows = [row for row in session_exposures.get(experiment.pk, []) if row[0] in defined_variants]
+            flag_rows = [row for row in session_flag_evaluations.get(flag_key, []) if row[0] in defined_variants]
+            stamped_values = [value for value in session_stamped.get(flag_key, []) if value in defined_variants]
+            variants_seen = sorted(
+                {variant for variant, _ in exposure_rows} | {variant for variant, _ in flag_rows} | set(stamped_values)
+            )
+            if not variants_seen:
+                continue
 
-        first_exposure_timestamp: Optional[datetime] = None
-        if exposure_rows:
-            variant, first_exposure_timestamp = min(exposure_rows, key=lambda row: row[1])
-        elif flag_rows:
-            # The session was demonstrably served this variant, but no event matched the
-            # experiment's exposure criteria — so there is no exposure moment to point at.
-            variant = min(flag_rows, key=lambda row: row[1])[0]
-        else:
-            variant = variants_seen[0]
+            first_exposure_timestamp: Optional[datetime] = None
+            if exposure_rows:
+                variant, first_exposure_timestamp = min(exposure_rows, key=lambda row: row[1])
+            elif flag_rows:
+                # The session was demonstrably served this variant, but no event matched the
+                # experiment's exposure criteria — so there is no exposure moment to point at.
+                variant = min(flag_rows, key=lambda row: row[1])[0]
+            else:
+                variant = variants_seen[0]
 
-        surfaced.append((experiment, variant, variants_seen, first_exposure_timestamp))
+            surfaced.append((experiment, variant, variants_seen, first_exposure_timestamp))
+        surfaced_by_session[session_id] = surfaced
 
-    # Only the experiments that actually surfaced (typically 1–3, not the candidate cap) get
-    # their metrics scanned. One scan covers them all — shared saved metrics dedupe by uuid
-    # inside the scan — and each experiment claims its own metrics' hits back by uuid.
-    # Metric hits are enrichment on top of the exposure context: an unexpected failure here
-    # (one experiment's malformed stored metric, say) must degrade to "no metric hits", never
-    # take down the exposure context that already resolved above.
+    # Only the experiments that actually surfaced (typically 1–3 per session, not the candidate
+    # cap) get their metrics scanned — one scan covers the union across the chunk's sessions,
+    # shared saved metrics dedupe by uuid inside the scan, and each session's experiments claim
+    # their own metrics' hits back by uuid. MAX_SCANNED_METRICS now caps that union (fine on
+    # the experiment tab, where every session shares one experiment). Metric hits are
+    # enrichment on top of the exposure context: an unexpected failure here (one experiment's
+    # malformed stored metric, say) must degrade to "no metric hits", never take down the
+    # exposure context that already resolved above.
     sources_by_experiment: dict[int, list[MetricEventSource]] = {}
-    session_hits: dict[str, MetricHit] = {}
+    hits_by_session: dict[str, dict[str, MetricHit]] = {}
     try:
-        sources_by_experiment = {experiment.pk: resolve_metric_events(experiment) for experiment, *_ in surfaced}
+        for session_surfaced in surfaced_by_session.values():
+            for experiment, *_ in session_surfaced:
+                if experiment.pk not in sources_by_experiment:
+                    sources_by_experiment[experiment.pk] = resolve_metric_events(experiment)
         all_sources = [source for sources in sources_by_experiment.values() for source in sources]
         if all_sources:
-            session_hits = {
-                hit.metric_uuid: hit
-                for hit in scan_session_for_metric_events(
+            hits_by_session = {
+                session_id: {hit.metric_uuid: hit for hit in hits}
+                for session_id, hits in scan_sessions_for_metric_events(
                     team,
                     user,
                     metric_sources=all_sources,
-                    session_id=session_id,
+                    session_ids=session_ids,
                     window_start=window_start,
                     window_end=window_end,
                     shared_hogql=shared_hogql,
-                )
+                ).items()
             }
     except Exception:
-        logger.exception("Metric-event scan failed for session %s; returning context without metric hits", session_id)
+        logger.exception("Metric-event scan failed for sessions %s; returning context without metric hits", session_ids)
         sources_by_experiment = {}
-        session_hits = {}
+        hits_by_session = {}
 
-    items: list[ExperimentSessionContextItem] = []
-    for experiment, variant, variants_seen, first_exposure_timestamp in surfaced:
-        metrics_in_session = sorted(
-            {
-                source.metric_uuid: session_hits[source.metric_uuid]
-                for source in sources_by_experiment.get(experiment.pk, [])
-                if source.metric_uuid in session_hits
-            }.values(),
-            key=lambda hit: hit.first_timestamp,
-        )
-        items.append(
-            ExperimentSessionContextItem(
-                experiment_id=experiment.pk,
-                experiment_name=experiment.name,
-                flag_key=experiment.feature_flag.key,
-                variant=variant,
-                variants_seen=variants_seen,
-                multiple_variants=len(variants_seen) > 1,
-                first_exposure_timestamp=first_exposure_timestamp,
-                experiment_start_date=experiment.start_date,
-                experiment_end_date=experiment.end_date,
-                metrics_in_session=metrics_in_session,
+    results: dict[str, list[ExperimentSessionContextItem]] = {}
+    for session_id, session_surfaced in surfaced_by_session.items():
+        session_hits = hits_by_session.get(session_id, {})
+        items: list[ExperimentSessionContextItem] = []
+        for experiment, variant, variants_seen, first_exposure_timestamp in session_surfaced:
+            metrics_in_session = sorted(
+                {
+                    source.metric_uuid: session_hits[source.metric_uuid]
+                    for source in sources_by_experiment.get(experiment.pk, [])
+                    if source.metric_uuid in session_hits
+                }.values(),
+                key=lambda hit: hit.first_timestamp,
             )
-        )
-
-    return sorted(items, key=lambda item: item.experiment_name.lower())
+            items.append(
+                ExperimentSessionContextItem(
+                    experiment_id=experiment.pk,
+                    experiment_name=experiment.name,
+                    flag_key=experiment.feature_flag.key,
+                    variant=variant,
+                    variants_seen=variants_seen,
+                    multiple_variants=len(variants_seen) > 1,
+                    first_exposure_timestamp=first_exposure_timestamp,
+                    experiment_start_date=experiment.start_date,
+                    experiment_end_date=experiment.end_date,
+                    metrics_in_session=metrics_in_session,
+                )
+            )
+        results[session_id] = sorted(items, key=lambda item: item.experiment_name.lower())
+    return results
 
 
 def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _ResolvedExposure:
@@ -415,17 +647,18 @@ def _query_flag_evaluations(
     team: Team,
     user: User,
     shared_hogql: SharedHogQLDatabase,
-    session_id: str,
+    session_ids: list[str],
     window_start: datetime,
     window_end: datetime,
     flag_keys: set[str],
     variants: set[str],
-) -> dict[str, list[tuple[str, datetime]]]:
-    """The session's `$feature_flag_called` events for the given experiment flag keys and
-    defined variant names, as flag_key -> [(variant, first_seen)]. Serves two roles: variant
-    evidence for every experiment (the replay shows what the session was served, whatever the
-    exposure criteria say), and the exposure moment for experiments whose criteria resolve to
-    the plain default shape (`$feature_flag_called` with no extra property filters).
+) -> dict[str, dict[str, list[tuple[str, datetime]]]]:
+    """The sessions' `$feature_flag_called` events for the given experiment flag keys and
+    defined variant names, as session_id -> flag_key -> [(variant, first_seen)]. Serves two
+    roles: variant evidence for every experiment (the replay shows what the session was
+    served, whatever the exposure criteria say), and the exposure moment for experiments whose
+    criteria resolve to the plain default shape (`$feature_flag_called` with no extra property
+    filters).
 
     Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
     the `$feature_flag_response` variant property come with that event, so all three are
@@ -435,21 +668,22 @@ def _query_flag_evaluations(
     exposure moments move to the branch path."""
     query = parse_select(
         """
-        SELECT properties.$feature_flag AS flag_key,
+        SELECT $session_id AS session_id,
+               properties.$feature_flag AS flag_key,
                toString(properties.$feature_flag_response) AS variant,
                min(timestamp) AS first_seen
         FROM events
         WHERE event = '$feature_flag_called'
-          AND $session_id = {session_id}
+          AND $session_id IN {session_ids}
           AND properties.$feature_flag IN {flag_keys}
           AND toString(properties.$feature_flag_response) IN {variants}
           AND timestamp >= {window_start}
           AND timestamp <= {window_end}
-        GROUP BY flag_key, variant
+        GROUP BY session_id, flag_key, variant
         LIMIT {max_rows}
         """,
         placeholders={
-            "session_id": ast.Constant(value=session_id),
+            "session_ids": ast.Constant(value=session_ids),
             "flag_keys": ast.Constant(value=sorted(flag_keys)),
             "variants": ast.Constant(value=sorted(variants)),
             "window_start": ast.Constant(value=window_start),
@@ -461,11 +695,11 @@ def _query_flag_evaluations(
         query, team=team, user=user, context=shared_hogql.fresh_context(team, user), modifiers=shared_hogql.modifiers
     )
 
-    exposures: dict[str, list[tuple[str, datetime]]] = {}
-    for flag_key, variant, first_seen in response.results or []:
+    exposures: dict[str, dict[str, list[tuple[str, datetime]]]] = {}
+    for session_id, flag_key, variant, first_seen in response.results or []:
         if not flag_key or not variant:
             continue
-        exposures.setdefault(str(flag_key), []).append((str(variant), first_seen))
+        exposures.setdefault(str(session_id), {}).setdefault(str(flag_key), []).append((str(variant), first_seen))
     return exposures
 
 
@@ -473,14 +707,14 @@ def _query_exposure_event_branches(
     team: Team,
     user: User,
     shared_hogql: SharedHogQLDatabase,
-    session_id: str,
+    session_ids: list[str],
     window_start: datetime,
     window_end: datetime,
     branch_meta: list[tuple[int, _ResolvedExposure, set[str]]],
-) -> dict[int, list[tuple[str, datetime]]]:
-    """The session's exposure events for experiments whose criteria don't fit the batched
+) -> dict[str, dict[int, list[tuple[str, datetime]]]]:
+    """The sessions' exposure events for experiments whose criteria don't fit the batched
     default query (a custom event, an action, or the default event narrowed by property
-    filters), as experiment_id -> [(variant, first_seen)].
+    filters), as session_id -> experiment_id -> [(variant, first_seen)].
 
     One union branch per experiment: the event/action and property filters come from the
     experiment's exposure criteria via `build_exposure_event_conditions`, and the variant from
@@ -505,21 +739,22 @@ def _query_exposure_event_branches(
         branch = parse_select(
             """
             SELECT {experiment_id} AS experiment_id,
+                   $session_id AS session_id,
                    toString({variant_field}) AS variant,
                    min(timestamp) AS first_seen
             FROM events
             WHERE {exposure_conditions}
-              AND $session_id = {session_id}
+              AND $session_id IN {session_ids}
               AND toString({variant_field}) IN {variants}
               AND timestamp >= {window_start}
               AND timestamp <= {window_end}
-            GROUP BY variant
+            GROUP BY session_id, variant
             """,
             placeholders={
                 "experiment_id": ast.Constant(value=experiment_id),
                 "variant_field": ast.Field(chain=["properties", resolution.variant_property]),
                 "exposure_conditions": ast.And(exprs=conditions) if conditions else ast.Constant(value=True),
-                "session_id": ast.Constant(value=session_id),
+                "session_ids": ast.Constant(value=session_ids),
                 "variants": ast.Constant(value=sorted(variants)),
                 "window_start": ast.Constant(value=window_start),
                 "window_end": ast.Constant(value=window_end),
@@ -544,11 +779,11 @@ def _query_exposure_event_branches(
         query, team=team, user=user, context=shared_hogql.fresh_context(team, user), modifiers=shared_hogql.modifiers
     )
 
-    exposures: dict[int, list[tuple[str, datetime]]] = {}
-    for experiment_id, variant, first_seen in response.results or []:
+    exposures: dict[str, dict[int, list[tuple[str, datetime]]]] = {}
+    for experiment_id, session_id, variant, first_seen in response.results or []:
         if not variant:
             continue
-        exposures.setdefault(int(experiment_id), []).append((str(variant), first_seen))
+        exposures.setdefault(str(session_id), {}).setdefault(int(experiment_id), []).append((str(variant), first_seen))
     return exposures
 
 
@@ -556,33 +791,38 @@ def _query_stamped_flag_properties(
     team: Team,
     user: User,
     shared_hogql: SharedHogQLDatabase,
-    session_id: str,
+    session_ids: list[str],
     flag_keys: set[str],
     window_start: datetime,
     window_end: datetime,
-) -> dict[str, list[str]]:
-    """Distinct stamped `$feature/<key>` property values in the session, as flag_key -> values."""
+) -> dict[str, dict[str, list[str]]]:
+    """Distinct stamped `$feature/<key>` property values per session, as
+    session_id -> flag_key -> values. Sessions with no in-window events yield no entry."""
     sorted_keys = sorted(flag_keys)
     # Built as ast nodes, not string interpolation — flag keys can contain arbitrary characters.
     select: list[ast.Expr] = [
-        ast.Alias(
-            alias=f"v{index}",
-            expr=ast.Call(
-                name="groupUniqArray",
-                args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{key}"])])],
-            ),
-        )
-        for index, key in enumerate(sorted_keys)
+        ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
+        *[
+            ast.Alias(
+                alias=f"v{index}",
+                expr=ast.Call(
+                    name="groupUniqArray",
+                    args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{key}"])])],
+                ),
+            )
+            for index, key in enumerate(sorted_keys)
+        ],
     ]
     query = ast.SelectQuery(
         select=select,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        group_by=[ast.Field(chain=["session_id"])],
         where=ast.And(
             exprs=[
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
+                    op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["$session_id"]),
-                    right=ast.Constant(value=session_id),
+                    right=ast.Constant(value=session_ids),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -601,5 +841,7 @@ def _query_stamped_flag_properties(
         query, team=team, user=user, context=shared_hogql.fresh_context(team, user), modifiers=shared_hogql.modifiers
     )
 
-    row = response.results[0] if response.results else [[] for _ in sorted_keys]
-    return {key: [value for value in row[index] if value] for index, key in enumerate(sorted_keys)}
+    return {
+        str(row[0]): {key: [value for value in row[1 + index] if value] for index, key in enumerate(sorted_keys)}
+        for row in response.results or []
+    }

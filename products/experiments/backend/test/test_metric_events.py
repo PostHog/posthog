@@ -16,7 +16,7 @@ from products.experiments.backend.metric_events import (
     MetricHit,
     MetricSourceRole,
     resolve_metric_events,
-    scan_session_for_metric_events,
+    scan_sessions_for_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -257,14 +257,14 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
 
     def _scan(self, metrics: list[dict[str, Any]], session_id: str) -> list[MetricHit]:
         experiment = self._experiment(metrics=metrics)
-        return scan_session_for_metric_events(
+        return scan_sessions_for_metric_events(
             self.team,
             self.user,
             metric_sources=resolve_metric_events(experiment),
-            session_id=session_id,
+            session_ids=[session_id],
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-        )
+        ).get(session_id, [])
 
     def test_reports_hits_only_for_metrics_with_in_window_events(self) -> None:
         # Two metrics with different sources prove the combined query aggregates each source
@@ -356,6 +356,31 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
 
         assert sorted(hit.metric_uuid for hit in hits) == sorted([first["uuid"], second["uuid"]])
         assert all(hit.event_count == 1 for hit in hits)
+
+    def test_hits_are_attributed_per_session(self) -> None:
+        # The batch endpoint scans several sessions in one grouped query; a hit landing on the
+        # wrong session (or a session with no events getting a row) would show another
+        # session's metrics in the player.
+        metric = _metric("mean", name="Purchases", source=_events_node("purchase"))
+        self._create_session_event("purchase", "s1", timestamp="2026-01-01T10:05:00Z")
+        self._create_session_event("purchase", "s2", timestamp="2026-01-01T10:07:00Z")
+        self._create_session_event("purchase", "s2", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        experiment = self._experiment(metrics=[metric])
+        hits_by_session = scan_sessions_for_metric_events(
+            self.team,
+            self.user,
+            metric_sources=resolve_metric_events(experiment),
+            session_ids=["s1", "s2", "s3"],
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+        )
+
+        assert set(hits_by_session) == {"s1", "s2"}
+        assert hits_by_session["s1"][0].event_count == 1
+        assert hits_by_session["s2"][0].event_count == 2
+        assert hits_by_session["s2"][0].first_timestamp == datetime(2026, 1, 1, 10, 7, 0, tzinfo=UTC)
 
     def test_hit_reports_which_sources_fired(self) -> None:
         # A funnel hit must say which step fired: without the breakdown, a session that only fired

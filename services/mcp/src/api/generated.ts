@@ -27274,6 +27274,26 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for the batch session-context endpoint.
+     */
+    export interface ExperimentSessionContextsRequest {
+      /**
+         * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+         * @minItems 1
+         * @maxItems 20
+         */
+      session_ids: string[];
+    }
+
+    /**
+     * Experiment/variant context for a batch of session recordings.
+     */
+    export interface ExperimentSessionContextsResponse {
+      /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+      results: ExperimentSessionContextResponse[];
+    }
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface ExperimentWrite {

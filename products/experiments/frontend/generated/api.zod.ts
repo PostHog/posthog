@@ -1242,3 +1242,29 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
     description: zod.string().optional().describe('Optional experiment description.'),
 })
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are sessions
+ * beyond the batch's recording-day budget (each distinct recording day costs its own set
+ * of ClickHouse scans, so only the most recent days are computed per request).
+ */
+export const experimentsSessionContextsCreateBodySessionIdsMax = 20
+
+export const ExperimentsSessionContextsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().describe('ID of one session recording.'))
+            .min(1)
+            .max(experimentsSessionContextsCreateBodySessionIdsMax)
+            .describe(
+                'IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.'
+            ),
+    })
+    .describe('Request body for the batch session-context endpoint.')

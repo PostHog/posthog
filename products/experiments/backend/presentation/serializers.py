@@ -43,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
+from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -1613,3 +1614,31 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
 class ExperimentActivityQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
     page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+class ExperimentSessionContextsRequestSerializer(serializers.Serializer):
+    """Request body for the batch session-context endpoint."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="ID of one session recording."),
+        min_length=1,
+        max_length=MAX_SESSION_CONTEXT_BATCH,
+        help_text=(
+            f"IDs of the session recordings to resolve experiment context for, at most "
+            f"{MAX_SESSION_CONTEXT_BATCH} per request. Duplicates are ignored."
+        ),
+    )
+
+
+class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a batch of session recordings."""
+
+    results = ExperimentSessionContextResponseSerializer(
+        many=True,
+        help_text=(
+            "Per-session experiment context, in the order the session IDs were requested. Sessions whose "
+            "recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, "
+            "as are sessions beyond the batch's recording-day budget (only the most recent days are computed). "
+            "Fetch omitted sessions individually via the single-session endpoint."
+        ),
+    )

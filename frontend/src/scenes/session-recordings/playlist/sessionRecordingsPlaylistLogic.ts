@@ -446,6 +446,13 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    /** Called with each freshly loaded page of recordings (not the accumulated list). */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called when a recording is selected (clicked, played next, or picked via the URL) —
+     * not for the initial autoplayed recording, which is selected implicitly.
+     */
+    onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
@@ -1406,13 +1413,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings(direction)
         },
 
-        loadSessionRecordingsSuccess: () => {
+        loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
+            props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
         },
 
-        setSelectedRecordingId: () => {
+        setSelectedRecordingId: ({ id }) => {
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
+
+            if (id) {
+                props.onRecordingSelected?.(id)
+            }
 
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 
