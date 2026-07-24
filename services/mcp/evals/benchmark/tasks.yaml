@@ -279,6 +279,9 @@ tasks:
       success_criteria: 'Resolves the exact metric name first (names match exactly), then queries a rate over the last 24h — does not guess the metric name.'
 
     # --- data-catalog -----------------------------------------------------------------------
+    # MCP-surface probe/agent tasks over the catalog. The end-to-end "does the agent trust the
+    # catalog" behavioral suite (seeded approved/proposed/drifted/empty arms, scorers + LLM judge)
+    # lives in products/data_catalog/evals/ (eval_governed_metrics, eval_semantic_discovery).
     - id: data-catalog-use-canonical-mrr
       category: data-catalog
       intent: 'What was our MRR last month?'
