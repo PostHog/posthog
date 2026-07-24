@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -728,10 +729,30 @@ export function buildAggregateQuery(
     return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
 }
 
+// Builds a coalesce() expression that resolves a person's current display name from
+// their properties (in the team's configured precedence), falling back to the
+// distinct_id. Reading person.properties resolves the current person, so the name stays
+// correct after identify/alias merges — unlike a distinct_id captured at response time.
+// Mirrors the backend helper person_display_name_property_exprs
+// (posthog/hogql_queries/utils/person_display_name.py): each property is wrapped in
+// nullIf(toString(...), '') so an empty-string value falls through to the next property,
+// matching asDisplay's truthiness (only "" is falsy).
+export function buildPersonDisplayNameExpression(personDisplayNameProperties: string[]): string {
+    const propertyExpressions = personDisplayNameProperties.map((prop) => {
+        const access = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(prop)
+            ? `person.properties.${prop}`
+            : // Backtick-quote non-identifier names; escape any backtick by doubling it (ClickHouse rule)
+              `person.properties.\`${prop.replace(/`/g, '``')}\``
+        return `nullIf(toString(${access}), '')`
+    })
+    return `coalesce(${[...propertyExpressions, 'toString(events.distinct_id)'].join(', ')})`
+}
+
 export function buildOpenEndedQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
     dateRange?: SurveyDateRange | null,
+    personDisplayNameProperties: string[] = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
     limit: number = 50000
 ): { query: string; columnMap: OpenEndedColumnMap } | null {
     const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
@@ -764,6 +785,7 @@ export function buildOpenEndedQuery(
     const query = `SELECT
             ${openColumns.join(',\n')},
             events.distinct_id,
+            ${buildPersonDisplayNameExpression(personDisplayNameProperties)} AS person_display_name,
             events.timestamp,
             events.properties.$session_id
         FROM events

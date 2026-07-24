@@ -18,6 +18,7 @@ import {
 } from '~/types'
 
 import {
+    buildPersonDisplayNameExpression,
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyOptionalBooleanPropertyFilter,
@@ -1443,6 +1444,27 @@ describe('splitChoicesOnPaste', () => {
 
     it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
         expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
+    })
+
+    describe('buildPersonDisplayNameExpression', () => {
+        it('uses dot access for simple identifiers, nullIfs empty strings, and falls back to distinct_id', () => {
+            expect(buildPersonDisplayNameExpression(['email', 'name'])).toBe(
+                "coalesce(nullIf(toString(person.properties.email), ''), nullIf(toString(person.properties.name), ''), toString(events.distinct_id))"
+            )
+        })
+
+        it('backtick-quotes property names that are not plain identifiers', () => {
+            expect(buildPersonDisplayNameExpression(['first-name'])).toBe(
+                "coalesce(nullIf(toString(person.properties.`first-name`), ''), toString(events.distinct_id))"
+            )
+        })
+
+        it('escapes a literal backtick in a property name so the HogQL stays valid', () => {
+            // Without doubling, the closing backtick would terminate the identifier early and break the query
+            expect(buildPersonDisplayNameExpression(['my`prop'])).toBe(
+                "coalesce(nullIf(toString(person.properties.`my``prop`), ''), toString(events.distinct_id))"
+            )
+        })
     })
 })
 

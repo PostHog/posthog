@@ -196,7 +196,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
-    const { enrichedConsolidatedSurveyResults, isAnyResultsLoading, resultsRequeryInProgress } = useValues(surveyLogic)
+    const { consolidatedSurveyResults, isAnyResultsLoading, resultsRequeryInProgress } = useValues(surveyLogic)
 
     if (demoData) {
         return (
@@ -243,7 +243,7 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     const processedData: QuestionProcessedResponses | undefined =
-        enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
+        consolidatedSurveyResults?.responsesByQuestion[question.id]
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
 
     if (!processedData) {
