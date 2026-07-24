@@ -63,7 +63,7 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 
 ## Style
 
-Write comments the way you'd write technical documentation: explicit, complete, and precise. A comment that earns its place is worth stating fully. Length is not the enemy; vagueness is. Spell out the reasoning so nothing is left implicit for the reader to infer.
+Write comments the way you'd write technical documentation: explicit, complete, and precise. State the reasoning in full so the reader does not have to infer any of it. A longer comment that spells out the cause and effect is better than a short one that leaves parts implicit.
 
 - **Be explicit and technical.** State the cause and effect in full. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
 - **Complete sentences, not fragments.** Write "Feature X does Y because Z, so callers must W." Don't compress it into a clipped fragment.
