@@ -336,7 +336,14 @@ const config = {
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '../../products/**/mcp/apps/**/*.{ts,tsx}',
-        '../../common/mosaic/src/**/*.{ts,tsx}',
+        '../../services/mcp/src/ui-apps/lib/**/*.{ts,tsx}',
+        // @posthog/quill ships BEM CSS for component look, but uses Tailwind
+        // utilities for layout/spacing in its compiled JS. Scan dist here so
+        // those utilities get compiled into this pre-built Tailwind bundle.
+        '../../packages/quill/packages/quill/dist/**/*.{js,cjs}',
+        // @posthog/quill-charts is consumed from source; its overlays, legends and
+        // blocks use Tailwind utilities, so scan its src or those classes get purged.
+        '../../packages/quill/packages/charts/src/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
@@ -642,6 +649,7 @@ const config = {
                 'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
                 // Quick horizontal shake
                 shake: 'shake 0.5s ease-in-out',
+                'slide-in-right': 'slide-in-right 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
             },
             keyframes: {
                 'pulse-glow': {
@@ -662,6 +670,10 @@ const config = {
                     '40%': { transform: 'translateX(3px)' },
                     '60%': { transform: 'translateX(-2px)' },
                     '80%': { transform: 'translateX(2px)' },
+                },
+                'slide-in-right': {
+                    '0%': { opacity: '0', transform: 'translateX(calc(100% + 1.5rem))' },
+                    '100%': { opacity: '1', transform: 'translateX(0)' },
                 },
             },
             colors: {
@@ -732,6 +744,10 @@ const config = {
                 warning: 'var(--color-text-warning)',
                 error: 'var(--color-text-error)',
             },
+            fill: {
+                // theme-aware SVG fill, mirrors text-primary (flips with [theme="dark"])
+                primary: 'var(--color-text-primary)',
+            },
             borderColor: {
                 ...commonColors,
 
@@ -755,6 +771,7 @@ const config = {
             fontFamily: {
                 sans: [
                     'Emoji Flags Polyfill',
+                    'RoundHog',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -770,7 +787,7 @@ const config = {
                 ],
                 title: [
                     'Emoji Flags Polyfill',
-                    'MatterSQ',
+                    'RoundHog',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',

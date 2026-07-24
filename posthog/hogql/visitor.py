@@ -110,6 +110,21 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
+        if node.with_fill is not None:
+            self.visit(node.with_fill)
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        if node.from_value is not None:
+            self.visit(node.from_value)
+        if node.to_value is not None:
+            self.visit(node.to_value)
+        if node.step_value is not None:
+            self.visit(node.step_value)
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        self.visit(node.expr)
+        if node.value is not None:
+            self.visit(node.value)
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         self.visit(node.tuple)
@@ -117,6 +132,12 @@ class TraversingVisitor(Visitor[None]):
     def visit_tuple(self, node: ast.Tuple):
         for expr in node.exprs:
             self.visit(expr)
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        self.visit(node.expr)
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        self.visit(node.expr)
 
     def visit_lambda(self, node: ast.Lambda):
         self.visit(node.expr)
@@ -226,6 +247,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
         for expr4 in node.order_by or []:
             self.visit(expr4)
+        for expr_interp in node.interpolate or []:
+            self.visit(expr_interp)
         self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
@@ -265,8 +288,10 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
-        for type in node.types:
-            self.visit(type)
+        for select_type in node.types:
+            self.visit(select_type)
+        for column_type in node.columns.values():
+            self.visit(column_type)
 
     def visit_table_type(self, node: ast.TableType):
         pass
@@ -341,6 +366,13 @@ class TraversingVisitor(Visitor[None]):
     def visit_tuple_type(self, node: ast.TupleType):
         for expr in node.item_types:
             self.visit(expr)
+
+    def visit_aggregate_state_type(self, node: ast.AggregateStateType):
+        self.visit(node.wrapped_type)
+
+    def visit_map_type(self, node: ast.MapType):
+        self.visit(node.key_type)
+        self.visit(node.value_type)
 
     def visit_date_type(self, node: ast.DateType):
         pass
@@ -643,6 +675,26 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             order=node.order,
+            with_fill=self.visit(node.with_fill) if node.with_fill is not None else None,
+        )
+
+    def visit_with_fill_expr(self, node: ast.WithFillExpr):
+        return ast.WithFillExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            from_value=self.visit(node.from_value) if node.from_value is not None else None,
+            to_value=self.visit(node.to_value) if node.to_value is not None else None,
+            step_value=self.visit(node.step_value) if node.step_value is not None else None,
+        )
+
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        return ast.InterpolateExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            value=self.visit(node.value) if node.value is not None else None,
         )
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -661,6 +713,25 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        return ast.PropertyAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            keys=list(node.keys),
+        )
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        return ast.JsonSubcolumnAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            keys=list(node.keys),
+            access_type=node.access_type,
         )
 
     def visit_lambda(self, node: ast.Lambda):
@@ -714,6 +785,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+            inline_sentinel=node.inline_sentinel,
         )
 
     def visit_keyword(self, node: ast.Keyword):
@@ -862,6 +934,7 @@ class CloningVisitor(Visitor[Any]):
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             group_by_mode=node.group_by_mode,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
+            interpolate=[self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
@@ -1022,7 +1095,7 @@ class CloningVisitor(Visitor[Any]):
         return ast.ThrowStatement(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
-            expr=self.visit(node.expr) if node.expr else None,
+            expr=self.visit(node.expr),
         )
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):

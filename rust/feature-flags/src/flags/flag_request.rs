@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -30,10 +31,19 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlagRequestType {
     Decide,
     FlagDefinitions,
+}
+
+impl FlagRequestType {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            FlagRequestType::Decide => "decide",
+            FlagRequestType::FlagDefinitions => "flag_definitions",
+        }
+    }
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -51,6 +61,8 @@ pub struct FlagRequest {
         default
     )]
     pub distinct_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<DateTime<Utc>>,
     pub geoip_disable: Option<bool>,
     // Web and mobile clients can configure this parameter to disable flags for a request.
     // It's mostly used for folks who want to save money on flag evaluations while still using
@@ -77,9 +89,19 @@ pub struct FlagRequest {
     pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<EvaluationRuntime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_flags_definitions: Option<HashMap<String, Value>>,
 }
 
 impl FlagRequest {
+    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<u64> {
+        self.sent_at
+            .as_ref()
+            .map(DateTime::timestamp_millis)
+            .and_then(|sent_at| u64::try_from(sent_at).ok())
+            .or_else(|| query_sent_at.and_then(|sent_at| u64::try_from(sent_at).ok()))
+    }
+
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
@@ -214,8 +236,11 @@ impl FlagRequest {
 mod tests {
     use std::collections::HashMap;
 
+    use std::sync::Arc;
+
     use crate::api::errors::FlagError;
 
+    use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
     use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
@@ -484,6 +509,31 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_sent_at_prefers_body_and_falls_back_to_query() {
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("2023-11-14T22:13:20Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_700_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest::default().resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("1969-12-31T23:59:59Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(FlagRequest::default().resolve_sent_at(Some(-1)), None);
+    }
+
+    #[test]
     fn test_extract_properties() {
         let flag_request = FlagRequest {
             person_properties: Some(HashMap::from([
@@ -600,6 +650,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -631,6 +682,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );

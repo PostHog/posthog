@@ -1,188 +1,97 @@
-import { act, renderHook } from '@testing-library/react'
-import { NodeViewProps } from '@tiptap/core'
-
-import { urls } from 'scenes/urls'
-
-import { InsightShortId } from '~/types'
-
-import {
-    INTEGER_REGEX_MATCH_GROUPS,
-    SHORT_CODE_REGEX_MATCH_GROUPS,
-    UUID_REGEX_MATCH_GROUPS,
-    createUrlRegex,
-    sortProperties,
-    useSyncedAttributes,
-} from './utils'
+import { buildNotebookNodeClipboardHTML, sortProperties } from './utils'
 
 // Mock dependencies for Group revenue utilities
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
+jest.mock('lib/utils/numbers', () => ({
+    ...jest.requireActual('lib/utils/numbers'),
     percentage: jest.fn((value: number) => `${(value * 100).toFixed(1)}%`),
 }))
 
-jest.mock('lib/utils/geography/currency', () => ({
+jest.mock('lib/utils/currency', () => ({
     formatCurrency: jest.fn((value: number) => `$${value.toFixed(2)}`),
 }))
 
 describe('notebook node utils', () => {
     jest.useFakeTimers()
-    describe('useSyncedAttributes', () => {
-        const harness: { node: { attrs: Record<string, any> }; updateAttributes: any } = {
-            node: { attrs: {} },
-            updateAttributes: jest.fn((attrs) => {
-                harness.node.attrs = { ...harness.node.attrs, ...attrs }
-            }),
+
+    describe('buildNotebookNodeClipboardHTML', () => {
+        // Reads back an attribute the same way the per-attribute parseHTML in `createPostHogWidgetNode`
+        // does, so each round-trip exercises the actual paste path end-to-end.
+        function roundTrip(value: unknown): unknown {
+            const html = buildNotebookNodeClipboardHTML('ph-test-node', { x: value })
+            const parsed = new DOMParser().parseFromString(html, 'text/html')
+            const element = parsed.querySelector('ph-test-node')!
+            const raw = element.getAttribute('x')
+            return raw === null ? null : JSON.parse(raw)
         }
 
-        const nodeViewProps = harness as unknown as NodeViewProps
-
-        beforeEach(() => {
-            harness.node.attrs = {
-                foo: 'bar',
-            }
-            harness.updateAttributes.mockClear()
+        it('uses the given tag name', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html.startsWith('<ph-query-node')).toBe(true)
+            expect(html.endsWith('</ph-query-node>')).toBe(true)
         })
 
-        it('should set a default node ID', () => {
-            const { result } = renderHook(() => useSyncedAttributes(nodeViewProps))
-
-            expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
-
-            expect(result.current[0]).toEqual({
-                nodeId: expect.any(String),
-                foo: 'bar',
-            })
+        it('always includes the ProseMirror slice marker', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html).toContain('data-pm-slice="0 0 []"')
         })
 
-        it('should do nothing if an attribute is unchanged', () => {
-            const { result } = renderHook(() => useSyncedAttributes(nodeViewProps))
-
-            expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
-
-            expect(result.current[0]).toMatchObject({
-                foo: 'bar',
-            })
-
-            act(() => {
-                result.current[1]({
-                    foo: 'bar',
-                })
-            })
-
-            jest.runOnlyPendingTimers()
-
-            expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
-
-            expect(result.current[0]).toMatchObject({
-                foo: 'bar',
-            })
+        it('skips nodeId so paste does not duplicate IDs', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', { nodeId: 'abc-123', kind: 'X' })
+            expect(html).not.toContain('abc-123')
+            expect(html).toContain('kind=')
         })
 
-        it('should call the update attributes function if changed', () => {
-            const { result, rerender } = renderHook(() => useSyncedAttributes(nodeViewProps))
-
-            expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
-
-            act(() => {
-                result.current[1]({
-                    foo: 'bar2',
-                })
+        it('skips internal __-prefixed keys', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                __init: true,
+                __anything: 'private',
+                kind: 'X',
             })
-
-            jest.runOnlyPendingTimers()
-
-            expect(nodeViewProps.updateAttributes).toHaveBeenCalledWith({
-                foo: 'bar2',
-            })
-
-            rerender()
-
-            expect(result.current[0]).toMatchObject({
-                foo: 'bar2',
-            })
+            expect(html).not.toContain('__init')
+            expect(html).not.toContain('__anything')
+            expect(html).toContain('kind=')
         })
 
-        it('should stringify and parse content', () => {
-            harness.node.attrs = {
-                filters: { my: 'data' },
-                number: 1,
-            }
-            const { result, rerender } = renderHook(() => useSyncedAttributes(nodeViewProps))
-
-            expect(result.current[0]).toEqual({
-                nodeId: expect.any(String),
-                filters: {
-                    my: 'data',
-                },
-                number: 1,
+        it('skips null and undefined values', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                absent: null,
+                missing: undefined,
+                kind: 'X',
             })
-
-            act(() => {
-                result.current[1]({
-                    filters: {
-                        my: 'changed data',
-                    },
-                })
-            })
-
-            jest.runOnlyPendingTimers()
-
-            expect(nodeViewProps.updateAttributes).toHaveBeenCalledWith({
-                filters: '{"my":"changed data"}',
-            })
-
-            rerender()
-
-            expect(result.current[0]).toEqual({
-                nodeId: expect.any(String),
-                filters: {
-                    my: 'changed data',
-                },
-                number: 1,
-            })
-
-            harness.updateAttributes.mockClear()
-
-            act(() => {
-                result.current[1]({
-                    filters: {
-                        my: 'changed data',
-                    },
-                })
-            })
-
-            jest.runOnlyPendingTimers()
-            expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
+            expect(html).not.toContain('absent')
+            expect(html).not.toContain('missing')
+            expect(html).toContain('kind=')
         })
-    })
 
-    describe('paste matching handlers', () => {
-        it('matches the uuid regex', () => {
-            let url = urls.replaySingle(UUID_REGEX_MATCH_GROUPS)
-            let regex = createUrlRegex(url)
-            let matches = regex.exec('http://localhost/replay/0192c471-b890-7546-9eae-056d98b8c5a8')
-            expect(matches?.[1]).toEqual('0192c471-b890-7546-9eae-056d98b8c5a8')
-
-            url = urls.experiment(INTEGER_REGEX_MATCH_GROUPS)
-            regex = createUrlRegex(url)
-            matches = regex.exec('http://localhost/experiments/12345')
-            expect(matches?.[1]).toEqual('12345')
-
-            url = urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId)
-            regex = createUrlRegex(url)
-            matches = regex.exec('http://localhost/insights/TAg12F')
-            expect(matches?.[1]).toEqual('TAg12F')
+        it.each([
+            ['object', { kind: 'DataTableNode', source: { kind: 'HogQLQuery' } }],
+            ['nested object', { a: { b: { c: 'deep' } } }],
+            ['array', [1, 2, 3]],
+            ['array of objects', [{ id: 1 }, { id: 2 }]],
+            ['string', 'print(1)'],
+            ['empty string', ''],
+            ['number', 42],
+            ['zero', 0],
+            ['negative number', -7.5],
+            ['boolean true', true],
+            ['boolean false', false],
+            ['string with apostrophe', "don't"],
+            ['string with double quotes', 'say "hi"'],
+            ['string with both quotes', `it's "fine"`],
+            ['string with angle brackets', '<div>x</div>'],
+            ['string with ampersand', 'a & b'],
+        ])('round-trips %s through copy and paste', (_label, value) => {
+            expect(roundTrip(value)).toEqual(value)
         })
-        it('ignores any query params', () => {
-            let url = urls.replaySingle(UUID_REGEX_MATCH_GROUPS)
-            let regex = createUrlRegex(url)
-            let matches = regex.exec('http://localhost/replay/0192c471-b890-7546-9eae-056d98b8c5a8?filters=false')
-            expect(matches?.[1]).toEqual('0192c471-b890-7546-9eae-056d98b8c5a8')
 
-            url = urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId)
-            regex = createUrlRegex(url)
-            matches = regex.exec('http://localhost/insights/TAg12F?dashboardId=1234')
-            expect(matches?.[1]).toEqual('TAg12F')
+        it('produces HTML that a DOMParser parses without errors', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                query: { kind: 'X', source: { value: 'it\'s "tricky"' } },
+                count: 5,
+            })
+            const doc = new DOMParser().parseFromString(html, 'text/html')
+            expect(doc.querySelector('parsererror')).toBeNull()
+            expect(doc.querySelector('ph-query-node')).not.toBeNull()
         })
     })
 

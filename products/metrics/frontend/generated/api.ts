@@ -11,40 +11,32 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
-    GroupUsageMetricApi,
-    GroupsTypesMetricsListParams,
-    PaginatedGroupUsageMetricListApi,
-    PatchedGroupUsageMetricApi,
+    MetricsAttributeValuesRetrieveParams,
+    MetricsAttributesRetrieveParams,
+    MetricsValuesRetrieveParams,
+    _HasMetricsResponseApi,
+    _MetricAnomalyReportApi,
+    _MetricAnomalyRequestApi,
+    _MetricAttributeKeysResponseApi,
+    _MetricAttributeValuesResponseApi,
+    _MetricNamesResponseApi,
+    _MetricQueryRequestApi,
+    _MetricQueryResponseApi,
+    _MetricSamplesRequestApi,
+    _MetricSamplesResponseApi,
 } from './api.schemas'
 
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
+export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_filter/metrics/`
+}
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
-export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/`
-}
-
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -55,17 +47,17 @@ export const eventFilterMetricsRetrieve = async (
     })
 }
 
-/**
- * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
- */
 export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+    return `/api/projects/${projectId}/event_filter/metrics/totals/`
 }
 
+/**
+ * Single event filter per team.
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
+ */
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -76,125 +68,171 @@ export const eventFilterMetricsTotalsRetrieve = async (
     })
 }
 
-export const getGroupsTypesMetricsListUrl = (
+export const getMetricsAttributeValuesRetrieveUrl = (
     projectId: string,
-    groupTypeIndex: number,
-    params?: GroupsTypesMetricsListParams
+    params: MetricsAttributeValuesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/?${stringifiedParams}`
-        : `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/`
+        ? `/api/projects/${projectId}/metrics/attribute_values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attribute_values/`
 }
 
-export const groupsTypesMetricsList = async (
+/**
+ * Observed values for one metric attribute key, most frequent first.
+ * Backs the filter bar's value autocomplete.
+ */
+export const metricsAttributeValuesRetrieve = async (
     projectId: string,
-    groupTypeIndex: number,
-    params?: GroupsTypesMetricsListParams,
+    params: MetricsAttributeValuesRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedGroupUsageMetricListApi> => {
-    return apiMutator<PaginatedGroupUsageMetricListApi>(
-        getGroupsTypesMetricsListUrl(projectId, groupTypeIndex, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getGroupsTypesMetricsCreateUrl = (projectId: string, groupTypeIndex: number) => {
-    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/`
-}
-
-export const groupsTypesMetricsCreate = async (
-    projectId: string,
-    groupTypeIndex: number,
-    groupUsageMetricApi: NonReadonly<GroupUsageMetricApi>,
-    options?: RequestInit
-): Promise<GroupUsageMetricApi> => {
-    return apiMutator<GroupUsageMetricApi>(getGroupsTypesMetricsCreateUrl(projectId, groupTypeIndex), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(groupUsageMetricApi),
-    })
-}
-
-export const getGroupsTypesMetricsRetrieveUrl = (projectId: string, groupTypeIndex: number, id: string) => {
-    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/${id}/`
-}
-
-export const groupsTypesMetricsRetrieve = async (
-    projectId: string,
-    groupTypeIndex: number,
-    id: string,
-    options?: RequestInit
-): Promise<GroupUsageMetricApi> => {
-    return apiMutator<GroupUsageMetricApi>(getGroupsTypesMetricsRetrieveUrl(projectId, groupTypeIndex, id), {
+): Promise<_MetricAttributeValuesResponseApi> => {
+    return apiMutator<_MetricAttributeValuesResponseApi>(getMetricsAttributeValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGroupsTypesMetricsUpdateUrl = (projectId: string, groupTypeIndex: number, id: string) => {
-    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/${id}/`
+export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: MetricsAttributesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attributes/`
 }
 
-export const groupsTypesMetricsUpdate = async (
+/**
+ * Distinct attribute keys seen on the team's metrics (datapoint and
+ * resource attributes merged), most frequent first. Backs the filter
+ * bar's key autocomplete.
+ */
+export const metricsAttributesRetrieve = async (
     projectId: string,
-    groupTypeIndex: number,
-    id: string,
-    groupUsageMetricApi: NonReadonly<GroupUsageMetricApi>,
+    params?: MetricsAttributesRetrieveParams,
     options?: RequestInit
-): Promise<GroupUsageMetricApi> => {
-    return apiMutator<GroupUsageMetricApi>(getGroupsTypesMetricsUpdateUrl(projectId, groupTypeIndex, id), {
+): Promise<_MetricAttributeKeysResponseApi> => {
+    return apiMutator<_MetricAttributeKeysResponseApi>(getMetricsAttributesRetrieveUrl(projectId, params), {
         ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(groupUsageMetricApi),
+        method: 'GET',
     })
 }
 
-export const getGroupsTypesMetricsPartialUpdateUrl = (projectId: string, groupTypeIndex: number, id: string) => {
-    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/${id}/`
+export const getMetricsCharacterizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/characterize/`
 }
 
-export const groupsTypesMetricsPartialUpdate = async (
+/**
+ * Characterize a metric anomaly: compare an anomaly window against a
+ * baseline, find the onset, and rank which label values moved.
+ */
+export const metricsCharacterizeCreate = async (
     projectId: string,
-    groupTypeIndex: number,
-    id: string,
-    patchedGroupUsageMetricApi: NonReadonly<PatchedGroupUsageMetricApi>,
+    _metricAnomalyRequestApi: _MetricAnomalyRequestApi,
     options?: RequestInit
-): Promise<GroupUsageMetricApi> => {
-    return apiMutator<GroupUsageMetricApi>(getGroupsTypesMetricsPartialUpdateUrl(projectId, groupTypeIndex, id), {
+): Promise<_MetricAnomalyReportApi> => {
+    return apiMutator<_MetricAnomalyReportApi>(getMetricsCharacterizeCreateUrl(projectId), {
         ...options,
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedGroupUsageMetricApi),
+        body: JSON.stringify(_metricAnomalyRequestApi),
     })
 }
 
-export const getGroupsTypesMetricsDestroyUrl = (projectId: string, groupTypeIndex: number, id: string) => {
-    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/metrics/${id}/`
+export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/has_metrics/`
 }
 
-export const groupsTypesMetricsDestroy = async (
+export const metricsHasMetricsRetrieve = async (
     projectId: string,
-    groupTypeIndex: number,
-    id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getGroupsTypesMetricsDestroyUrl(projectId, groupTypeIndex, id), {
+): Promise<_HasMetricsResponseApi> => {
+    return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
         ...options,
-        method: 'DELETE',
+        method: 'GET',
+    })
+}
+
+export const getMetricsQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/query/`
+}
+
+export const metricsQueryCreate = async (
+    projectId: string,
+    _metricQueryRequestApi: _MetricQueryRequestApi,
+    options?: RequestInit
+): Promise<_MetricQueryResponseApi> => {
+    return apiMutator<_MetricQueryResponseApi>(getMetricsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsSamplesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/samples/`
+}
+
+/**
+ * Raw individual emissions for a metric (the events model), newest
+ * first — backs the Samples view and the metric->trace pivot.
+ */
+export const metricsSamplesCreate = async (
+    projectId: string,
+    _metricSamplesRequestApi: _MetricSamplesRequestApi,
+    options?: RequestInit
+): Promise<_MetricSamplesResponseApi> => {
+    return apiMutator<_MetricSamplesResponseApi>(getMetricsSamplesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricSamplesRequestApi),
+    })
+}
+
+export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the picker UI.
+ */
+export const metricsValuesRetrieve = async (
+    projectId: string,
+    params?: MetricsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

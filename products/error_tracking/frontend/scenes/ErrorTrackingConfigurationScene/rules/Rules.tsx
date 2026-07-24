@@ -12,7 +12,7 @@ import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFi
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import {
@@ -21,6 +21,7 @@ import {
     AssigneeResolver,
 } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { rulesLogic } from './rulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
 
@@ -138,7 +139,10 @@ const ReorderRules = (): JSX.Element | null => {
                 size="small"
                 type="secondary"
                 onClick={startReorderingRules}
-                disabledReason={localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined}
+                disabledReason={
+                    errorTrackingEditAccessDisabledReason() ??
+                    (localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined)
+                }
             >
                 Reorder
             </LemonButton>
@@ -147,7 +151,7 @@ const ReorderRules = (): JSX.Element | null => {
 }
 
 const DisabledBanner = ({ rule }: { rule: ErrorTrackingRule }): JSX.Element => {
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const message =
         'disabled_data' in rule && rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
 
@@ -179,7 +183,12 @@ export const AddRule = ({ disabledReason }: { disabledReason: string | undefined
 
     return !hasNewRule && !isReorderingRules ? (
         <div>
-            <LemonButton type="primary" size="small" onClick={addRule} disabledReason={disabledReason}>
+            <LemonButton
+                type="primary"
+                size="small"
+                onClick={addRule}
+                disabledReason={errorTrackingEditAccessDisabledReason() ?? disabledReason}
+            >
                 Add rule
             </LemonButton>
         </div>
@@ -243,7 +252,12 @@ function Actions<T extends ErrorTrackingRule>({
                     </LemonButton>
                 </>
             ) : (
-                <LemonButton size="small" icon={<IconPencil />} onClick={() => setRuleEditable(rule.id)} />
+                <LemonButton
+                    size="small"
+                    icon={<IconPencil />}
+                    onClick={() => setRuleEditable(rule.id)}
+                    disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
+                />
             )}
         </div>
     )

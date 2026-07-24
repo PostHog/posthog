@@ -1,48 +1,112 @@
+import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { getRedisHost } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
-import { KafkaProducerWrapper } from '../kafka/producer'
-import { PostgresRouter } from '../utils/db/postgres'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
-import { HogExecutorService } from './services/hog-executor.service'
+import {
+    PrecalculatedPersonPropertiesOutput,
+    PrefilteredEventsOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
+import { CdpProducerName } from './outputs/producers'
+import { createCdpOutputsRegistry } from './outputs/registry'
+import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { MessageAssetsService } from './services/messaging/message-assets.service'
+import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
+
+/** Union of every output name resolved by `createCdpOutputsRegistry()`. */
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | HogInvocationResultsOutput
+    | PrefilteredEventsOutput
+    | PrecalculatedPersonPropertiesOutput
+    | WarehouseSourceWebhooksOutput
+
+export type CdpOutputs = IngestionOutputs<CdpOutput>
+
+export interface CdpValkeyShadowPools {
+    writer: RedisV2
+    reader: RedisV2
+}
 
 export interface CdpCoreServices {
     redis: RedisV2
+    /**
+     * Shadow Valkey pools used for dual-write/read load testing. Null when
+     * CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset. Consumers
+     * that build their own redis-backed services (e.g. CdpEventsConsumer's
+     * HogRateLimiterService) read this to construct mirror instances bound
+     * to the shadow Valkey.
+     */
+    valkeyShadow: CdpValkeyShadowPools | null
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
     hogWatcher: HogWatcherService
+    /**
+     * Mirror HogWatcherService bound to the shadow Valkey pool. Null when
+     * shadow mode is disabled. Use at call sites alongside `hogWatcher` (via
+     * `mirrorCall`) to load-test the new infrastructure. Constructed with
+     * `sendEvents: false` so it never emits duplicate billable team events.
+     */
+    hogWatcherMirror: HogWatcherService | null
     hogExecutor: HogExecutorService
+    /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
+    hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    emailSuppressionService: EmailSuppressionService
+    teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    capturedEventsService: CapturedEventsService
+    /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
+    hogInvocationResultsService: HogInvocationResultsService
+    /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
+    invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
+    /** Resolved outputs shared across every CDP service/consumer. */
+    outputs: CdpOutputs
+    emailService: EmailService
+    /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
+    messageAssetsService: MessageAssetsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -54,6 +118,15 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
+        | 'CDP_VALKEY_HOST'
+        | 'CDP_VALKEY_PORT'
+        | 'CDP_VALKEY_PASSWORD'
+        | 'CDP_VALKEY_READER_HOST'
+        | 'CDP_VALKEY_READER_PORT'
+        | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -73,12 +146,27 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
+        | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
+        | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_TOPIC'
+        | 'HOG_INVOCATION_RESULTS_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_ENABLED'
+        | 'MESSAGE_ASSETS_TOPIC'
+        | 'MESSAGE_ASSETS_PRODUCER'
+        | 'CDP_PREFILTERED_EVENTS_TOPIC'
+        | 'CDP_PREFILTERED_EVENTS_PRODUCER'
+        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
+        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
+        | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
+        | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -87,8 +175,164 @@ export interface CdpCoreServicesDeps {
     encryptedFields: EncryptedFields
     teamManager: TeamManager
     integrationManager: IntegrationManagerService
-    kafkaProducer: KafkaProducerWrapper
+    /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
+    cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
+    /**
+     * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
+     * capabilities actually execute email actions (hogflow/email cyclotron workers).
+     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
+     * open connections against the SES Valkey instance.
+     */
+    emailValidationValkey: RedisV2 | null
+}
+
+/**
+ * Creates a Redis reader pool, using a dedicated reader host if configured,
+ * otherwise falling back to the writer pool.
+ */
+export function createCdpReaderRedisPool(
+    config: Pick<
+        CdpCoreServicesConfig,
+        | 'CDP_REDIS_HOST'
+        | 'CDP_REDIS_PORT'
+        | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+    >,
+    writerPool: RedisV2,
+    name: string
+): RedisV2 {
+    if (config.CDP_REDIS_READER_HOST) {
+        logger.info(
+            '🔌',
+            `[${name}] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
+        )
+        const readerPool = createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_REDIS_READER_HOST,
+                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
+                name: `${name}-reader`,
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+
+        // Non-blocking startup health check — surfaces misconfig immediately in logs
+        void readerPool
+            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .catch((err) => {
+                logger.error(
+                    '🔌',
+                    `[${name}] reader at ${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT} failed startup health check — reads will fall back to writer`,
+                    { err }
+                )
+            })
+
+        return readerPool
+    }
+
+    const sanitizedWriter = config.CDP_REDIS_HOST || getRedisHost(config.REDIS_URL)
+    logger.info('🔌', `[${name}] writer=${sanitizedWriter}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`)
+    return writerPool
+}
+
+/**
+ * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
+ * Returns null when CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset, in which
+ * case the shadow path is disabled and behavior is identical to today.
+ *
+ * The reader falls back to the writer pool when CDP_VALKEY_READER_HOST is unset.
+ */
+export function createCdpValkeyShadowPools(
+    config: Pick<
+        CdpCoreServicesConfig,
+        | 'CDP_VALKEY_HOST'
+        | 'CDP_VALKEY_PORT'
+        | 'CDP_VALKEY_PASSWORD'
+        | 'CDP_VALKEY_READER_HOST'
+        | 'CDP_VALKEY_READER_PORT'
+        | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_TLS'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+    >,
+    name: string
+): CdpValkeyShadowPools | null {
+    if (!config.CDP_VALKEY_DUAL_ENABLED || !config.CDP_VALKEY_HOST) {
+        return null
+    }
+
+    logger.info(
+        '🪞',
+        `[${name}] shadow valkey writer=${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} reader=${config.CDP_VALKEY_READER_HOST || '<falling back to writer>'}`
+    )
+
+    // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow shadow
+    // doesn't tie up a pool client until the kernel TCP timeout. Pair this with mirrorCall()'s
+    // race-timeout (which only stops awaiting); together they prevent leaks on bad shadow health.
+    const shadowCommandTimeoutMs = 1000
+
+    const tls = config.CDP_VALKEY_TLS ? {} : undefined
+
+    const writer = createRedisV2PoolFromConfig({
+        connection: {
+            url: config.CDP_VALKEY_HOST,
+            options: {
+                port: config.CDP_VALKEY_PORT,
+                password: config.CDP_VALKEY_PASSWORD,
+                commandTimeout: shadowCommandTimeoutMs,
+                tls,
+            },
+            name: `${name}-shadow`,
+        },
+        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+    })
+
+    // Non-blocking startup health check — shadow misconfig must not block startup.
+    void writer
+        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+        .catch((err) => {
+            logger.error(
+                '🪞',
+                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — shadow ops will surface as "[mirror:*] failed" warn logs from mirrorCall()`,
+                { err }
+            )
+        })
+
+    let reader: RedisV2 = writer
+    if (config.CDP_VALKEY_READER_HOST) {
+        reader = createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_VALKEY_READER_HOST,
+                options: {
+                    port: config.CDP_VALKEY_READER_PORT,
+                    password: config.CDP_VALKEY_PASSWORD,
+                    commandTimeout: shadowCommandTimeoutMs,
+                    tls,
+                },
+                name: `${name}-shadow-reader`,
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+
+        void reader
+            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .catch((err) => {
+                logger.error(
+                    '🪞',
+                    `[${name}] shadow reader at ${config.CDP_VALKEY_READER_HOST}:${config.CDP_VALKEY_READER_PORT} failed startup health check`,
+                    { err }
+                )
+            })
+    }
+
+    return { writer, reader }
 }
 
 export function createCdpCoreServices(
@@ -108,32 +352,55 @@ export function createCdpCoreServices(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
 
+    const redisReader = createCdpReaderRedisPool(config, redis, redisName)
+    const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
 
-    const hogWatcher = new HogWatcherService(
-        deps.teamManager,
-        {
-            hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-            hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-            hogCostTiming: config.CDP_WATCHER_HOG_COST_TIMING,
-            asyncCostTimingLowerMs: config.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-            asyncCostTimingUpperMs: config.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-            asyncCostTiming: config.CDP_WATCHER_ASYNC_COST_TIMING,
-            sendEvents: config.CDP_WATCHER_SEND_EVENTS,
-            bucketSize: config.CDP_WATCHER_BUCKET_SIZE,
-            refillRate: config.CDP_WATCHER_REFILL_RATE,
-            ttl: config.CDP_WATCHER_TTL,
-            automaticallyDisableFunctions: config.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
-            thresholdDegraded: config.CDP_WATCHER_THRESHOLD_DEGRADED,
-            stateLockTtl: config.CDP_WATCHER_STATE_LOCK_TTL,
-            observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
-            observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
-        },
-        redis
-    )
+    const hogWatcherConfig = {
+        hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+        hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+        hogCostTiming: config.CDP_WATCHER_HOG_COST_TIMING,
+        asyncCostTimingLowerMs: config.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+        asyncCostTimingUpperMs: config.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+        asyncCostTiming: config.CDP_WATCHER_ASYNC_COST_TIMING,
+        sendEvents: config.CDP_WATCHER_SEND_EVENTS,
+        bucketSize: config.CDP_WATCHER_BUCKET_SIZE,
+        refillRate: config.CDP_WATCHER_REFILL_RATE,
+        ttl: config.CDP_WATCHER_TTL,
+        automaticallyDisableFunctions: config.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+        thresholdDegraded: config.CDP_WATCHER_THRESHOLD_DEGRADED,
+        stateLockTtl: config.CDP_WATCHER_STATE_LOCK_TTL,
+        observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+        observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+    }
 
-    const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader)
+
+    // Mirror HogWatcherService bound to the shadow Valkey pool. `sendEvents: false`
+    // so it never emits duplicate billable team events on state transitions; the
+    // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
+    // detect the same transition — rare, accepted during dual-write mode.
+    const hogWatcherMirror: HogWatcherService | null = valkeyShadow
+        ? new HogWatcherService(
+              deps.teamManager,
+              { ...hogWatcherConfig, sendEvents: false },
+              valkeyShadow.writer,
+              valkeyShadow.reader
+          )
+        : null
+
+    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
+    const messageAssetsService = new MessageAssetsService(outputs)
+    // Constructed here (rather than below with the other messaging services) so it can be threaded
+    // into EmailService — the pre-send suppression check lives there so every send path shares one
+    // choke point regardless of whether the invocation came from a workflow action or a hog function.
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -142,10 +409,27 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
         },
         deps.integrationManager,
+        teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL
+        config.SITE_URL,
+        trackingCodeSigner,
+        emailSuppressionService,
+        messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
+    const pushNotificationService = new PushNotificationService(
+        deps.integrationManager,
+        deps.encryptedFields,
+        {
+            trackedFetch: cdpTrackedFetch,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+            maxRetries: config.CDP_FETCH_RETRIES,
+            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+        },
+        redis
+    )
 
     const hogExecutor = new HogExecutorService(
         {
@@ -158,7 +442,8 @@ export function createCdpCoreServices(
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
         emailService,
-        recipientTokensService
+        recipientTokensService,
+        pushNotificationService
     )
 
     const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(deps.postgres)
@@ -169,26 +454,31 @@ export function createCdpCoreServices(
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-    const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, redis)
+    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+    // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
+    // limiter, separate pool). The pool is created by the server only on pods
+    // whose capabilities execute email actions; everywhere else this is null
+    // and EmailValidationService degrades to the local cache + DNS.
+    const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
+    // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
+    const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
+    const hogFlowExecutor = new HogFlowExecutorService(
+        hogFlowFunctionsService,
+        recipientPreferencesService,
+        emailValidationService,
+        hogFlowDuplicateObserver
+    )
 
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        new IngestionOutputs({
-            [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
-                APP_METRICS_OUTPUT,
-                config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                deps.kafkaProducer,
-                'default'
-            ),
-            [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
-                LOG_ENTRIES_OUTPUT,
-                config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                deps.kafkaProducer,
-                'default'
-            ),
-        }),
-        deps.internalCaptureService,
-        deps.teamManager
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
+    const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
+    const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const invocationResultsService = new InvocationResultsService(
+        hogFunctionMonitoringService,
+        hogInvocationResultsService,
+        warehouseWebhooksService,
+        capturedEventsService,
+        messageAssetsService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -196,18 +486,29 @@ export function createCdpCoreServices(
 
     return {
         redis,
+        valkeyShadow,
         hogFunctionManager,
         hogFlowManager,
         hogWatcher,
+        hogWatcherMirror,
         hogExecutor,
+        hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        emailSuppressionService,
+        teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        capturedEventsService,
+        hogInvocationResultsService,
+        invocationResultsService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,
+        outputs,
+        emailService,
+        messageAssetsService,
     }
 }

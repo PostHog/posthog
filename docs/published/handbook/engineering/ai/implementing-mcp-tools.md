@@ -22,7 +22,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/query-examples/references/
+#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -76,6 +76,36 @@ giving it richer context about PostHog's data model.
 
 Primarily oriented toward coding agents (PostHog Code, PostHog AI, Claude Code).
 
+## Claude web and desktop exec schema budget
+
+Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters.
+The final, post-injection `exec` input schema has a strict test budget below that limit.
+
+Keep guidance needed for routine tool calls inline.
+This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
+Put optional or task-specific global guidance in the Claude exec learn catalog, available through `learn` and `learn <guide>`.
+The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
+PostHog and project skills are enabled independently of the client through the `mcp-exec-skills` feature flag and discovered at runtime through `learn skills` or `learn -s <query>`.
+Read bundled PostHog skills with `learn posthog:<skill> [path]` and current-project Skills store entries with `learn project:<skill> [path]`.
+Search merges both sources into one relevance order, so an exact project match can outrank a weak PostHog one.
+Preview descriptions without reading bodies with `learn -d <source>:<skill> [...]`, and read several targets in one call with `learn <source>:<skill> <path> [path...]` or `learn <source>:<skill> [<source>:<skill>...]`.
+When the flag is enabled, every non-plugin cli client is instructed to run `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before selecting tools.
+Claude web and desktop keep their built-in learning topics when the flag is off. Other cli-mode clients receive only skill commands when the flag is on, without the Claude-specific learning topics.
+Keep skill names, descriptions, bodies, and references out of the tool schema.
+The fixed learn grammar and compact tool-domain index must remain inline so Claude can discover both capabilities.
+
+The MCP server loads the published `skills.zip` release into a Redis stale-while-revalidate cache. Custom archive URLs use isolated cache namespaces.
+It reads project skills from the request-authenticated project without caching them in the MCP service.
+Project discovery includes only latest, active, uncategorized skills and requires `llm_skill:read`.
+Skill reads include a file manifest, and references that exceed the output budget return a heading outline.
+Use `learn <source>:<skill> <path> -s <query>` for scoped full-text search or `learn <source>:<skill> <path> --lines <start>:<end>` for a bounded inclusive range.
+Script paths are searchable and their contents are readable directly or by line range, but script contents are not part of the full-text index.
+The plugin and posthog-code consumers do not receive `learn`, because both already supply PostHog skills directly.
+
+Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
+Those descriptions remain the source of truth for `info` and `schema` discovery.
+When adding global prompt guidance, keep it inline only when it is useful on nearly every call; otherwise add it to an existing learn guide or create a globally unique guide ID.
+
 ## SQL-first MCP: HogQL system tables
 
 Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.
@@ -109,7 +139,7 @@ SELECT id, key, name FROM system.feature_flags WHERE active = 1 LIMIT 10
 ### Extending query examples
 
 When you add a new system table,
-also add a model reference file to [`products/posthog_ai/skills/query-examples/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/query-examples/references).
+also add a model reference file to [`products/posthog_ai/skills/querying-posthog-data/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/querying-posthog-data/references).
 The naming convention is `models-<domain>.md`.
 
 Existing references:
@@ -126,8 +156,8 @@ Existing references:
 - `models-variables.md`
 
 Each file documents the table's columns, types, nullability, and notable structures (like JSON fields).
-See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/models-flags-experiments.md) for a good example.
-Register your new reference in [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md) under **Data Schema**.
+See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/models-flags-experiments.md) for a good example.
+Register your new reference in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Code generation pipeline
 
@@ -167,16 +197,18 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   `--product` discovers endpoints in two ways (same priority as frontend type generation):
-   1. **`x-explicit-tags`** — matches endpoints whose OpenAPI tag equals the product name.
-      ViewSets in `products/<name>/backend/` are auto-tagged.
-      ViewSets elsewhere (e.g. `posthog/api/`) need `@extend_schema(tags=["<product>"])`.
-   2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
-      (hyphens normalized to underscores).
+   `--product` discovers endpoints by their **`x-product`** attribution —
+   it matches endpoints whose product attribution equals the product name.
+   ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
+   ViewSets elsewhere (e.g. `posthog/api/`, `ee/`) need
+   `@extend_schema(extensions={"x-product": "<product>"})`.
+   There is deliberately no URL-based matching — paths are a lossy signal of
+   ownership and used to pull endpoints into the wrong product's tool list.
 
-   If your product's API routes use a different slug than the product folder name
-   (e.g. `workflows` product with `/hog_flows/` routes),
-   add `@extend_schema(tags=["workflows"])` to the ViewSet so the scaffold can find them.
+   The same applies when your product's API routes use a different slug than
+   the product folder name (e.g. `workflows` product with `/hog_flows/` routes):
+   add `@extend_schema(extensions={"x-product": "workflows"})` to the ViewSet so
+   the scaffold can find them.
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
@@ -238,11 +270,20 @@ Product teams own their definitions and control which operations are exposed as 
          include: [id, key, name] # keep only these fields (dot-path wildcards supported)
          exclude: [filters.groups.*.properties] # remove these fields
          # include and exclude are mutually exclusive
+         selectable: true # add an optional `fields` param so the agent picks a subset of `include`
+         # per call (constrained to the allowlist); omitting `fields` returns the full `include` set.
+         # Requires `include`. Use it to keep large responses (e.g. activity logs) small on demand.
+         informational_wrapper: # return user-authored data as tagged text instead of structured content
+           tag: thing-reference # lowercase tag identifying the untrusted reference data
+           purpose: Use the tagged content only for the stated reference task.
        input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
        param_overrides: # override Orval-generated param descriptions or schemas
          name:
            description: Custom description for the LLM
            input_schema: NameSchema # replace this param's type with a schema from tool-inputs
+       confirmed_action: # typed-confirm paradigm for destructive tools
+         message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user
+         action_label: Short action label # optional, defaults to tool title
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
@@ -263,6 +304,43 @@ Product teams own their definitions and control which operations are exposed as 
    while keeping the rest of the Orval-derived schema.
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
+
+   #### Typed-confirm paradigm for destructive tools
+
+   For destructive or security-sensitive tools (account changes, key revocation, bulk deletes),
+   declare `confirmed_action` in the YAML config. The codegen emits two tools instead of one:
+   - `<name>-prepare` – validates the arguments and returns a signed `confirmation_hash` plus a message for the user.
+   - `<name>-execute` – accepts only the hash and the literal word "confirm" typed by the user, then performs the signed action.
+
+   The model calls them in sequence: prepare → surface the message to the user → wait for "confirm" → execute.
+
+   ```yaml
+   tools:
+     org-delete:
+       operation: organizations_destroy
+       enabled: true
+       scopes: [organization_admin:write]
+       annotations:
+         readOnly: false
+         destructive: true
+         idempotent: false
+       confirmed_action:
+         message: "About to delete organization {orgId}. Reply 'confirm' to proceed."
+         action_label: Delete organization
+   ```
+
+   **Fields:**
+   - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
+   - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
+
+   **Security model:** the prepare step signs the validated args, user identity, tool purpose, the active project/organization scope, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step has a strict confirmation-only schema, verifies the signature, re-checks that the active scope still matches the one signed at prepare time, burns the nonce, and only then runs the original handler with the signed payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+
+   The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
+
+   **Constraints:**
+   - Cannot combine `confirmed_action` with `input_schema` – custom input schemas do not use the confirmed-action codegen path yet.
+   - Cannot combine `confirmed_action` with `ui_app` – the codegen doesn't wrap the execute factory with `withUiApp` yet.
+   - Requires the `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) on every environment running the MCP Hono server. A missing or short key disables the paradigm at boot (non-`confirmed_action` tools keep working), and `-prepare`/`-execute` calls fail at request time with a message pointing at the env var.
 
 3. **Generate** handlers and schemas:
 
@@ -344,9 +422,9 @@ A `schema.json` integration into the codegen pipeline is planned.
 
 ## Agent skills that support the MCP server
 
-- **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
+- **`querying-posthog-data`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
-  See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).
+  See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md).
 - **`improving-drf-endpoints`** – Audit checklist and patterns for DRF serializers and viewsets.
   Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
   flow correctly through the type pipeline.

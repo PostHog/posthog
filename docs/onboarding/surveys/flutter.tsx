@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getFlutterSteps } from '../product-analytics/flutter'
 import { StepDefinition } from '../steps'
@@ -58,8 +58,9 @@ function getSurveysFlutterSteps(ctx: OnboardingComponentsContext): StepDefinitio
                         ]}
                     />
                     <Markdown>
-                        If you&apos;re using go_router, check [this page](/docs/surveys/installation/flutter) to learn
-                        how to set up the PosthogObserver.
+                        {dedent`
+                            If you're using go_router, check [this page](https://posthog.com/docs/surveys/installation/flutter) to learn how to set up the PosthogObserver.
+                        `}
                     </Markdown>
                 </>
             ),

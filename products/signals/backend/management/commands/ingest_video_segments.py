@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 import yaml
 import numpy as np
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
 
@@ -69,7 +69,7 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN - no records will be ingested"))
 
-        producer = KafkaProducer()
+        producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_TOPIC)
         ingested_count = 0
         skipped_count = 0
 

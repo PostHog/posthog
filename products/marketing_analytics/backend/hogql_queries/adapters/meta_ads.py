@@ -4,12 +4,7 @@ from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 
-from ..constants import (
-    INTEGRATION_DEFAULT_SOURCES,
-    INTEGRATION_FIELD_NAMES,
-    INTEGRATION_PRIMARY_SOURCE,
-    META_CONVERSION_ACTION_TYPES,
-)
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_PRIMARY_SOURCE, META_CONVERSION_ACTION_TYPES
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
 # Use centralized conversion action types from constants
@@ -23,11 +18,32 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     """
     Adapter for Meta Ads native marketing data.
     Expects config with:
-    - campaign_table: DataWarehouse table with campaign data
-    - stats_table: DataWarehouse table with campaign stats
+    - campaign_table + stats_table: always required
+    - adset_table + adset_stats_table: optional; needed for AD_GROUP drill-down
+    - ad_table + ad_stats_table: optional; needed for AD drill-down
+
+    All FROM/JOIN/WHERE/GROUP BY plumbing comes from MarketingSourceAdapter — this
+    adapter only customizes the cost/conversion field expressions (Meta encodes
+    conversions as JSON arrays in `actions` / `action_values`).
     """
 
     _source_type = NativeMarketingSource.META_ADS
+
+    # Hierarchy column metadata — Meta uses "id" / "name" on entity tables and
+    # "<entity>_id" on stats tables.
+    _stats_date_column = "date_stop"
+    _campaign_pk_column = "id"
+    _campaign_name_column = "name"
+    _campaign_stats_fk_column = "campaign_id"
+    _adset_pk_column = "id"
+    _adset_name_column = "name"
+    _adset_campaign_fk_column = "campaign_id"
+    _adset_stats_fk_column = "adset_id"
+    _ad_pk_column = "id"
+    _ad_name_column = "name"
+    _ad_adset_fk_column = "adset_id"
+    _ad_campaign_fk_column = "campaign_id"
+    _ad_stats_fk_column = "ad_id"
 
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
@@ -61,19 +77,8 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             self.logger.exception("Meta Ads validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
 
-    def _get_campaign_name_field(self) -> ast.Expr:
-        campaign_table_name = self.config.campaign_table.name
-        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
-
-    def _get_campaign_id_field(self) -> ast.Expr:
-        campaign_table_name = self.config.campaign_table.name
-        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
-        field_expr = ast.Field(chain=[campaign_table_name, field_name])
-        return ast.Call(name="toString", args=[field_expr])
-
     def _get_impressions_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
+        stats_table_name = self._level_tables().stats_table.name
         field_as_float = ast.Call(
             name="ifNull",
             args=[
@@ -85,7 +90,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
+        stats_table_name = self._level_tables().stats_table.name
         field_as_float = ast.Call(
             name="ifNull",
             args=[
@@ -97,18 +102,19 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
+        # Meta's campaign / adset / ad stats schemas all expose `account_currency` (see
+        # meta_ads/schemas.py), so conversion applies at every drill-down level. The
+        # uncoverted fallback only fires for stale tables predating the schema field.
+        stats_table = self._level_tables().stats_table
+        stats_table_name = stats_table.name
 
-        # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
         spend_float = ast.Call(
             name="ifNull",
             args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
         )
 
-        converted = self._apply_currency_conversion(
-            self.config.stats_table, stats_table_name, "account_currency", spend_float
-        )
+        converted = self._apply_currency_conversion(stats_table, stats_table_name, "account_currency", spend_float)
         if converted:
             return ast.Call(name="SUM", args=[converted])
 
@@ -165,114 +171,56 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
         Returns 0 if the column doesn't exist in the table.
         """
-        stats_table_name = self.config.stats_table.name
+        stats_table = self._level_tables().stats_table
+        stats_table_name = stats_table.name
 
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and column_name in columns:
-                field = ast.Field(chain=[stats_table_name, column_name])
-                field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
+        if not self._table_has_column(stats_table, column_name):
+            return ast.Constant(value=0)
 
-                omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
-                fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
-                specific_sum = self._build_array_sum_for_action_types(field_non_null, META_SPECIFIC_ACTION_TYPES)
+        field = ast.Field(chain=[stats_table_name, column_name])
+        field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
 
-                # 3-tier priority: omni > aggregated > specific
-                # if omni > 0 then omni
-                # else if aggregated > 0 then aggregated
-                # else specific
-                array_sum = ast.Call(
+        omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
+        fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
+        specific_sum = self._build_array_sum_for_action_types(field_non_null, META_SPECIFIC_ACTION_TYPES)
+
+        # 3-tier priority: omni > aggregated > specific
+        # if omni > 0 then omni
+        # else if aggregated > 0 then aggregated
+        # else specific
+        array_sum = ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(
+                    left=omni_sum,
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value=0),
+                ),
+                omni_sum,
+                ast.Call(
                     name="if",
                     args=[
                         ast.CompareOperation(
-                            left=omni_sum,
+                            left=fallback_sum,
                             op=ast.CompareOperationOp.Gt,
                             right=ast.Constant(value=0),
                         ),
-                        omni_sum,
-                        ast.Call(
-                            name="if",
-                            args=[
-                                ast.CompareOperation(
-                                    left=fallback_sum,
-                                    op=ast.CompareOperationOp.Gt,
-                                    right=ast.Constant(value=0),
-                                ),
-                                fallback_sum,
-                                specific_sum,
-                            ],
-                        ),
+                        fallback_sum,
+                        specific_sum,
                     ],
-                )
+                ),
+            ],
+        )
 
-                if apply_currency:
-                    converted = self._apply_currency_conversion(
-                        self.config.stats_table, stats_table_name, "account_currency", array_sum
-                    )
-                    if converted:
-                        return ast.Call(name="SUM", args=[converted])
+        if apply_currency:
+            converted = self._apply_currency_conversion(stats_table, stats_table_name, "account_currency", array_sum)
+            if converted:
+                return ast.Call(name="SUM", args=[converted])
 
-                return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        return ast.Constant(value=0)
+        return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         return self._build_actions_conversion_sum("actions")
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         return self._build_actions_conversion_sum("action_values", apply_currency=True)
-
-    def _get_from(self) -> ast.JoinExpr:
-        """Build FROM and JOIN clauses"""
-        campaign_table_name = self.config.campaign_table.name
-        stats_table_name = self.config.stats_table.name
-
-        # Create base table
-        campaign_table = ast.Field(chain=[campaign_table_name])
-
-        # Create joined table with join condition
-        stats_table = ast.Field(chain=[stats_table_name])
-
-        # Build join condition: campaign_table.campaign_id = stats_table.campaign_id
-        left_field = ast.Field(chain=[campaign_table_name, "id"])
-        right_field = ast.Field(chain=[stats_table_name, "campaign_id"])
-        join_condition_expr = ast.CompareOperation(left=left_field, op=ast.CompareOperationOp.Eq, right=right_field)
-
-        # Create JoinConstraint
-        join_constraint = ast.JoinConstraint(expr=join_condition_expr, constraint_type="ON")
-
-        # Create LEFT JOIN
-        join_expr = ast.JoinExpr(
-            table=campaign_table,
-            next_join=ast.JoinExpr(table=stats_table, join_type="LEFT JOIN", constraint=join_constraint),
-        )
-
-        return join_expr
-
-    def _get_where_conditions(self) -> list[ast.Expr]:
-        """Build WHERE conditions"""
-        conditions: list[ast.Expr] = []
-
-        # Add date range conditions
-        if self.context.date_range:
-            stats_table_name = self.config.stats_table.name
-
-            # Build for date field
-            date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, "date_stop"])])
-
-            # >= condition
-            from_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)])
-            gte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.GtEq, right=from_date)
-
-            # <= condition
-            to_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
-            lte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.LtEq, right=to_date)
-
-            conditions.extend([gte_condition, lte_condition])
-
-        return conditions
-
-    def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions - group by both name and ID"""
-        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

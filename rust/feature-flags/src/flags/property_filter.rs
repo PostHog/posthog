@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::FeatureFlagId;
-use crate::properties::property_matching::{to_string_representation, REGEX_BACKTRACK_LIMIT};
+use crate::properties::property_matching::{
+    lookup_key_for, to_string_representation, REGEX_BACKTRACK_LIMIT,
+};
 use crate::properties::property_models::{
     CompiledRegex, OperatorType, PropertyFilter, PropertyType,
 };
@@ -16,15 +18,17 @@ impl PropertyFilter {
     }
 
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
-    /// or if the value cannot be parsed as a cohort id
+    /// or if the value cannot be parsed as a cohort id.
+    /// Handles both JSON number and string representations (Python serializes both).
     pub fn get_cohort_id(&self) -> Option<CohortId> {
         if !self.is_cohort() {
             return None;
         }
-        self.value
-            .as_ref()
-            .and_then(|value| value.as_i64())
-            .map(|id| id as CohortId)
+        self.value.as_ref().and_then(|value| match value {
+            Value::Number(n) => n.as_i64().and_then(|id| CohortId::try_from(id).ok()),
+            Value::String(s) => s.parse::<CohortId>().ok(),
+            _ => None,
+        })
     }
 
     /// Checks if the filter depends on a feature flag
@@ -43,9 +47,17 @@ impl PropertyFilter {
 
     /// Returns true if the filter requires DB properties to be evaluated.
     ///
-    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
+    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters.
+    ///
+    /// Uses `lookup_key_for` rather than the raw `self.key` so PersonMetadata filters check the
+    /// sentinel-prefixed key (e.g. `__posthog_person_metadata__created_at`). Without this, an SDK
+    /// caller sending a raw `created_at` in `person_properties` overrides would make this return
+    /// `false`, skip the DB fetch, and let the filter fall through to operator defaults — silently
+    /// bypassing the real persons-table value.
     pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
-        !self.is_cohort() && !self.depends_on_feature_flag() && !overrides.contains_key(&self.key)
+        !self.is_cohort()
+            && !self.depends_on_feature_flag()
+            && !overrides.contains_key(lookup_key_for(self).as_ref())
     }
 
     /// Pre-compiles the regex pattern for Regex/NotRegex operators.
@@ -107,6 +119,28 @@ mod tests {
     }
 
     #[test]
+    fn test_person_metadata_requires_db_when_only_raw_key_overridden() {
+        use crate::properties::property_matching::person_metadata_key;
+
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "created_at".mock_into(), prop_type: PropertyType::PersonMetadata, operator: Some(OperatorType::IsDateAfter));
+
+        // A raw `created_at` override (e.g. an SDK caller setting person_properties.created_at)
+        // must NOT satisfy the check — the persons-table value is still required from the DB.
+        let raw = HashMap::from([(
+            "created_at".to_string(),
+            Value::String("2024-01-01".to_string()),
+        )]);
+        assert!(filter.requires_db_property(&raw));
+
+        // Only the sentinel-prefixed key (which the matcher actually reads) satisfies the check.
+        let sentinel = HashMap::from([(
+            person_metadata_key("created_at"),
+            Value::String("2024-01-01".to_string()),
+        )]);
+        assert!(!filter.requires_db_property(&sentinel));
+    }
+
+    #[test]
     fn test_filter_does_not_require_db_property_if_cohort_or_flag_filter() {
         // Cohort filter.
         let filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
@@ -136,6 +170,11 @@ mod tests {
         // Non-cohort filter should return None
         let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_cohort_id(), None);
+
+        // Cohort filter with string-encoded numeric value should return the id
+        let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
+        filter.value = Some(Value::String("123".to_string()));
+        assert_eq!(filter.get_cohort_id(), Some(123));
 
         // Cohort filter with non-numeric value should return None
         let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
@@ -176,6 +215,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(filter.compiled_regex.is_none());
@@ -196,6 +236,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -215,6 +256,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -235,13 +277,17 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         regex_filter.prepare_regex();
         assert!(matches!(
             regex_filter.compiled_regex,
             Some(CompiledRegex::InvalidPattern)
         ));
-        assert_eq!(match_property(&regex_filter, &props, false), Ok(false));
+        assert_eq!(
+            match_property(&regex_filter, &props, false, chrono_tz::Tz::UTC),
+            Ok(false)
+        );
 
         let mut not_regex_filter = PropertyFilter {
             key: "email".to_string(),
@@ -251,6 +297,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         not_regex_filter.prepare_regex();
         assert!(matches!(
@@ -260,7 +307,10 @@ mod tests {
         // InvalidPattern returns Ok(false) for NotRegex too — matches existing
         // on-the-fly behavior where a failed compilation returns Ok(false)
         // regardless of operator.
-        assert_eq!(match_property(&not_regex_filter, &props, false), Ok(false));
+        assert_eq!(
+            match_property(&not_regex_filter, &props, false, chrono_tz::Tz::UTC),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -273,6 +323,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -291,6 +342,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -332,12 +384,13 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
-        let result_raw = match_property(&filter_raw, &props, false);
+        let result_raw = match_property(&filter_raw, &props, false, chrono_tz::Tz::UTC);
 
         let mut filter_compiled = filter_raw.clone();
         filter_compiled.prepare_regex();
-        let result_compiled = match_property(&filter_compiled, &props, false);
+        let result_compiled = match_property(&filter_compiled, &props, false, chrono_tz::Tz::UTC);
 
         assert_eq!(result_raw, result_compiled);
         assert_eq!(result_compiled, expected);

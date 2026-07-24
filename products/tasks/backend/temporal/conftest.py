@@ -8,8 +8,8 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -29,8 +29,17 @@ def activity_environment():
 
 
 @pytest.fixture(autouse=True)
-def posthog_code_oauth_app():
-    """Create the Array OAuth application for tests."""
+def posthog_code_oauth_app(request):
+    """Create the Array OAuth application for DB-backed tests.
+
+    Skipped for tests without a `django_db` marker — those can't touch the
+    ORM, so seeding the OAuth row would just raise.
+    """
+    has_db = "django_db" in {m.name for m in request.node.iter_markers()}
+    if not has_db:
+        yield None
+        return
+
     if not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(
@@ -152,6 +161,7 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         github_integration_id=test_task.github_integration_id,
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
+        task_created_by_id=test_task.created_by_id,
     )
 
 

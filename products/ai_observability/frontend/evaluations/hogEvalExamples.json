@@ -1,0 +1,72 @@
+[
+    {
+        "key": "quickstart",
+        "label": "Quickstart",
+        "source": "// Globals: evaluation_events (one generation event, or every event in a trace) and target\nprint(concat('Evaluating ', target.type, ' ', target.id))\n\nfor (let i, item in evaluation_events) {\n    print(concat('Event ', toString(i), ': ', item.event))\n    if (length(item.input_text) > 0) {\n        print(concat('Input: ', substring(item.input_text, 1, 100)))\n    }\n    if (length(item.output_text) > 0) {\n        print(concat('Output: ', substring(item.output_text, 1, 100)))\n    }\n    if (item.properties.$ai_model != null) {\n        print(concat('Model: ', item.properties.$ai_model))\n    }\n}\n\n// Return true (pass) or false (fail)\nreturn true"
+    },
+    {
+        "key": "output_not_empty",
+        "label": "Output not empty",
+        "source": "// Require every generation to have a non-empty output\nlet generation_count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        if (length(trim(item.output_text)) == 0) {\n            print(concat('Generation ', item.uuid, ' has empty output'))\n            return false\n        }\n    }\n}\nif (generation_count == 0) {\n    print('No generation events found')\n    return false\n}\nreturn true"
+    },
+    {
+        "key": "min_output_length",
+        "label": "Min output length",
+        "source": "// Require every generation output to be at least 100 characters\nlet generation_count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        if (length(item.output_text) < 100) {\n            print('Output too short:', length(item.output_text), 'chars')\n            return false\n        }\n    }\n}\nif (generation_count == 0) {\n    print('No generation events found')\n    return false\n}\nreturn true"
+    },
+    {
+        "key": "contains_keywords",
+        "label": "Contains keywords",
+        "source": "// Require each keyword to appear in at least one generation output\nlet keywords := ['hello', 'world']\nlet missing := []\nfor (let i, keyword in keywords) {\n    let found := false\n    for (let j, item in evaluation_events) {\n        if (item.event == '$ai_generation' and item.output_text ilike concat('%', keyword, '%')) {\n            found := true\n        }\n    }\n    if (not found) {\n        missing := arrayPushBack(missing, keyword)\n    }\n}\nif (length(missing) > 0) {\n    print('Missing keywords:', missing)\n    return false\n}\nreturn true"
+    },
+    {
+        "key": "print_messages",
+        "label": "Print messages",
+        "source": "// Print a preview of every event's input and output, then pass\nfor (let i, item in evaluation_events) {\n    print(concat('Event ', toString(i), ' input: ', substring(item.input_text, 1, 100)))\n    print(concat('Event ', toString(i), ' output: ', substring(item.output_text, 1, 100)))\n}\nreturn true"
+    },
+    {
+        "key": "conversation_length",
+        "label": "Conversation length",
+        "source": "// Require each generation conversation to contain at most 10 messages\nlet max_messages := 10\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        let messages := item.input\n        if (startsWith(trim(messages), '[')) {\n            if (isValidJSON(messages)) {\n                messages := jsonParse(messages)\n            } else {\n                print(concat('Could not parse input for generation ', item.uuid))\n            }\n        }\n        if (typeof(messages) == 'array') {\n            let message_count := length(messages)\n            print(concat(toString(message_count), ' messages in conversation'))\n            if (message_count > max_messages) {\n                print(concat('Exceeds limit of ', toString(max_messages), ' messages'))\n                return false\n            }\n        }\n    }\n}\nreturn true"
+    },
+    {
+        "key": "error_detection",
+        "label": "Error detection",
+        "source": "// Detect captured errors and common error patterns in event outputs\nlet patterns := ['error', 'exception', 'traceback', 'failed', 'fatal', 'panic']\nfor (let i, item in evaluation_events) {\n    let is_error := toString(ifNull(item.properties.$ai_is_error, false)) == 'true'\n    if (is_error or item.properties.$ai_error != null) {\n        print(concat('Event ', item.uuid, ' is marked as errored'))\n        return false\n    }\n    for (let j, pattern in patterns) {\n        if (item.output_text ilike concat('%', pattern, '%')) {\n            print(concat('Found \"', pattern, '\" in event ', item.uuid))\n            return false\n        }\n    }\n}\nreturn true"
+    },
+    {
+        "key": "output_quality",
+        "label": "Output quality",
+        "source": "// Require every generation output to contain 50 to 10,000 characters\nlet generation_count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        let output_length := length(item.output_text)\n        if (output_length < 50) {\n            print('Response too short:', output_length, 'chars')\n            return false\n        }\n        if (output_length > 10000) {\n            print('Response suspiciously long:', output_length, 'chars')\n            return false\n        }\n    }\n}\nif (generation_count == 0) {\n    print('No generation events found')\n    return false\n}\nreturn true"
+    },
+    {
+        "key": "tools_called",
+        "label": "Tools called",
+        "source": "// Require each tool to be called at least once\nlet expected := ['get_weather', 'get_news']\nlet missing := []\nfor (let i, tool in expected) {\n    let found := false\n    for (let j, item in evaluation_events) {\n        let tools_called := splitByString(',', toString(ifNull(item.properties.$ai_tools_called, '')))\n        if (has(tools_called, tool)) {\n            found := true\n        }\n    }\n    if (not found) {\n        missing := arrayPushBack(missing, tool)\n    }\n}\nif (length(missing) > 0) {\n    print('Missing:', missing)\n    return false\n}\nreturn true"
+    },
+    {
+        "key": "regex_safety_checks",
+        "label": "Regex safety checks",
+        "source": "// Run regex safety checks against every event output\nlet checks := [\n    ['No emails', '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],\n    ['No URLs', 'https?://[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],\n    ['No phone numbers', '[0-9]{3}[-. ][0-9]{3}[-. ][0-9]{4}'],\n    ['No credit cards', '[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}']\n]\nlet failed := []\nfor (let i, item in evaluation_events) {\n    for (let j, check in checks) {\n        if (item.output_text =~ check.2 and not has(failed, check.1)) {\n            failed := arrayPushBack(failed, check.1)\n            print(concat(check.1, ' matched event ', item.uuid))\n        }\n    }\n}\nif (length(failed) > 0) {\n    print(concat('Failed ', toString(length(failed)), ' of ', toString(length(checks)), ' checks'))\n    return false\n}\nprint('All', length(checks), 'checks passed')\nreturn true"
+    },
+    {
+        "key": "cost_latency",
+        "label": "Cost & latency guard",
+        "source": "// Check aggregate cost and latency for the generation or trace\nlet max_cost := 0.05\nlet max_latency := 10\n\nlet cost := ifNull(target.total_cost_usd, 0)\nlet latency := ifNull(target.total_latency_seconds, 0)\n\nif (cost > max_cost) {\n    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))\n    return false\n}\nif (latency > max_latency) {\n    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))\n    return false\n}\nprint(concat('OK - cost: $', toString(cost), ', latency: ', toString(latency), 's'))\nreturn true"
+    },
+    {
+        "key": "refusal_detection",
+        "label": "Refusal detection",
+        "source": "// Detect refusal phrases in any generation output\nlet phrases := [\n    'I cannot', 'I can\\'t', 'I\\'m unable',\n    'I am unable', 'I\\'m sorry, but I',\n    'I must decline', 'I\\'m not able'\n]\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        for (let j, phrase in phrases) {\n            if (item.output_text ilike concat('%', phrase, '%')) {\n                print(concat('Refusal detected: \"', phrase, '\"'))\n                return false\n            }\n        }\n    }\n}\nreturn true"
+    },
+    {
+        "key": "na_guard",
+        "label": "N/A guard",
+        "source": "// Return N/A when a generation has no model\n// (requires \"Allow N/A responses\" to be enabled)\nlet allowed := ['gpt-4', 'gpt-4o', 'claude-sonnet-4-20250514']\nlet generation_count := 0\nlet model_missing := false\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        let model := item.properties.$ai_model\n        if (model == null) {\n            model_missing := true\n        } else if (not has(allowed, model)) {\n            print(concat('Model ', model, ' is not in the allowed list'))\n            return false\n        }\n    }\n}\nif (generation_count == 0 or model_missing) {\n    print('No model set - not applicable')\n    return null\n}\nreturn true"
+    },
+    {
+        "key": "input_relevance",
+        "label": "Input relevance",
+        "source": "// Check that key terms from each generation input appear in its output\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        let words := splitByString(' ', item.input_text)\n        let key_terms := []\n        for (let j, word in words) {\n            if (length(word) >= 5) {\n                key_terms := arrayPushBack(key_terms, word)\n            }\n        }\n        if (length(key_terms) > 0) {\n            let found := 0\n            for (let j, term in key_terms) {\n                if (item.output_text ilike concat('%', term, '%')) {\n                    found := found + 1\n                }\n            }\n            let ratio := found / length(key_terms)\n            print(concat(toString(found), '/', toString(length(key_terms)), ' key terms found'))\n            if (ratio < 0.3) {\n                print('Output may not be relevant to the input')\n                return false\n            }\n        }\n    }\n}\nreturn true"
+    }
+]

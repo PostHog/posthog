@@ -1,0 +1,172 @@
+import { useActions, useValues } from 'kea'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { appLogic } from 'scenes/appLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { formatCredits } from '../utils/credits'
+import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
+import { ScannerDigestCard } from './components/ScannerDigestCard'
+import { ScannerObservationsTable } from './components/ScannerObservationsTable'
+import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerQualityTab } from './components/ScannerQualityTab'
+import { ScannerRunTab } from './components/ScannerRunTab'
+import { VisionActionsTab } from './components/VisionActionsTab'
+import { replayScannerLogic } from './replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+
+export const scene: SceneExport = {
+    component: ReplayScannerSceneComponent,
+    logic: replayScannerSceneLogic,
+    productKey: ProductKey.REPLAY_VISION,
+}
+
+export function ReplayScannerSceneComponent(): JSX.Element {
+    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
+    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
+
+    const scannerLogic = replayScannerLogic({ id: scannerId })
+    useAttachedLogic(scannerLogic, replayScannerSceneLogic)
+
+    const { scanner, scannerLoading } = useValues(scannerLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
+        return <NotFound object="page" />
+    }
+
+    if (scannerLoading || !scanner) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
+            </SceneContent>
+        )
+    }
+
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={scanner.name || 'Untitled scanner'}
+                description={scanner.description}
+                resourceType={{ type: 'replay_vision' }}
+                actions={
+                    <>
+                        {activeTab !== ReplayScannerTab.Quality && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconSparkles />}
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Quality)}
+                                data-attr="replay-vision-open-quality-tab"
+                            >
+                                Improve scanner
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.replayVisionScannerConfigure(scannerId)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                            data-attr="vision-scanner-edit"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                        >
+                            Edit scanner
+                        </LemonButton>
+                        <ReplayVisionFeedbackButton />
+                    </>
+                }
+            />
+
+            <IngestionLimitBanner />
+            <QuotaBanner />
+
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                data-attr="vision-scanner-tabs"
+                tabs={[
+                    {
+                        key: ReplayScannerTab.Observations,
+                        label: 'Observations',
+                        content: (
+                            <div className="flex flex-col gap-6">
+                                {actionsTabEnabled && (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
+                                <ScannerOverview scannerId={scannerId} />
+                                <ScannerObservationsTable scannerId={scannerId} />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: ReplayScannerTab.OnDemand,
+                        label: 'On-demand',
+                        content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Configuration,
+                        label: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Quality,
+                        label: 'Quality',
+                        content: <ScannerQualityTab scannerId={scannerId} />,
+                    },
+                    actionsTabEnabled && {
+                        key: ReplayScannerTab.Actions,
+                        label: 'Summaries and alerts',
+                        content: (
+                            <VisionActionsTab
+                                scannerId={scannerId}
+                                scannerUserAccessLevel={scanner.user_access_level}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        </SceneContent>
+    )
+}
+
+// Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
+function QuotaBanner(): JSX.Element | null {
+    const { quota } = useValues(visionQuotaLogic)
+    const state = quotaBannerState(quota)
+    if (!state.kind) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning">
+            {state.kind === 'exhausted'
+                ? `Monthly spend limit reached (${formatCredits(state.quota.credits_used)} of ${formatCredits(state.quota.credit_limit ?? 0)}). New observations are paused until ${state.resetsOn}.`
+                : `${formatCredits(state.quota.credits_used)} of your ${formatCredits(state.quota.credit_limit ?? 0)} monthly spend limit used. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+        </LemonBanner>
+    )
+}
+
+export default ReplayScannerSceneComponent

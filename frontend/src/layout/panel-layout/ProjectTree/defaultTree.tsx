@@ -9,6 +9,7 @@ import {
     IconClock,
     IconCode,
     IconEndpoints,
+    IconEye,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -19,17 +20,17 @@ import {
     IconFlask,
     IconFolder,
     IconFolderOpen,
-    IconFunnels,
     IconGear,
     IconGraph,
-    IconHogQL,
     IconHome,
-    IconLifecycle,
+    IconList,
     IconListCheck,
     IconListTree,
     IconLive,
+    IconAIGateway,
     IconLlmAnalytics,
     IconLlmPromptManagement,
+    IconMCP,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -40,8 +41,8 @@ import {
     IconPlay,
     IconPlaylist,
     IconPlug,
+    IconPullRequest,
     IconReceipt,
-    IconRetention,
     IconRewindPlay,
     IconRocket,
     IconScatter,
@@ -49,17 +50,24 @@ import {
     IconServer,
     IconSpotlight,
     IconStethoscope,
-    IconStickiness,
     IconSupport,
     IconToggle,
     IconToggleOff,
     IconToolbar,
-    IconTrends,
     IconUser,
-    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 
+import {
+    IconBracketsChart,
+    IconInsightFunnels,
+    IconInsightLifecycle,
+    IconInsightRetention,
+    IconInsightStickiness,
+    IconInsightTrends,
+    IconInsightUserPaths,
+    IconStamphog,
+} from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -83,6 +91,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    ai_gateway: {
+        icon: <IconAIGateway />,
+        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -130,6 +142,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     session_replay: {
         icon: <IconRewindPlay />,
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
+    },
+    replay_vision: {
+        icon: <IconEye />,
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     survey: {
@@ -242,39 +258,34 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
+    // The IconInsight* glyphs carry their own multi-color palette (--insight-icon-*);
+    // structural parts follow currentColor, so no iconColor override here.
     'insight/funnels': {
-        icon: <IconFunnels />,
-        iconColor: ['var(--color-insight-funnel-light)'],
+        icon: <IconInsightFunnels />,
     },
     'insight/trends': {
-        icon: <IconTrends />,
-        iconColor: ['var(--color-insight-trends-light)'],
+        icon: <IconInsightTrends />,
     },
     'insight/retention': {
-        icon: <IconRetention />,
-        iconColor: ['var(--color-insight-retention-light)'],
+        icon: <IconInsightRetention />,
     },
     'insight/paths': {
-        icon: <IconUserPaths />,
-        iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
+        icon: <IconInsightUserPaths />,
     },
     'insight/lifecycle': {
-        icon: <IconLifecycle />,
-        iconColor: ['var(--color-insight-lifecycle-light)'],
+        icon: <IconInsightLifecycle />,
     },
     'insight/stickiness': {
-        icon: <IconStickiness />,
-        iconColor: ['var(--color-insight-stickiness-light)'],
+        icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconHogQL />,
-        iconColor: ['var(--color-insight-sql-light)'],
+        icon: <IconBracketsChart />,
     },
     team_activity: {
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    apps: {
+    tools: {
         icon: <IconApps />,
     },
     live: {
@@ -308,7 +319,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     inbox: {
         icon: <IconNotification />,
     },
-    sdk_doctor: {
+    sdk_health: {
         icon: <IconCode />,
     },
     pipeline_status: {
@@ -317,6 +328,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_evaluations: {
         icon: <IconListCheck />,
         iconColor: ['var(--color-product-llm-evaluations-light)'],
+    },
+    llm_tags: {
+        icon: <IconList />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     llm_datasets: {
         icon: <IconDocument />,
@@ -334,8 +349,18 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
+    mcp_analytics: {
+        icon: <IconMCP />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
     visual_review: {
         icon: <IconApp />,
+    },
+    code_review: {
+        icon: <IconPullRequest />,
+    },
+    stamphog: {
+        icon: <IconStamphog />,
     },
     exports: {
         icon: <IconDownload />,

@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -26,6 +28,8 @@ import {
     defaultSurveyTemplates,
 } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
+
+const HedgehogReporter = pngHoggie(reporterPng)
 
 const TEMPLATE_TYPES = [SurveyTemplateType.NPS, SurveyTemplateType.CSAT, SurveyTemplateType.PMF]
 
@@ -91,6 +95,8 @@ function SurveysEmptyStateContent(): JSX.Element {
                                 scratch.
                             </p>
                         </div>
+
+                        <MCPUseCaseCard surfaceKey="surveys.create" className="!mt-0 w-full" />
 
                         {featuredTemplate && (
                             <div>
@@ -168,12 +174,14 @@ function SurveysEmptyStateAIContent(): JSX.Element {
     return (
         <div className="w-full max-w-5xl mx-auto py-10 px-4">
             <div className="text-center mb-6">
-                <MicrophoneHog className="size-20 mx-auto -mb-1" />
+                <HedgehogReporter className="size-20 mx-auto -mb-1" />
                 <h2 className="text-2xl font-bold mb-1">Create your first survey</h2>
                 <p className="text-secondary text-sm mb-0">
                     Tell AI what you want to learn from your users, or pick a template below.
                 </p>
             </div>
+
+            <MCPUseCaseCard surfaceKey="surveys.create" className="!mt-0 w-full mb-6" />
 
             <div className="rounded-xl border-2 border-[var(--color-ai)] mb-8">
                 <label

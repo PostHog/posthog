@@ -29,6 +29,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowResult,
 )
 
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
+
 MAX_CONCURRENT_CHILDREN = 10
 
 
@@ -194,14 +196,15 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
-        # preempt any previous run of this DAG that is still in progress
+        # NOTE: this should be handled by temporal's cancellation policy but
+        # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
             preempt_dag_run_activity,
             PreemptDAGRunInputs(
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,
             ),
@@ -224,7 +227,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,
             ),
@@ -264,6 +267,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         node_results: list[NodeResult] = []
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
+        serving_engine = (
+            DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+        ).value
+        suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
@@ -277,14 +284,21 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             execute_nodes = []
             skip_nodes = []
             ephemeral_nodes = []
+            # failed_node_set only grows between levels, so the blocked set is stable within one
+            blocked_node_set = failed_node_set | suspended_node_set
             for node_id in level:
                 should_skip = False
                 skip_reason = None
-                for failed_id in failed_node_set:
-                    if node_id in downstreams[failed_id]:
-                        should_skip = True
-                        skip_reason = f"Upstream node {failed_id} failed"
-                        break
+                if node_id in suspended_node_set:
+                    should_skip = True
+                    skip_reason = "Node suspended after repeated materialization failures"
+                else:
+                    for blocked_id in blocked_node_set:
+                        if node_id in downstreams[blocked_id]:
+                            should_skip = True
+                            verb = "suspended" if blocked_id in suspended_node_set else "failed"
+                            skip_reason = f"Upstream node {blocked_id} {verb}"
+                            break
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
                 elif node_id in ephemeral_node_set:

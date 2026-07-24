@@ -22,6 +22,6 @@ class ActionVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from posthog.models import Action
+        from products.actions.backend.models.action import Action
 
         return Action

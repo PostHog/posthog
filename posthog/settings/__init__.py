@@ -22,9 +22,12 @@ from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
 from posthog.settings.activity_log import *
+from posthog.settings.agents import *
 from posthog.settings.async_migrations import *
 from posthog.settings.batch_exports import *
 from posthog.settings.celery import *
+from posthog.settings.cohorts import *
+from posthog.settings.kafka import *
 from posthog.settings.data_stores import *
 from posthog.settings.dagster import *
 from posthog.settings.demo import *
@@ -42,12 +45,15 @@ from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
+from posthog.settings.managed_migrations import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
 from posthog.settings.personhog import *
 from posthog.settings.ses import *
+from posthog.settings.email import *
+from posthog.settings.exports import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -68,6 +74,16 @@ INSTANCE_PREFERENCES = {
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
 NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
+
+# Local dev only (DEBUG): force this email when resolving Slack users instead of
+# hitting Slack's users.info API, so it matches the seeded fixture user. Set it
+# empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
+SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
+
+# Vapi voice-AI integration (used by user_interviews to host public interview pages).
+VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
+VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
+VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -101,6 +117,12 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
+
+# Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
+# enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
+EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
+    "EVENTS_DATA_RETENTION_ENFORCED", optional=True, type_cast=str_to_bool
+)
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED: bool = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)

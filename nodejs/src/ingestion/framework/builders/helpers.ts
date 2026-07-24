@@ -1,0 +1,75 @@
+import {
+    AfterBatchInput,
+    AfterBatchOutput,
+    BatchingContext,
+    BatchingPipeline,
+    BatchingPipelineOptions,
+    BeforeBatchInput,
+    BeforeBatchOutput,
+} from '~/ingestion/framework/batching-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
+
+import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
+import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+
+export function newChunkPipelineBuilder<T, C = Record<string, never>>(): ChunkPipelineBuilder<T, T, C> {
+    return new ChunkPipelineBuilder(new BufferingChunkPipeline<T, C>())
+}
+
+export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelineBuilder<T, C> {
+    return new StartPipelineBuilder<T, C>()
+}
+
+export function newBatchingPipeline<
+    TInput,
+    TOutput,
+    CInput,
+    CBatch = NonNullable<unknown>,
+    COutput = CInput,
+    R extends string = never,
+>(
+    beforeBatch: (
+        builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
+    ) => PipelineBuilder<
+        BeforeBatchInput<TInput, CInput>,
+        BeforeBatchOutput<TInput, CInput, CBatch>,
+        Record<string, never>
+    >,
+    callback: (
+        builder: ChunkPipelineBuilder<
+            TInput & CBatch,
+            TInput & CBatch,
+            CInput & BatchingContext,
+            CInput & BatchingContext
+        >
+    ) => ChunkPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
+    afterBatch: (
+        builder: StartPipelineBuilder<
+            AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
+            Record<string, never>
+        >
+    ) => PipelineBuilder<
+        AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
+        AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch, R>,
+        Record<string, never>
+    >,
+    options?: Partial<BatchingPipelineOptions>
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
+    const startBuilder = new ChunkPipelineBuilder(
+        new BufferingChunkPipeline<TInput & CBatch, CInput & BatchingContext>()
+    )
+    const subPipeline = callback(startBuilder).build()
+
+    const beforePipeline = beforeBatch(
+        new StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>()
+    ).build()
+
+    const afterPipeline = afterBatch(
+        new StartPipelineBuilder<
+            AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
+            Record<string, never>
+        >()
+    ).build()
+
+    return new BatchingPipeline(subPipeline, beforePipeline, afterPipeline, options)
+}

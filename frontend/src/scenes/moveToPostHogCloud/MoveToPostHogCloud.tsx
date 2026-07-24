@@ -1,3 +1,4 @@
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import {
     IconBolt,
     IconDatabase,
@@ -12,8 +13,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: MoveToPostHogCloud,
@@ -119,7 +122,7 @@ export function MoveToPostHogCloud(): JSX.Element {
                     </div>
                     <aside className="my-2 hidden md:flex justify-end">
                         <div className="max-w-64">
-                            <ExperimentsHog className="w-full h-auto" />
+                            <HedgehogExperiment className="w-full h-auto" />
                         </div>
                     </aside>
                 </div>

@@ -21,11 +21,11 @@ export interface HogFunctionMappingTemplateApi {
      */
     use_all_events_by_default?: boolean | null
     /** Event filters specific to this mapping. */
-    filters?: unknown | null
+    filters?: unknown
     /** Input values specific to this mapping. */
-    inputs?: unknown | null
+    inputs?: unknown
     /** Additional input schema fields specific to this mapping. */
-    inputs_schema?: unknown | null
+    inputs_schema?: unknown
 }
 
 export interface HogFunctionTemplateApi {
@@ -70,9 +70,9 @@ export interface HogFunctionTemplateApi {
      */
     icon_url?: string | null
     /** Default event filters. */
-    filters?: unknown | null
+    filters?: unknown
     /** Default PII masking configuration. */
-    masking?: unknown | null
+    masking?: unknown
     /**
      * Pre-defined mapping configurations for destination templates.
      * @nullable
@@ -91,13 +91,13 @@ export interface PaginatedHogFunctionTemplateListApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -118,14 +118,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -145,16 +141,16 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
  * * `0` - 0
- * `1` - 1
- * `2` - 2
- * `3` - 3
- * `11` - 11
- * `12` - 12
+ * * `1` - 1
+ * * `2` - 2
+ * * `3` - 3
+ * * `11` - 11
+ * * `12` - 12
  */
 export type HogFunctionStatusStateEnumApi =
     (typeof HogFunctionStatusStateEnumApi)[keyof typeof HogFunctionStatusStateEnumApi]
@@ -173,6 +169,13 @@ export interface HogFunctionStatusApi {
     tokens: number
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface HogFunctionMinimalApi {
     readonly id: string
     /** @nullable */
@@ -185,13 +188,15 @@ export interface HogFunctionMinimalApi {
     readonly updated_at: string
     readonly enabled: boolean
     readonly hog: string
-    readonly filters: unknown | null
+    readonly filters: unknown
     /** @nullable */
     readonly icon_url: string | null
     readonly template: HogFunctionTemplateApi
     readonly status: HogFunctionStatusApi | null
     /** @nullable */
     readonly execution_order: number | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedHogFunctionMinimalListApi {
@@ -205,18 +210,19 @@ export interface PaginatedHogFunctionMinimalListApi {
 
 /**
  * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
-export type Templating186EnumApi = (typeof Templating186EnumApi)[keyof typeof Templating186EnumApi]
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
 
-export const Templating186EnumApi = {
+export const HogFunctionTemplatingEnumApi = {
     Hog: 'hog',
     Liquid: 'liquid',
 } as const
 
 export interface InputsItemApi {
     value?: unknown
-    templating?: Templating186EnumApi
+    templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
     readonly order: number
     readonly transpiled: unknown
@@ -229,12 +235,12 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
  * * `destination` - Destination
- * `site_destination` - Site Destination
- * `internal_destination` - Internal Destination
- * `source_webhook` - Source Webhook
- * `warehouse_source_webhook` - Warehouse Source Webhook
- * `site_app` - Site App
- * `transformation` - Transformation
+ * * `site_destination` - Site Destination
+ * * `internal_destination` - Internal Destination
+ * * `source_webhook` - Source Webhook
+ * * `warehouse_source_webhook` - Warehouse Source Webhook
+ * * `site_app` - Site App
+ * * `transformation` - Transformation
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -250,17 +256,22 @@ export const HogFunctionTypeEnumApi = {
 
 /**
  * * `string` - string
- * `number` - number
- * `boolean` - boolean
- * `dictionary` - dictionary
- * `choice` - choice
- * `json` - json
- * `integration` - integration
- * `integration_field` - integration_field
- * `email` - email
- * `native_email` - native_email
- * `posthog_assignee` - posthog_assignee
- * `posthog_ticket_tags` - posthog_ticket_tags
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `dictionary` - dictionary
+ * * `choice` - choice
+ * * `json` - json
+ * * `integration` - integration
+ * * `integration_multi` - integration_multi
+ * * `integration_field` - integration_field
+ * * `email` - email
+ * * `native_email` - native_email
+ * * `posthog_assignee` - posthog_assignee
+ * * `posthog_ticket_tags` - posthog_ticket_tags
+ * * `posthog_business_hours` - posthog_business_hours
+ * * `non_failure_status_codes` - non_failure_status_codes
+ * * `customer_analytics_account_properties` - customer_analytics_account_properties
+ * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -272,27 +283,16 @@ export const InputsSchemaItemTypeEnumApi = {
     Choice: 'choice',
     Json: 'json',
     Integration: 'integration',
+    IntegrationMulti: 'integration_multi',
     IntegrationField: 'integration_field',
     Email: 'email',
     NativeEmail: 'native_email',
     PosthogAssignee: 'posthog_assignee',
     PosthogTicketTags: 'posthog_ticket_tags',
-} as const
-
-/**
- * * `True` - True
- * `False` - False
- * `hog` - hog
- * `liquid` - liquid
- */
-export type InputsSchemaItemTemplatingEnumApi =
-    (typeof InputsSchemaItemTemplatingEnumApi)[keyof typeof InputsSchemaItemTemplatingEnumApi]
-
-export const InputsSchemaItemTemplatingEnumApi = {
-    True: true,
-    False: false,
-    Hog: 'hog',
-    Liquid: 'liquid',
+    PosthogBusinessHours: 'posthog_business_hours',
+    NonFailureStatusCodes: 'non_failure_status_codes',
+    CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+    CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -302,6 +302,7 @@ export interface InputsSchemaItemApi {
     key: string
     label?: string
     choices?: InputsSchemaItemApiChoicesItem[]
+    searchable?: boolean
     required?: boolean
     default?: unknown
     secret?: boolean
@@ -312,13 +313,13 @@ export interface InputsSchemaItemApi {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: InputsSchemaItemTemplatingEnumApi
+    templating?: boolean | 'hog' | 'liquid'
 }
 
 /**
  * * `events` - events
- * `person-updates` - person-updates
- * `data-warehouse-table` - data-warehouse-table
+ * * `person-updates` - person-updates
+ * * `data-warehouse-table` - data-warehouse-table
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
@@ -343,7 +344,7 @@ export interface HogFunctionFiltersApi {
     events?: HogFunctionFiltersApiEventsItem[]
     data_warehouse?: HogFunctionFiltersApiDataWarehouseItem[]
     properties?: HogFunctionFiltersApiPropertiesItem[]
-    bytecode?: unknown | null
+    bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
@@ -364,7 +365,7 @@ export interface HogFunctionMaskingApi {
     /** Hog expression used to compute the masking hash. */
     hash: string
     /** Compiled bytecode for the hash expression. Auto-generated. */
-    bytecode?: unknown | null
+    bytecode?: unknown
 }
 
 export type MappingsApiInputs = { [key: string]: InputsItemApi }
@@ -379,15 +380,15 @@ export interface MappingsApi {
 export interface HogFunctionApi {
     readonly id: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-* `destination` - Destination
-* `site_destination` - Site Destination
-* `internal_destination` - Internal Destination
-* `source_webhook` - Source Webhook
-* `warehouse_source_webhook` - Warehouse Source Webhook
-* `site_app` - Site App
-* `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
+    type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
      * @maxLength 400
@@ -405,7 +406,7 @@ export interface HogFunctionApi {
     deleted?: boolean
     /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
     hog?: string
-    readonly bytecode: unknown | null
+    readonly bytecode: unknown
     /** @nullable */
     readonly transpiled: string | null
     /** Schema defining the configurable input parameters for this function. */
@@ -444,6 +445,8 @@ export interface HogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 /**
@@ -454,15 +457,15 @@ export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 export interface PatchedHogFunctionApi {
     readonly id?: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-* `destination` - Destination
-* `site_destination` - Site Destination
-* `internal_destination` - Internal Destination
-* `source_webhook` - Source Webhook
-* `warehouse_source_webhook` - Warehouse Source Webhook
-* `site_app` - Site App
-* `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
+    type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
      * @maxLength 400
@@ -480,7 +483,7 @@ export interface PatchedHogFunctionApi {
     deleted?: boolean
     /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
     hog?: string
-    readonly bytecode?: unknown | null
+    readonly bytecode?: unknown
     /** @nullable */
     readonly transpiled?: string | null
     /** Schema defining the configurable input parameters for this function. */
@@ -519,6 +522,8 @@ export interface PatchedHogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id?: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 /**
@@ -551,6 +556,90 @@ export interface HogFunctionInvocationApi {
     invocation_id?: string | null
 }
 
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
+
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
+
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
+}
+
+/**
+ * * `running` - running
+ * * `succeeded` - succeeded
+ * * `failed` - failed
+ */
+export type HogInvocationRerunFilterStatusEnumApi =
+    (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
+
+export const HogInvocationRerunFilterStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+} as const
+
+/**
+ * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+ */
+export interface HogInvocationRerunFilterApi {
+    /** Inclusive lower bound on `scheduled_at` (UTC). */
+    window_start: string
+    /** Exclusive upper bound on `scheduled_at` (UTC). */
+    window_end: string
+    /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+    status?: HogInvocationRerunFilterStatusEnumApi[]
+    /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+    error_kind?: string[]
+    /**
+     * Skip invocations that have already been attempted this many times or more.
+     * @minimum 1
+     * @maximum 255
+     */
+    max_attempts?: number
+    /**
+     * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+     * @minimum 1
+     * @maximum 10000
+     */
+    max_count?: number
+    /**
+     * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+}
+
+/**
+ * Rerun invocations of a hog function or hog flow from their stored payloads.
+ */
+export interface HogInvocationRerunRequestApi {
+    /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+    filter: HogInvocationRerunFilterApi
+}
+
+/**
+ * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+ * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+ * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+ * Use `rerun_job_id` to look up progress on the wrapper job later.
+ */
+export interface HogInvocationRerunResponseApi {
+    /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+    rerun_job_id: string
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    queued_count: number
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    skipped_count: number
+}
+
 /**
  * Map of hog function UUIDs to their new execution_order values.
  */
@@ -559,6 +648,57 @@ export type PatchedHogFunctionRearrangeApiOrders = { [key: string]: number }
 export interface PatchedHogFunctionRearrangeApi {
     /** Map of hog function UUIDs to their new execution_order values. */
     orders?: PatchedHogFunctionRearrangeApiOrders
+}
+
+/**
+ * * `SYSTEM` - SYSTEM
+ * * `PLUGIN` - PLUGIN
+ * * `CONSOLE` - CONSOLE
+ */
+export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
+
+export const PluginLogEntrySourceEnumApi = {
+    System: 'SYSTEM',
+    Plugin: 'PLUGIN',
+    Console: 'CONSOLE',
+} as const
+
+/**
+ * * `DEBUG` - DEBUG
+ * * `LOG` - LOG
+ * * `INFO` - INFO
+ * * `WARN` - WARN
+ * * `ERROR` - ERROR
+ */
+export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
+
+export const PluginLogEntryTypeEnumApi = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
+
+export interface PluginLogEntryApi {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySourceEnumApi
+    type: PluginLogEntryTypeEnumApi
+    message: string
+    instance_id: string
+}
+
+export interface PaginatedPluginLogEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PluginLogEntryApi[]
 }
 
 export type HogFunctionTemplatesListParams = {
@@ -598,14 +738,177 @@ export type HogFunctionsListParams = {
      */
     offset?: number
     /**
-     * A search term.
-     */
-    search?: string
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[]
     updated_at?: string
+}
+
+export type HogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFunctionsMetricsRetrieveBreakdownBy =
+    (typeof HogFunctionsMetricsRetrieveBreakdownBy)[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy]
+
+export const HogFunctionsMetricsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFunctionsMetricsRetrieveInterval =
+    (typeof HogFunctionsMetricsRetrieveInterval)[keyof typeof HogFunctionsMetricsRetrieveInterval]
+
+export const HogFunctionsMetricsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
+export type HogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsTotalsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFunctionsMetricsTotalsRetrieveBreakdownBy =
+    (typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy)[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy]
+
+export const HogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFunctionsMetricsTotalsRetrieveInterval =
+    (typeof HogFunctionsMetricsTotalsRetrieveInterval)[keyof typeof HogFunctionsMetricsTotalsRetrieveInterval]
+
+export const HogFunctionsMetricsTotalsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
+export type PluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type PublicHogFunctionTemplatesListParams = {

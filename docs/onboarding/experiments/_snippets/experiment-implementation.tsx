@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 export const ExperimentImplementationSnippet = memo(
     ({ language = 'javascript' }: { language?: string }): JSX.Element => {
@@ -23,7 +23,7 @@ export const ExperimentImplementationSnippet = memo(
             // or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
 
             // Method one: using the useFeatureFlagVariantKey hook
-            import { useFeatureFlagVariantKey } from 'posthog-js/react'
+            import { useFeatureFlagVariantKey } from '@posthog/react'
 
             function App() {
                 const variant = useFeatureFlagVariantKey('your-experiment-feature-flag')
@@ -33,7 +33,7 @@ export const ExperimentImplementationSnippet = memo(
             }
 
             // Method two: using the feature flags component
-            import { PostHogFeature } from 'posthog-js/react'
+            import { PostHogFeature } from '@posthog/react'
 
             function App() {
                 return (

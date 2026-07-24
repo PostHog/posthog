@@ -1,0 +1,242 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
+import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
+import { escapeDottedHogQLIdentifier } from '~/queries/utils'
+import {
+    DataModelingSyncInterval,
+    DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceSyncSchema,
+    HogFunctionTemplateType,
+} from '~/types'
+
+export type SyncInterval = DataWarehouseSyncInterval | DataModelingSyncInterval
+
+export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
+
+export const buildSelectAllQuery = (tableName: string, limitOffsetClause?: string | null): string => {
+    const limitClause = limitOffsetClause ? ` ${limitOffsetClause}` : ''
+    return `SELECT * FROM ${escapeDottedHogQLIdentifier(tableName)}${limitClause}`
+}
+
+export const buildTableQueryUrl = (
+    tableName: string,
+    connectionId?: string | null,
+    limitOffsetClause: string | null = 'LIMIT 100'
+): string => {
+    const hashParams = new URLSearchParams()
+    hashParams.set('q', buildSelectAllQuery(tableName, limitOffsetClause))
+
+    if (connectionId) {
+        hashParams.set('c', connectionId)
+    }
+
+    const hashString = hashParams.toString()
+
+    return `${urls.sqlEditor()}${hashString ? `#${hashString}` : ''}`
+}
+
+export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataVisualizationNode => {
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            // TODO: Use `hogql` tag?
+            query: `SELECT ${columns
+                .filter(({ table, fields, chain, schema_valid }) => !table && !fields && !chain && schema_valid)
+                .map(({ name }) => name)} FROM ${table === 'numbers' ? 'numbers(0, 10)' : table} LIMIT 100`,
+        },
+    }
+}
+
+/**
+ * This is meant to provide a human-readable sentence that computes the times of day in which a sync
+ * will occur.
+ * "The sync runs at 5:00 AM, 11:00 AM, 5:00 PM, and 11:00 PM UTC"
+ * @param anchorTime - The time at which the sync was anchored (UTC)
+ * @param syncFrequency - Interval at which the sync will reoccur
+ */
+export const syncAnchorIntervalToHumanReadable = (anchorTime: string, syncFrequency: SyncInterval): string => {
+    // For intervals <= 1 hour, we don't use anchor time
+    if (['1min', '5min', '30min', '1hour'].includes(syncFrequency)) {
+        return `The sync runs every ${
+            syncFrequency === '1min'
+                ? '1 minute'
+                : syncFrequency === '5min'
+                  ? '5 minutes'
+                  : syncFrequency === '30min'
+                    ? '30 minutes'
+                    : '1 hour'
+        }`
+    }
+
+    const [hours, minutes] = anchorTime.split(':').map(Number)
+    if (syncFrequency === '24hour') {
+        return `The sync runs daily at ${humanTimeFormatter(hours, minutes)} UTC`
+    }
+    if (syncFrequency === '7day') {
+        return `The sync runs weekly at ${humanTimeFormatter(hours, minutes)} UTC`
+    }
+    if (syncFrequency === '30day') {
+        return `The sync runs monthly at ${humanTimeFormatter(hours, minutes)} UTC`
+    }
+
+    // by this point the syncFrequency should be in the format "6hour" or "12hour"
+    const intervalMatch = syncFrequency.match(/\d+/)?.[0]
+    if (!intervalMatch) {
+        return ''
+    }
+    const interval = Number(intervalMatch)
+    const syncTimes: string[] = []
+
+    // get the first sync time
+    let start = hours
+    while (start >= interval) {
+        start -= interval
+    }
+    for (let i = start; i < 24; i += interval) {
+        syncTimes.push(humanTimeFormatter(i, minutes))
+    }
+
+    return `The sync runs at ${syncTimes.slice(0, -1).join(', ')}${syncTimes.length > 1 ? ' and ' : ''}${
+        syncTimes[syncTimes.length - 1]
+    } UTC`
+}
+
+export function syncIntervalToShorthand(syncInterval: SyncInterval | undefined): string {
+    switch (syncInterval) {
+        case '1min':
+            return '1m'
+        case '5min':
+            return '5m'
+        case '15min':
+            return '15m'
+        case '30min':
+            return '30m'
+        case '1hour':
+            return '1h'
+        case '6hour':
+            return '6h'
+        case '12hour':
+            return '12h'
+        case '24hour':
+            return '1d'
+        case '7day':
+            return '1w'
+        case '30day':
+            return '30d'
+        default:
+            return 'Never'
+    }
+}
+
+function humanTimeFormatter(hours: number, minutes: number): string {
+    const period = hours >= 12 ? 'PM' : 'AM'
+    const displayHours = hours % 12 || 12 // Convert 0 to 12 for 12 AM
+    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
+}
+
+const typeSizes = {
+    undefined: () => 0,
+    boolean: () => 4,
+    number: () => 8,
+    string: (item: string) => 2 * item.length,
+    object: (item: Record<any, any>) =>
+        !item
+            ? 0
+            : Array.isArray(item)
+              ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
+              : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+    function: () => 0,
+    symbol: () => 0,
+    bigint: () => 0,
+}
+
+export const sizeOfInBytes = (value: any): number => {
+    return (typeSizes[typeof value] || (() => 0))(value)
+}
+
+export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['sync_type']>, string> = {
+    full_refresh: 'Full refresh',
+    incremental: 'Incremental',
+    append: 'Append only',
+    webhook: 'Webhook',
+    cdc: 'CDC',
+    xmin: 'xmin',
+}
+
+export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
+    '1min': '1 min',
+    '5min': '5 mins',
+    '15min': '15 mins',
+    '30min': '30 mins',
+    '1hour': '1 hour',
+    '6hour': '6 hours',
+    '12hour': '12 hours',
+    '24hour': 'Daily',
+    '7day': 'Weekly',
+    '30day': 'Monthly',
+}
+
+// Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
+export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
+
+// Sub-5-minute cadence is CDC-only; every other sync type floors at 5 minutes. This is the one
+// place that rule lives — the schedule picker, bulk edits, and the clamp all derive from it.
+export const CDC_ONLY_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
+
+// Frequencies a given sync type is allowed to use. (The backend enforces the same rule in
+// ExternalDataSchemaSerializer — keep them in sync if this changes.)
+export function allowedSyncFrequencies(syncType: string | null | undefined): DataWarehouseSyncInterval[] {
+    if (syncType === 'cdc') {
+        return SYNC_FREQUENCY_ORDER
+    }
+    return SYNC_FREQUENCY_ORDER.filter((frequency) => !CDC_ONLY_SYNC_FREQUENCIES.includes(frequency))
+}
+
+// Raise a requested frequency to the fastest one the sync type permits (e.g. 1min → 5min for non-CDC).
+export function clampSyncFrequency(
+    requested: DataWarehouseSyncInterval,
+    syncType: string | null | undefined
+): DataWarehouseSyncInterval {
+    const allowed = allowedSyncFrequencies(syncType)
+    return allowed.includes(requested) ? requested : allowed[0]
+}
+
+export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
+    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Completed]: 'success',
+    [ExternalDataJobStatus.Failed]: 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
+    [ExternalDataSchemaStatus.Paused]: 'warning',
+    [ExternalDataSchemaStatus.Cancelled]: 'warning',
+}
+
+/**
+ * Checks if a source ID represents a managed source.
+ * Managed sources have IDs prefixed with 'managed-'.
+ */
+export const isManagedSourceId = (id: string): boolean => id.startsWith('managed-')
+
+/**
+ * Checks if a source ID represents a self-managed source.
+ * Self-managed sources have IDs prefixed with 'self-managed-'.
+ */
+export const isSelfManagedSourceId = (id: string): boolean => id.startsWith('self-managed-')
+
+/**
+ * Removes the 'managed-' or 'self-managed-' prefix from a source ID.
+ */
+export const cleanSourceId = (id: string): string => id.replace('self-managed-', '').replace('managed-', '')
+
+/**
+ * Checks if a template represents a managed data warehouse source.
+ * Managed sources (Stripe, Postgres, etc.) have access control.
+ * Self-managed sources (S3, GCS, Azure, R2) do not have access control.
+ */
+export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean =>
+    template.type === 'source' && !isSelfManagedSourceId(template.id)

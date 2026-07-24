@@ -1,16 +1,19 @@
 import json
+import base64
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.utils.timezone import now
 
-from orjson import orjson
+import orjson
 from rest_framework import status
 
 from posthog.hogql import ast
@@ -18,18 +21,32 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupTypeMapping, GroupUsageMetric, Person, PropertyDefinition
+from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group.group import Group
+from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    get_group_type_mapping_instance,
+    get_group_types_for_project,
+    update_group_type_mapping_fields,
+)
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
+from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
+from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
+
 PATH = "ee.clickhouse.views.groups"
+
+
+def typed_group_type_index(value: int) -> GroupTypeIndex:
+    return cast(GroupTypeIndex, value)
 
 
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
@@ -169,9 +186,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -197,9 +214,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -213,6 +230,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         relationships = ResourceNotebook.objects.filter(group=group.id)
         self.assertIsNotNone(relationships)
+        relationship = relationships.first()
+        assert relationship is not None
         self.assertEqual(
             response.json(),
             {
@@ -220,13 +239,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "group_key": key,
                 "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
                 "group_type_index": index,
-                "notebook": relationships.first().notebook.short_id,
+                "notebook": relationship.notebook.short_id,
             },
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
 
         # Test default notebook content structure
-        notebook = relationships.first().notebook
+        notebook = relationship.notebook
         self.assertIsNotNone(notebook.content)
         self.assertEqual(notebook.content[0]["type"], "heading")
         self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
@@ -234,8 +253,29 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
+    def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
+        index: GroupTypeIndex = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}&skip_create_notebook=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        self.assertEqual(response.json()["notebook"], None)
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
+        self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -261,10 +301,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -288,10 +328,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_relationship_create.assert_called_once()
         self.assertEqual(len(logs.records), 1)
         log = logs.records[0]
-        self.assertEqual(log.msg["group_key"], key)
-        self.assertEqual(log.msg["group_type_index"], index)
-        self.assertEqual(log.msg["team_id"], self.team.pk)
-        self.assertEqual(log.msg["event"], "Group notebook creation failed")
+        message = cast(dict[str, Any], log.msg)
+        self.assertEqual(message["group_key"], key)
+        self.assertEqual(message["group_type_index"], index)
+        self.assertEqual(message["team_id"], self.team.pk)
+        self.assertEqual(message["event"], "Group notebook creation failed")
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
@@ -357,7 +398,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -372,7 +413,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [(json.dumps(group_properties),)])
+        self.assertEqual(hogql_response.results, [(json.dumps(group_properties),)])
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
             event_name="$groupidentify",
@@ -425,7 +466,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         group_key = "1234"
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key=group_key,
             properties={},
         )
@@ -449,6 +490,42 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "attr": "detail",
             },
         )
+        mock_capture.assert_not_called()
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
+        """Personhog upserts on duplicate so the pre-check must catch it."""
+        from posthog.personhog_client.fake_client import fake_personhog_client
+
+        group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_key = "dup-key-ph"
+
+        with fake_personhog_client() as fake:
+            fake.add_group(
+                team_id=self.team.pk,
+                group_type_index=group_type_mapping.group_type_index,
+                group_key=group_key,
+                id=1,
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups",
+                {
+                    "group_key": group_key,
+                    "group_type_index": 0,
+                    "group_properties": {},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "A group with this key already exists")
+        create_calls = [c for c in fake.calls if c.method == "create_group"]
+        self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
         mock_capture.assert_not_called()
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
@@ -516,13 +593,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"name": "Mr. Krabs"},
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:55",
             properties={"name": "Mr. Krabs"},
         )
@@ -543,7 +620,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -558,7 +635,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+        self.assertEqual(hogql_response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -601,7 +678,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -622,7 +699,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -638,9 +715,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         # Check properties regardless of JSON key order
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0]), 1)
-        self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
+        self.assertEqual(len(hogql_response.results), 1)
+        self.assertEqual(len(hogql_response.results[0]), 1)
+        self.assertEqual(orjson.loads(hogql_response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -681,7 +758,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -702,7 +779,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -725,7 +802,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -746,7 +823,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -761,7 +838,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
+        self.assertEqual(hogql_response.results, [('{"name": "Mr. Krabs"}',)])
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -802,7 +879,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -823,7 +900,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -907,7 +984,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -947,7 +1024,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -1068,41 +1145,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     def test_related_missing_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")
         self.assertEqual(response.status_code, 400)
-
-    def test_property_definitions(self):
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:6",
-            properties={"industry": "technology"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:1",
-            properties={"name": "Plankton"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:2",
-            properties={},
-        )
-
-        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
-        self.assertEqual(
-            response_data,
-            {
-                "0": [{"name": "industry", "count": 2}, {"name": "name", "count": 1}],
-                "1": [{"name": "name", "count": 1}],
-            },
-        )
 
     def test_property_values(self):
         create_group(
@@ -1433,7 +1475,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_create_detail_dashboard_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1443,7 +1485,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertIsNotNone(group_type_mapping.detail_dashboard_id)
 
     def test_create_detail_dashboard_duplicate(self):
@@ -1452,8 +1494,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        group_type.detail_dashboard_id = dashboard.id
-        group_type.save()
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
@@ -1470,7 +1511,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1480,7 +1521,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
 
     def test_set_default_columns_not_found(self):
@@ -1501,9 +1542,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 
-        Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
+        create_person(uuid=uuid, team=self.team, distinct_ids=["1", "2"])
+        create_person(team=self.team, distinct_ids=["3"])
+        create_person(team=self.team, distinct_ids=["4"])
 
         create_group(self.team.pk, 0, "0::0")
         create_group(self.team.pk, 0, "0::1")
@@ -1575,17 +1616,21 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         delete_response = self.client.delete(delete_url)
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+        remaining_indices = [m["group_type_index"] for m in get_group_types_for_project(self.team.project_id)]
+        self.assertNotIn(group_type.group_type_index, remaining_indices)
 
         list_response = self.client.get(self.url)
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
 
+    def test_delete_nonexistent(self):
+        response = self.client.delete(self.url + "/99")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_create_detail_dashboard(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
 
         response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
 
@@ -1596,17 +1641,88 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNotNone(data["detail_dashboard"])
 
     def _seed_cache(self):
-        """Populate both cache keys so we can verify invalidation clears both."""
+        """Populate both cache keys with well-formed but stale data so we can verify invalidation."""
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
-        cache.set(cache_key, [{"stale": True}], 300)
-        cache.set(stale_cache_key, [{"stale": True}], 300)
+        stale_row = {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_singular": None,
+            "name_plural": None,
+            "detail_dashboard": None,
+            "default_columns": None,
+            "created_at": None,
+        }
+        cache.set(cache_key, [stale_row], 300)
+        cache.set(stale_cache_key, [stale_row], 300)
         return cache_key, stale_cache_key
 
-    def test_update_metadata_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
+    def test_list_serves_from_group_types_cache(self):
+        # No GroupTypeMapping rows exist — a response can only come from the cached helper
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(
+            cache_key,
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard": 7,
+                    "default_columns": ["name"],
+                    "created_at": None,
+                }
+            ],
+            300,
         )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard": 7,
+                    "default_columns": ["name"],
+                    "created_at": None,
+                }
+            ],
+        )
+
+    def test_list_normalizes_legacy_detail_dashboard_id_cache_key(self):
+        # Cache entries written before the personhog converter matched the ORM
+        # .values() shape carry "detail_dashboard_id" — the response must still
+        # expose "detail_dashboard"
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(
+            cache_key,
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard_id": 42,
+                    "default_columns": None,
+                    "created_at": None,
+                }
+            ],
+            300,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["detail_dashboard"], 42)
+        self.assertNotIn("detail_dashboard_id", response.json()[0])
+
+    def test_update_metadata_invalidates_cache(self):
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.patch(
@@ -1615,13 +1731,12 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(cache.get(cache_key))
-        self.assertIsNone(cache.get(stale_cache_key))
+        # update_metadata responds with the list, which re-populates both caches with fresh rows
+        self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
+        self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
     def test_destroy_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.delete(self.url + "/0")
@@ -1631,9 +1746,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(stale_cache_key))
 
     def test_create_detail_dashboard_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
@@ -1643,9 +1756,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(stale_cache_key))
 
     def test_set_default_columns_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.put(
@@ -1663,13 +1774,13 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         from ee.models.rbac.access_control import AccessControl
 
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         # Grant member-level (not admin) project access so the request reaches the serializer
@@ -1687,14 +1798,16 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertIsNone(group_type.name_singular)
         self.assertIsNone(group_type.name_plural)
 
     def test_update_metadata_admin_can_modify_protected_fields(self):
         from posthog.models.organization import OrganizationMembership
 
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1707,7 +1820,9 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertEqual(group_type.name_singular, "Org")
         self.assertEqual(group_type.name_plural, "Orgs")
 
@@ -1715,14 +1830,14 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 class GroupUsageMetricViewSetTestCase(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.group_type = GroupTypeMapping.objects.create(
+        self.group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
 
         self.other_org = Organization.objects.create(name="other org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other team")
-        self.other_group_type = GroupTypeMapping.objects.create(
+        self.other_group_type = create_group_type_mapping(
             team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
         )
         self.other_url = (
@@ -1910,7 +2025,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         # Grant member-level (not admin) project access so the request reaches the serializer
@@ -1940,6 +2055,138 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         metric.refresh_from_db()
         self.assertEqual(metric.name, "Updated by admin")
+
+    def _create_dw_table(self, name: str = "stripe_charges"):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        return DataWarehouseTable.objects.create(
+            team=self.team,
+            name=name,
+            credential=credential,
+            url_pattern="http://example.com/{name}",
+            columns={
+                "customer_id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True},
+                "amount": {"clickhouse": "Float64", "hogql": "FloatDatabaseField", "valid": True},
+            },
+        )
+
+    def test_create_data_warehouse_metric(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW signups",
+            "math": "count",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        metric = GroupUsageMetric.objects.get(id=response.json()["id"])
+        self.assertEqual(metric.filters["source"], "data_warehouse")
+        self.assertEqual(metric.filters["table_name"], "stripe_charges")
+
+    def test_create_data_warehouse_metric_rejects_missing_fields(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW signups",
+            "filters": {"source": "data_warehouse", "table_name": "stripe_charges"},
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_create_data_warehouse_metric_rejects_unknown_table(self):
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "no_such_table",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_create_data_warehouse_metric_accepts_table_with_null_deleted(self):
+        table = self._create_dw_table()
+        table.deleted = None
+        table.save()
+
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_create_data_warehouse_metric_rejects_soft_deleted_table(self):
+        table = self._create_dw_table()
+        table.deleted = True
+        table.save()
+
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_create_data_warehouse_sum_requires_math_property(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW revenue",
+            "math": "sum",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "math_property")
+
+    def test_create_metric_rejects_unknown_source(self):
+        payload = {
+            "name": "Bogus",
+            "filters": {"source": "something_else"},
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
 
 
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
@@ -2132,74 +2379,357 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop_def.group_type_index, 1)
 
 
-class TestGetGroupTypeMappingOr404PersonhogRouting(ClickhouseTestMixin, APIBaseTest):
-    """Tests for personhog routing in GroupsViewSet.get_group_type_mapping_or_404."""
+class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2021-05-03")
+    def test_returns_groups_ordered_by_created_at_desc(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
 
-    def setUp(self):
-        super().setUp()
-        self.group_type_mapping = create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 2
+        assert result.groups[0].group_key == "org:2"
+        assert result.groups[1].group_key == "org:1"
+        assert result.has_more is False
+
+    @freeze_time("2021-05-04")
+    def test_pagination_with_limit(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+        with freeze_time("2021-05-03"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+
+        assert len(result.groups) == 2
+        assert result.groups[0].group_key == "org:3"
+        assert result.groups[1].group_key == "org:2"
+        assert result.has_more is True
+
+    @freeze_time("2021-05-04")
+    def test_pagination_cursor_returns_next_page(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+        with freeze_time("2021-05-03"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+
+        page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        last = page1.groups[-1]
+
+        page2 = list_groups(
+            team_id=self.team.pk,
             group_type_index=0,
-            group_type="organization",
+            cursor_created_at_us=int(last.created_at.timestamp() * 1_000_000),
+            cursor_group_key=last.group_key,
+            limit=2,
         )
+
+        assert len(page2.groups) == 1
+        assert page2.groups[0].group_key == "org:1"
+        assert page2.has_more is False
+
+    @freeze_time("2021-05-04")
+    def test_pagination_cursor_breaks_created_at_ties_on_group_key(self):
+        # Three groups created at the same instant: keyset pagination must fall back to the
+        # group_key tiebreaker (descending) and neither skip nor duplicate a row across pages.
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:a", properties={})
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:b", properties={})
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:c", properties={})
+
+        page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        assert [g.group_key for g in page1.groups] == ["org:c", "org:b"]
+        assert page1.has_more is True
+
+        last = page1.groups[-1]
+        page2 = list_groups(
+            team_id=self.team.pk,
+            group_type_index=0,
+            cursor_created_at_us=int(last.created_at.timestamp() * 1_000_000),
+            cursor_group_key=last.group_key,
+            limit=2,
+        )
+        assert [g.group_key for g in page2.groups] == ["org:a"]
+        assert page2.has_more is False
+
+    @freeze_time("2021-05-03")
+    def test_search_escapes_like_wildcards(self):
+        # A literal "%" in the search term must match literally, not act as a wildcard.
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "50% off"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"name": "discount"})
+
+        matched = list_groups(team_id=self.team.pk, group_type_index=0, search="50%")
+        assert [g.group_key for g in matched.groups] == ["org:1"]
+
+        # A bare "%" would match every group if treated as a wildcard; escaped, it matches only the
+        # group whose properties contain a literal "%" (org:1's "50% off"), proving the escape works.
+        literal = list_groups(team_id=self.team.pk, group_type_index=0, search="%")
+        assert [g.group_key for g in literal.groups] == ["org:1"]
+
+    @freeze_time("2021-05-03")
+    def test_search_filters_by_properties(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Acme Corp"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"name": "Beta Inc"})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, search="Acme")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+
+    @freeze_time("2021-05-03")
+    def test_search_matches_group_key_exact(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={"name": "Alpha"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={"name": "Beta"})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, search="org:alpha")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:alpha"
+
+    @freeze_time("2021-05-03")
+    def test_group_key_contains_filter(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, group_key_contains="alpha")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:alpha"
+
+    @freeze_time("2021-05-03")
+    def test_filters_by_group_type_index(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+
+    @freeze_time("2021-05-03")
+    def test_empty_result(self):
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 0
+        assert result.has_more is False
+
+    @freeze_time("2021-05-03")
+    def test_scopes_results_to_team(self):
+        # An identically-keyed group under a different team must never surface — the query is
+        # team-scoped by HogQL, so this guards against a cross-team leak.
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        raw_create_group_ch(
+            team_id=self.team.pk + 100000,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "OTHER TEAM"},
+            created_at=now(),
+        )
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+        assert result.groups[0].group_properties == {}
+
+    def test_returns_latest_properties_after_update(self):
+        # The groups table dedups by argMax(_timestamp); a newer write for the same (index, key)
+        # must win and produce a single row — guards the choice of `groups` over `raw_groups`.
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Old"})
+        with freeze_time("2021-05-02"):
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:1",
+                properties={"name": "New"},
+                created_at=now(),
+            )
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_properties == {"name": "New"}
+
+    @freeze_time("2021-05-03")
+    def test_preserves_complex_property_values(self):
+        # Properties survive the ClickHouse string -> json.loads -> dict round-trip with types intact.
+        props = {"count": 5, "active": True, "ratio": 1.5, "tags": ["a", "b"], "nested": {"x": 1}, "missing": None}
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties=props)
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_properties == props
+
+    @freeze_time("2021-05-03")
+    def test_search_is_case_insensitive(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={"name": "Acme Corp"})
+
+        # Properties substring with a lowercased term, and key-exact with an uppercased term.
+        by_props = list_groups(team_id=self.team.pk, group_type_index=0, search="acme")
+        by_key = list_groups(team_id=self.team.pk, group_type_index=0, search="ORG:ALPHA")
+
+        assert [g.group_key for g in by_props.groups] == ["org:alpha"]
+        assert [g.group_key for g in by_key.groups] == ["org:alpha"]
+
+    @freeze_time("2021-05-03")
+    def test_search_no_match_returns_empty(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Acme"})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, search="zzz-no-such-thing")
+
+        assert result.groups == []
+        assert result.has_more is False
+
+    @freeze_time("2021-05-04")
+    def test_has_more_false_when_result_count_equals_limit(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+
+        assert len(result.groups) == 2
+        assert result.has_more is False
+
+
+class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2021-05-02")
+    def test_response_format_matches_contract(self):
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:1",
-            properties={"name": "Test Org"},
+            properties={"name": "Test"},
         )
 
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
-    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    def test_personhog_success_returns_result(self, mock_capture, mock_fetch, mock_gate):
-        from posthog.personhog_client.converters import GroupTypeMappingResult
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
 
-        mock_fetch.return_value = GroupTypeMappingResult(group_type="organization", group_type_index=0)
+        assert "next" in response_data
+        assert "previous" in response_data
+        assert "results" in response_data
+        assert response_data["next"] is None
+        assert response_data["previous"] is None
+        assert len(response_data["results"]) == 1
+        result = response_data["results"][0]
+        assert result["group_key"] == "org:1"
+        assert result["group_type_index"] == 0
+        assert result["group_properties"] == {"name": "Test"}
+        assert "created_at" in result
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_capture.return_value = mock_resp
+    @freeze_time("2021-05-02")
+    def test_invalid_group_type_index_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=abc")
+        assert response.status_code == 400
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
-            {"$unset": "name"},
-            format="json",
+    @freeze_time("2021-05-02")
+    def test_cursor_pagination_via_api(self):
+        for i in range(3):
+            with freeze_time(f"2021-05-0{i + 1}"):
+                create_group(
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=f"org:{i}",
+                    properties={},
+                )
+
+        page1 = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert page1["next"] is None
+        assert len(page1["results"]) == 3
+        assert page1["results"][0]["group_key"] == "org:2"
+        assert page1["results"][-1]["group_key"] == "org:0"
+
+    @freeze_time("2021-05-02")
+    def test_cursor_roundtrip(self):
+        cursor = _encode_groups_cursor(1620000000000_000, "org:42")
+        created_at_us, group_key = _decode_groups_cursor(cursor)
+
+        assert created_at_us == 1620000000000_000
+        assert group_key == "org:42"
+
+    @freeze_time("2021-05-02")
+    def test_cursor_backward_compat_ms(self):
+        cursor = _encode_groups_cursor(1620000000000, "org:42")
+        created_at_us, group_key = _decode_groups_cursor(cursor)
+
+        assert created_at_us == 1620000000000_000
+        assert group_key == "org:42"
+
+    @freeze_time("2021-05-02")
+    def test_old_format_cursor_is_treated_as_no_cursor(self):
+        # Pre-deploy cursors encoded the tiebreaker as "i" (PG id) with no "k". The new keyset can't
+        # honor that boundary, so the decoder degrades it to no cursor (restart from the first page).
+        old_cursor = base64.urlsafe_b64encode(json.dumps({"c": 1620000000000_000, "i": 42}).encode()).decode()
+
+        created_at_us, group_key = _decode_groups_cursor(old_cursor)
+
+        assert created_at_us == 0
+        assert group_key == ""
+
+    @freeze_time("2021-05-02")
+    def test_invalid_cursor_is_ignored(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_fetch.assert_called_once()
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups?group_type_index=0&cursor=invalid_cursor"
+        ).json()
 
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
-    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    def test_personhog_failure_falls_back_to_orm(self, mock_capture, mock_fetch, mock_gate):
-        mock_fetch.side_effect = RuntimeError("grpc timeout")
+        assert len(response_data["results"]) == 1
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_capture.return_value = mock_resp
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
-            {"$unset": "name"},
-            format="json",
+    @freeze_time("2021-05-02")
+    def test_find_uses_personhog_routed_lookup(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Test"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=org:1")
 
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    def test_gate_off_uses_orm(self, mock_capture, mock_gate):
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_capture.return_value = mock_resp
+        assert response.status_code == 200
+        data = response.json()
+        assert data["group_key"] == "org:1"
+        assert data["group_properties"] == {"name": "Test"}
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
-            {"$unset": "name"},
-            format="json",
-        )
+    @freeze_time("2021-05-02")
+    def test_find_nonexistent_returns_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=nonexistent")
+        assert response.status_code == 404
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    @freeze_time("2021-05-02")
+    @patch("ee.clickhouse.views.groups.list_groups")
+    def test_list_api_has_more_produces_next_url(self, mock_list_groups):
+        # The viewset turns a has_more result into a forward cursor in the `next` URL.
+        groups = [
+            Group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                group_properties={},
+                created_at=now(),
+            )
+            for i in range(100)
+        ]
+        mock_list_groups.return_value = ListGroupsResult(groups=groups, has_more=True)
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert response_data["next"] is not None
+        assert "cursor=" in response_data["next"]
+        assert "group_type_index=0" in response_data["next"]
+        assert len(response_data["results"]) == 100

@@ -9,8 +9,9 @@ from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
-from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.models.signals import mute_selected_signals
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,10 @@ def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
 
 def is_file_system_type_registered(type_string: str) -> bool:
     return type_string in _MODEL_REGISTRY
+
+
+def get_file_system_registration(type_string: str) -> ModelRegistration | None:
+    return _MODEL_REGISTRY.get(type_string)
 
 
 def _resolve_user(user: Any | None) -> Any | None:

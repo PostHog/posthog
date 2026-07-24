@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
 import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_recording_meta.json'
@@ -10,7 +12,7 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
@@ -50,9 +52,9 @@ const meta: Meta = {
                     ],
                 },
                 '/api/environments/:team_id/session_recordings/:id': largeRecordingMetaJson,
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(largeRecordingJSONL))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(largeRecordingJSONL)
                     }
                     return [
                         200,
@@ -70,23 +72,23 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === 'HogQLQuery') {
                         if (body.query.query.includes("event in ['$web_vitals']")) {
-                            return res(ctx.json(largeRecordingWebVitalsEventsPropertiesJson))
+                            return [200, largeRecordingWebVitalsEventsPropertiesJson]
                         }
-                        return res(ctx.json(largeRecordingEventsJson))
+                        return [200, largeRecordingEventsJson]
                     }
 
                     // default to an empty response or we duplicate information
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
             patch: {
-                '/api/environments/:team_id/session_recordings/:id': (_, res, ctx) => {
-                    return res(ctx.json({}))
+                '/api/environments/:team_id/session_recordings/:id': () => {
+                    return [200, {}]
                 },
             },
         }),
@@ -127,4 +129,34 @@ export default meta
 
 export const Default: Story = {
     args: {},
+}
+
+export const WithLogsFilter: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS],
+    },
+    decorators: [
+        (Story) => {
+            useEffect(() => {
+                setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS])
+                return () => setFeatureFlags([])
+            }, [])
+            return <Story />
+        },
+    ],
+}
+
+export const WithLogsFilterUpsell: Story = {
+    parameters: {
+        featureFlags: [],
+    },
+    decorators: [
+        (Story) => {
+            useEffect(() => {
+                setFeatureFlags([])
+                return () => setFeatureFlags([])
+            }, [])
+            return <Story />
+        },
+    ],
 }

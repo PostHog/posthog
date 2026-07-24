@@ -1,0 +1,5 @@
+{# Per-field citation pointer. The full citation rules live in the preamble's <citations> block (cached once);
+   each task just names the field to cite in. Call as `{{ cite_in('reasoning') }}` or `{{ cite_in('summary') }}`. #}
+{%- macro cite_in(field_name) -%}
+Cite key moments inside `{{ field_name }}` as `(t <seconds>)`, following the Citations rules above.
+{%- endmacro -%}

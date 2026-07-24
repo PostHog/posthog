@@ -36,6 +36,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             created_by: null,
             is_remote_configuration: false,
             deleted: false,
+            archived: false,
             active: true,
             experiment_set: null,
             experiment_set_metadata: null,
@@ -73,6 +74,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             created_by: null,
             is_remote_configuration: false,
             deleted: false,
+            archived: false,
             active: true,
             experiment_set: null,
             experiment_set_metadata: null,
@@ -95,8 +97,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: (req) => {
-                    const url = new URL(req.url, 'http://localhost')
+                [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: ({ request }) => {
+                    const url = new URL(request.url, 'http://localhost')
                     const search = url.searchParams.get('search')
 
                     const filteredFlags = search
@@ -274,7 +276,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('calculates pagination correctly when no results', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: [],
@@ -320,7 +322,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('enables forward button when there are more pages', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -349,7 +351,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('enables backward button when on page 2+', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -379,7 +381,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('updates page when onForward is called', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -409,7 +411,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('updates page when onBackward is called', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -439,7 +441,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('never goes below page 1 when onBackward is called', async () => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,

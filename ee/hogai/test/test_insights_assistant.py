@@ -24,7 +24,8 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput
@@ -34,7 +35,6 @@ from ee.hogai.insights_assistant import InsightsAssistant
 from ee.hogai.test.base import BaseAssistantTest
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantOutput, AssistantState
-from ee.models.assistant import Conversation
 
 query_executor_mock = patch(
     "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Result")
@@ -239,7 +239,7 @@ class TestChatAgent(BaseAssistantTest):
         )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="$pageview"),
+                targetEntity=AssistantRetentionEventsNode(id="$pageview"),
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )

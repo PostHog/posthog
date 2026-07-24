@@ -1,0 +1,17 @@
+# Pipeline redirect outputs — remaining items
+
+## Done
+
+- ~~Casts in step-pipeline.ts and base-chunk-pipeline.ts~~ — removed
+- ~~Feed refactor~~ — feed() only accepts OkResultWithContext
+- ~~as-any casts in test feed() calls~~ — removed, use createMockPipeline instead
+- ~~Doc comments for R parameter~~ — added to PipelineResult, Pipeline, ProcessingStep, ChunkProcessingStep
+- ~~Living docs updated~~ — chapters reflect current builder API (`concurrentlyPerGroup`, per-step `{ retry }`, `maxConcurrency`, redirect `awaitAck`/`preserveKey`) plus new chapters for batching, consuming pipelines, and TopHog metrics
+- ~~Dead config cleanup~~ — removed overflowTopic from subpipeline configs, PERSON_MERGE_ASYNC_TOPIC from options
+
+## Remaining (low priority)
+
+### Type wideness
+
+- `tophog.ts` — `TopHogMetric.start` callback uses `PipelineResult<TOutput, string>`. Metrics are consumers so `string` is semantically correct, but inconsistent with `never` defaults elsewhere.
+- `gathering-chunk-pipeline.test.ts` — mock class uses `any` types. Should be properly typed.

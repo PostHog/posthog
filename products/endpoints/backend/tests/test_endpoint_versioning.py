@@ -344,7 +344,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         from unittest.mock import patch
 
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
 
@@ -386,12 +387,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # Mock Temporal-related functions to avoid connection errors
         with (
-            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
             patch(
-                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
                 return_value=False,
             ),
-            patch("products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"),
+            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"),
         ):
             # Update query (which should create new version with its own materialization)
             new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
@@ -595,7 +596,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         """Each version should have its own independently-named saved_query."""
         from unittest.mock import patch
 
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
         endpoint = create_endpoint_with_version(
@@ -606,11 +607,11 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Mock sync workflow
-        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
             # Enable materialization on v1
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"is_materialized": True, "sync_frequency": "24hour"},
+                {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
             self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
@@ -621,7 +622,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(v1.saved_query.name, "versioned_mat_v1")
 
         # Create v2 by changing query
-        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
                 {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
@@ -672,10 +673,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(v2.is_materialized)
 
         # Enable materialization on v1 specifically (not the current version)
-        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
-                {"is_materialized": True, "sync_frequency": "24hour"},
+                {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
             self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
@@ -697,7 +698,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         from datetime import timedelta
 
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         # Create endpoint with v1
         initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}

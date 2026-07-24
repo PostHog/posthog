@@ -7,7 +7,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
@@ -15,9 +15,12 @@ def resolve_in_cohorts(
     node: _T_AST,
     dialect: HogQLDialect,
     stack: Optional[list[ast.SelectQuery]] = None,
-    context: Optional[HogQLContext] = None,
+    context: HogQLContext | None = None,
+    resolver_factory: ResolverFactory | None = None,
 ):
-    InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
+    if context is None:
+        raise QueryError("context is required to resolve IN COHORT")
+    InCohortResolver(stack=stack, dialect=dialect, context=context, resolver_factory=resolver_factory).visit(node)
 
 
 def resolve_in_cohorts_conjoined(
@@ -25,8 +28,11 @@ def resolve_in_cohorts_conjoined(
     dialect: HogQLDialect,
     context: HogQLContext,
     stack: Optional[list[ast.SelectQuery]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ):
-    MultipleInCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
+    MultipleInCohortResolver(stack=stack, dialect=dialect, context=context, resolver_factory=resolver_factory).visit(
+        node
+    )
 
 
 class CohortCompareOperationTraverser(TraversingVisitor):
@@ -52,11 +58,15 @@ class MultipleInCohortResolver(TraversingVisitor):
         dialect: HogQLDialect,
         context: HogQLContext,
         stack: Optional[list[ast.SelectQuery]] = None,
+        resolver_factory: ResolverFactory | None = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []
         self.context = context
         self.dialect = dialect
+        # accepted for signature parity with InCohortResolver; this resolver does not
+        # currently invoke resolve_types itself, so the factory is held but unused
+        self.resolver_factory = resolver_factory
 
     def visit_cte(self, node: ast.CTE):
         self.visit(node.expr)
@@ -87,7 +97,7 @@ class MultipleInCohortResolver(TraversingVisitor):
     def _resolve_cohorts(
         self, compare_operations: list[ast.CompareOperation]
     ) -> list[tuple[int, StaticOrDynamic, int]]:
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohorts: list[tuple[int, StaticOrDynamic, int]] = []
 
@@ -278,13 +288,17 @@ class InCohortResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: HogQLDialect,
+        context: HogQLContext,
         stack: Optional[list[ast.SelectQuery]] = None,
-        context: Optional[HogQLContext] = None,
+        resolver_factory: ResolverFactory | None = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []
         self.context = context
         self.dialect = dialect
+        # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
+        # factory (e.g. BoundedResolver) applies to cohort-join subqueries built mid-transform
+        self.resolver_factory = resolver_factory
 
     def visit_select_query(self, node: ast.SelectQuery):
         self.stack.append(node)
@@ -296,8 +310,7 @@ class InCohortResolver(TraversingVisitor):
             arg = node.right
             if not isinstance(arg, ast.Constant):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
-
-            from posthog.models import Cohort
+            from products.cohorts.backend.models.cohort import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(
@@ -365,13 +378,20 @@ class InCohortResolver(TraversingVisitor):
         must_add_join = True
         last_join = select.select_from
         while last_join:
-            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == f"in_cohort__{cohort_id}":
+            # Dedup on the join alias: a second `IN COHORT <id>` in the same scope must reuse the
+            # existing join, not add a colliding one. (The join's `table` is the cohort subquery, so
+            # the alias is the only place the `in_cohort__<id>` name lives.)
+            if last_join.alias == f"in_cohort__{cohort_id}":
                 must_add_join = False
                 break
             if last_join.next_join:
                 last_join = last_join.next_join
             else:
                 break
+
+        current_scope = self.stack[-1].type
+        if current_scope is None:
+            raise QueryError("Could not resolve current select scope")
 
         if must_add_join:
             inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
@@ -410,20 +430,27 @@ class InCohortResolver(TraversingVisitor):
             )
             new_join = cast(
                 ast.JoinExpr,
-                resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
+                resolve_types(
+                    new_join, self.context, self.dialect, [current_scope], resolver_factory=self.resolver_factory
+                ),
             )
             if inline_ast is not None:
-                resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
+                resolve_lazy_tables(
+                    new_join, self.dialect, [self.stack[-1]], self.context, resolver_factory=self.resolver_factory
+                )
                 if self.context.property_swapper:
                     new_join = cast(
                         ast.JoinExpr,
                         self.context.property_swapper.visit(new_join),
                     )
+            if new_join.constraint is None or not isinstance(new_join.constraint.expr, ast.CompareOperation):
+                raise QueryError("Expected cohort join constraint to be a compare operation")
             new_join.constraint.expr.left = resolve_types(
                 ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
                 self.context,
                 self.dialect,
-                [self.stack[-1].type],
+                [current_scope],
+                resolver_factory=self.resolver_factory,
             )
             new_join.constraint.expr.right = clone_expr(compare.left)
             if last_join:
@@ -436,6 +463,9 @@ class InCohortResolver(TraversingVisitor):
             ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]),
             self.context,
             self.dialect,
-            [self.stack[-1].type],
+            [current_scope],
+            resolver_factory=self.resolver_factory,
         )
-        compare.right = resolve_types(ast.Constant(value=1), self.context, self.dialect, [self.stack[-1].type])
+        compare.right = resolve_types(
+            ast.Constant(value=1), self.context, self.dialect, [current_scope], resolver_factory=self.resolver_factory
+        )

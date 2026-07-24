@@ -4,13 +4,14 @@ import { IconRocket, IconServer } from '@posthog/icons'
 
 import type { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
 
-export type TemplateKey = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
+export type TemplateKey = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate' | 'remote-config'
 
 export const TEMPLATE_NAMES: Record<TemplateKey, string> = {
     simple: 'Percentage rollout',
     targeted: 'Targeted release',
     multivariate: 'Multivariate',
     'targeted-multivariate': 'Targeted multivariate',
+    'remote-config': 'Remote config',
 }
 
 export interface IntentMetadata {

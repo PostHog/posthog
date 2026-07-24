@@ -3,7 +3,7 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
-use tracing::{error, instrument, warn, Span};
+use tracing::{instrument, Span};
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
@@ -13,10 +13,7 @@ use crate::{
     router,
 };
 
-#[instrument(
-    skip(state, body, meta),
-    fields(params_lib_version, params_compression)
-)]
+#[instrument(skip(state, body, meta), fields(params_compression))]
 #[debug_handler]
 pub async fn event(
     state: State<router::State>,
@@ -29,13 +26,7 @@ pub async fn event(
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
-    // TODO(eli): temporary peek at these
-    if params.lib_version.is_some() {
-        Span::current().record(
-            "params_lib_version",
-            format!("{:?}", params.lib_version.as_ref()),
-        );
-    }
+    // TODO(eli): temporary peek at compression
     if params.compression.is_some() {
         Span::current().record(
             "params_compression",
@@ -64,24 +55,27 @@ pub async fn event(
 
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event: request payload parsing error: {err:#}");
             Err(err)
         }
 
         Ok((context, events)) => {
+            let event_count = events.len() as u64;
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
                 state.event_restriction_service.clone(),
-                state.historical_cfg.clone(),
-                &events,
+                state.historical_cfg,
+                state.global_rate_limiter_token_distinctid.clone(),
+                state.overflow_limiter.clone(),
+                state.ai_events_overflow_limiter.clone(),
+                &state.ai_routing,
+                events,
                 &context,
             )
             .await
             {
-                report_dropped_events(err.to_metric_tag(), events.len() as u64);
+                report_dropped_events(err.to_metric_tag(), event_count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("event: rejected payload: {err:#}");
                 return Err(err);
             }
 
@@ -130,7 +124,6 @@ pub async fn recording(
         }),
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("recordings: request payload parsing error: {err:#}");
             Err(err)
         }
         Ok((context, events)) => {
@@ -138,6 +131,7 @@ pub async fn recording(
             if let Err(err) = process_replay_events(
                 state.sink.clone(),
                 state.event_restriction_service.clone(),
+                state.replay_overflow_limiter.clone(),
                 events,
                 &context,
             )
@@ -145,7 +139,6 @@ pub async fn recording(
             {
                 report_dropped_events(err.to_metric_tag(), count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("recordings: rejected payload: {err:#}");
                 return Err(err);
             }
             Ok(CaptureResponse {

@@ -13,7 +13,7 @@ use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{HandoffHandler, PodConfig, PodHandle};
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
 
@@ -22,15 +22,38 @@ pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub async fn test_store(test_name: &str) -> Arc<PersonhogStore> {
+    test_store_with_prefix(test_name).await.0
+}
+
+/// Like `test_store`, but also returns the generated etcd prefix so tests
+/// can inspect or manipulate raw keys (e.g. revoking a component's lease).
+pub async fn test_store_with_prefix(test_name: &str) -> (Arc<PersonhogStore>, String) {
     let prefix = format!("/test-{}-{}/", test_name, uuid::Uuid::new_v4());
     let config = StoreConfig {
         endpoints: vec![ETCD_ENDPOINT.to_string()],
-        prefix,
+        prefix: prefix.clone(),
     };
     let inner = EtcdStore::connect(config)
         .await
         .expect("failed to connect to etcd");
-    Arc::new(PersonhogStore::new(inner))
+    (Arc::new(PersonhogStore::new(inner)), prefix)
+}
+
+/// Revoke the etcd lease attached to `key`, simulating a component whose
+/// lease expired (etcd partition, missed heartbeats) while the process
+/// itself is still running.
+pub async fn revoke_lease_of_key(key: &str) {
+    let mut client = etcd_client::Client::connect([ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    let resp = client.get(key, None).await.expect("get key");
+    let kv = resp
+        .kvs()
+        .first()
+        .unwrap_or_else(|| panic!("key {key} not found"));
+    let lease_id = kv.lease();
+    assert_ne!(lease_id, 0, "key {key} has no lease attached");
+    client.lease_revoke(lease_id).await.expect("revoke lease");
 }
 
 pub async fn wait_for_condition<F, Fut>(timeout: Duration, interval: Duration, f: F)
@@ -74,6 +97,7 @@ pub fn start_coordinator_named(
             keepalive_interval: Duration::from_secs(keepalive_secs),
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
+            reconcile_interval: Duration::from_millis(500),
         },
         strategy,
         None,
@@ -193,6 +217,7 @@ pub fn start_pod_slow(
 pub struct RouterHandles {
     pub events: Arc<Mutex<Vec<CutoverEvent>>>,
     pub table: Arc<tokio::sync::RwLock<std::collections::HashMap<u32, String>>>,
+    pub join_handle: Option<JoinHandle<Result<()>>>,
 }
 
 pub fn start_router(
@@ -200,27 +225,43 @@ pub fn start_router(
     name: &str,
     cancel: CancellationToken,
 ) -> RouterHandles {
+    start_router_with_lease_ttl(store, name, 10, cancel)
+}
+
+pub fn start_router_with_lease_ttl(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> RouterHandles {
+    let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let (handler, events) = MockCutoverHandler::new();
     let router = RoutingTable::new(
         store,
         RoutingTableConfig {
             router_name: name.to_string(),
-            lease_ttl: 10,
-            heartbeat_interval: Duration::from_secs(3),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs(heartbeat_secs),
         },
     );
     let table = router.table_handle();
     let token = cancel.child_token();
-    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
-    RouterHandles { events, table }
+    let join_handle = tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+    RouterHandles {
+        events,
+        table,
+        join_handle: Some(join_handle),
+    }
 }
 
 // ── Mock handlers ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffEvent {
+    Drained(u32),
     Warmed(u32),
     Released(u32),
+    Resumed(u32),
 }
 
 pub struct MockHandoffHandler {
@@ -241,6 +282,14 @@ impl MockHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for MockHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         self.events
             .lock()
@@ -254,6 +303,14 @@ impl HandoffHandler for MockHandoffHandler {
             .lock()
             .await
             .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
         Ok(())
     }
 }
@@ -278,6 +335,14 @@ impl BlockingHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for BlockingHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, _partition: u32) -> Result<()> {
         // Block forever — simulates a slow warm that never completes
         std::future::pending().await
@@ -288,6 +353,14 @@ impl HandoffHandler for BlockingHandoffHandler {
             .lock()
             .await
             .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
         Ok(())
     }
 }
@@ -314,6 +387,14 @@ impl SlowHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for SlowHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         tokio::time::sleep(self.warm_delay).await;
         self.events
@@ -330,13 +411,20 @@ impl HandoffHandler for SlowHandoffHandler {
             .push(HandoffEvent::Released(partition));
         Ok(())
     }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CutoverEvent {
-    pub partition: u32,
-    pub old_owner: String,
-    pub new_owner: String,
+pub enum CutoverEvent {
+    StashBegan { partition: u32, new_owner: String },
+    StashDrained { partition: u32, target: String },
 }
 
 pub struct MockCutoverHandler {
@@ -356,17 +444,19 @@ impl MockCutoverHandler {
 }
 
 #[async_trait]
-impl CutoverHandler for MockCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> Result<()> {
-        self.events.lock().await.push(CutoverEvent {
+impl StashHandler for MockCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
             partition,
-            old_owner: old_owner.to_string(),
             new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
         });
         Ok(())
     }

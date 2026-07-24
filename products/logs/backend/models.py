@@ -1,15 +1,94 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from products.logs.backend.alert_state_machine import AlertSnapshot
+
+logger = logging.getLogger(__name__)
+
+# Default log attribute key whose value matches a PostHog person's distinct_id. Mirrors
+# the convention documented at https://posthog.com/docs/logs/link-session-replay: the
+# posthog-js / posthog-react-native SDKs auto-attach `posthogDistinctId` to every log
+# they emit, and the docs instruct OTel-emitting backends to set the same key. Customers
+# whose pipeline uses a different key can override via the `logs_config` endpoint.
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
+
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+
+
+def default_logs_distinct_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
+
+
+# Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
+# is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
+# emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
+# keys in list order and the first match wins. Customers whose pipeline emits the session
+# ID under different keys can override via the `logs_config` endpoint.
+DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["posthogSessionId"]
+
+
+def default_logs_session_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
+
+
+class TeamLogsConfig(models.Model):
+    # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
+    # are per-environment, and so is this config. Inheriting the root-mixin would
+    # rewrite writes to the parent project on save, letting a member of one child
+    # environment mutate config that affects sibling environments they may not have
+    # access to. Mirrors the `TeamExperimentsConfig` precedent.
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+
+    # Legacy single-key predecessor of `logs_distinct_id_attribute_keys`, kept in sync
+    # with its first entry so pre-plural readers stay coherent. Do not write directly.
+    logs_distinct_id_attribute_key = models.CharField(
+        max_length=200,
+        default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+        db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    )
+
+    # Log attribute keys whose values match a PostHog person's distinct_id — a log links
+    # to a person when any of these attributes equals one of the person's distinct IDs.
+    # Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs
+    # to a single user without needing per-team prompt engineering.
+    logs_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_distinct_id_attribute_keys,
+        db_default=Value("{posthogDistinctId}"),
+    )
+
+    # Ordered list of log attribute keys whose values hold the PostHog session ID.
+    # Detection checks keys in order; the first key with a value wins. Used to link
+    # logs to session replay and error tracking sessions.
+    logs_session_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_session_id_attribute_keys,
+        db_default=Value("{posthogSessionId}"),
+    )
+
+
+register_team_extension_signal(TeamLogsConfig, logger=logger)
+
+# Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
+# cap on retained OK event rows — the N-of-M evaluator never reads more than this many
+# non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
+# max_value so the two can't drift.
+MAX_EVALUATION_PERIODS = 10
 
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -17,6 +96,8 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Display config (LogsColumnConfig[]), separate from filter state. Null = default column set.
+    columns = models.JSONField(null=True, default=None)
     pinned = models.BooleanField(default=False)
 
     class Meta:
@@ -37,6 +118,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         PENDING_RESOLVE = "pending_resolve", "Pending resolve"
         ERRORED = "errored", "Errored"
         SNOOZED = "snoozed", "Snoozed"
+        BROKEN = "broken", "Broken"
 
     class ThresholdOperator(models.TextChoices):
         ABOVE = "above", "Above"
@@ -56,21 +138,21 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     filters = models.JSONField(default=dict)
 
     # Threshold
-    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_count = models.PositiveIntegerField(default=100)
     threshold_operator = models.CharField(
         max_length=10,
-        choices=ThresholdOperator.choices,
+        choices=ThresholdOperator,
         default=ThresholdOperator.ABOVE,
     )
 
     # Window & scheduling
     window_minutes = models.PositiveIntegerField(default=5)
-    check_interval_minutes = models.PositiveIntegerField(default=1)
+    check_interval_minutes = models.PositiveIntegerField(default=5)
 
     # State
     state = models.CharField(
         max_length=20,
-        choices=State.choices,
+        choices=State,
         default=State.NOT_FIRING,
     )
 
@@ -88,6 +170,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "logs_logsalertconfiguration"
@@ -101,20 +184,44 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns field names modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = self.State.NOT_FIRING
-            updated.append("state")
+    def clear_next_check(self) -> list[str]:
+        """Nulls `next_check_at` so the scheduler picks this alert up on the next tick.
+        Returns modified fields for `save(update_fields=...)`.
+        """
         self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
+        return ["next_check_at"]
+
+    def to_snapshot(self, recent_events_breached: tuple[bool, ...] | None = None) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision.
+
+        `recent_events_breached` lets the caller pass in the M-of-N window directly
+        (e.g. derived from a single bucketed CH query). When omitted, falls back to
+        reading historical CHECK rows via `get_recent_breaches` — kept for back-compat
+        with code paths that haven't switched to the bucketed eval yet.
+        """
+        from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
+
+        return AlertSnapshot(
+            state=AlertState(self.state),
+            evaluation_periods=self.evaluation_periods,
+            datapoints_to_alarm=self.datapoints_to_alarm,
+            cooldown_minutes=self.cooldown_minutes,
+            last_notified_at=self.last_notified_at,
+            snooze_until=self.snooze_until,
+            consecutive_failures=self.consecutive_failures,
+            recent_events_breached=recent_events_breached
+            if recent_events_breached is not None
+            else self.get_recent_breaches(),
+        )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
-        """Last M non-errored checks' threshold_breached values, newest first."""
+        """Last M non-errored check events' threshold_breached values, newest first."""
         return tuple(
-            LogsAlertCheck.objects.filter(alert=self, error_message__isnull=True)
+            LogsAlertEvent.objects.filter(
+                alert=self,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=True,
+            )
             .order_by("-created_at")
             .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
         )
@@ -126,17 +233,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 f"datapoints_to_alarm cannot exceed evaluation_periods ({self.datapoints_to_alarm} > {self.evaluation_periods})"
             )
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.enabled:
-            self.state = self.State.NOT_FIRING
-            if "update_fields" in kwargs and "state" not in kwargs["update_fields"]:
-                kwargs["update_fields"] = [*kwargs["update_fields"], "state"]
-
-        super().save(*args, **kwargs)
-
 
 class LogsAlertCheck(UUIDModel):
-    RETENTION_DAYS = 14
+    """Defunct — kept in sync with the physical table `logs_logsalertcheck`.
+
+    All production reads and writes go through `LogsAlertEvent` (the new table). This
+    shell class exists solely to match Django's model state with the legacy table
+    created by `0001_initial.py`. PR 4 will drop the table and remove this class.
+    """
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,
@@ -154,11 +258,146 @@ class LogsAlertCheck(UUIDModel):
     class Meta:
         db_table = "logs_logsalertcheck"
 
+
+class LogsAlertEvent(UUIDModel):
+    # Events (errored, breached, state-transition rows) retained this long for forensics.
+    # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
+    EVENT_RETENTION_DAYS = 90
+
+    class Kind(models.TextChoices):
+        # Worker-produced row from evaluating the ClickHouse check query. Only CHECK rows
+        # feed the N-of-M evaluator and are eligible for the inline prune. Control-plane
+        # kinds are reserved for user-initiated state transitions; writers are added in a
+        # follow-up PR (see spike 4.7). Every read path must filter by kind=CHECK to keep
+        # control-plane rows out of evaluator and prune windows.
+        CHECK = "check", "Check"
+        RESET = "reset", "Reset"
+        ENABLE = "enable", "Enable"
+        DISABLE = "disable", "Disable"
+        SNOOZE = "snooze", "Snooze"
+        UNSNOOZE = "unsnooze", "Unsnooze"
+        THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+        BROKEN_CONFIG = "broken_config", "Broken config"
+
+    alert = models.ForeignKey(
+        LogsAlertConfiguration,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
+    created_at = models.DateTimeField(auto_now_add=True)
+    result_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_breached = models.BooleanField()
+    state_before = models.CharField(max_length=20)
+    state_after = models.CharField(max_length=20)
+    error_message = models.TextField(null=True, blank=True)
+    query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "logs_logsalertevent"
+        indexes = [
+            models.Index(fields=["alert", "-created_at"], name="logs_alert_event_alert_ts_idx"),
+        ]
+
     def __str__(self) -> str:
-        return f"LogsAlertCheck for {self.alert.name} at {self.created_at}"
+        return f"LogsAlertEvent for {self.alert.name} at {self.created_at}"
 
     @classmethod
-    def clean_up_old_checks(cls) -> int:
-        oldest_allowed = datetime.now(UTC) - timedelta(days=cls.RETENTION_DAYS)
-        count, _ = cls.objects.filter(created_at__lt=oldest_allowed).delete()
+    def clean_up_old_events(cls) -> int:
+        """Delete every event row older than EVENT_RETENTION_DAYS.
+
+        In steady state this only touches errored rows and state-transition rows: the
+        Temporal activity caps non-event rows to MAX_EVALUATION_PERIODS per alert
+        inline. Rows from silent or disabled alerts also age out through this path.
+        """
+        oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
+        count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count
+
+
+# Cap on enabled metric rules per team. Every enabled rule is evaluated against every
+# ingested log record in the Node worker, so the cap bounds per-record CPU. Mirrored in
+# the serializer so the limit surfaces as a 400 rather than silent worker truncation.
+MAX_ENABLED_METRIC_RULES = 10
+
+# Group-by cardinality bounds. Keys beyond the cap multiply the number of emitted metric
+# series per rule; the serializer rejects rules exceeding it at write time.
+MAX_METRIC_RULE_GROUP_BY_KEYS = 5
+
+# Top-level LogRecord fields allowed as group-by dimensions. Anything else must be
+# addressed through the `attributes.` / `resource_attributes.` map prefixes.
+METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS = ("service_name", "severity_text", "event_name")
+
+
+class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Generates a metric from ingested logs: records matching `filter_group` are tallied
+    at ingest time (before drop rules) and emitted into the Metrics product under
+    `metric_name`. With `value_attribute` unset the rule counts matching records; when set,
+    the numeric value of that attribute is aggregated into a distribution (count + sum)."""
+
+    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are hot tables,
+    # and creating an FK constraint against them locks the parent — see the hot-table section
+    # of safe-django-migrations.md. Enforcement is app-level (Django still cascades in the ORM).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    # Emitted OTLP metric name. Immutable after create (changing it would start a brand-new
+    # series and orphan the old one) — enforced in the serializer.
+    metric_name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=False)
+    # PropertyGroupFilter JSON (same shape as LogsExclusionRule config.filter_group).
+    # Null = every ingested log record matches.
+    filter_group = models.JSONField(null=True, blank=True, default=None)
+    # Log attribute key holding the numeric value to aggregate (`attributes.` /
+    # `resource_attributes.` prefixed). Null = count matching records. Immutable after
+    # create — it decides the emitted metric type (sum vs histogram).
+    value_attribute = models.CharField(max_length=512, null=True, blank=True)
+    # Group-by dimension keys; each distinct value combination becomes its own series.
+    group_by = ArrayField(models.CharField(max_length=512), default=list, blank=True)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsmetricrule"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name"], name="logs_metric_rule_team_metric_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "enabled"], name="logs_metric_team_enabled_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} -> {self.metric_name} (team={self.team_id})"
+
+
+class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
+
+    class RuleType(models.TextChoices):
+        SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
+        PATH_DROP = "path_drop", "Path exclusion"
+        RATE_LIMIT = "rate_limit", "Rate limit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    rule_type = models.CharField(max_length=32, choices=RuleType.choices)
+    scope_service = models.CharField(max_length=512, null=True, blank=True)
+    scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
+    scope_attribute_filters = models.JSONField(default=list)
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsexclusionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"

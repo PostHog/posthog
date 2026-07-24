@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "key_id": {
+            "description": "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide.",
+            "type": "string"
+        }
+    },
+    "required": ["key_id"],
+    "type": "object"
+}

@@ -1,7 +1,174 @@
 import { z } from 'zod'
 
-import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { InsightQuerySchema, PropertyFilter } from './query'
+// Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
+// script, and both modules are pure constants/functions — no `.md` imports to choke on.
+import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+import { normalizeParamAliases } from '../tools/cast-helpers'
+
+export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
+    name: z
+        .string()
+        .max(255)
+        .describe('Short human label for the source. Shown in the settings list and in agent citations.'),
+    url: z.string().url().max(2048).describe('Public HTTP(S) URL to fetch. Private or internal hosts are rejected.'),
+    source_type: z.literal('url').default('url').describe('Source type. Always "url" for this tool.'),
+    refresh_interval: z
+        .enum(['manual', '1h', '6h', '24h', '7d'])
+        .optional()
+        .default('manual')
+        .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+    always_include: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query."
+        ),
+})
+
+export const AgentResolveResourceSchema = z.object({
+    resource: z
+        .string()
+        .describe(
+            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
+        ),
+})
+
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
+})
+
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
+const CategoricalScoreOptionSchema = z.object({
+    key: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe(
+            'Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.'
+        ),
+    label: z.string().min(1).max(256).describe('Human-readable label shown in the review UI.'),
+})
+
+const CategoricalScoreDefinitionConfigSchema = z
+    .object({
+        options: z
+            .array(CategoricalScoreOptionSchema)
+            .min(1)
+            .refine(
+                (options) => new Set(options.map((option) => option.key)).size === options.length,
+                'Categorical option keys must be unique.'
+            )
+            .describe('Ordered categorical options. Must contain at least one option with unique keys.'),
+        selection_mode: z
+            .enum(['single', 'multiple'])
+            .optional()
+            .describe('Whether reviewers select one option or many. Defaults to "single".'),
+        min_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Minimum selections required. Only valid when selection_mode is "multiple".'),
+        max_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "categorical".')
+
+const NumericScoreDefinitionConfigSchema = z
+    .object({
+        min: z.number().optional().describe('Optional inclusive minimum score.'),
+        max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
+        step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "numeric".')
+
+const BooleanScoreDefinitionConfigSchema = z
+    .object({
+        true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
+        false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "boolean".')
+
+export const ScoreDefinitionConfigSchema = z
+    .union([
+        CategoricalScoreDefinitionConfigSchema,
+        NumericScoreDefinitionConfigSchema,
+        BooleanScoreDefinitionConfigSchema,
+    ])
+    .describe(
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+    )
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -13,296 +180,240 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const DocumentationSearchSchema = z.object({
-    query: z.string(),
-})
+export const FeedbackSubmitSchema = z
+    .object({
+        summary: z
+            .string()
+            .min(1)
+            .describe(
+                'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
+            ),
+        feedback_type: z
+            .enum(['product', 'mcp', 'docs', 'scout', 'other'])
+            .describe(
+                'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
+            ),
+        sentiment: z
+            .enum(['positive', 'neutral', 'negative', 'mixed'])
+            .describe(
+                'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
+            ),
+        product_area: z
+            .string()
+            .optional()
+            .describe(
+                'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
+            ),
+        category: z
+            .enum([
+                'tool_correctness',
+                'tool_description',
+                'tool_input_schema',
+                'tool_output_format',
+                'missing_tool',
+                'instructions_clarity',
+                'performance',
+                'error_message',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
+            ),
+        scout_skill_name: z
+            .string()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
+            ),
+        scout_skill_version: z
+            .number()
+            .int()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
+            ),
+        scout_category: z
+            .enum([
+                'false_positive',
+                'missed_detection',
+                'discriminator_gap',
+                'wasted_investigation',
+                'instruction_ambiguity',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
+            ),
+        task_completed: z
+            .boolean()
+            .optional()
+            .describe(
+                'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
+            ),
+        tools_used: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+            ),
+        friction_points: z
+            .string()
+            .optional()
+            .describe(
+                'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
+            ),
+        suggested_improvement: z
+            .string()
+            .optional()
+            .describe(
+                'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
+            ),
+        user_request: z
+            .string()
+            .optional()
+            .describe(
+                'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+            ),
+        details: z
+            .string()
+            .optional()
+            .describe(
+                "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
+            ),
+    })
+    .superRefine((data, ctx) => {
+        // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+        // so reject it at validation time instead of recording an unattributable event.
+        if (data.feedback_type !== 'scout') {
+            return
+        }
+        for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+            if (data[field] === undefined) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: [field],
+                    message: `${field} is required when feedback_type is "scout".`,
+                })
+            }
+        }
+    })
 
-export const ExperimentGetAllSchema = z.object({
-    data: z
+const SavedMetricAttachItemSchema = z.object({
+    id: z
+        .number()
+        .int()
+        .describe('ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list.'),
+    metadata: z
         .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
+            type: z
+                .enum(['primary', 'secondary'])
+                .describe('Whether this metric is a primary or secondary metric on the experiment.'),
         })
-        .optional(),
+        .optional()
+        .describe('Optional per-link metadata. Omit to default this metric to primary.'),
 })
 
-export const ExperimentGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to retrieve'),
-})
+export const SavedMetricsAttachSchema = z
+    .array(SavedMetricAttachItemSchema)
+    .describe(
+        "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+    )
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
-})
-
-/**
- * User-friendly input schema for experiment updates
- * This provides a simplified interface that gets transformed to API format
- */
-export const ExperimentUpdateInputSchema = z.object({
-    name: z.string().optional().describe('Update experiment name'),
-
-    description: z.string().optional().describe('Update experiment description'),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update primary metrics'),
-
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
-                event_name: z.string().describe('PostHog event name'),
-                funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update secondary metrics'),
-
-    minimum_detectable_effect: z.number().optional().describe('Update minimum detectable effect in percentage'),
-
-    // Experiment state management
-    launch: z.boolean().optional().describe('Launch experiment (set start_date) or keep as draft'),
-
-    conclude: z
-        .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
-        .optional()
-        .describe('Conclude experiment with result'),
-
-    conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
-
-    restart: z
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
         .boolean()
         .optional()
-        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
-
-    archive: z.boolean().optional().describe('Archive or unarchive experiment'),
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
-export const ExperimentUpdateSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to update'),
-    data: ExperimentUpdateInputSchema.describe('The experiment data to update using user-friendly format'),
-})
+// Accept the identifier under the aliases agents reach for (`insight-get` &
+// friends return the insight under `id`; UI URLs surface `short_id`), and
+// accept a numeric id — production traces show both mistakes are common.
+// Same motivation as the `orgId` aliases on OrganizationSetActiveSchema below;
+// normalized via preprocess here because this schema has more fields than a
+// per-alias union can reasonably enumerate.
+export const InsightQueryInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z.object({
+        insightId: z
+            .union([z.string(), z.number()])
+            .transform((value) => String(value))
+            .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
+        output_format: z
+            .enum(['optimized', 'json'])
+            .optional()
+            .default('optimized')
+            .describe(
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+    })
+)
 
-export const ExperimentCreateSchema = z.object({
-    name: z.string().min(1).describe('Experiment name - should clearly describe what is being tested'),
-
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes'
-        ),
-
-    feature_flag_key: z
-        .string()
-        .describe(
-            'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
-        ),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z
-                    .string()
-                    .describe(
-                        "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events."
-                    ),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
-                    ),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z
-                    .string()
-                    .optional()
-                    .describe("What this metric measures and why it's important for the experiment"),
-            })
-        )
-        .optional()
-        .describe(
-            'Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.'
-        ),
-
-    // Secondary metrics for additional insights
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("REQUIRED: PostHog event name. Use '$pageview' if unsure."),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this secondary metric measures'),
-            })
-        )
-        .optional()
-        .describe(
-            'Secondary metrics to monitor for potential side effects or additional insights. Each metric needs event_name.'
-        ),
-
-    // Feature flag variants
-    variants: z
-        .array(
-            z.object({
-                key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
-                name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
-            })
-        )
-        .optional()
-        .describe(
-            'Experiment variants. If not specified, defaults to 50/50 control/test split. Ask user how many variants they need and what each tests'
-        ),
-
-    // Experiment parameters
-    minimum_detectable_effect: z
-        .number()
-        .default(30)
-        .describe(
-            'Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments'
-        ),
-
-    // Exposure and targeting
-    filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
-
-    target_properties: z
-        .record(z.string(), z.any())
-        .optional()
-        .describe('Properties to target specific user segments (e.g., country, subscription type)'),
-
-    // Control flags
-    draft: z
-        .boolean()
-        .default(true)
-        .describe('Create as draft (true) or launch immediately (false). Recommend draft for review first'),
-
-    holdout_id: z
-        .number()
-        .optional()
-        .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-
-    allow_unknown_events: z
-        .boolean()
-        .optional()
-        .describe(
-            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
-        ),
-})
-
-export const InsightCreateSchema = z.object({
-    data: CreateInsightInputSchema,
-})
-
-export const InsightDeleteSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetAllSchema = z.object({
-    data: ListInsightsSchema.optional(),
-})
-
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
-})
-
-export const InsightQueryInputSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightUpdateSchema = z.object({
-    insightId: z.string(),
-    data: UpdateInsightInputSchema,
-})
-
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
 
-export const OrganizationGetDetailsSchema = z.object({})
+// Accept `orgId` and the aliases agents reach for when composing the call from
+// scratch. `organizations-list` / `organization-get` return the org under an `id`
+// key, and in exec mode agents don't read the advertised schema — they
+// reconstruct the field name from context, producing `id`, `organizationId`,
+// `organization_id`, or `org_id`. Requiring a single spelling made this the odd
+// tool out and drove a steady stream of exec-mode validation failures. Model each
+// accepted key as its own single-field required branch so the advertised JSON
+// schema (anyOf) enumerates every alias and still expresses "exactly one
+// identifier is required"; normalize to `orgId` so the handler stays simple.
+const orgIdAliasDescription =
+    'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
+export const OrganizationSetActiveSchema = z
+    .union(
+        [
+            z.object({
+                orgId: z
+                    .string()
+                    .describe(
+                        'The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.'
+                    ),
+            }),
+            z.object({ id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organizationId: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
+        ],
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-get)' }
+    )
+    .transform((data) => ({
+        orgId:
+            'orgId' in data
+                ? data.orgId
+                : 'id' in data
+                  ? data.id
+                  : 'organizationId' in data
+                    ? data.organizationId
+                    : 'organization_id' in data
+                      ? data.organization_id
+                      : data.org_id,
+    }))
 
 export const OrganizationGetAllSchema = z.object({})
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
-
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -327,45 +438,134 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
+export const PropertyDefinitionUpdateInputSchema = z.object({
+    description: z.string().optional().describe('Description explaining what the property represents'),
+    tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: this REPLACES the property\'s entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
+        ),
+    property_type: z
+        .enum(['DateTime', 'String', 'Numeric', 'Boolean', 'Duration'])
+        .optional()
+        .describe('The data type of the property. Controls how the property is parsed, displayed, and filtered.'),
+    verified: z
+        .boolean()
+        .optional()
+        .describe('Mark as verified to indicate the property is correctly instrumented and safe to use'),
+    hidden: z
+        .boolean()
+        .optional()
+        .describe('Mark property as no longer used. Hides it from the UI while preserving historical data'),
+})
+
+export const PropertyDefinitionUpdateSchema = z.object({
+    propertyName: z.string().describe('The exact name of the property to update (e.g. "$browser", "plan_type")'),
+    type: z
+        .enum(['event', 'person', 'group', 'session'])
+        .default('event')
+        .describe('Which property taxonomy the property belongs to. Defaults to "event" (event properties).'),
+    groupTypeIndex: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required when type is "group": the zero-based index of the group type the property belongs to.'),
+    data: PropertyDefinitionUpdateInputSchema.describe('The property definition data to update'),
+})
+
+const PathCleaningAliasField = z
+    .string()
+    .describe(
+        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+    )
+const PathCleaningRegexField = z
+    .string()
+    .min(1)
+    .describe(
+        'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
+    )
+const PathCleaningTargetAlias = z
+    .string()
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
+
+export const PathCleaningRulesUpdateSchema = z.object({
+    operations: z
+        .array(
+            z.discriminatedUnion('action', [
+                z
+                    .object({
+                        action: z.literal('append'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe('Add a new rule at the end of the ordered list (runs last).'),
+                z
+                    .object({
+                        action: z.literal('insert'),
+                        index: z
+                            .number()
+                            .int()
+                            .min(0)
+                            .describe('Zero-based position to insert the rule at. Existing rules shift down.'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe(
+                        'Insert a new rule at a specific position — use when it must run before more general rules.'
+                    ),
+                z
+                    .object({
+                        action: z.literal('replace'),
+                        target_alias: PathCleaningTargetAlias,
+                        alias: PathCleaningAliasField.optional().describe('New alias. Omit to keep the current alias.'),
+                        regex: PathCleaningRegexField.optional().describe('New regex. Omit to keep the current regex.'),
+                    })
+                    .describe('Replace the alias and/or regex of an existing rule, keeping its position.'),
+                z
+                    .object({
+                        action: z.literal('remove'),
+                        target_alias: PathCleaningTargetAlias,
+                    })
+                    .describe('Remove an existing rule by alias.'),
+                z
+                    .object({
+                        action: z.literal('reorder'),
+                        ordered_aliases: z
+                            .array(z.string())
+                            .describe(
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
+                            ),
+                    })
+                    .describe(
+                        'Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.'
+                    ),
+            ])
+        )
+        .min(1)
+        .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
+    sample_paths: z
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
+        .optional()
+        .describe(
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            'Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.'
+        ),
 })
 
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
-})
-
-export const SurveyResponseCountsSchema = z.object({})
-
-export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
-        .optional()
-        .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
-        ),
 })
 
 // Debug MCP UI Apps
@@ -383,11 +583,13 @@ export const ExecuteSQLSchema = z.object({
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
         ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
 })
-
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
@@ -440,4 +642,169 @@ export const ReadDataSchemaSchema = z.object({
             ReadActionSamplePropertyValuesQuerySchema,
         ])
         .describe('The data schema query to execute.'),
+})
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}
+
+const WorkflowGraphEdgeSchema = z.object({
+    from: z.string().describe('Source action id.'),
+    to: z.string().describe('Target action id.'),
+    type: z
+        .enum(['continue', 'branch'])
+        .describe(
+            "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+        ),
+    index: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required for type=branch: which condition/cohort slot this branch matches (0-based).'),
+})
+
+const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_action'),
+        id: z.string().describe('Id of the action to update.'),
+        patch: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'Partial action fields, deep-merged into the existing action; a null leaf deletes that key. ' +
+                    'e.g. {config: {inputs: {subject: {value: "Hi"}}}} changes only that one input.'
+            ),
+    }),
+    z.object({
+        op: z.literal('add_action'),
+        action: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array.'
+            ),
+    }),
+    z.object({
+        op: z.literal('remove_action'),
+        id: z.string().describe('Id of the action to remove. Its incoming edges reconnect to its first outgoer.'),
+    }),
+    z.object({
+        op: z.literal('add_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to add.'),
+    }),
+    z.object({
+        op: z.literal('remove_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to remove (matched on from/to/type/index).'),
+    }),
+    z.object({
+        op: z.literal('replace_action_edges'),
+        id: z.string().describe('Action id whose outgoing edges are being replaced.'),
+        edges: z
+            .array(WorkflowGraphEdgeSchema)
+            .describe("The complete set of the action's outgoing edges; incoming edges are preserved."),
+    }),
+])
+
+export const WorkflowGraphPatchSchema = z.object({
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
+    operations: z
+        .array(WorkflowGraphOperationSchema)
+        .min(1)
+        .describe(
+            'Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result ' +
+                'is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference ' +
+                'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
+        ),
+})
+
+// Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
+// the stable block id. Mirrors DesignOperationSerializer; kept as a hand-authored discriminated union so
+// the LLM sees exactly which fields each op needs (the auto-generated PATCH schema flattens them all to
+// optional). `patch`/`content`/`row` are freeform Unlayer JSON.
+const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
+
+const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_content'),
+        id: z.string().describe('Id of the content block to update.'),
+        patch: EmailDesignFreeformObject.describe(
+            'Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. ' +
+                "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+        ),
+    }),
+    z.object({
+        op: z.literal('update_column'),
+        id: z.string().describe('Id of the column to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_row'),
+        id: z.string().describe('Id of the row to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_body'),
+        patch: EmailDesignFreeformObject.describe(
+            "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+        ),
+    }),
+    z.object({
+        op: z.literal('add_content'),
+        column_id: z.string().describe('Id of the column to insert the block into.'),
+        content: EmailDesignFreeformObject.describe(
+            'A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. ' +
+                'type is one of text, heading, button, image, divider, html, etc.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_content'),
+        id: z.string().describe('Id of the content block to remove.'),
+    }),
+    z.object({
+        op: z.literal('move_content'),
+        id: z.string().describe('Id of the content block to move.'),
+        column_id: z.string().describe('Id of the destination column.'),
+        index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
+    }),
+    z.object({
+        op: z.literal('add_row'),
+        row: EmailDesignFreeformObject.describe(
+            'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
+                'assigned server-side for the row and everything nested in it.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_row'),
+        id: z.string().describe('Id of the row to remove.'),
+    }),
+])
+
+export const EmailTemplateDesignPatchSchema = z.object({
+    id: z.string().describe('The email template id to edit.'),
+    operations: z
+        .array(EmailDesignPatchOperationSchema)
+        .min(1)
+        .describe(
+            "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops " +
+                'are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — ' +
+                'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
+        ),
 })

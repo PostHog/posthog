@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
-import { CoreFilterDefinition } from '~/types'
+import { CoreFilterDefinition, PropertyDefinition, PropertyType } from '~/types'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
 
@@ -54,13 +55,37 @@ export function getCoreFilterDefinition(
             }
         }
     } else if (value.startsWith('$survey_response_')) {
-        const surveyIndex = value.replace(/^\$survey_response_/, '')
-        if (surveyIndex) {
-            const index = Number(surveyIndex) + 1
-            const suffix = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+        const suffix = value.replace(/^\$survey_response_/, '')
+        if (suffix) {
+            // If `surveyQuestionLabelsLogic` is mounted (a `PropertyKeyInfo` for any
+            // survey response key triggers the mount, which auto-loads the slim labels
+            // endpoint), prefer the actual question text. This branch covers every
+            // call site — `PropertyKeyInfo`, the property definitions popover, chart
+            // legends, breakdown labels, the admin definitions page — so all of them
+            // benefit once the labels have loaded.
+            const resolved = surveyQuestionLabelsLogic.findMounted()?.values.surveyQuestionLabels?.[suffix]
+            if (resolved) {
+                return {
+                    label: `${resolved.questionText} · ${resolved.surveyName}`,
+                    description: `Response to "${resolved.questionText}" in survey "${resolved.surveyName}".`,
+                }
+            }
+            const parsedIndex = Number(suffix)
+            if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
+                const index = parsedIndex + 1
+                const ordinal = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+                return {
+                    label: `Survey response for ${index}${ordinal} question`,
+                    description: `The response value for the ${index}${ordinal} question in the survey.`,
+                }
+            }
+            // Modern format `$survey_response_<question-uuid>`, but the labels haven't
+            // loaded yet (or this consumer doesn't subscribe so it won't re-render
+            // when they do). Emit a generic short-ID label as a placeholder.
+            const shortId = suffix.slice(0, 8)
             return {
-                label: `Survey response for ${index}${suffix} question`,
-                description: `The response value for the ${index}${suffix} question in the survey.`,
+                label: `Survey response (${shortId}…)`,
+                description: `Response for survey question with ID "${suffix}".`,
             }
         }
     } else if (value.startsWith('$feature/')) {
@@ -88,6 +113,49 @@ export function getCoreFilterDefinition(
                 label: `Feature Interaction: ${featureFlagKey}`,
                 description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
+            }
+        }
+    }
+    return null
+}
+
+/** Prefix of the synthetic ids the property definitions API gives virtual (query-time computed) properties. */
+export const VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX = '$builtin_'
+
+const VIRTUAL_PROPERTY_DEFINITION_GROUPS = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.GroupsPrefix,
+]
+
+export interface VirtualPropertyDefinitionMatch {
+    definition: PropertyDefinition
+    /** The taxonomy group the definition was resolved from; use it for label/description lookups so they can't disagree. */
+    group: TaxonomicFilterGroupType
+}
+
+/** Virtual properties have no database row, so their definition is built from the taxonomy. */
+export function getVirtualPropertyDefinition(id: string): VirtualPropertyDefinitionMatch | null {
+    if (!id.startsWith(VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX)) {
+        return null
+    }
+    const name = id.slice(VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX.length)
+    for (const group of VIRTUAL_PROPERTY_DEFINITION_GROUPS) {
+        const coreDefinition = getCoreFilterDefinition(name, group)
+        if (coreDefinition?.virtual) {
+            return {
+                definition: {
+                    id,
+                    name,
+                    description:
+                        typeof coreDefinition.description === 'string' ? coreDefinition.description : undefined,
+                    is_numerical: coreDefinition.type === PropertyType.Numeric,
+                    property_type: coreDefinition.type,
+                    verified: false,
+                    hidden: false,
+                    virtual: true,
+                },
+                group,
             }
         }
     }

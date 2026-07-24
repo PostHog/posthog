@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { Dot } from './dot'
+import { Button } from './button'
 
 const meta = {
     title: 'Primitives/Dot',

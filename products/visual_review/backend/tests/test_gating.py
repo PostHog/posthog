@@ -1,0 +1,177 @@
+"""
+Gating invariant tests for visual review.
+
+The CI gate passes iff no "unresolved" changes remain on the run.
+A snapshot becomes resolved when quarantined, tolerated, or approved
+at the snapshot level.
+
+Each snapshot has two independent axes:
+
+    result:  changed | new | removed | unchanged
+    action:  none | quarantine | tolerate | approve
+
+Not all combos are valid (can't tolerate an unchanged snapshot),
+yielding 11 valid states. Since snapshots don't influence each other
+(the gate is a sum), testing all 11 single-snapshot cases exhaustively
+covers the entire state space.
+"""
+
+import pytest
+
+from parameterized import parameterized
+
+from products.visual_review.backend import logic
+from products.visual_review.backend.facade import api
+from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.models import QuarantinedIdentifier, Run
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+RESULT_ENUM = {
+    "changed": SnapshotResult.CHANGED,
+    "new": SnapshotResult.NEW,
+    "removed": SnapshotResult.REMOVED,
+    "unchanged": SnapshotResult.UNCHANGED,
+}
+
+# fmt: off
+# (name, result, action, gate_passes, expected_changed_count)
+# gate_passes: True when unresolved=0 (action resolves the change or result is unchanged)
+# expected_changed_count: raw classifier count on the Run model (excludes quarantined only)
+GATE_CASES = [
+    ("unchanged",            "unchanged", None,          True,  0),
+    ("changed_unresolved",   "changed",   None,          False, 1),
+    ("changed_quarantined",  "changed",   "quarantine", True,  0),
+    ("changed_tolerated",    "changed",   "tolerate",   True,  1),
+    ("changed_approved",     "changed",   "approve",    True,  1),
+    ("new_unresolved",       "new",       None,          False, 0),
+    ("new_quarantined",      "new",       "quarantine", True,  0),
+    ("new_approved",         "new",       "approve",    True,  0),
+    ("removed_unresolved",   "removed",   None,          False, 0),
+    ("removed_quarantined",  "removed",   "quarantine", True,  0),
+    ("removed_approved",     "removed",   "approve",    True,  0),
+]
+# fmt: on
+
+
+@pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
+class TestGatingInvariants:
+    @pytest.fixture(autouse=True)
+    def _setup(self, team, user, mocker):
+        self.team = team
+        self.user = user
+        self.mocker = mocker
+        self.repo = logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-gating")
+        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+
+    def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
+        snapshots: list[dict] = []
+        baseline: dict[str, str] = {}
+
+        if result == "changed":
+            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+            baseline = {"target": "baseline_hash"}
+        elif result == "new":
+            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+        elif result == "removed":
+            baseline = {"target": "baseline_hash"}
+        elif result == "unchanged":
+            snapshots = [{"identifier": "target", "content_hash": "same_hash"}]
+            baseline = {"target": "same_hash"}
+
+        self.mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(baseline, 0),
+        )
+
+        run, _ = logic.create_run(
+            repo_id=self.repo.id,
+            team_id=self.team.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="feat/test",
+            pr_number=1,
+            snapshots=snapshots,
+            purpose=purpose,
+        )
+        logic.complete_run(run.id)
+        run.refresh_from_db()
+        if run.status == RunStatus.PROCESSING:
+            logic.finish_processing(run.id)
+            run.refresh_from_db()
+
+        if action == "quarantine":
+            QuarantinedIdentifier.objects.create(
+                repo=self.repo,
+                team_id=self.team.id,
+                identifier="target",
+                run_type=RunType.STORYBOOK,
+                reason="test",
+            )
+        elif action == "tolerate":
+            snapshot = run.snapshots.get(identifier="target")
+            logic.mark_snapshot_as_tolerated(run.id, snapshot.id, self.user.id, self.team.id)
+        elif action == "approve":
+            snapshot = run.snapshots.get(identifier="target")
+            if result == "removed":
+                snapshot.review_state = ReviewState.APPROVED
+                snapshot.save(update_fields=["review_state"])
+            else:
+                logic.get_or_create_artifact(
+                    repo_id=self.repo.id,
+                    content_hash=snapshot.current_hash,
+                    storage_path=f"p/{snapshot.current_hash}",
+                )
+                logic.approve_snapshots(
+                    run_id=run.id,
+                    user_id=self.user.id,
+                    approved_snapshots=[{"identifier": "target", "new_hash": snapshot.current_hash}],
+                )
+
+        return run
+
+    @parameterized.expand(GATE_CASES)
+    def test_gate_outcome(self, _name, result, action, expected_gate_passes, expected_changed_count):
+        run = self._build_run(result, action)
+        recompute_result = logic.recompute_run(run.id, team_id=self.team.id)
+        gate_passes = recompute_result["unresolved"] == 0
+        assert gate_passes is expected_gate_passes
+
+    @parameterized.expand(GATE_CASES)
+    def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):
+        run = self._build_run(result, action)
+        logic.recompute_run(run.id, team_id=self.team.id)
+        run.refresh_from_db()
+        assert run.changed_count == expected_changed_count
+
+    @parameterized.expand(GATE_CASES)
+    def test_result_not_mutated_by_action_or_recompute(self, _name, result, action, _expected_gate, _expected_changed):
+        run = self._build_run(result, action)
+        logic.recompute_run(run.id, team_id=self.team.id)
+
+        snapshot = run.snapshots.get(identifier="target")
+        snapshot.refresh_from_db()
+        assert snapshot.result == RESULT_ENUM[result]
+
+    @parameterized.expand(GATE_CASES)
+    def test_recompute_is_idempotent(self, _name, result, action, _expected_gate, _expected_changed):
+        run = self._build_run(result, action)
+        logic.recompute_run(run.id, team_id=self.team.id)
+
+        second = logic.recompute_run(run.id, team_id=self.team.id)
+        assert second["counts_changed"] is False
+
+    def test_observe_run_summary_never_gates(self):
+        # The CLI exits non-zero on summary.unresolved > 0. Observe (tracking-only) runs are
+        # non-approvable, so the summary must report 0 unresolved even with real changes —
+        # otherwise `vr submit --purpose observe` would red a default-branch job.
+        run = self._build_run("changed", None, purpose="observe")
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 0
+
+    def test_review_run_summary_still_gates(self):
+        run = self._build_run("changed", None)
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 1

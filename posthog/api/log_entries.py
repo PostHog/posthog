@@ -2,22 +2,23 @@ import dataclasses
 from datetime import datetime
 from typing import Any, Optional, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.schema import ProductKey
-
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.schema_enums import ProductKey
 
 LOG_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
     "hog_flow": ProductKey.WORKFLOWS,
     "batch_exports": ProductKey.PIPELINE_BATCH_EXPORTS,
+    "endpoints": ProductKey.ENDPOINTS,
 }
 
 
@@ -36,12 +37,33 @@ class LogEntrySerializer(DataclassSerializer):
 
 
 class LogEntryRequestSerializer(serializers.Serializer):
-    limit = serializers.IntegerField(required=False, default=50, max_value=500, min_value=1)
-    after = serializers.DateTimeField(required=False)
-    before = serializers.DateTimeField(required=False)
-    level = serializers.CharField(required=False)
-    search = serializers.CharField(required=False)
-    instance_id = serializers.CharField(required=False)
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        max_value=500,
+        min_value=1,
+        help_text="Maximum number of log entries to return (1-500, default 50).",
+    )
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries after this ISO 8601 timestamp.",
+    )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries before this ISO 8601 timestamp.",
+    )
+    level = serializers.CharField(
+        required=False,
+        help_text="Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.",
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text="Case-insensitive substring search across log messages.",
+    )
+    instance_id = serializers.CharField(
+        required=False,
+        help_text="Filter logs to a specific execution instance.",
+    )
 
 
 def fetch_log_entries(
@@ -102,7 +124,8 @@ class LogEntryMixin(viewsets.GenericViewSet):
         """
         raise NotImplementedError()
 
-    @action(detail=True, methods=["GET"])
+    @extend_schema(parameters=[LogEntryRequestSerializer])
+    @action(detail=True, methods=["GET"], filter_backends=[])
     def logs(self, request: Request, *args, **kwargs):
         obj = self.get_object()
 

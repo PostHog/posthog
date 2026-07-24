@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Human-readable queue name.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

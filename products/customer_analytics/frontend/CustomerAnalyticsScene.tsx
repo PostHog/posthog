@@ -4,8 +4,9 @@ import { combineUrl, router } from 'kea-router'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { NotFound } from 'lib/components/NotFound'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -18,6 +19,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -26,6 +28,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
+import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
+import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -37,6 +42,7 @@ import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { customerAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
@@ -44,7 +50,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
+            <CustomerAnalyticsSceneContent />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
@@ -61,13 +75,18 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
         AccessControlLevel.Editor
     )
 
-    if (!tabId) {
-        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
-    }
-
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
     })
+
+    // Accounts, Notes and Announcements are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do
+    // not exist, so guessed `/customer_analytics/{accounts,notes,announcements}` URLs are 404s.
+    if (
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements') &&
+        !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    ) {
+        return <NotFound object="page" />
+    }
 
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
@@ -86,14 +105,35 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
             </>
         )
 
-    const tabs: LemonTab<string>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: dashboardContent,
-            link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
-        },
-    ]
+    const tabs: LemonTab<string>[] = []
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+        tabs.push({
+            key: 'accounts',
+            label: 'Accounts',
+            content: <AccountsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+        tabs.push({
+            key: 'notes',
+            label: 'Notes',
+            content: <AccountNotesTabContent />,
+            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+        })
+        tabs.push({
+            key: 'announcements',
+            label: 'Announcements',
+            content: <AnnouncementsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+        })
+    }
+
+    tabs.push({
+        key: 'dashboard',
+        label: 'Dashboard',
+        content: dashboardContent,
+        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+    })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
         tabs.push({
@@ -103,6 +143,13 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
             link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
         })
     }
+
+    const tabsContent =
+        tabs.length > 1 ? (
+            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+        ) : (
+            dashboardContent
+        )
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -162,7 +209,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                     <DeleteJourneyButton />
                                 </>
                             ) : (
-                                <AppShortcut
+                                <Shortcut
                                     name="CustomerAnalyticsSettings"
                                     keybind={[keyBinds.settings]}
                                     intent="Configure customer analytics"
@@ -173,7 +220,11 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                         icon={<IconGear />}
                                         size="small"
                                         type="secondary"
-                                        to={urls.customerAnalyticsConfiguration()}
+                                        to={
+                                            activeTab === 'accounts'
+                                                ? `${urls.customerAnalyticsConfiguration()}?tab=customer-analytics-accounts`
+                                                : urls.customerAnalyticsConfiguration()
+                                        }
                                         onClick={() => {
                                             addProductIntent({
                                                 product_type: ProductKey.CUSTOMER_ANALYTICS,
@@ -186,16 +237,12 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                         children="Configure"
                                         data-attr="customer-analytics-config"
                                     />
-                                </AppShortcut>
+                                </Shortcut>
                             )}
                         </>
                     }
                 />
-                {tabs.length > 1 ? (
-                    <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-                ) : (
-                    dashboardContent
-                )}
+                {tabsContent}
             </SceneContent>
         </BindLogic>
     )

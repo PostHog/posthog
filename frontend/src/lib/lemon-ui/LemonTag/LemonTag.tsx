@@ -37,6 +37,8 @@ export interface LemonTagProps {
     'data-attr'?: string
     /** When true, the icon will swap to a close icon on hover and the entire tag becomes clickable to close */
     closeOnClick?: boolean
+    /** Keep the cursor-pointer / role="button" affordance even when wrapped in a `<Tooltip>` (Base UI's tooltip injects its own onClick which would otherwise suppress it). */
+    forceClickable?: boolean
 }
 
 export const LemonTag: React.FunctionComponent<
@@ -54,27 +56,29 @@ export const LemonTag: React.FunctionComponent<
         popover,
         disabledReason,
         closeOnClick,
+        onClick,
+        forceClickable,
         ...props
     },
     ref
 ): JSX.Element {
+    // Base UI's Tooltip injects an onClick onto its trigger child; don't treat that as dev intent unless forceClickable is set.
+    const isTooltipTrigger = 'data-base-ui-tooltip-trigger' in props
+    const isCloseClickable = !!(closeOnClick && icon && onClose)
+    const isClickable = (!!onClick && (!isTooltipTrigger || forceClickable)) || isCloseClickable
     return (
         <div
             ref={ref}
             className={clsx(
                 'LemonTag',
                 `LemonTag--size-${size}`,
-                disabledReason
-                    ? 'cursor-not-allowed'
-                    : props.onClick || (closeOnClick && icon && onClose)
-                      ? 'cursor-pointer'
-                      : undefined,
+                disabledReason ? 'cursor-not-allowed' : isClickable ? 'cursor-pointer' : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
                 closeOnClick && 'LemonTag--close-on-click',
                 className
             )}
-            role={props.onClick || (closeOnClick && icon && onClose) ? 'button' : undefined}
+            role={isClickable ? 'button' : undefined}
             title={disabledReason || undefined}
             aria-disabled={disabledReason ? true : undefined}
             {...props}
@@ -84,7 +88,7 @@ export const LemonTag: React.FunctionComponent<
                           e.stopPropagation()
                           onClose()
                       }
-                    : props.onClick
+                    : onClick
             }
         >
             {icon && closeOnClick && onClose ? (

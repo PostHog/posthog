@@ -193,6 +193,13 @@ const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
     payload: {
         sdk_name: 'web',
         latest_version: '1.142.0',
+        current_version: '1.142.0',
+        is_outdated: true,
+        is_old: false,
+        // The latest in-use version already matches latest, but an older version is still
+        // serving a significant share of traffic — the reason explains both.
+        reason: 'Latest in-use version 1.142.0 matches latest 1.142.0. Outdated versions still handling >= 20% of traffic: 1.130.0.',
+        banners: ['Version 1.130.0 of the Web SDK has captured more than 20% of events in the last 7 days.'],
         usage: [
             {
                 lib_version: '1.142.0',
@@ -200,6 +207,8 @@ const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
                 max_timestamp: '2025-01-15T09:30:00Z',
                 release_date: '2025-01-10T00:00:00Z',
                 is_latest: true,
+                is_outdated: false,
+                status_reason: 'You have the latest available.',
             },
             {
                 lib_version: '1.138.4',
@@ -207,13 +216,17 @@ const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
                 max_timestamp: '2025-01-14T22:15:00Z',
                 release_date: '2024-12-18T00:00:00Z',
                 is_latest: false,
+                is_outdated: false,
+                status_reason: "Released 4 weeks ago. Upgrading is a good idea, but it's not urgent yet.",
             },
             {
                 lib_version: '1.130.0',
-                count: 312,
+                count: 31200,
                 max_timestamp: '2025-01-12T06:00:00Z',
                 release_date: '2024-10-02T00:00:00Z',
                 is_latest: false,
+                is_outdated: true,
+                status_reason: 'Released 3 months ago. Upgrade recommended.',
             },
         ],
     },

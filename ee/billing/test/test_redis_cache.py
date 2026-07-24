@@ -1,13 +1,17 @@
 import json
+import datetime as dt
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
 from ee.billing.salesforce_enrichment.redis_cache import (
+    OrgMappingsCacheMissingError,
     _compress_redis_data,
     get_cached_org_mappings_count,
     get_org_mappings_from_redis,
-    get_org_mappings_page_from_redis,
+    get_org_mappings_page,
+    get_stripe_enrichment_watermark,
+    set_stripe_enrichment_watermark,
     store_org_mappings_in_redis,
 )
 
@@ -88,7 +92,11 @@ class TestStoreOrgMappingsInRedis:
             mock_pipe.execute.assert_called_once()
 
 
-class TestGetOrgMappingsPageFromRedis:
+class TestGetOrgMappingsPage:
+    """A missing key must never look like a completed run, and transient Redis
+    errors must propagate (so activity retries absorb them) instead of
+    triggering a needless cache rebuild."""
+
     @pytest.mark.asyncio
     async def test_get_page_success(self):
         raw_items = [
@@ -102,40 +110,66 @@ class TestGetOrgMappingsPageFromRedis:
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_page_from_redis(0, 10000)
+            result = await get_org_mappings_page(0, 10000)
 
             assert result == [
                 {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
                 {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
             ]
 
+    # offset == total is the terminal page of any run whose mapping count is an
+    # exact multiple of the page size, so the equality boundary matters.
     @pytest.mark.asyncio
-    async def test_get_page_cache_miss(self):
+    @pytest.mark.parametrize("offset", [42, 50])
+    async def test_get_page_past_end_returns_empty(self, offset):
         mock_redis = AsyncMock()
         mock_redis.lrange.return_value = []
+        mock_redis.llen.return_value = 42
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_page_from_redis(0, 10000)
+            result = await get_org_mappings_page(offset, 10000)
 
-            assert result is None
+            assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_page_redis_error(self):
+    async def test_get_page_missing_key_raises(self):
         mock_redis = AsyncMock()
-        mock_redis.lrange.side_effect = Exception("Redis connection error")
+        mock_redis.lrange.return_value = []
+        mock_redis.llen.return_value = 0
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            with patch("ee.billing.salesforce_enrichment.redis_cache.capture_exception") as mock_capture:
-                result = await get_org_mappings_page_from_redis(0, 10000)
+            with pytest.raises(OrgMappingsCacheMissingError):
+                await get_org_mappings_page(0, 10000)
 
-                assert result is None
-                mock_capture.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_get_page_corrupt_entry_raises_cache_missing(self):
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = [b"not-json"]
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(OrgMappingsCacheMissingError):
+                await get_org_mappings_page(0, 10000)
+
+    @pytest.mark.asyncio
+    async def test_get_page_redis_error_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.lrange.side_effect = ConnectionError("redis unreachable")
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ConnectionError, match="redis unreachable"):
+                await get_org_mappings_page(0, 10000)
 
 
 class TestGetOrgMappingsFromRedis:
@@ -273,3 +307,120 @@ class TestStoreAndRetrieveRoundTrip:
 
             count = await get_cached_org_mappings_count()
             assert count == 100
+
+
+class TestStripeEnrichmentWatermark:
+    """The watermark helpers guard against a specific data-loss bug:
+
+    Swallowing Redis / parse failures into ``None`` would make a transient
+    read error look like "first run", kick off a full rescan, and then
+    overwrite the real watermark on commit. ``None`` must mean "key absent"
+    exclusively; every other failure has to propagate so the activity's
+    retry policy handles transients and permanent corruption fails loudly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_key_absent(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = None
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            assert await get_stripe_enrichment_watermark() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_parsed_keyset_tuple(self):
+        payload = json.dumps(
+            {
+                "last_changed_at": "2026-04-12T10:00:00+00:00",
+                "posthog_organization_id": "org-42",
+            }
+        ).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            result = await get_stripe_enrichment_watermark()
+
+        assert result == (dt.datetime(2026, 4, 12, 10, 0, tzinfo=dt.UTC), "org-42")
+
+    @pytest.mark.asyncio
+    async def test_redis_read_error_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = ConnectionError("redis unreachable")
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ConnectionError, match="redis unreachable"):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_corrupt_json_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = b"not-json-at-all"
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(json.JSONDecodeError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_missing_field_propagates(self):
+        payload = json.dumps({"last_changed_at": "2026-04-12T10:00:00+00:00"}).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(KeyError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_unparseable_timestamp_propagates(self):
+        payload = json.dumps({"last_changed_at": "not-a-timestamp", "posthog_organization_id": "org-1"}).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ValueError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_set_watermark_round_trip(self):
+        stored: dict[str, bytes | str] = {}
+
+        async def fake_set(key, value):
+            stored[key] = value
+
+        async def fake_get(key):
+            return stored.get(key)
+
+        mock_redis = AsyncMock()
+        mock_redis.set.side_effect = fake_set
+        mock_redis.get.side_effect = fake_get
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            await set_stripe_enrichment_watermark(
+                dt.datetime(2026, 4, 20, 15, 30, tzinfo=dt.UTC),
+                "org-zzz",
+            )
+            result = await get_stripe_enrichment_watermark()
+
+        assert result == (dt.datetime(2026, 4, 20, 15, 30, tzinfo=dt.UTC), "org-zzz")

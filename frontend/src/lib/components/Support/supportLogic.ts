@@ -1,15 +1,18 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
-import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,7 +28,9 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
+import type { BillingType, PreflightStatus } from '../../../types'
+import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
+import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
 
 export function getPublicSupportSnippet(
@@ -41,7 +46,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -50,11 +55,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
 function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
-    return `\nSession: ${replayUrl}`
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
+        return ''
+    }
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -100,14 +109,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -116,188 +125,253 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     bug: 'Report a bug',
 }
 
+// The conversations extension loads lazily; poll briefly before deciding how to route so a fast
+// submit right after page load doesn't miss it and fall back to Zendesk. Resolves as soon as it's
+// available, or after the timeout.
+async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
+    const intervalMs = 250
+    for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
+        if (posthog.conversations?.isAvailable()) {
+            return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+    return !!posthog.conversations?.isAvailable()
+}
+
+// Mirrors the widget message serializer cap (WidgetMessageSerializer.message). Support submits post
+// through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
+export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
+
+// Shared over-limit guard for the conversations composer surfaces (support form + side panel). Shows
+// an error toast and returns true when the message exceeds the widget cap, so callers bail before
+// hitting the endpoint and surfacing only a generic send-failure toast.
+export function warnIfMessageTooLong(message: string): boolean {
+    if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
+        lemonToast.error(
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+        )
+        return true
+    }
+    return false
+}
+
+// Conversations tickets carry just the user's message (like the side panel composer), but for bug
+// reports we still fold the exception in so it survives on email-channel tickets and when the
+// agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
+// names its feature in the message body.
+export function appendExceptionToMessage(message: string, exception_event?: SupportTicketExceptionEvent): string {
+    if (!exception_event) {
+        return message
+    }
+    return `${message}\n\n-----\nException: ${parseExceptionEvent(exception_event)}`
+}
+
+const TARGET_AREA_TO_NAME_GENERAL = [
+    {
+        value: 'login',
+        'data-attr': `support-form-target-area-login`,
+        label: 'Authentication (incl. login, sign-up, invites)',
+    },
+    {
+        value: 'analytics_platform',
+        'data-attr': `support-form-target-area-analytics_platform`,
+        label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
+    },
+    {
+        value: 'billing',
+        'data-attr': `support-form-target-area-billing`,
+        label: 'Billing',
+    },
+    {
+        value: 'cohorts',
+        'data-attr': `support-form-target-area-cohorts`,
+        label: 'Cohorts',
+    },
+    {
+        value: 'data_ingestion',
+        'data-attr': `support-form-target-area-data_ingestion`,
+        label: 'Data ingestion',
+    },
+    {
+        value: 'health_overview',
+        'data-attr': `support-form-target-area-health_overview`,
+        label: 'Health overview',
+    },
+    {
+        value: 'data_management',
+        'data-attr': `support-form-target-area-data_management`,
+        label: 'Data management (incl. events, actions, properties)',
+    },
+    {
+        value: 'mobile',
+        'data-attr': `support-form-target-area-mobile`,
+        label: 'Mobile',
+    },
+    {
+        value: 'notebooks',
+        'data-attr': `support-form-target-area-notebooks`,
+        label: 'Notebooks',
+    },
+    {
+        value: 'onboarding',
+        'data-attr': `support-form-target-area-onboarding`,
+        label: 'Onboarding',
+    },
+    {
+        value: 'platform_addons',
+        'data-attr': `support-form-target-area-platform_addons`,
+        label: 'Platform addons',
+    },
+    {
+        value: 'sdk',
+        'data-attr': `support-form-target-area-onboarding`,
+        label: 'SDK / Implementation',
+    },
+    {
+        value: 'setup-wizard',
+        'data-attr': `support-form-target-area-setup-wizard`,
+        label: 'Wizard',
+    },
+] as const satisfies LemonSelectOptions<string>
+
+const TARGET_AREA_TO_NAME_PRODUCTS = [
+    {
+        value: 'ai_gateway',
+        'data-attr': `support-form-target-area-ai_gateway`,
+        label: 'AI gateway',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
+        value: 'apps',
+        'data-attr': `support-form-target-area-apps`,
+        label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
+    },
+    {
+        value: 'batch_exports',
+        'data-attr': `support-form-target-area-batch_exports`,
+        label: 'Destinations (batch exports)',
+    },
+    {
+        value: 'cdp_destinations',
+        'data-attr': `support-form-target-area-cdp_destinations`,
+        label: 'Destinations (real-time)',
+    },
+    {
+        value: 'data_modeling',
+        'data-attr': `support-form-target-area-data_modeling`,
+        label: 'Data modeling (views, matviews, endpoints)',
+    },
+    {
+        value: 'data_warehouse',
+        'data-attr': `support-form-target-area-data_warehouse`,
+        label: 'Data warehouse (sources)',
+    },
+    {
+        value: 'error_tracking',
+        'data-attr': `support-form-target-area-error_tracking`,
+        label: 'Error tracking',
+    },
+    {
+        value: 'experiments',
+        'data-attr': `support-form-target-area-experiments`,
+        label: 'Experiments',
+    },
+    {
+        value: 'feature_flags',
+        'data-attr': `support-form-target-area-feature_flags`,
+        label: 'Feature flags',
+    },
+    {
+        value: 'group_analytics',
+        'data-attr': `support-form-target-area-group-analytics`,
+        label: 'Group analytics',
+    },
+    {
+        value: 'customer_analytics',
+        'data-attr': `support-form-target-area-customer-analytics`,
+        label: 'Customer analytics',
+    },
+    {
+        value: 'heatmaps',
+        'data-attr': `support-form-target-area-heatmaps`,
+        label: 'Heatmaps',
+    },
+    {
+        value: 'logs',
+        'data-attr': `support-form-target-area-logs`,
+        label: 'Logs',
+    },
+    {
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
+        label: 'PostHog AI',
+    },
+    {
+        value: 'posthog-mcp',
+        'data-attr': `support-form-target-area-posthog-mcp`,
+        label: 'PostHog MCP',
+    },
+    {
+        value: 'analytics',
+        'data-attr': `support-form-target-area-analytics`,
+        label: 'Product analytics (incl. insights, dashboards, etc.)',
+    },
+    {
+        value: 'revenue_analytics',
+        'data-attr': `support-form-target-area-revenue-analytics`,
+        label: 'Revenue analytics',
+    },
+    {
+        value: 'session_replay',
+        'data-attr': `support-form-target-area-session_replay`,
+        label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'signals',
+        'data-attr': `support-form-target-area-signals`,
+        label: 'Inbox',
+    },
+    {
+        value: 'slack',
+        'data-attr': `support-form-target-area-slack`,
+        label: 'Slack app',
+    },
+    {
+        value: 'surveys',
+        'data-attr': `support-form-target-area-surveys`,
+        label: 'Surveys',
+    },
+    {
+        value: 'toolbar',
+        'data-attr': `support-form-target-area-toolbar`,
+        label: 'Toolbar',
+    },
+    {
+        value: 'web_analytics',
+        'data-attr': `support-form-target-area-web_analytics`,
+        label: 'Web analytics',
+    },
+    {
+        value: 'workflows',
+        'data-attr': `support-form-target-area-workflows`,
+        label: 'Workflows / Messaging',
+    },
+] as const satisfies LemonSelectOptions<string>
+
 export const TARGET_AREA_TO_NAME = [
-    {
-        title: 'General',
-        options: [
-            {
-                value: 'login',
-                'data-attr': `support-form-target-area-login`,
-                label: 'Authentication (incl. login, sign-up, invites)',
-            },
-            {
-                value: 'analytics_platform',
-                'data-attr': `support-form-target-area-analytics_platform`,
-                label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
-            },
-            {
-                value: 'billing',
-                'data-attr': `support-form-target-area-billing`,
-                label: 'Billing',
-            },
-            {
-                value: 'cohorts',
-                'data-attr': `support-form-target-area-cohorts`,
-                label: 'Cohorts',
-            },
-            {
-                value: 'data_ingestion',
-                'data-attr': `support-form-target-area-data_ingestion`,
-                label: 'Data ingestion',
-            },
-            {
-                value: 'health_overview',
-                'data-attr': `support-form-target-area-health_overview`,
-                label: 'Health overview',
-            },
-            {
-                value: 'data_management',
-                'data-attr': `support-form-target-area-data_management`,
-                label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'mobile',
-                'data-attr': `support-form-target-area-mobile`,
-                label: 'Mobile',
-            },
-            {
-                value: 'notebooks',
-                'data-attr': `support-form-target-area-notebooks`,
-                label: 'Notebooks',
-            },
-            {
-                value: 'onboarding',
-                'data-attr': `support-form-target-area-onboarding`,
-                label: 'Onboarding',
-            },
-            {
-                value: 'platform_addons',
-                'data-attr': `support-form-target-area-platform_addons`,
-                label: 'Platform addons',
-            },
-            {
-                value: 'sdk',
-                'data-attr': `support-form-target-area-onboarding`,
-                label: 'SDK / Implementation',
-            },
-            {
-                value: 'setup-wizard',
-                'data-attr': `support-form-target-area-setup-wizard`,
-                label: 'Wizard',
-            },
-        ],
-    },
-    {
-        title: 'Individual product',
-        options: [
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
-            },
-            {
-                value: 'data_modeling',
-                'data-attr': `support-form-target-area-data_modeling`,
-                label: 'Data modeling (views, matviews, endpoints)',
-            },
-            {
-                value: 'batch_exports',
-                'data-attr': `support-form-target-area-batch_exports`,
-                label: 'Destinations (batch exports)',
-            },
-            {
-                value: 'cdp_destinations',
-                'data-attr': `support-form-target-area-cdp_destinations`,
-                label: 'Destinations (real-time)',
-            },
-            {
-                value: 'error_tracking',
-                'data-attr': `support-form-target-area-error_tracking`,
-                label: 'Error tracking',
-            },
-            {
-                value: 'experiments',
-                'data-attr': `support-form-target-area-experiments`,
-                label: 'Experiments',
-            },
-            {
-                value: 'feature_flags',
-                'data-attr': `support-form-target-area-feature_flags`,
-                label: 'Feature flags',
-            },
-            {
-                value: 'group_analytics',
-                'data-attr': `support-form-target-area-group-analytics`,
-                label: 'Group analytics',
-            },
-            {
-                value: 'customer_analytics',
-                'data-attr': `support-form-target-area-customer-analytics`,
-                label: 'Customer analytics',
-            },
-            {
-                value: 'llm-analytics',
-                'data-attr': `support-form-target-area-llm-analytics`,
-                label: 'LLM analytics',
-            },
-            {
-                value: 'logs',
-                'data-attr': `support-form-target-area-logs`,
-                label: 'Logs',
-            },
-            {
-                value: 'max-ai',
-                'data-attr': `support-form-target-area-max-ai`,
-                label: 'PostHog AI',
-            },
-            {
-                value: 'posthog-mcp',
-                'data-attr': `support-form-target-area-posthog-mcp`,
-                label: 'MCP Server',
-            },
-            {
-                value: 'workflows',
-                'data-attr': `support-form-target-area-workflows`,
-                label: 'Workflows / Messaging',
-            },
-            {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, etc.)',
-            },
-            {
-                value: 'revenue_analytics',
-                'data-attr': `support-form-target-area-revenue-analytics`,
-                label: 'Revenue analytics',
-            },
-            {
-                value: 'session_replay',
-                'data-attr': `support-form-target-area-session_replay`,
-                label: 'Session replay (incl. recordings)',
-            },
-            {
-                value: 'surveys',
-                'data-attr': `support-form-target-area-surveys`,
-                label: 'Surveys',
-            },
-            {
-                value: 'toolbar',
-                'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar (incl. heatmaps)',
-            },
-            {
-                value: 'web_analytics',
-                'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web analytics',
-            },
-            {
-                value: 'logs',
-                'data-attr': `support-form-target-area-logs`,
-                label: 'Logs',
-            },
-        ],
-    },
+    { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
+    { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
+
+// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
+export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
+    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
+)
 
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
@@ -313,32 +387,8 @@ export const SUPPORT_KIND_TO_SUBJECT = {
 }
 
 export type SupportTicketTargetArea =
-    | 'experiments'
-    | 'apps'
-    | 'login'
-    | 'billing'
-    | 'onboarding'
-    | 'cohorts'
-    | 'data_management'
-    | 'notebooks'
-    | 'data_warehouse'
-    | 'data_modeling'
-    | 'feature_flags'
-    | 'analytics'
-    | 'session_replay'
-    | 'toolbar'
-    | 'surveys'
-    | 'web_analytics'
-    | 'error_tracking'
-    | 'cdp_destinations'
-    | 'data_ingestion'
-    | 'batch_exports'
-    | 'workflows'
-    | 'platform_addons'
-    | 'max-ai'
-    | 'customer-analytics'
-    | 'logs'
-    | 'health_overview'
+    | (typeof TARGET_AREA_TO_NAME_GENERAL)[number]['value']
+    | (typeof TARGET_AREA_TO_NAME_PRODUCTS)[number]['value']
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -356,6 +406,7 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
+    'ai-gateway': 'ai_gateway',
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',
@@ -369,8 +420,8 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     annotations: 'analytics',
     persons: 'analytics',
     groups: 'analytics',
-    app: 'apps',
-    toolbar: 'session_replay',
+    heatmaps: 'heatmaps',
+    toolbar: 'toolbar',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
     web: 'web_analytics',
@@ -383,6 +434,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    inbox: 'signals',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -392,6 +444,16 @@ export const SUPPORT_TICKET_TEMPLATES = {
     support:
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
+
+const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
+    severity: 22084126888475,
+    distinct_id: 22129191462555,
+    target_area: 27242745654043,
+    organization_id: 27031528411291,
+    support_type: 26073267652251,
+    account_owner: 37742340880411,
+    exception_event: 39967113285659,
+} as const
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
@@ -425,6 +487,141 @@ export type SupportFormFields = {
     tags?: string[]
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicValues {
+    billing: BillingType | null // billingLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    isCurrentOrganizationNew: boolean // organizationLogic
+    preflight: PreflightStatus | null // preflightLogic
+    sidePanelAvailable: boolean // sidePanelStateLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    user: UserType | null // userLogic
+    conversationsFlagEnabled: boolean
+    isEmailFormOpen: boolean
+    isSendSupportRequestSubmitting: boolean
+    isSendSupportRequestValid: boolean
+    isSupportFormOpen: boolean
+    lastSubmittedTicketId: string | null
+    pendingViewTicket: {
+        created_at: string
+        id: string
+        status: string
+    } | null
+    sendSupportRequest: SupportFormFields
+    sendSupportRequestAllErrors: Record<string, any>
+    sendSupportRequestChanged: boolean
+    sendSupportRequestErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
+    sendSupportRequestHasErrors: boolean
+    sendSupportRequestManualErrors: Record<string, any>
+    sendSupportRequestTouched: boolean
+    sendSupportRequestTouches: Record<string, boolean>
+    sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
+    showSendSupportRequestErrors: boolean
+    targetArea: SupportTicketTargetArea | null
+    title: string
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicActions {
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
+    setSidePanelOptions: (options: string | null) => {
+        options: string | null
+    } // sidePanelStateLogic
+    clearPendingViewTicket: () => {
+        value: true
+    }
+    closeEmailForm: () => {
+        value: true
+    }
+    closeSupportForm: () => {
+        value: true
+    }
+    ensureZendeskOrganization: () => {
+        value: true
+    }
+    openEmailForm: () => {
+        value: true
+    }
+    openSupportForm: (
+        values: Partial<SupportFormFields> & {
+            target?: 'modal' | 'sidePanel'
+        }
+    ) => Partial<SupportFormFields> & {
+        target?: 'modal' | 'sidePanel' | undefined
+    }
+    resetSendSupportRequest: (values?: SupportFormFields) => {
+        values?: SupportFormFields
+    }
+    setLastSubmittedTicketId: (ticketId: string | null) => {
+        ticketId: string | null
+    }
+    setSendSupportRequestManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSendSupportRequestValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSendSupportRequestValues: (values: DeepPartial<SupportFormFields>) => {
+        values: DeepPartial<SupportFormFields>
+    }
+    submitSendSupportRequest: () => {
+        value: boolean
+    }
+    submitSendSupportRequestFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSendSupportRequestRequest: (sendSupportRequest: SupportFormFields) => {
+        sendSupportRequest: SupportFormFields
+    }
+    submitSendSupportRequestSuccess: (sendSupportRequest: SupportFormFields) => {
+        sendSupportRequest: SupportFormFields
+    }
+    submitSupportTicket: (form: SupportFormFields) => SupportFormFields
+    touchSendSupportRequestField: (key: string) => {
+        key: string
+    }
+    updateUrlParams: () => {
+        value: true
+    }
+    viewConversationsTicket: (ticket: { created_at: string; id: string; status: string }) => {
+        ticket: {
+            created_at: string
+            id: string
+            status: string
+        }
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        title: (arg: SupportFormFields) => string
+        targetArea: (sendSupportRequest: SupportFormFields) => SupportTicketTargetArea | null
+        conversationsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
+    }
+}
+
+export type supportLogicType = MakeLogicType<
+    supportLogicValues,
+    supportLogicActions,
+    SupportFormLogicProps,
+    supportLogicMeta
+>
+
 export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
@@ -434,26 +631,30 @@ export const supportLogic = kea<supportLogicType>([
             ['user'],
             preflightLogic,
             ['preflight'],
-            sidePanelStateLogic,
-            ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
         closeSupportForm: true,
-        openSupportForm: (values: Partial<SupportFormFields>) => values,
-        submitZendeskTicket: (form: SupportFormFields) => form,
+        openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
+        submitSupportTicket: (form: SupportFormFields) => form,
         ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
         setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
+        viewConversationsTicket: (ticket: { id: string; status: string; created_at: string }) => ({ ticket }),
+        clearPendingViewTicket: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -477,8 +678,17 @@ export const supportLogic = kea<supportLogicType>([
                 openSupportForm: () => null, // Reset when opening a new form
             },
         ],
+        // A conversations ticket the side panel should open on when it next renders — set when the
+        // user clicks "View" on a submission toast, consumed by sidepanelTicketsLogic
+        pendingViewTicket: [
+            null as { id: string; status: string; created_at: string } | null,
+            {
+                viewConversationsTicket: (_, { ticket }) => ticket,
+                clearPendingViewTicket: () => null,
+            },
+        ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ values }) => ({
         sendSupportRequest: {
             defaults: {
                 name: '',
@@ -489,29 +699,30 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
+                // Conversations tickets are just a message, like the side panel composer — the
+                // triage fields only exist on the Zendesk form
+                const requiresTriageFields = !values.conversationsFlagEnabled
                 return {
-                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
-                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
-                    message: !message ? 'Please enter a message' : '',
-                    kind: !kind ? 'Please choose' : undefined,
-                    severity_level: !severity_level ? 'Please choose' : undefined,
-                    target_area: !target_area ? 'Please choose' : undefined,
+                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
+                    kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
+                    severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
+                    target_area: requiresTriageFields && !target_area ? 'Please choose' : undefined,
                 }
             },
             submit: async (formValues) => {
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues)
-                // Form closing and resetting is now handled in submitZendeskTicket listener
-                // based on success/failure of the submission
+                await supportLogic.asyncActions.submitSupportTicket(formValues)
             },
         },
     })),
     selectors({
         title: [
             (s) => [s.sendSupportRequest ?? null],
-            (sendSupportRequest) =>
+            (sendSupportRequest: SupportFormFields) =>
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
@@ -519,6 +730,11 @@ export const supportLogic = kea<supportLogicType>([
         targetArea: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
+        ],
+        conversationsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -530,7 +746,6 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
-                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -546,7 +761,8 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
-        }: Partial<SupportFormFields>) => {
+            target,
+        }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -568,7 +784,8 @@ export const supportLogic = kea<supportLogicType>([
                 actions.closeEmailForm()
             }
 
-            if (values.sidePanelAvailable) {
+            const useSidePanel = target ? target === 'sidePanel' : values.sidePanelAvailable
+            if (useSidePanel) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
                 actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
             } else {
@@ -577,16 +794,75 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({
-            name,
-            email,
-            kind,
-            target_area,
-            severity_level,
-            message,
-            exception_event,
-            tags,
-        }: SupportFormFields) => {
+        submitSupportTicket: async (formValues: SupportFormFields) => {
+            const { name, email, kind, target_area, severity_level, message, exception_event, tags } = formValues
+
+            // Conversations is where support is headed, so wait for the extension rather than racing
+            // it to the (temporary) Zendesk fallback
+            if (values.conversationsFlagEnabled && (await waitForConversations())) {
+                // Measure the full outgoing payload (message plus any appended exception) so the
+                // guard matches what the widget endpoint actually receives and rejects
+                const outgoingMessage = appendExceptionToMessage(message, exception_event)
+                if (warnIfMessageTooLong(outgoingMessage)) {
+                    return
+                }
+                try {
+                    const response = await posthog.conversations!.sendMessage(
+                        outgoingMessage,
+                        { name: name || undefined, email: email || undefined },
+                        true // every form submission starts a new ticket
+                    )
+                    if (response) {
+                        // No support_ticket capture here: the backend fires $conversation_ticket_created
+                        // for every new ticket, so a client-side event would double-count
+                        actions.setLastSubmittedTicketId(response.ticket_id)
+                        lemonToast.success(
+                            values.sidePanelAvailable
+                                ? 'Got the message! You can view replies from our support engineers in the support panel.'
+                                : "Got the message! Our support engineers will follow up by email if there's more to share.",
+                            values.sidePanelAvailable
+                                ? {
+                                      button: {
+                                          label: 'View',
+                                          action: () =>
+                                              actions.viewConversationsTicket({
+                                                  id: response.ticket_id,
+                                                  status: response.ticket_status,
+                                                  created_at: response.created_at,
+                                              }),
+                                      },
+                                  }
+                                : undefined
+                        )
+                        actions.closeEmailForm()
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+                    // null means the extension declined to send (not available) — nothing left the
+                    // browser, so falling through to Zendesk cannot double-file the ticket
+                } catch (e) {
+                    // The request may have reached the server even though the response failed, so
+                    // don't fall back to Zendesk here — that could file the ticket twice
+                    posthog.captureException(e)
+                    posthog.capture('support ticket send failed', {
+                        channel: 'conversations',
+                        error: e instanceof Error ? e.message : String(e),
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
+                    lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
+                        button: EMAIL_SUPPORT_BUTTON,
+                    })
+                    return
+                }
+            }
+
+            // Fallback path: conversations flag off, or the extension never loaded. Tag flag-on
+            // fallbacks so the (rare) volume is visible while Zendesk is being retired.
+            const conversationsFallback = values.conversationsFlagEnabled
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -609,8 +885,8 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
             const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
             if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
@@ -660,26 +936,31 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
+                    tags: [
+                        planLevelTag,
+                        accountOwnerTag,
+                        ...(conversationsFallback ? ['conversations_fallback'] : []),
+                        ...(tags || []),
+                    ],
                     custom_fields: [
                         {
-                            id: 22084126888475,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
                             value: severity_level,
                         },
                         {
-                            id: 22129191462555,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
                             value: posthog.get_distinct_id(),
                         },
                         {
-                            id: 27242745654043,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
                             value: target_area ?? '',
                         },
                         {
-                            id: 27031528411291,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },
                         {
-                            id: 26073267652251,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
@@ -687,11 +968,11 @@ export const supportLogic = kea<supportLogicType>([
                                   : 'free_support',
                         },
                         {
-                            id: 37742340880411,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
                             value: accountOwner?.name || 'unassigned',
                         },
                         {
-                            id: 39967113285659,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
                             value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
@@ -699,8 +980,8 @@ export const supportLogic = kea<supportLogicType>([
                         body:
                             message +
                             `\n\n-----` +
-                            `\nKind: ${kind}` +
-                            `\nTarget area: ${target_area}` +
+                            `\nKind: ${kind ?? 'support'}` +
+                            `\nTarget area: ${target_area ?? 'General'}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
@@ -785,9 +1066,18 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
+                    posthog.capture('support ticket send failed', {
+                        channel: 'zendesk',
+                        error: error.message,
+                        status_code: response.status,
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
                     lemonToast.error(
                         `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                        { hideButton: true }
+                        { button: EMAIL_SUPPORT_BUTTON }
                     )
                     // Don't close the form or reset the data so user can try again
                     return
@@ -816,15 +1106,27 @@ export const supportLogic = kea<supportLogicType>([
                 actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
+                posthog.capture('support ticket send failed', {
+                    channel: 'zendesk',
+                    error: e instanceof Error ? e.message : String(e),
+                    kind,
+                    target_area,
+                    message_length: message?.length,
+                    current_url_length: window.location.href.length,
+                })
 
                 // More helpful error message
                 // Use the same error message regardless of browser
                 lemonToast.error(
                     `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                    { hideButton: true }
+                    { button: EMAIL_SUPPORT_BUTTON }
                 )
                 // Don't close the form or reset the data so user can try again
             }
+        },
+
+        viewConversationsTicket: () => {
+            actions.openSidePanel(SidePanelTab.Support)
         },
 
         closeSupportForm: () => {
@@ -858,39 +1160,6 @@ export const supportLogic = kea<supportLogicType>([
                     organization_name: organizationLogic.values.currentOrganization?.name,
                     error_message: error instanceof Error ? error.message : String(error),
                     error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
-                })
-            }
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        '*': (_, _search, hashParams) => {
-            if (values.isSupportFormOpen) {
-                return
-            }
-
-            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
-
-            if (panel === SidePanelTab.Support) {
-                const [kind, area, severity, isEmailFormOpen] = panelOptions
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
-                    isEmailFormOpen: isEmailFormOpen ?? 'false',
-                })
-                return
-            }
-
-            // Legacy supportModal param
-            if ('supportModal' in hashParams) {
-                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
             }
         },

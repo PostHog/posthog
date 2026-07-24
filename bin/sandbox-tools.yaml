@@ -1,0 +1,58 @@
+# Checked-in catalog of optional CLI tools that `./bin/sandbox tools add <name>`
+# can drop into a contributor's personal sandbox image. Entries here are not
+# automatically installed: users opt in by name. Each user's actual selection
+# lives in their own ~/.posthog-sandboxes/tools.yaml.
+#
+# Schema (per entry):
+#   name        required - matches the argument to `sandbox tools add`
+#   description required - one-liner shown by `sandbox tools list`
+#   install     optional - shell script run as the sandbox user at image
+#                          build time; prefer user-mode install, sudo
+#                          (NOPASSWD) is available when actually needed
+#   copy        optional - host paths copied into the sandbox $HOME at
+#                          create time (short form for paths under $HOME,
+#                          long form `{source, target}` for system paths).
+#                          One-way snapshot at create time; sandbox edits
+#                          do not write back to the host
+#
+# When adding a new tool to the catalog:
+#   1. Author the install snippet against the current base image (run
+#      `sandbox tools add <name> --install ... --test` locally to verify).
+#   2. List the host config paths the tool reads at runtime under `copy`.
+#      Missing host paths are skipped silently, so it's fine to include
+#      paths users may not have populated yet.
+#   3. Keep entries alphabetical by `name` for stable diffs.
+
+tools:
+    - name: gh
+      description: 'GitHub CLI (cli.github.com): repo browsing, PR review, gh auth share'
+      install: |
+          GH_VERSION=2.92.0
+          ARCH=$(dpkg --print-architecture)
+          mkdir -p ~/.local
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+            | tar -xz --strip-components=1 -C ~/.local
+      copy:
+          - ~/.config/gh
+
+    - name: gt
+      description: 'Graphite CLI (graphite.dev): stacked PRs and review workflow'
+      install: |
+          npm install -g @withgraphite/graphite-cli@stable
+      copy:
+          - ~/.config/graphite
+
+    - name: metabase
+      description: 'Metabase SSO cookies for the query-clickhouse-via-metabase skill (hogli metabase:*, regions us/eu/dev)'
+      copy:
+          - ~/.config/posthog/metabase/cookie-us
+          - ~/.config/posthog/metabase/cookie-eu
+          - ~/.config/posthog/metabase/cookie-dev
+
+    - name: opencode
+      description: 'opencode (opencode.ai): terminal-based AI coding agent'
+      install: |
+          npm install -g opencode-ai
+      copy:
+          - ~/.config/opencode
+          - ~/.local/share/opencode/auth.json

@@ -17,10 +17,11 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a trends query
         description_file: ./prompts/query-trends.md
+        system_prompt_hint: Time series, aggregations, formulas, comparisons
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -35,10 +36,11 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a funnel query
         description_file: ./prompts/query-funnel.md
+        system_prompt_hint: Conversion rates, drop-off analysis, time to convert
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -53,10 +55,11 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a retention query
         description_file: ./prompts/query-retention.md
+        system_prompt_hint: User return patterns over time
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -71,10 +74,11 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a stickiness query
         description_file: ./prompts/query-stickiness.md
+        system_prompt_hint: Engagement frequency (how many days users do X)
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -89,10 +93,11 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a paths query
         description_file: ./prompts/query-paths.md
+        system_prompt_hint: User navigation flows and sequences
         ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers
@@ -107,9 +112,64 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Run a lifecycle query
         description_file: ./prompts/query-lifecycle.md
+        system_prompt_hint: New, returning, resurrecting, dormant user composition
+        ui_resource_uri: ui://posthog/query-results.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-web-overview:
+        schema_ref: AssistantWebOverviewQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics overview query
+        description_file: ./prompts/query-web-overview.md
+        system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-web-stats:
+        schema_ref: AssistantWebStatsTableQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics breakdown table query
+        description_file: ./prompts/query-web-stats.md
+        system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-web-vitals:
+        schema_ref: AssistantWebVitalsPathBreakdownQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web vitals path breakdown query
+        description_file: ./prompts/query-web-vitals.md
+        system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response
@@ -125,10 +185,9 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: List LLM traces
         description_file: ./prompts/query-llm-traces-list.md
-        response_format: json
+        system_prompt_hint: LLM/AI trace listing and inspection
         exclude_properties:
             - response
             - modifiers
@@ -142,10 +201,123 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Get LLM trace
         description_file: ./prompts/query-llm-trace.md
-        response_format: json
+        system_prompt_hint: Single LLM/AI trace deep-dive
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-trends-actors:
+        schema_ref: AssistantTrendsActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons behind a trends data point
+        description_file: ./prompts/query-trends-actors.md
+        system_prompt_hint: List persons behind a trends data point
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-lifecycle-actors:
+        schema_ref: AssistantLifecycleActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons in a lifecycle bucket
+        description_file: ./prompts/query-lifecycle-actors.md
+        system_prompt_hint: List persons in a lifecycle bucket (new/returning/resurrecting/dormant) for a given day
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-paths-actors:
+        schema_ref: AssistantPathsActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons on a paths insight
+        description_file: ./prompts/query-paths-actors.md
+        system_prompt_hint: List persons who traversed the paths defined by a paths insight
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-retention-actors:
+        schema_ref: AssistantRetentionActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons in a retention cohort
+        description_file: ./prompts/query-retention-actors.md
+        system_prompt_hint: List persons in a retention acquisition cohort and which intervals they returned in
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-stickiness-actors:
+        schema_ref: AssistantStickinessActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons behind a stickiness bar
+        description_file: ./prompts/query-stickiness-actors.md
+        system_prompt_hint: List persons who were active in a given number of intervals (one stickiness bar)
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-funnel-actors:
+        schema_ref: AssistantFunnelsActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons who converted or dropped off at a funnel step
+        description_file: ./prompts/query-funnel-actors.md
+        system_prompt_hint: List persons who converted through or dropped off at a given funnel step
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers

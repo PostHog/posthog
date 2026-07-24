@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -11,6 +11,13 @@ class ResizeObserverMock {
     disconnect(): void {}
 }
 
+const requestAnimationFrameMock = (callback: FrameRequestCallback): number =>
+    window.setTimeout(() => callback(performance.now()), 0)
+
+const cancelAnimationFrameMock = (handle: number): void => {
+    window.clearTimeout(handle)
+}
+
 describe('LemonTree virtualization', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
@@ -18,6 +25,8 @@ describe('LemonTree virtualization', () => {
     beforeAll(() => {
         ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
             ResizeObserverMock as unknown as typeof ResizeObserver
+        global.requestAnimationFrame = requestAnimationFrameMock
+        global.cancelAnimationFrame = cancelAnimationFrameMock
     })
 
     beforeEach(() => {
@@ -32,6 +41,7 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
+        cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
     })
@@ -190,7 +200,7 @@ describe('LemonTree virtualization', () => {
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
-    }, 10000)
+    })
 
     it('supports an overridden virtualized row height', async () => {
         const data: TreeDataItem[] = [
@@ -215,7 +225,7 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
-    }, 10000)
+    })
 
     it('supports an overridden virtualization overscan', async () => {
         const data: TreeDataItem[] = [
@@ -246,5 +256,5 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
-    }, 10000)
+    })
 })

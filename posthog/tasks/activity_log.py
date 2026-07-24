@@ -3,11 +3,13 @@ from celery import shared_task
 
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models import Team
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def broadcast_activity_log_to_organization(organization_id: str, serialized_data: dict, user_data: dict | None) -> None:
     """
     Broadcast an activity log event to all teams that have opted in to receive

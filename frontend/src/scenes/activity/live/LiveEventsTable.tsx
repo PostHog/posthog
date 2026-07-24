@@ -5,6 +5,8 @@ import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@pos
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,12 +18,13 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
+import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
+import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
-import { liveEventsLogic } from './liveEventsLogic'
+import { LIVE_EVENTS_SUPPORTED_OPERATORS, liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
@@ -49,14 +52,12 @@ export function LiveEventsTable(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
-            {featureFlags[FEATURE_FLAGS.LIVESTREAM_TUI] && (
-                <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
-                    Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
-                    <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
-                        Learn more
-                    </Link>
-                </LemonBanner>
-            )}
+            <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
+                Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                <Link to="https://posthog.com/docs/activity#terminal-live-events-posthog-live" target="_blank">
+                    Learn more
+                </Link>
+            </LemonBanner>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
@@ -84,6 +85,18 @@ export function LiveEventsTable(): JSX.Element {
                         placeholder="Filter by event"
                         allEventsOption="clear"
                     />
+                    <PropertyFilters
+                        pageKey="live-events"
+                        propertyFilters={filters.properties ?? []}
+                        onChange={(properties) => setFilters({ ...filters, properties })}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        operatorAllowlist={
+                            featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]
+                                ? LIVE_EVENTS_SUPPORTED_OPERATORS
+                                : [PropertyOperator.Exact]
+                        }
+                        buttonText="Filter by property"
+                    />
                     <LemonButton
                         icon={
                             streamPaused ? (
@@ -100,6 +113,7 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            <LiveBotPanel events={events} className="mb-2" />
             <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
     )

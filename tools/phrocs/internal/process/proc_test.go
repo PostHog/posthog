@@ -282,47 +282,30 @@ func TestStop_kills_entire_process_group(t *testing.T) {
 
 func TestReadLoop_batchesOutput(t *testing.T) {
 	const totalLines = 500
-	// Spawn a process that writes 500 lines as fast as possible
-	p := NewProcess("batch-test", config.ProcConfig{
-		Shell: fmt.Sprintf(`for i in $(seq 1 %d); do echo "line $i"; done`, totalLines),
-	}, totalLines+100, "")
+	p := NewProcess("batch-test", config.ProcConfig{}, totalLines+100, "")
 
-	send, msgs, mu := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	// Build input: 500 lines terminated by \r\n (as a PTY would produce).
+	var input strings.Builder
+	for i := 1; i <= totalLines; i++ {
+		fmt.Fprintf(&input, "line %d\r\n", i)
 	}
 
-	// Wait for the process to finish
-	deadline := time.After(10 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for process to finish")
-		default:
-		}
-		st := p.Status()
-		if st == StatusDone || st == StatusCrashed {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	// Use runReadLoopCollect to feed data directly, avoiding the Linux kernel
+	// PTY race (commit 1a48632ffed6) where close() can discard unread data.
+	msgs := runReadLoopCollect(t, p, input.String())
 
-	// Most lines should be buffered. The exact count may vary slightly due
-	// to VT screen row trimming and PTY buffering, but should be close.
 	lines := p.Lines()
-	if len(lines) < totalLines/2 {
-		t.Fatalf("expected at least %d buffered lines, got %d", totalLines/2, len(lines))
+	if len(lines) < totalLines {
+		t.Fatalf("expected all %d buffered lines, got %d", totalLines, len(lines))
 	}
 
-	// Count OutputMsg notifications — should be far fewer than totalLines
-	mu.Lock()
+	// Count OutputMsg notifications — should be far fewer than totalLines.
 	var outputMsgCount int
-	for _, msg := range *msgs {
+	for _, msg := range msgs {
 		if _, ok := msg.(OutputMsg); ok {
 			outputMsgCount++
 		}
 	}
-	mu.Unlock()
 
 	t.Logf("lines=%d, OutputMsg count=%d (%.1fx reduction)",
 		totalLines, outputMsgCount, float64(totalLines)/float64(outputMsgCount))
@@ -330,38 +313,50 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	if outputMsgCount >= totalLines {
 		t.Errorf("expected batching to reduce OutputMsg count below %d, got %d", totalLines, outputMsgCount)
 	}
-	// With 16ms flush interval and 500 lines written instantly, we expect
-	// significant coalescing (typically <20 messages)
 	if outputMsgCount > totalLines/5 {
 		t.Errorf("batching not effective enough: %d OutputMsgs for %d lines", outputMsgCount, totalLines)
 	}
 }
 
+// runReadLoop drives readLoop against an in-memory reader and waits for it to
+// return. Bypassing the PTY avoids a known Linux kernel race (commit
+// 1a48632ffed6) where data written and immediately followed by close() on the
+// child's PTY end can be dropped before the parent's read is scheduled.
+func runReadLoop(t *testing.T, p *Process, input string) {
+	t.Helper()
+	runReadLoopCollect(t, p, input)
+}
+
+// runReadLoopCollect is like runReadLoop but returns all messages emitted.
+func runReadLoopCollect(t *testing.T, p *Process, input string) []tea.Msg {
+	t.Helper()
+	outChannel := make(chan tea.Msg, 64)
+	done := make(chan struct{})
+	go func() {
+		p.readLoop(strings.NewReader(input), outChannel)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop did not return")
+	}
+	// Drain remaining messages from the channel.
+	close(outChannel)
+	var msgs []tea.Msg
+	for msg := range outChannel {
+		msgs = append(msgs, msg)
+	}
+	return msgs
+}
+
 func TestHasPrompt_partialLine(t *testing.T) {
-	// printf writes a partial line (no trailing \n), which readLoop should
-	// detect and set HasPrompt = true.
-	p := NewProcess("prompt-test", config.ProcConfig{
-		Shell: `printf "Enter name: "`,
-	}, 100, "")
+	p := NewProcess("prompt-test", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "Enter name: ")
 
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	if !p.HasPrompt() {
+		t.Error("HasPrompt should be true for a partial line")
 	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for HasPrompt")
-		default:
-		}
-		if p.HasPrompt() {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
 	lines := p.Lines()
 	if len(lines) == 0 {
 		t.Fatal("expected at least one buffered line")
@@ -372,30 +367,8 @@ func TestHasPrompt_partialLine(t *testing.T) {
 }
 
 func TestHasPrompt_completeLine(t *testing.T) {
-	// echo writes a complete line (with trailing \n), so HasPrompt should
-	// be false once the process finishes.
-	p := NewProcess("no-prompt", config.ProcConfig{
-		Shell: `echo "hello"`,
-	}, 100, "")
-
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
-	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for process to finish")
-		default:
-		}
-		st := p.Status()
-		if st == StatusDone || st == StatusCrashed {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	p := NewProcess("no-prompt", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "hello\n")
 
 	if p.HasPrompt() {
 		t.Error("HasPrompt should be false after a complete line")
@@ -811,5 +784,246 @@ func TestBuildCmd_cmdBypassesShell(t *testing.T) {
 	cmd := p.buildCmd()
 	if cmd.Args[0] != "echo" {
 		t.Errorf("Cmd mode should bypass shell, got Args[0]=%q", cmd.Args[0])
+	}
+}
+
+func TestProcess_logFileTee(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo hello-log-tee; sleep 0.1`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the process to exit so the log file flush is complete.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("process did not exit in time")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(data), "hello-log-tee") {
+		t.Errorf("expected log file to contain 'hello-log-tee', got %q", string(data))
+	}
+}
+
+func TestProcess_logFileTruncatesOnRestart(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo first-run; sleep 0.05`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	// Wait for first run to finish.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("first run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Replace shell and restart to verify truncation.
+	p.Cfg.Shell = `echo second-run; sleep 0.05`
+	if err := p.Start(send); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	deadline = time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("second run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if strings.Contains(string(data), "first-run") {
+		t.Errorf("expected first-run to be truncated, got %q", string(data))
+	}
+	if !strings.Contains(string(data), "second-run") {
+		t.Errorf("expected second-run in log, got %q", string(data))
+	}
+}
+
+func TestProcess_logFileDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo no-log; sleep 0.05`}, 100, "")
+	// Note: no SetLogDir call.
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	if _, err := os.Stat(dir + "/svc.log"); !os.IsNotExist(err) {
+		t.Errorf("expected no log file when logDir unset; got err=%v", err)
+	}
+}
+
+func TestRestartBackoffFor(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{0, restartBackoffBase}, // clamped to 1
+		{1, 1 * time.Second},
+		{2, 2 * time.Second},
+		{3, 4 * time.Second},
+		{4, 8 * time.Second},
+		{5, 16 * time.Second},
+		{6, restartBackoffMax}, // 32s would exceed the cap
+		{7, restartBackoffMax},
+		{50, restartBackoffMax},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("attempt-%d", tt.attempt), func(t *testing.T) {
+			if got := restartBackoffFor(tt.attempt); got != tt.want {
+				t.Errorf("restartBackoffFor(%d) = %s, want %s", tt.attempt, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcess_autorestartAfterCrash(t *testing.T) {
+	// Shrink the backoff so the restart happens in milliseconds, not ~1s.
+	origBase, origMax := restartBackoffBase, restartBackoffMax
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax = origBase, origMax
+	})
+
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	// Append a line then crash, so each run leaves a trace and triggers autorestart.
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell:       `echo run >> "$MARK"; exit 1`,
+		Autorestart: true,
+		Env:         map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// First crash restarts after the (shrunk) backoff, so a second run shows up
+	// shortly after.
+	deadline := time.After(5 * time.Second)
+	for {
+		data, _ := os.ReadFile(mark)
+		if strings.Count(string(data), "run") >= 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected at least 2 runs from autorestart, got %q", string(data))
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Stop the proc so the crash loop doesn't keep restarting after the test.
+	p.Stop()
+}
+
+func TestProcess_autorestartGivesUpAfterCap(t *testing.T) {
+	// Shrink the timings and cap so the full give-up flow runs in milliseconds.
+	origBase, origMax, origCap := restartBackoffBase, restartBackoffMax, maxRestartAttempts
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	maxRestartAttempts = 3
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax, maxRestartAttempts = origBase, origMax, origCap
+	})
+
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell:       `echo run >> "$MARK"; exit 1`,
+		Autorestart: true,
+		Env:         map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the give-up notice, which is only written once the cap is hit.
+	deadline := time.After(5 * time.Second)
+	for !strings.Contains(strings.Join(p.Lines(), "\n"), "gave up") {
+		select {
+		case <-deadline:
+			t.Fatalf("expected give-up notice after %d restarts", maxRestartAttempts)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Give any erroneous further restart a chance to fire, then assert the proc
+	// stayed dead and ran exactly maxRestartAttempts+1 times (initial + cap).
+	time.Sleep(50 * time.Millisecond)
+	if p.Status() != StatusCrashed {
+		t.Errorf("expected status crashed after giving up, got %s", p.Status())
+	}
+	data, _ := os.ReadFile(mark)
+	if got, want := strings.Count(string(data), "run"), maxRestartAttempts+1; got != want {
+		t.Errorf("expected %d runs before giving up, got %d", want, got)
+	}
+}
+
+func TestProcess_noAutorestartWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell: `echo run >> "$MARK"; exit 1`,
+		Env:   map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the single run to finish and the proc to settle into crashed.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("process did not exit in time")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Give any (erroneous) restart a chance to fire, then assert it stayed dead.
+	time.Sleep(restartBackoffBase + 200*time.Millisecond)
+	if p.Status() != StatusCrashed {
+		t.Errorf("expected status crashed, got %s", p.Status())
+	}
+	data, _ := os.ReadFile(mark)
+	if got := strings.Count(string(data), "run"); got != 1 {
+		t.Errorf("expected exactly 1 run without autorestart, got %d", got)
 	}
 }

@@ -1,5 +1,4 @@
 from datetime import datetime
-from functools import cached_property
 from typing import Union
 
 from django.conf import settings
@@ -137,8 +136,8 @@ class Migration(AsyncMigrationDefinition):
 
         return len(rows_to_backfill_check) > 0
 
-    @cached_property
-    def operations(self):
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
         return [
             AsyncMigrationOperation(
                 # See https://github.com/PostHog/posthog/issues/10616 for details on choice of codec

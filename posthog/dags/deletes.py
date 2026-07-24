@@ -19,13 +19,16 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
     MutationWaiter,
+    MutationWaiters,
     NodeRole,
     Query,
+    Workload,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
@@ -101,7 +104,7 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-ShardMutations = dict[int, MutationWaiter]
+ShardMutations = dict[int, MutationWaiters]
 
 
 @dataclass
@@ -434,7 +437,7 @@ def load_pending_deletions(
                         "group_type_index": deletion.group_type_index,
                         "created_at": deletion.created_at,
                         "delete_verified_at": deletion.delete_verified_at,
-                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "created_by_id": str(deletion.created_by_id) if deletion.created_by_id else None,
                         "team_id": deletion.team_id,
                     }
                     for deletion in chunk
@@ -484,6 +487,7 @@ def create_deletes_dict(
 
 @dagster.op
 def create_adhoc_event_deletes_dict(
+    context: dagster.OpExecutionContext,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> AdhocEventDeletesDictionary:
@@ -509,6 +513,21 @@ def create_adhoc_event_deletes_dict(
             max_memory_usage=config.max_memory_usage,
         )
     ).result()
+
+    # The dictionary holds identical data on every host, so count the loaded ids on a single
+    # data node (verifying replica identity is the job of load_and_verify_adhoc_event_deletes_dictionary).
+    def count_ids(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM {del_dict.qualified_name}")
+        return result[0][0] if result else 0
+
+    ids_added = cluster.any_host_by_role(count_ids, NodeRole.DATA).result()
+
+    context.add_output_metadata(
+        {
+            "ids_added": dagster.MetadataValue.int(ids_added),
+            "dictionary_name": dagster.MetadataValue.text(del_dict.qualified_name),
+        }
+    )
 
     return del_dict
 
@@ -582,25 +601,34 @@ def delete_events(
         }
     )
 
-    delete_mutation_runner = LightweightDeleteMutationRunner(
-        table=EVENTS_DATA_TABLE(),
-        predicate="""or(
+    # The same delete must land on every physical events table (legacy + native-JSON), or the
+    # tables diverge while both exist.
+    delete_mutation_runners = [
+        LightweightDeleteMutationRunner(
+            table=table,
+            predicate="""or(
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
             (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
         )
         """,
-        parameters={
-            "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
-            "person_deletion_type": DeletionType.Person,
-            "team_deletion_type": DeletionType.Team,
-            "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
-        },
-    )
+            parameters={
+                "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
+                "person_deletion_type": DeletionType.Person,
+                "team_deletion_type": DeletionType.Team,
+                "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
+            },
+        )
+        for table in events_data_tables(cluster)
+    ]
 
-    shard_mutations = {
-        host.shard_num: mutation
-        for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
+    shard_waiters: dict[int, list[MutationWaiter]] = {}
+    for delete_mutation_runner in delete_mutation_runners:
+        for host, mutation in cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
+            if host.shard_num is not None:
+                shard_waiters.setdefault(host.shard_num, []).append(mutation)
+    shard_mutations: ShardMutations = {
+        shard_num: MutationWaiters(waiters=waiters) for shard_num, waiters in shard_waiters.items()
     }
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
@@ -750,7 +778,7 @@ def cleanup_delete_assets(
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
     if not config.cleanup:
-        config.log.info("Skipping cleanup as cleanup is disabled")
+        dagster.get_dagster_logger().info("Skipping cleanup as cleanup is disabled")
         return True
 
     # Must drop dict first
@@ -758,7 +786,9 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
     cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
-    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
+    cluster.any_host_by_role(
+        resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
+    ).result()
 
     return True
 
@@ -802,7 +832,12 @@ def deletes_job():
     request_job=deletes_job,
 )
 def run_deletes_after_squash(context):
-    return dagster.RunRequest(run_key=None)
+    # mutation waits can span hours, so allow more transient failures per host before failing the
+    # weekly deletes run
+    return dagster.RunRequest(
+        run_key=None,
+        run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
+    )
 
 
 @dagster.op
@@ -853,31 +888,39 @@ def cleanup_old_events_by_partition(
         return
 
     total_partitions = len(partitions)
+    # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
+    # deleting IN PARTITION on a partition a table doesn't have is a no-op.
+    event_tables = events_data_tables(cluster)
 
     for idx, partition in enumerate(partitions, 1):
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
-        delete_mutation_runner = LightweightDeleteMutationRunner(
-            table=EVENTS_DATA_TABLE(),
-            predicate="""
+        for table in event_tables:
+            delete_mutation_runner = LightweightDeleteMutationRunner(
+                table=table,
+                predicate="""
                 team_id IN %(team_ids)s
                 AND age('month', timestamp, now()) >= %(min_age_months)s
             """,
-            parameters={
-                "team_ids": config.team_ids,
-                "min_age_months": config.min_age_months,
-            },
-            partition=str(partition),
-            settings={"lightweight_deletes_sync": 0},
-        )
+                parameters={
+                    "team_ids": config.team_ids,
+                    "min_age_months": config.min_age_months,
+                },
+                partition=str(partition),
+                settings={"lightweight_deletes_sync": 0},
+            )
 
-        # Run on one host per shard
-        shard_mutations = cluster.map_one_host_per_shard(delete_mutation_runner).result()
+            # Run on one host per shard
+            shard_mutations = cluster.map_one_host_per_shard(delete_mutation_runner).result()
 
-        # Wait for all mutations to complete
-        _ = cluster.map_all_hosts_in_shards(
-            {host.shard_num: mutation.wait for host, mutation in shard_mutations.items() if host.shard_num is not None}
-        ).result()
+            # Wait for all mutations to complete
+            _ = cluster.map_all_hosts_in_shards(
+                {
+                    host.shard_num: mutation.wait
+                    for host, mutation in shard_mutations.items()
+                    if host.shard_num is not None
+                }
+            ).result()
 
         context.log.info(f"Completed deletion for partition {partition}")
 

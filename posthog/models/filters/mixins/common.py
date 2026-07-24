@@ -327,7 +327,7 @@ class CompareMixin(BaseParamMixin):
     @cached_property
     def compare_to(self) -> bool:
         _compare_to = self._data.get(COMPARE_TO, None)
-        return _compare_to
+        return bool(_compare_to)
 
     @include_dict
     def compare_to_to_dict(self):

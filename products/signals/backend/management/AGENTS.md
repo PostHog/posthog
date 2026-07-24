@@ -38,12 +38,71 @@ python manage.py list_signal_reports --team-id 1 --signals --json
    - `pending_input` — needs human judgment before acting
    - `failed` — failed safety review (possible prompt injection)
    - `potential` (reset, weight zeroed) — deemed not actionable
-7. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
+7. On reaching `ready`, the summary workflow starts `signal-report-inbox-notification` to post the Slack
+   inbox notification. If the report auto-started an implementation task, that workflow waits for the PR to
+   open (bounded by `SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS`) so the card can show a "Review PR"
+   button; if that task never opens a PR (fails, is cancelled, or the wait times out) no notification is
+   sent. Reports with no auto-start task notify immediately.
+8. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
    the report is re-promoted and the summary workflow runs again — reusing the previous repo selection and
    lightly validating previous findings instead of re-researching from scratch.
 
 Reports that aren't `ready` still appear in the output with their `error` field
 explaining why they were filtered, plus `artefacts` containing the full judge reasoning.
+
+## Seeding a pre-researched report
+
+Use `ingest_report_json` to short-circuit the research flow and drop a fully-researched
+`SignalReport` into the database, so you can test the autostart path without the sandbox.
+
+```bash
+# 1. Make sure at least one team user has opted into autonomy. Either set a default
+#    threshold for the team via SignalTeamConfig, or have a user POST to
+#    /api/users/<id>/signal_autonomy/ with their personal autostart_priority.
+
+# 2. Ingest a research-output fixture — creates a SignalReport, persists artefacts,
+#    triggers `maybe_autostart_implementation_task`, then marks the report READY.
+python manage.py ingest_report_json \
+    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
+    --team-id 1
+```
+
+The fixture must match the shape in `report_generation/fixtures/` — a JSON object with
+`repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart
+still requires a working GitHub integration (for reviewer resolution) and the commit authors
+in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective
+priority threshold (personal or team default) covers the report's priority — otherwise the
+report will be saved but no `Task` will be created.
+
+## Seeding billable reports (refund testing)
+
+`seed_refund_test_data` drops five minimal reports covering the refund/exemption matrix:
+PR-run-today (refund takes the `excluded` path), PR-run-4-days-ago (`credited` path — calls the
+billing dispute endpoint), PR-run-last-month (out of the billing period — the Refund button
+renders disabled with the reason), billing-exempt with a PR ("Free" badge with health-check
+tooltip; refund hidden), and no-PR (target for `exempt_signal_report_billing`). Re-run freely —
+a report can only be refunded once.
+
+```bash
+python manage.py seed_refund_test_data --team-id 1
+```
+
+`seed_inbox_data` reports are billable too (runs are recorded via the production dual-write),
+but their runs are created "now", so refunds on them always take the excluded path.
+Environment prerequisites (feature flag, local billing service): "Testing refunds locally"
+in `../../ARCHITECTURE.md`.
+
+## Re-ingesting reports
+
+`reingest_signal_report` deletes specific reports and re-emits their signals through the active
+pipeline (same `SignalReportReingestionWorkflow` as the API `reingest` action), so they regroup
+and re-research from scratch:
+
+```bash
+python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid> ...]
+```
+
+For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
 
 ## Session summary (video-based)
 
@@ -53,7 +112,7 @@ Test the SummarizeSingleSessionWorkflow with full video validation:
 python manage.py summarize_single_session <session_id> [--team-id N] [--user-id N]
 ```
 
-Uses first team/user if omitted. Runs `execute_summarize_session` with `video_validation_enabled='full'`.
+Uses first team/user if omitted. Runs `execute_summarize_session` with video-based summarization.
 
 ## Repository selection (agentic)
 
@@ -71,6 +130,83 @@ python manage.py select_repo --verbose
 ```
 
 Uses synthetic JS SDK signals by default. The agent uses `gh` CLI to explore candidates and pick the best match.
+
+## Signals agent (headless scout)
+
+Two commands cover the day-to-day loop on the headless `signals-scout-*` scouts.
+Background and architecture: `../scout_harness/AGENTS.md` and `../../skills/AGENTS.md`.
+
+### Running one scout locally
+
+`run_signals_scout` triggers a single `(team, skill)` run end-to-end without waiting
+for the Temporal coordinator. Inserts a `SignalScoutRun` row, opens a sandbox, pumps
+the agent loop until budget exhaustion or natural completion, finalizes the run.
+
+```bash
+# Single specialist run against a dogfood team
+python manage.py run_signals_scout \
+    --team-id 1 \
+    --skill-name signals-scout-ai-observability
+
+# Pin a skill version (default: latest LLMSkill row for the team)
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general --skill-version 4
+
+# Optional: pin the sandbox repository
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
+    --repository posthog/posthog --verbose
+```
+
+The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates
+one; the command also seeds it). Configs default to `emit=False` — the scout runs and
+logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
+flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
+
+### Canonical skill sync
+
+`sync_signals_scout_skills` forces a `sync_canonical_skills` pass without waiting for
+the next coordinator tick. Reads `products/signals/skills/signals-scout-*/` from disk
+and reconciles each scout against the team's `LLMSkill` rows.
+
+```bash
+# After merging a SKILL.md change — fan out to every dogfood team now
+python manage.py sync_signals_scout_skills --all-enabled
+
+# Onboard one team synchronously
+python manage.py sync_signals_scout_skills --team-id 1
+
+# See what would change without writing
+python manage.py sync_signals_scout_skills --all-enabled --dry-run
+```
+
+Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-authored rows
+left alone), `tombstoned` (rows the team already soft-deleted — left alone, never resurrected),
+`pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the
+coordinator stops dispatching them). Same function the coordinator and runner call lazily —
+this command is just the impatient path.
+
+## Backfilling task_run artefacts
+
+One-off data migration: turn legacy `SignalReportTask` rows (those carrying the old `relationship`
+label) into `task_run` log artefacts so the research / implementation / repo-selection runs tied to
+a report show up in its artefact timeline. `SignalReportTask` lives on as the unlabelled
+task↔report association; rows without a legacy label are skipped — their `task_run` artefact is
+written at creation time.
+
+```bash
+# Preview, scoped to one team
+python manage.py backfill_task_run_artefacts --team-id 1 --dry-run
+
+# Backfill for real (all teams, or add --team-id N)
+python manage.py backfill_task_run_artefacts
+```
+
+Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it
+is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so
+`product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` /
+`repo_selection`). Backfilled artefacts are attributed to their task and backdated to their
+`SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created
+now, but the run happened earlier). Live creation paths append the same artefacts at run time going
+forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
 ## Tips
 

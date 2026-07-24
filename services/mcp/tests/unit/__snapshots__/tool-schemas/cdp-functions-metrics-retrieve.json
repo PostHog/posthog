@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "default": "-7d",
+            "description": "Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "before": {
+            "description": "End of the time range. Same format as 'after'. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "breakdown_by": {
+            "default": "kind",
+            "description": "Group the series by metric 'name' or 'kind'. Defaults to 'kind'.\n\n* `name` - name\n* `kind` - kind",
+            "enum": ["name", "kind"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog function.",
+            "type": "string"
+        },
+        "instance_id": {
+            "description": "Filter metrics to a specific execution instance.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "interval": {
+            "default": "day",
+            "description": "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n* `hour` - hour\n* `day` - day\n* `week` - week",
+            "enum": ["hour", "day", "week"],
+            "type": "string"
+        },
+        "kind": {
+            "description": "Comma-separated metric kinds to filter by, e.g. 'success,failure'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "name": {
+            "description": "Comma-separated metric names to filter by.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -1,6 +1,7 @@
 import re
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core import validators
 from django.db import models
 from django.utils.deconstruct import deconstructible
@@ -15,11 +16,16 @@ class EmailWithDisplayNameValidator:
     # (round brackets are comments according to RFC #822, content in there is ignored), and group 2 matches "michael@x.com"
     display_name_regex = r"([^(]+) <(.+)>$"
 
-    def __call__(self, value):
+    def __call__(self, value: str) -> None:
         display_name_match = re.match(self.display_name_regex, value)
         if display_name_match:
             value = display_name_match.group(2).strip()
         return validators.validate_email(value)
+
+
+class UserInterviewClassification(models.TextChoices):
+    ABANDONED = "abandoned", "Abandoned"
+    OFF_TOPIC = "off-topic", "Off-topic"
 
 
 class UserInterview(UUIDTModel, CreatedMetaFields):
@@ -29,3 +35,86 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
     )
     transcript = models.TextField(blank=True)
     summary = models.TextField(blank=True)
+    classifications = ArrayField(
+        models.CharField(max_length=20, choices=UserInterviewClassification.choices),
+        default=list,
+        blank=True,
+    )
+    # Optional topic linkage for AI voice interviews triggered via SharingConfiguration links.
+    topic = models.ForeignKey(
+        "UserInterviewTopic",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interviews",
+    )
+    # Email or distinct_id identifying a personalised (invited) interviewee. For shared-link
+    # respondents this is a namespaced, non-authoritative "shared:<key>" marker that can never equal
+    # a targeted invitee's identifier — so an anonymous respondent can neither be attributed to nor
+    # lock out a targeted person. Best-effort person linkage from a shared respondent lives in
+    # `distinct_id`, never here.
+    interviewee_identifier = models.CharField(max_length=400, blank=True, default="")
+    # Set for responses collected via a non-personalised (shared) topic link, where every
+    # visit is a new self-identifying respondent. Empty for invited (personalised) interviews.
+    respondent_name = models.CharField(max_length=400, blank=True, default="", db_default="")
+    # Stable per-browser key (localStorage) for a shared-link respondent. Used to collapse the
+    # abandoned partial a refresh leaves behind into the respondent's eventual real response.
+    respondent_key = models.CharField(max_length=64, blank=True, default="", db_default="")
+    # Best-effort, UNTRUSTED person linkage for a shared-link respondent: the distinct_id read from
+    # the public interview URL's query string. Never authoritative — never used for access control
+    # and never folded into interviewee_identifier — so a respondent can't claim (or suppress) a
+    # targeted invitee. Empty for personalised interviews.
+    distinct_id = models.CharField(max_length=200, blank=True, default="", db_default="")
+    recording_url = models.URLField(blank=True, default="", max_length=2048)
+    call_metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        # GIN index backs the `classifications__overlap` (&&) filter used by the list and
+        # search endpoints — without it those queries fall back to a sequential scan.
+        indexes = [GinIndex(fields=["classifications"], name="user_interview_classif_gin")]
+
+
+class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    interviewee_emails = ArrayField(
+        models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
+        default=list,
+        blank=True,
+    )
+    interviewee_distinct_ids = ArrayField(
+        models.CharField(max_length=400),
+        default=list,
+        blank=True,
+    )
+    topic = models.TextField()
+    agent_context = models.TextField(blank=True, default="")
+    questions = ArrayField(
+        models.TextField(),
+        default=list,
+        blank=True,
+    )
+    invite_subject = models.CharField(max_length=255, blank=True, default="", db_default="")
+    invite_message = models.TextField(blank=True, default="", db_default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class IntervieweeContext(UUIDTModel, CreatedMetaFields):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    topic = models.ForeignKey(
+        UserInterviewTopic,
+        on_delete=models.CASCADE,
+        related_name="interviewee_contexts",
+    )
+    interviewee_identifier = models.CharField(max_length=400)
+    agent_context = models.TextField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "interviewee_identifier"],
+                name="unique_interviewee_per_topic",
+            ),
+        ]

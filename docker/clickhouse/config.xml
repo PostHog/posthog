@@ -72,11 +72,20 @@
     of the time, in which case a higher number of threads might be required.
     -->
 
-    <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
+    <!-- Must exceed the ~95 kafka_* engine tables, else consumers starve and their MVs stall. -->
+    <background_message_broker_schedule_pool_size>128</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
     <!-- how many threads merge files, default is 16 -->
     <background_pool_size>4</background_pool_size>
+
+    <!-- Since 26.6, CREATE TABLE with a projection sanity-checks the built-in
+         number_of_free_entries_in_pool_to_execute_mutation (20) and
+         number_of_free_entries_in_pool_to_execute_optimize_entire_partition (25)
+         defaults against background_pool_size * this ratio, ignoring our
+         <merge_tree> overrides. 4 * 8 = 32 satisfies both checks without
+         adding merge threads. -->
+    <background_merges_mutations_concurrency_ratio>8</background_merges_mutations_concurrency_ratio>
 
     <!-- Number of workers to recycle connections in background (see also drain_timeout).
          If the pool is full, connection will be drained synchronously. -->
@@ -305,17 +314,6 @@
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </opentelemetry_span_log>
 
-
-    <!-- Trace log. Stores stack traces collected by the query profiler. -->
-    <trace_log>
-        <database>system</database>
-        <table>trace_log</table>
-        <partition_by>toYYYYMM(event_date)</partition_by>
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-
-        <ttl>event_date + INTERVAL 5 DAY</ttl>
-        <ttl_only_drop_parts>1</ttl_only_drop_parts>
-    </trace_log>
 
     <!-- Crash log. Stores stack traces for fatal errors.
          This table is normally empty. -->

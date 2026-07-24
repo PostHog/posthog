@@ -1,0 +1,426 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
+import { initKeaTests } from '~/test/init'
+import type { CommentType } from '~/types'
+
+import type { TicketAssignee } from '../../components/Assignee'
+import type { Ticket, TicketStatus } from '../../types'
+import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
+
+const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
+
+jest.mock('~/lib/api', () => {
+    const actual = jest.requireActual('~/lib/api')
+    return {
+        __esModule: true,
+        default: {
+            ...actual.default,
+            comments: {
+                ...actual.default?.comments,
+                create: jest.fn().mockResolvedValue(undefined),
+                list: jest.fn().mockResolvedValue({ results: [] }),
+            },
+            persons: {
+                ...actual.default?.persons,
+                list: jest.fn().mockResolvedValue({ results: [] }),
+            },
+            conversationsTickets: {
+                ...actual.default?.conversationsTickets,
+                submitAiFeedback: jest.fn().mockResolvedValue(undefined),
+                get: jest.fn(),
+                update: jest.fn(),
+                list: jest.fn().mockResolvedValue({ results: [] }),
+            },
+        },
+    }
+})
+
+jest.mock('products/business_knowledge/frontend/generated/api', () => ({
+    businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
+    businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
+}))
+
+import api from '~/lib/api'
+
+const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+
+function makeAiComment(id: string): CommentType {
+    return {
+        id,
+        content: 'AI reply body',
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'AI', is_private: true },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+    } as unknown as CommentType
+}
+
+function makeTicket(): Ticket {
+    return {
+        id: 'ticket-1',
+        ticket_number: 42,
+        distinct_id: 'user-1',
+        status: 'open',
+        channel_source: 'widget',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        message_count: 1,
+        ai_triage: {
+            status: 'done',
+            result: 'persisted',
+            confidence: 0.92,
+            ai_trace_id: 'trace-abc',
+        },
+    } as Ticket
+}
+
+describe('supportTicketSceneLogic ai reply feedback', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+        submitAiFeedbackMock.mockClear()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+        logic.actions.setMessages([makeAiComment('msg-ai-1')])
+    })
+
+    afterEach(() => {
+        localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+    })
+
+    it('selects the latest AI message', async () => {
+        await expectLogic(logic).toMatchValues({
+            latestAiMessage: expect.objectContaining({ id: 'msg-ai-1', authorType: 'AI' }),
+        })
+    })
+
+    it('calls backend relay on good feedback', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.submitAiReplyFeedback('msg-ai-1', 'good')
+        })
+            .toDispatchActions(['recordAiReplyFeedback'])
+            .toMatchValues({
+                feedbackByMessageId: { 'msg-ai-1': 'good' },
+            })
+
+        expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+            message_id: 'msg-ai-1',
+            rating: 'good',
+        })
+    })
+
+    it('calls backend relay on bad rating and feedback text separately', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.submitAiReplyFeedback('msg-ai-1', 'bad')
+        })
+            .toDispatchActions(['recordAiReplyFeedback'])
+            .toMatchValues({
+                feedbackByMessageId: { 'msg-ai-1': 'bad' },
+            })
+
+        expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+            message_id: 'msg-ai-1',
+            rating: 'bad',
+        })
+
+        submitAiFeedbackMock.mockClear()
+
+        logic.actions.submitAiReplyFeedback('msg-ai-1', 'bad', 'Wrong answer')
+
+        // Wait for async listener
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+            message_id: 'msg-ai-1',
+            rating: 'bad',
+            feedback_text: 'Wrong answer',
+        })
+    })
+
+    it('dedupes repeated rating submissions for the same message', async () => {
+        logic.actions.submitAiReplyFeedback('msg-ai-1', 'good')
+
+        // Wait for async listener
+        await new Promise((r) => setTimeout(r, 10))
+        submitAiFeedbackMock.mockClear()
+
+        logic.actions.submitAiReplyFeedback('msg-ai-1', 'bad')
+
+        // Wait for async listener
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(submitAiFeedbackMock).not.toHaveBeenCalled()
+        expect(logic.values.feedbackByMessageId['msg-ai-1']).toBe('good')
+    })
+})
+
+function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+    return {
+        id,
+        content: 'reply body',
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'customer', ...itemContext },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+    } as unknown as CommentType
+}
+
+describe('supportTicketSceneLogic chatMessages author attribution', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
+    })
+
+    // A thread reply from a second Teams/Slack participant must show its own author,
+    // not fall back to the ticket requester's name.
+    test.each<[string, Record<string, any>, string]>([
+        ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
+        ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['requester fallback without per-message author', {}, 'Mark'],
+    ])('%s', (_name, itemContext, expectedName) => {
+        logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
+        expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+})
+
+type GateTicket = Pick<Ticket, 'channel_source' | 'email_from' | 'email_to'>
+
+const emailTicket = (overrides: Partial<GateTicket> = {}): GateTicket => ({
+    channel_source: 'email',
+    email_from: 'customer@example.com',
+    email_to: 'support@example.com',
+    ...overrides,
+})
+
+describe('getEmailReplyBlockedReason', () => {
+    // Each gate mirrors a backend condition that silently drops delivery: removing one
+    // reintroduces replies that save as comments but never reach the customer, while
+    // breaking the channel_source guard would disable the reply box on non-email tickets.
+    test.each<[string, GateTicket | null, { email_enabled?: boolean } | null, EmailReplyBlockedReason | null]>([
+        ['widget tickets are never blocked', emailTicket({ channel_source: 'widget' }), null, null],
+        ['no ticket loaded yet', null, { email_enabled: true }, null],
+        ['email disabled on team', emailTicket(), { email_enabled: false }, 'email_disabled'],
+        ['conversations settings missing', emailTicket(), null, 'email_disabled'],
+        [
+            'no customer address (e.g. imported ticket with deleted requester)',
+            emailTicket({ email_from: null }),
+            { email_enabled: true },
+            'no_recipient',
+        ],
+        [
+            'no email channel attached (e.g. imported ticket without default inbox)',
+            emailTicket({ email_to: null }),
+            { email_enabled: true },
+            'no_channel',
+        ],
+        ['fully configured email ticket', emailTicket(), { email_enabled: true }, null],
+    ])('%s', (_name, ticket, settings, expected) => {
+        expect(getEmailReplyBlockedReason(ticket, settings)).toBe(expected)
+    })
+})
+
+describe('supportTicketSceneLogic replyRecipientDescription', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    // This string is shown in the draft-mode "This will send to ..." confirmation. Regressions
+    // that swap email_from (customer) for email_to (our sending identity), drop cc recipients, or
+    // mislabel a channel would tell the agent they're sending somewhere they aren't.
+    test.each<[string, Partial<Ticket>, string]>([
+        [
+            'email uses the customer address, not our sending identity',
+            { channel_source: 'email', email_from: 'customer@example.com', email_to: 'support@example.com' },
+            'customer@example.com',
+        ],
+        [
+            'email includes cc participants',
+            {
+                channel_source: 'email',
+                email_from: 'customer@example.com',
+                cc_participants: ['cc1@example.com', 'cc2@example.com'],
+            },
+            'customer@example.com, cc1@example.com, cc2@example.com',
+        ],
+        ['slack', { channel_source: 'slack' }, 'the linked Slack thread'],
+        ['teams', { channel_source: 'teams' }, 'the linked Microsoft Teams channel'],
+        ['github', { channel_source: 'github' }, 'the linked GitHub issue'],
+        ['widget', { channel_source: 'widget' }, 'the customer'],
+    ])('%s', (_name, overrides, expected) => {
+        logic.actions.setTicket({ ...makeTicket(), ...overrides })
+        expect(logic.values.replyRecipientDescription).toBe(expected)
+    })
+})
+
+describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsCreateMock = api.comments.create as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+
+    // Unlike makeTicket(), API responses always carry priority/assignee; without them the
+    // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        // A non-'new', dash-free id: sendMessage early-returns on 'new' and loadTicket
+        // treats ids containing '-' as UUIDs to redirect.
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    // "Send and set status" must persist through the same PATCH as the "Save changes" button,
+    // and auto-assign the current user unless a specific user is already assigned.
+    test.each<[string, TicketAssignee, TicketStatus, TicketAssignee]>([
+        ['auto-assigns the current user when unassigned', null, 'resolved', { type: 'user', id: MOCK_DEFAULT_USER.id }],
+        [
+            'replaces a role assignee with the current user',
+            { type: 'role', id: 'role-1' },
+            'on_hold',
+            { type: 'user', id: MOCK_DEFAULT_USER.id },
+        ],
+        ['keeps an existing user assignee', { type: 'user', id: 999 }, 'pending', { type: 'user', id: 999 }],
+    ])('%s', async (_name, presetAssignee, statusAfterSend, expectedAssignee) => {
+        if (presetAssignee) {
+            logic.actions.setAssignee(presetAssignee)
+        }
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: expectedAssignee })
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
+        }).toDispatchActions(['updateTicket', 'setTicket'])
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith(
+            '42',
+            expect.objectContaining({ status: statusAfterSend, assignee: expectedAssignee })
+        )
+        expect(logic.values.status).toBe(statusAfterSend)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('does not update the ticket when the send fails', async () => {
+        commentsCreateMock.mockRejectedValue(new Error('request failed'))
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, undefined, 'resolved')
+        }).toFinishAllListeners()
+
+        expect(ticketUpdateMock).not.toHaveBeenCalled()
+        expect(logic.values.status).toBe('open')
+    })
+
+    // The send-and-set confirmation lists exactly the pending non-status edits; status is
+    // excluded because that action overrides it anyway. Drift here silently persists edits
+    // without warning (or prompts when there is nothing extra to save).
+    test.each<[string, () => void, string[]]>([
+        ['a priority edit', () => logic.actions.setPriority('high'), ['Priority: High']],
+        ['a tags edit', () => logic.actions.setTags(['bug']), ['Tags: bug']],
+        ['an assignee edit', () => logic.actions.setAssignee({ type: 'role', id: 'role-1' }), ['Assignee: updated']],
+        ['a status-only edit', () => logic.actions.setStatus('pending'), []],
+    ])('unsavedTicketChanges lists %s', (_name, applyEdit, expected) => {
+        applyEdit()
+        expect(logic.values.unsavedTicketChanges).toEqual(expected)
+    })
+
+    // Overlapping updates must serialize: the second PATCH waits for the first and carries the
+    // newest local edits, and the first (stale) response must not clobber them via setTicket.
+    it('serializes overlapping updates so the newest status wins', async () => {
+        let resolveFirst: (() => void) | undefined
+        ticketUpdateMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
+                })
+        )
+        ticketUpdateMock.mockImplementationOnce((_id: string, data: Record<string, unknown>) =>
+            Promise.resolve({ ...loadedTicket(), ...data })
+        )
+
+        logic.actions.setStatus('resolved')
+        logic.actions.updateTicket()
+        logic.actions.setStatus('pending')
+        logic.actions.updateTicket()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+        resolveFirst?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
+        expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
+        expect(logic.values.status).toBe('pending')
+        expect(logic.values.ticketUpdating).toBe(false)
+    })
+})
+
+describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const personsListMock = api.persons.list as jest.Mock
+    const ticketsListMock = api.conversationsTickets.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        // Person carries a customer-controlled properties.email distinct from the ticket's email_from,
+        // so the assertions prove the match uses email_from (when verified) and never properties.email.
+        personsListMock.mockReset().mockResolvedValue({
+            results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
+        })
+        ticketsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset()
+    })
+
+    // email_from is attacker-spoofable unless the ticket's identity is positively attested, and
+    // person.properties.email is customer-controlled analytics with no trusted mapping. Only a
+    // verified ticket may widen the match by email — otherwise a spoofed sender pulls another
+    // customer's ticket history into their own view.
+    test.each<[string, boolean | null, Record<string, string>]>([
+        [
+            'verified email ticket matches by email_from',
+            true,
+            { distinct_ids: 'user-1', emails: 'verified@example.com' },
+        ],
+        ['unverified ticket omits emails', false, { distinct_ids: 'user-1' }],
+        ['unknown identity omits emails', null, { distinct_ids: 'user-1' }],
+    ])('%s', async (_name, identity_verified, expectedParams) => {
+        ticketGetMock.mockResolvedValue({
+            ...makeTicket(),
+            distinct_id: 'user-1',
+            channel_source: 'email',
+            email_from: 'verified@example.com',
+            identity_verified,
+        })
+
+        logic = supportTicketSceneLogic({ id: 42 })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadPreviousTicketsSuccess'])
+
+        expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+})

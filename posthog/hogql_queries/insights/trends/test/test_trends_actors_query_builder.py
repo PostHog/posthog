@@ -4,6 +4,8 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     Breakdown,
@@ -30,6 +32,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.lazy_tables import find_field_chains
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
@@ -524,3 +527,36 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
         assert ["event"] in field_chains
         assert ["properties", "event"] not in field_chains
+
+    @parameterized.expand(
+        [
+            ("non_null", "Paris", 'properties.location AS "Location"'),
+            ("null", "$$_posthog_breakdown_null_$$", 'properties.location AS "Location"'),
+            ("nested", "Paris", 'properties.location AS Inner AS "Outer"'),
+            ("inside_call", "Paris", "concat(properties.location AS Inner, '') AS Outer"),
+        ]
+    )
+    def test_hogql_breakdown_with_alias_strips_user_alias_in_actors_where(
+        self, _name: str, lookup_value: str, breakdown_expr: str
+    ):
+        class _AssertNoAlias(TraversingVisitor):
+            def __init__(self) -> None:
+                self.found: list[ast.Alias] = []
+
+            def visit_alias(self, node: ast.Alias) -> None:
+                self.found.append(node)
+                super().visit_alias(node)
+
+        trends_query = default_query.model_copy(
+            update={"breakdownFilter": BreakdownFilter(breakdowns=[Breakdown(type="hogql", property=breakdown_expr)])},
+            deep=True,
+        )
+        builder = self._get_builder(trends_query=trends_query, breakdown_value=[lookup_value])
+        where_expr = ast.And(exprs=builder._breakdown_where_expr())
+
+        checker = _AssertNoAlias()
+        checker.visit(where_expr)
+        assert checker.found == [], (
+            f"Actors-WHERE unexpectedly contains Alias node(s): "
+            f"{[(a.alias, type(a.expr).__name__) for a in checker.found]}"
+        )

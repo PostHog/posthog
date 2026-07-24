@@ -3,11 +3,14 @@ from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
+    UUIDModel,
     UUIDTModel,
     build_partial_uniqueness_constraint,
     build_unique_relationship_check,
@@ -26,7 +29,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
     deleted = models.BooleanField(default=False)
-    visibility = models.CharField(choices=Visibility.choices, default=Visibility.DEFAULT, max_length=20)
+    visibility = models.CharField(choices=Visibility, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -47,9 +50,9 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_table = "posthog_notebook"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -63,7 +66,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
-RELATED_OBJECTS = ("group",)
+RELATED_OBJECTS = ("group", "account")
 
 
 class ResourceNotebook(UUIDTModel):
@@ -87,6 +90,13 @@ class ResourceNotebook(UUIDTModel):
         blank=True,
         db_column="group_id",
     )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notebooks",
+    )
 
     class Meta:
         unique_together = ("notebook", *RELATED_OBJECTS)
@@ -100,7 +110,7 @@ class ResourceNotebook(UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_notebook_related_resource"
+                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_notebook_related_resource"
             ),
         ]
         db_table = "posthog_resourcenotebook"
@@ -154,16 +164,87 @@ class KernelRuntime(UUIDTModel):
     user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(default=timezone.now)
-    status = models.CharField(choices=Status.choices, default=Status.STARTING, max_length=20)
-    backend = models.CharField(choices=Backend.choices, default=Backend.DOCKER, max_length=20)
+    status = models.CharField(choices=Status, default=Status.STARTING, max_length=20)
+    backend = models.CharField(choices=Backend, default=Backend.DOCKER, max_length=20)
     kernel_id = models.CharField(max_length=64, null=True, blank=True)
     kernel_pid = models.IntegerField(null=True, blank=True)
     connection_file = models.TextField(null=True, blank=True)
     sandbox_id = models.CharField(max_length=128, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
+    server_url = models.TextField(null=True, blank=True)
+    server_connect_token = models.TextField(null=True, blank=True)
+    # The DuckDB objects a SQL node can currently SELECT from, as of this kernel's last run
+    # (Journey 7). Kernel-scoped rather than notebook-scoped on purpose: a row is only ever
+    # reused while its sandbox is verifiably alive, so the snapshot cannot outlive the kernel
+    # that produced it and go stale — a restarted kernel gets a new row with this unset.
+    frames: JSONField = JSONField(default=None, null=True, blank=True)
+    # Which run's snapshot `frames` holds, as that run's created_at. The kernel executes runs
+    # one at a time in arrival order, but their callbacks land on different web workers and can
+    # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
+    # are created before dispatch, so created_at orders them the same way the kernel ran them.
+    frames_run_created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
         indexes = [
             models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]
+
+
+class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
+    """A single execution of a revamped-notebooks (SQLV2) node.
+    The primary key is the run_id referenced by the run/callback/stream endpoints.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+        # A user-requested stop (Journey 9); unlike FAILED, the envelope's captured
+        # stdout/stderr still surface to the UI.
+        INTERRUPTED = "interrupted", "interrupted"
+
+    class NodeType(models.TextChoices):
+        HOGQL = "hogql", "hogql"
+        PYTHON = "python", "python"
+        DUCKDB = "duckdb", "duckdb"
+
+    # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
+    # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
+    # the callback needs it to file the frame snapshot without a user-blind lookup by id.
+    # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
+    # db_index=False: nothing queries runs by user — it is only ever read off a run we already
+    # hold. DO_NOTHING keeps that true: SET_NULL would have Django's collector issue an
+    # `UPDATE … WHERE user_id = …` against this unindexed column on every user delete, on the
+    # table that grows fastest. Nothing enforces referential integrity here anyway
+    # (db_constraint=False), and a dangling id already reads back as None.
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True, db_constraint=False, db_index=False
+    )
+    node_id = models.CharField(max_length=128)
+    # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
+    # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
+    node_type = models.CharField(choices=NodeType, default=NodeType.HOGQL, max_length=20)
+    # The node's code at run time — paging must re-query what produced the result,
+    # not whatever the editor holds now.
+    code = models.TextField(blank=True, default="")
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    envelope: JSONField = JSONField(default=None, null=True, blank=True)
+    result_id = models.UUIDField(null=True, blank=True)
+    # Which kernel this run was dispatched to, so the callback can file the run's frame
+    # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
+    # are transient (starting/stopped/discarded/error) and run history must not be coupled
+    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    kernel_runtime_id = models.UUIDField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_notebooknoderun"
+        indexes = [
+            models.Index(fields=["team", "notebook", "node_id"]),
         ]

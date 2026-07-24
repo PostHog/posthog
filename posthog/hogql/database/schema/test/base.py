@@ -12,26 +12,22 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-)
-
-from products.data_warehouse.backend.models import (
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    ExternalDataSchema,
-)
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.revenue_analytics.backend.views.test.data.structure import (
     STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 TEST_BUCKET_BASE = "test_storage_bucket"
 INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
@@ -39,13 +35,7 @@ CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_
 SUBSCRIPTIONS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions"
 CHARGES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 _TEST_DATA_DIR = (
-    Path(__file__).resolve().parents[5]
-    / "products"
-    / "revenue_analytics"
-    / "backend"
-    / "hogql_queries"
-    / "test"
-    / "data"
+    Path(__file__).resolve().parents[5] / "products" / "revenue_analytics" / "backend" / "views" / "test" / "data"
 )
 
 
@@ -145,7 +135,10 @@ class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
             if not query_text:
                 continue
 
-            response = execute_hogql_query(parse_select(query_text), team=self.team, modifiers=self.MODIFIERS)
+            # Materialization mirrors the data-modeling job (no user); bypass warehouse access control.
+            response = execute_hogql_query(
+                parse_select(query_text), team=self.team, modifiers=self.MODIFIERS, bypass_warehouse_access_control=True
+            )
 
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:
                 writer = csv.writer(csv_file)

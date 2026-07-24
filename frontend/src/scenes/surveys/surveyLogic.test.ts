@@ -18,6 +18,7 @@ import {
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
+    LinkSurveyQuestion,
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
@@ -34,6 +35,13 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+
+jest.mock('products/surveys/frontend/generated/api', () => ({
+    __esModule: true,
+    surveysGenerateTranslationsCreate: jest.fn(),
+}))
 
 const MULTIPLE_CHOICE_SURVEY: Survey = {
     id: '018b22a3-09b1-0000-2f5b-1bd8352ceec9',
@@ -99,6 +107,19 @@ const createPersistedSurvey = (): Survey => ({
     ],
 })
 
+const createSurveyWithLinkQuestion = (questionOverrides: Partial<LinkSurveyQuestion> = {}): Survey => ({
+    ...createPersistedSurvey(),
+    questions: [
+        {
+            type: SurveyQuestionType.Link,
+            question: 'Open the documentation',
+            description: '',
+            link: 'https://posthog.com/docs',
+            ...questionOverrides,
+        },
+    ],
+})
+
 describe('editor sync', () => {
     beforeEach(() => {
         initKeaTests()
@@ -127,7 +148,7 @@ describe('editor sync', () => {
             surveyChanged: true,
         })
 
-        router.actions.push('/surveys/test-survey?edit=true#preserveLocalChanges=true')
+        router.actions.push('/surveys/test-survey?edit=true')
 
         await expectLogic(logic).toFinishAllListeners()
 
@@ -157,6 +178,159 @@ describe('editor sync', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.survey.name).toBe('Unsaved tabbed name')
+    })
+})
+
+describe('translation validation', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.clearAllMocks()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('validates placeholders and translated link URLs', async () => {
+        const survey = createSurveyWithLinkQuestion({
+            translations: {
+                fr: { question: 'Ouvrir la documentation', link: 'https:not-valid' },
+                es: { question: 'Abrir la documentacion', link: '' },
+                de: { question: 'Dokumentation offnen', link: 'https://posthog.com/docs' },
+                it: { question: '[Translation needed]' },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: expect.arrayContaining([
+                {
+                    language: 'fr',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+                {
+                    language: 'es',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Cannot be empty',
+                },
+                {
+                    language: 'it',
+                    questionIndex: 0,
+                    field: 'question',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ]),
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some((error) => error.language === 'de' && error.field === 'link')
+        ).toBe(false)
+    })
+
+    it('validates default link URLs without requiring translations', async () => {
+        const survey = createSurveyWithLinkQuestion({ link: 'https:not-valid' })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: [
+                {
+                    language: 'default',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+            ],
+        })
+    })
+
+    it('does not validate survey root description translations', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            description: '',
+            translations: {
+                fr: {
+                    name: 'Enquete',
+                    description: 'Description traduite',
+                },
+            },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some(
+                (error) => error.questionIndex === -1 && error.field === 'description'
+            )
+        ).toBe(false)
+    })
+
+    it('deep merges generated translation drafts without dropping manual fields', async () => {
+        const generateTranslations = surveysGenerateTranslationsCreate as jest.MockedFunction<
+            typeof surveysGenerateTranslationsCreate
+        >
+        generateTranslations.mockResolvedValue({
+            translations: { es: { thankYouMessageHeader: 'Gracias' } },
+            questions: [{ id: '__draft_question_0', translations: { es: { buttonText: 'Enviar' } } }],
+            generated_field_paths: ['translations.es.thankYouMessageHeader'],
+            trace_id: 'trace-1',
+        })
+        const survey = {
+            ...createPersistedSurvey(),
+            translations: { es: { name: 'Manual name', thankYouMessageHeader: 'Thanks' } },
+            questions: [
+                {
+                    ...createPersistedSurvey().questions[0],
+                    id: undefined,
+                    translations: { es: { question: 'Manual question' } },
+                },
+            ],
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.generateTranslationDrafts('es')
+        }).toFinishAllListeners()
+
+        const requestBody = generateTranslations.mock.calls[0][2]
+        const draftSurvey = requestBody.survey as Record<string, unknown>
+        expect(requestBody).toEqual(
+            expect.objectContaining({
+                target_language: 'es',
+                overwrite: true,
+            })
+        )
+        expect(draftSurvey).toEqual(
+            expect.objectContaining({
+                name: 'Saved survey',
+                appearance: expect.objectContaining({
+                    thankYouMessageHeader: 'Thank you for your feedback!',
+                }),
+                questions: [
+                    expect.objectContaining({
+                        id: '__draft_question_0',
+                        question: 'What do you think?',
+                    }),
+                ],
+            })
+        )
+        expect(draftSurvey).not.toHaveProperty('linked_flag')
+        expect(draftSurvey).not.toHaveProperty('targeting_flag')
+        expect(logic.values.survey.translations?.es).toEqual({
+            name: 'Manual name',
+            thankYouMessageHeader: 'Gracias',
+        })
+        expect(logic.values.survey.questions[0].translations?.es).toEqual({
+            question: 'Manual question',
+            buttonText: 'Enviar',
+        })
+        expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
     })
 })
 
@@ -1408,10 +1582,19 @@ describe('survey filters', () => {
 describe('URL parameter synchronization', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, MULTIPLE_CHOICE_SURVEY],
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
         logic.mount()
+        // loadSurvey fires on mount (with a breakpoint); let it settle inside the test
+        // so it doesn't resolve after the kea context is reset.
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('only includes non-empty filters in URL', async () => {
@@ -1645,10 +1828,20 @@ describe('survey stats calculation', () => {
         total_count_only_seen: totalCountOnlySeen,
     })
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/`]: () => [
+                    200,
+                    { ...MULTIPLE_CHOICE_SURVEY, id: MOCK_SURVEY_ID },
+                ],
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MOCK_SURVEY_ID })
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('should return null stats and zero rates when no base stats results', async () => {
@@ -2135,9 +2328,9 @@ describe('processOpenEndedResults', () => {
             'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
         }
         const rows = [
-            ['Great product!', 'user123', '2024-01-15T10:30:00Z'],
-            ['Could be better', 'user456', '2024-01-15T11:45:00Z'],
-            ['', 'user789', '2024-01-15T12:00:00Z'],
+            ['Great product!', 'user123', '2024-01-15T10:30:00Z', 'session-abc'],
+            ['Could be better', 'user456', '2024-01-15T11:45:00Z', ''],
+            ['', 'user789', '2024-01-15T12:00:00Z', 'session-xyz'],
         ]
 
         const result = processOpenEndedResults(questions, columnMap, rows)
@@ -2150,11 +2343,13 @@ describe('processOpenEndedResults', () => {
             distinctId: 'user123',
             response: 'Great product!',
             timestamp: '2024-01-15T10:30:00Z',
+            sessionId: 'session-abc',
         })
         expect(openData.data[1]).toEqual({
             distinctId: 'user456',
             response: 'Could be better',
             timestamp: '2024-01-15T11:45:00Z',
+            sessionId: undefined,
         })
     })
 
@@ -2235,11 +2430,14 @@ describe('mergeResponsesByQuestion', () => {
         expect(result.totalResponses).toBe(100)
     })
 
-    it('merges choice question with open choice: appends "Other" data to aggregate data', () => {
+    it('merges choice question with open choice without duplicating open-choice answers', () => {
         const aggregate: ResponsesByQuestion = {
             'choice-q': {
                 type: SurveyQuestionType.SingleChoice,
-                data: [{ label: 'Yes', value: 5, isPredefined: true }],
+                data: [
+                    { label: 'Yes', value: 5, isPredefined: true },
+                    { label: 'Custom answer', value: 1, isPredefined: false },
+                ],
                 totalResponses: 6,
                 noResponseCount: 0,
             },
@@ -2258,6 +2456,60 @@ describe('mergeResponsesByQuestion', () => {
 
         expect(result.data).toHaveLength(2)
         expect(result.totalResponses).toBe(6)
+
+        const customAnswers = result.data.filter((d) => d.label === 'Custom answer')
+        expect(customAnswers).toHaveLength(1)
+        expect(customAnswers[0]).toEqual({
+            label: 'Custom answer',
+            value: 1,
+            isPredefined: false,
+            distinctId: 'u1',
+            timestamp: 'ts',
+        })
+        expect(result.data.find((d) => d.label === 'Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
+    })
+
+    it('keeps each open-choice answer exactly once while preserving predefined choices', () => {
+        const aggregate: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [
+                    { label: 'Yes', value: 3, isPredefined: true },
+                    { label: 'No', value: 0, isPredefined: true },
+                    { label: 'Airtable', value: 1, isPredefined: false },
+                    { label: 'folk', value: 1, isPredefined: false },
+                    { label: 'Freshsales', value: 1, isPredefined: false },
+                ],
+                totalResponses: 6,
+                noResponseCount: 0,
+            },
+        }
+        const openEnded: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [
+                    { label: 'Airtable', value: 1, isPredefined: false, distinctId: 'u1', timestamp: 't1' },
+                    { label: 'folk', value: 1, isPredefined: false, distinctId: 'u2', timestamp: 't2' },
+                    { label: 'Freshsales', value: 1, isPredefined: false, distinctId: 'u3', timestamp: 't3' },
+                ],
+                totalResponses: 0,
+                noResponseCount: 0,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['choice-q'] as ChoiceQuestionProcessedResponses
+
+        const nonPredefined = result.data.filter((d) => !d.isPredefined)
+        expect(nonPredefined).toHaveLength(3)
+        expect(nonPredefined.every((d) => d.distinctId && d.timestamp)).toBe(true)
+        expect(nonPredefined.map((d) => d.label).sort()).toEqual(['Airtable', 'Freshsales', 'folk'])
+
+        const predefined = result.data.filter((d) => d.isPredefined)
+        expect(predefined).toEqual([
+            { label: 'Yes', value: 3, isPredefined: true },
+            { label: 'No', value: 0, isPredefined: true },
+        ])
     })
 
     it('passes through aggregate-only questions unchanged', () => {

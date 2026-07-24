@@ -6,13 +6,13 @@
 
 use axum::http::{HeaderMap, Method};
 use bytes::Bytes;
-use tracing::{error, Span};
+use tracing::{debug, Span};
 
 use crate::{
     api::CaptureError,
     payload::{Compression, EventFormData, EventQuery},
     utils::{
-        decode_base64, decode_form, extract_compression, extract_lib_version, is_likely_base64,
+        decode_base64, decode_form, extract_compression, is_likely_base64,
         is_likely_urlencoded_form, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
 };
@@ -67,13 +67,13 @@ pub fn extract_and_record_metadata<'a>(
 }
 
 /// Extract payload bytes from request (handles query params, form data, base64 encoding)
-/// Returns (payload_bytes, compression, lib_version)
+/// Returns (payload_bytes, compression)
 pub fn extract_payload_bytes(
     query_params: &mut EventQuery,
     headers: &HeaderMap,
     method: &Method,
     body: Bytes,
-) -> Result<(Bytes, Compression, Option<String>), CaptureError> {
+) -> Result<(Bytes, Compression), CaptureError> {
     // Unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
         let tmp_vec = std::mem::take(&mut query_params.data);
@@ -81,7 +81,6 @@ pub fn extract_payload_bytes(
     } else if !body.is_empty() {
         body
     } else {
-        error!("missing payload on {:?} request", method);
         return Err(CaptureError::EmptyPayload);
     };
 
@@ -119,7 +118,7 @@ pub fn extract_payload_bytes(
                 let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
                 let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                     .unwrap_or(String::from("INVALID_UTF8"));
-                error!(
+                debug!(
                     form_data = form_data_snippet,
                     "expected form data in {} request payload", *method
                 );
@@ -131,9 +130,8 @@ pub fn extract_payload_bytes(
         _ => EventFormData::default(),
     };
 
-    // Extract compression hint and lib_version from query params or form data
+    // Extract compression hint from query params, form data, or headers
     let compression = extract_compression(&form, query_params, headers);
-    let lib_version = extract_lib_version(&form, query_params);
 
     // Get the actual payload bytes (either from form data or direct body)
     let payload_bytes: Bytes = if form.data.is_some() {
@@ -142,7 +140,7 @@ pub fn extract_payload_bytes(
         payload
     };
 
-    Ok((payload_bytes, compression, lib_version))
+    Ok((payload_bytes, compression))
 }
 
 #[cfg(test)]
@@ -188,10 +186,9 @@ mod tests {
         let result = extract_payload_bytes(&mut query_params, &headers, &method, body);
         assert!(result.is_ok());
 
-        let (payload, compression, lib_version) = result.unwrap();
+        let (payload, compression) = result.unwrap();
         assert_eq!(payload, Bytes::from(r#"{"event":"test"}"#));
         assert_eq!(compression, Compression::Unsupported);
-        assert_eq!(lib_version, None);
     }
 
     #[test]
@@ -199,7 +196,6 @@ mod tests {
         let mut query_params = EventQuery {
             data: Some(r#"{"event":"test"}"#.to_string()),
             compression: None,
-            lib_version: None,
             sent_at: None,
             beacon: false,
         };
@@ -210,7 +206,7 @@ mod tests {
         let result = extract_payload_bytes(&mut query_params, &headers, &method, body);
         assert!(result.is_ok());
 
-        let (payload, _, _) = result.unwrap();
+        let (payload, _) = result.unwrap();
         assert_eq!(payload, Bytes::from(r#"{"event":"test"}"#));
     }
 
@@ -226,11 +222,26 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_payload_bytes_ignores_form_ver_field() {
+        let mut query_params = EventQuery::default();
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static(FORM_MIME_TYPE));
+        let method = Method::POST;
+        let body = Bytes::from(r#"ver=1.2.3&data={"event":"test"}"#);
+
+        let result = extract_payload_bytes(&mut query_params, &headers, &method, body);
+        assert!(result.is_ok());
+
+        let (payload, compression) = result.unwrap();
+        assert_eq!(payload, Bytes::from(r#"{"event":"test"}"#));
+        assert_eq!(compression, Compression::Unsupported);
+    }
+
+    #[test]
     fn test_extract_payload_bytes_with_compression_hint() {
         let mut query_params = EventQuery {
             data: Some(r#"{"event":"test"}"#.to_string()),
             compression: Some(Compression::Gzip),
-            lib_version: None,
             sent_at: None,
             beacon: false,
         };
@@ -241,27 +252,7 @@ mod tests {
         let result = extract_payload_bytes(&mut query_params, &headers, &method, body);
         assert!(result.is_ok());
 
-        let (_, compression, _) = result.unwrap();
+        let (_, compression) = result.unwrap();
         assert_eq!(compression, Compression::Gzip);
-    }
-
-    #[test]
-    fn test_extract_payload_bytes_with_lib_version() {
-        let mut query_params = EventQuery {
-            data: Some(r#"{"event":"test"}"#.to_string()),
-            compression: None,
-            lib_version: Some("1.2.3".to_string()),
-            sent_at: None,
-            beacon: false,
-        };
-        let headers = HeaderMap::new();
-        let method = Method::GET;
-        let body = Bytes::new();
-
-        let result = extract_payload_bytes(&mut query_params, &headers, &method, body);
-        assert!(result.is_ok());
-
-        let (_, _, lib_version) = result.unwrap();
-        assert_eq!(lib_version, Some("1.2.3".to_string()));
     }
 }

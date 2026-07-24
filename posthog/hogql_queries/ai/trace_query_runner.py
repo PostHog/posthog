@@ -1,10 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
-from uuid import UUID
-
-import orjson
-import structlog
 
 from posthog.schema import (
     CachedTraceQueryResponse,
@@ -19,13 +15,36 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.sentiment_evaluations import (
+    EMPTY_SENTIMENT_EVALUATION_LOOKUP,
+    SentimentEvaluationLookup,
+    get_generation_sentiment_lookup_ids,
+    get_sentiment_for_generation,
+    load_generation_sentiment_evaluations_for_traces,
+)
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, parse_ai_property_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-logger = structlog.get_logger(__name__)
+TRACE_FIELDS_MAPPING: dict[str, str] = {
+    "id": "id",
+    "ai_session_id": "aiSessionId",
+    "created_at": "createdAt",
+    "first_distinct_id": "distinctId",
+    "total_latency": "totalLatency",
+    "input_state_parsed": "inputState",
+    "output_state_parsed": "outputState",
+    "input_tokens": "inputTokens",
+    "output_tokens": "outputTokens",
+    "input_cost": "inputCost",
+    "output_cost": "outputCost",
+    "total_cost": "totalCost",
+    "events": "events",
+    "trace_name": "traceName",
+    "sentiment": "sentiment",
+}
 
 
 class TraceQueryDateRange(QueryDateRange):
@@ -53,25 +72,34 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
-        with self.timings.measure("trace_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
-            query_result = execute_hogql_query(
-                query=self.to_query(),
-                placeholders={
-                    "filter_conditions": self._get_where_clause(),
-                },
+        query_result = query_ai_events(
+            query=self._build_query(),
+            placeholders={"filter_conditions": self._get_where_clause()},
+            team=self.team,
+            query_type=NodeKind.TRACE_QUERY,
+            fall_back_to_events=True,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+        columns: list[str] = query_result.columns or []
+        sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
+        if self.query.includeSentiment and query_result.results:
+            sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
-                query_type=NodeKind.TRACE_QUERY,
+                trace_ids=[self.query.traceId],
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                query_type="TraceQuerySentimentEvaluations",
             )
 
-        columns: list[str] = query_result.columns or []
-        results = self._map_results(columns, query_result.results)
+        results = self._map_results(columns, query_result.results, sentiment_lookup)
 
         return TraceQueryResponse(
             columns=columns,
@@ -82,12 +110,16 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
 
     def to_query(self):
+        return self._build_query()
+
+    def _build_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
             SELECT
-                properties.$ai_trace_id AS id,
-                any(properties.$ai_session_id) AS ai_session_id,
+                trace_id AS id,
+                any(session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
+                max(timestamp) AS last_timestamp,
                 ifNull(
                     nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
                     argMin(distinct_id, timestamp)
@@ -95,71 +127,72 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
-                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
-                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(toFloat(properties.$ai_latency),
-                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                        WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
+                             AND countIf(latency > 0 AND event = '$ai_generation') > 0
+                        THEN sumIf(latency,
+                                   event = '$ai_generation' AND latency > 0
                              )
                         -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(toFloat(properties.$ai_latency),
-                                   properties.$ai_parent_id IS NULL
-                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                        ELSE sumIf(latency,
+                                   parent_id IS NULL
+                                   OR parent_id = trace_id
                              )
                     END, 2
                 ) AS total_latency,
-                sumIf(toFloat(properties.$ai_input_tokens),
+                nullIf(sumIf(input_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ) AS input_tokens,
-                sumIf(toFloat(properties.$ai_output_tokens),
+                ), 0) AS input_tokens,
+                nullIf(sumIf(output_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ) AS output_tokens,
-                round(
-                    sumIf(toFloat(properties.$ai_input_cost_usd),
+                ), 0) AS output_tokens,
+                nullIf(round(
+                    sumIf(input_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ) AS input_cost,
-                round(
-                    sumIf(toFloat(properties.$ai_output_cost_usd),
+                ), 0) AS input_cost,
+                nullIf(round(
+                    sumIf(output_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ) AS output_cost,
-                round(
-                    sumIf(toFloat(properties.$ai_total_cost_usd),
+                ), 0) AS output_cost,
+                nullIf(round(
+                    sumIf(total_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ) AS total_cost,
+                ), 0) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
                         groupArrayIf(
-                            tuple(uuid, event, timestamp, properties),
+                            tuple(uuid, event, timestamp, properties,
+                                  input, output, output_choices, input_state, output_state, tools),
                             event != '$ai_trace'
                         )
                     )
                 ) AS events,
-                argMinIf(properties.$ai_input_state,
+                argMinIf(input_state,
                          timestamp, event = '$ai_trace'
                 ) AS input_state,
-                argMinIf(properties.$ai_output_state,
+                argMinIf(output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
                 ifNull(
                     argMinIf(
-                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
                         timestamp,
                         event = '$ai_trace'
                     ),
                     argMin(
-                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
                         timestamp,
                     )
                 ) AS trace_name
-            FROM events
+            FROM posthog.ai_events AS ai_events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND {filter_conditions}
-            GROUP BY properties.$ai_trace_id
+            GROUP BY trace_id
             LIMIT 1
             """,
         )
@@ -169,81 +202,13 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 3,
+            "schema_version": 9,
         }
 
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
         return TraceQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
-
-    def _map_results(self, columns: list[str], query_results: list):
-        mapped_results = [dict(zip(columns, value)) for value in query_results]
-        traces = []
-
-        for result in mapped_results:
-            # Exclude traces that are outside of the capture range.
-            timestamp_dt = cast(datetime, result["first_timestamp"])
-            if (
-                timestamp_dt < self._date_range.date_from_for_filtering()
-                or timestamp_dt > self._date_range.date_to_for_filtering()
-            ):
-                continue
-
-            traces.append(self._map_trace(result, timestamp_dt))
-
-        return traces
-
-    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
-        TRACE_FIELDS_MAPPING = {
-            "id": "id",
-            "ai_session_id": "aiSessionId",
-            "created_at": "createdAt",
-            "first_distinct_id": "distinctId",
-            "total_latency": "totalLatency",
-            "input_state_parsed": "inputState",
-            "output_state_parsed": "outputState",
-            "input_tokens": "inputTokens",
-            "output_tokens": "outputTokens",
-            "input_cost": "inputCost",
-            "output_cost": "outputCost",
-            "total_cost": "totalCost",
-            "events": "events",
-            "trace_name": "traceName",
-        }
-
-        generations = []
-        for uuid, event_name, timestamp, properties in result["events"]:
-            generations.append(self._map_event(uuid, event_name, timestamp, properties))
-
-        trace_dict = {
-            **result,
-            "created_at": created_at.isoformat(),
-            "events": generations,
-        }
-        for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
-            raw = trace_dict.get(raw_key)
-            if raw is not None:
-                try:
-                    trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
-                    trace_dict[parsed_key] = raw
-        # Remap keys from snake case to camel case
-        trace = LLMTrace.model_validate(
-            {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
-        )
-        return trace
-
-    def _map_event(
-        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
-    ) -> LLMTraceEvent:
-        generation: dict[str, Any] = {
-            "id": str(event_uuid),
-            "event": event_name,
-            "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
-        }
-        return LLMTraceEvent.model_validate(generation)
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
@@ -255,19 +220,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["events", "timestamp"]),
+                left=ast.Field(chain=["ai_events", "timestamp"]),
                 right=self._date_range.date_from_as_hogql(),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["events", "timestamp"]),
+                left=ast.Field(chain=["ai_events", "timestamp"]),
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]
 
         where_exprs.append(
             ast.CompareOperation(
-                left=ast.Field(chain=["properties", "$ai_trace_id"]),
+                left=ast.Field(chain=["trace_id"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.traceId),
             ),
@@ -279,3 +244,69 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     where_exprs.append(property_to_expr(prop, self.team))
 
         return ast.And(exprs=where_exprs)
+
+    def _map_event(self, event_tuple: tuple, sentiment_lookup: SentimentEvaluationLookup) -> LLMTraceEvent:
+        event_uuid, event_name, event_timestamp, event_properties, *heavy = event_tuple
+        heavy_columns = dict(zip(("input", "output", "output_choices", "input_state", "output_state", "tools"), heavy))
+        event_id = str(event_uuid)
+        properties = merge_heavy_properties(event_properties, heavy_columns)
+        generation: dict[str, Any] = {
+            "id": event_id,
+            "event": event_name,
+            "createdAt": event_timestamp.isoformat(),
+            "properties": properties,
+        }
+        sentiment_lookup_ids = get_generation_sentiment_lookup_ids(event_id, event_name, properties)
+        sentiment = get_sentiment_for_generation(sentiment_lookup, sentiment_lookup_ids)
+        if sentiment is not None:
+            generation["sentiment"] = sentiment
+        return LLMTraceEvent.model_validate(generation)
+
+    def _map_trace(
+        self, result: dict[str, Any], created_at: datetime, sentiment_lookup: SentimentEvaluationLookup
+    ) -> LLMTrace:
+        generations = []
+        for event_tuple in result["events"]:
+            generations.append(self._map_event(event_tuple, sentiment_lookup))
+
+        trace_dict = {
+            **result,
+            "created_at": created_at.isoformat(),
+            "events": generations,
+        }
+        sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
+        if sentiment is not None:
+            trace_dict["sentiment"] = sentiment
+        for raw_key, parsed_key in [
+            ("input_state", "input_state_parsed"),
+            ("output_state", "output_state_parsed"),
+        ]:
+            raw = trace_dict.get(raw_key) or None
+            trace_dict[raw_key] = raw
+            if raw is not None:
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
+        trace = LLMTrace.model_validate(
+            {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
+        )
+        return trace
+
+    def _map_results(
+        self, columns: list[str], query_results: list, sentiment_lookup: SentimentEvaluationLookup
+    ) -> list[LLMTrace]:
+        mapped_results = [dict(zip(columns, value)) for value in query_results]
+        traces = []
+
+        date_from = self._date_range.date_from_for_filtering()
+        date_to = self._date_range.date_to_for_filtering()
+
+        for result in mapped_results:
+            # Overlap semantics: match sessions list behavior where a trace
+            # is counted if ANY of its events fall in the date window.
+            first_timestamp = cast(datetime, result["first_timestamp"])
+            last_timestamp = cast(datetime, result["last_timestamp"])
+            if first_timestamp > date_to or last_timestamp < date_from:
+                continue
+
+            traces.append(self._map_trace(result, first_timestamp, sentiment_lookup))
+
+        return traces

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -26,6 +27,21 @@ const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 const defaultShell = "/bin/bash"
 
+// Autorestart backoff: when a proc with autorestart crashes, it's restarted
+// after an exponential delay that grows with each consecutive rapid crash, so a
+// crash-looping proc backs off instead of thrashing. After maxRestartAttempts
+// consecutive crashes the proc is left dead and must be restarted manually. A
+// proc that stays up longer than restartStableRunTime is considered healthy, so
+// its next crash starts the count (and backoff) over from scratch.
+const restartStableRunTime = 60 * time.Second
+
+// Effectively constants, but var so tests can shrink the timings and cap.
+var (
+	restartBackoffBase = 1 * time.Second
+	restartBackoffMax  = 30 * time.Second
+	maxRestartAttempts = 10
+)
+
 type Status int
 
 const (
@@ -34,6 +50,7 @@ const (
 	StatusStopped
 	StatusDone
 	StatusCrashed
+	StatusStandby // in registry but not loaded — config stub only
 )
 
 func (s Status) String() string {
@@ -48,6 +65,8 @@ func (s Status) String() string {
 		return "done"
 	case StatusCrashed:
 		return "crashed"
+	case StatusStandby:
+		return "standby"
 	default:
 		return "unknown"
 	}
@@ -113,6 +132,7 @@ type Process struct {
 	shellBin     string // shell binary for running shell commands
 	readyPattern *regexp.Regexp
 	maxLines     int
+	logDir       string // if non-empty, raw PTY output is teed to <logDir>/<Name>.log
 	status       Status
 	cmd          *exec.Cmd
 
@@ -123,12 +143,24 @@ type Process struct {
 	hasPrompt bool             // true when last PTY output had no trailing \n (likely waiting for input)
 	unread    bool             // true when new output arrived since the last MarkRead call
 	waitDone  chan struct{}    // closed by the goroutine that calls cmd.Wait()
+	logFile   *os.File         // nil when file logging disabled or file couldn't be opened
 
 	startedAt      time.Time
 	readyAt        time.Time
 	exitCode       *int
 	metrics        *Metrics
 	metricsEnabled atomic.Bool
+
+	restartCount int // consecutive rapid autorestarts since the last healthy run
+}
+
+// SetLogDir enables per-process log file teeing. When non-empty, Start opens
+// <dir>/<Name>.log (truncated) and readLoop writes raw PTY bytes to it alongside
+// the in-memory scrollback. Empty string disables file logging (the default).
+func (p *Process) SetLogDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logDir = dir
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell string) *Process {
@@ -154,6 +186,22 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell 
 	return p
 }
 
+// NewStandbyProcess creates a lightweight config-only process placeholder.
+// It has StatusStandby, no PTY, and no emulator — just enough to appear in the
+// sidebar and be promoted to a real process via Manager.Add when the user starts it.
+func NewStandbyProcess(name string, cfg config.ProcConfig) *Process {
+	return &Process{
+		Name:   name,
+		Cfg:    cfg,
+		status: StatusStandby,
+	}
+}
+
+// IsStandby reports whether this process is a registry-only placeholder.
+func (p *Process) IsStandby() bool {
+	return p.Status().IsStandby()
+}
+
 func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -162,6 +210,10 @@ func (p *Process) Status() Status {
 
 func (s Status) IsRunning() bool {
 	return s == StatusRunning || s == StatusPending
+}
+
+func (s Status) IsStandby() bool {
+	return s == StatusStandby
 }
 
 func (p *Process) IsRunning() bool {
@@ -240,12 +292,20 @@ func (p *Process) Lines() []string {
 	return result
 }
 
-// ClearLines empties the scrollback buffer.
+// resetEmulatorLocked replaces the emulator with a fresh instance at the given
+// dimensions. Must be called with p.mu held.
+func (p *Process) resetEmulatorLocked(w, h int) {
+	p.emulator = vt.NewSafeEmulator(w, h)
+	p.emulator.SetScrollbackSize(p.maxLines)
+}
+
+// ClearLines empties the scrollback buffer and active screen.
 func (p *Process) ClearLines() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.emulator != nil {
-		p.emulator.ClearScrollback()
+		w, h := p.emulator.Width(), p.emulator.Height()
+		p.resetEmulatorLocked(w, h)
 	}
 }
 
@@ -379,10 +439,22 @@ func (p *Process) buildCmd() *exec.Cmd {
 
 // It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
+	return p.startInternal(send, false)
+}
+
+// startInternal starts the process. isAutoRestart distinguishes a backoff-driven
+// restart (which keeps the running crash count) from a manual start (which
+// resets it — the user has presumably fixed whatever was crashing). Passing it
+// as a parameter keeps the decision inside the same lock acquisition, avoiding a
+// race with a concurrent manual start.
+func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	p.mu.Lock()
 	if p.status == StatusRunning {
 		p.mu.Unlock()
 		return nil
+	}
+	if !isAutoRestart {
+		p.restartCount = 0
 	}
 	p.status = StatusPending
 	// Preserve the current emulator dimensions (set by Resize) so the
@@ -391,8 +463,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	if p.emulator != nil {
 		w, h = p.emulator.Width(), p.emulator.Height()
 	}
-	p.emulator = vt.NewSafeEmulator(w, h)
-	p.emulator.SetScrollbackSize(p.maxLines)
+	p.resetEmulatorLocked(w, h)
 	p.metrics = nil
 	p.exitCode = nil
 	p.startedAt = time.Now()
@@ -400,6 +471,24 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	if p.stdinPipe != nil {
 		_ = p.stdinPipe.Close()
 		p.stdinPipe = nil
+	}
+	// Rotate the per-process log file: truncate on each start so the file
+	// reflects the current run. Errors are best-effort; file logging is
+	// advisory, the in-memory scrollback is the source of truth.
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+		p.logFile = nil
+	}
+	if p.logDir != "" {
+		if err := os.MkdirAll(p.logDir, 0o755); err == nil {
+			if f, err := os.OpenFile(
+				filepath.Join(p.logDir, p.Name+".log"),
+				os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+				0o644,
+			); err == nil {
+				p.logFile = f
+			}
+		}
 	}
 	p.mu.Unlock()
 
@@ -578,6 +667,7 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 		st = StatusCrashed
 	}
 	p.mu.Lock()
+	ranFor := time.Since(p.startedAt)
 	if p.cmd == cmd && p.status != StatusStopped {
 		p.status = st
 		p.metrics = nil
@@ -586,13 +676,88 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 	}
 	finalStatus := p.status
 	shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed && finalStatus != StatusStopped
+	var attempt int
+	if shouldRestart {
+		// A proc that stayed up long enough is treated as healthy, so a later
+		// crash restarts the backoff from scratch rather than inheriting a
+		// stale count from an earlier crash loop.
+		if ranFor >= restartStableRunTime {
+			p.restartCount = 0
+		}
+		p.restartCount++
+		attempt = p.restartCount
+	}
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+		p.logFile = nil
+	}
 	p.mu.Unlock()
 
 	send(StatusMsg{Name: p.Name, Status: finalStatus})
 
 	if shouldRestart {
-		_ = p.Start(send)
+		p.scheduleRestart(cmd, attempt, send)
 	}
+}
+
+// scheduleRestart waits out the backoff for the given attempt and then restarts
+// the process, unless the attempt cap has been hit or the process was stopped or
+// manually restarted while we waited. Runs on the cmd.Wait goroutine, so the
+// backoff sleep here doesn't block anything else.
+func (p *Process) scheduleRestart(cmd *exec.Cmd, attempt int, send func(tea.Msg)) {
+	if attempt > maxRestartAttempts {
+		p.writeNotice(fmt.Sprintf(
+			"\r\n[phrocs] %s keeps crashing — gave up after %d restarts. Fix it and restart manually.\r\n",
+			p.Name, maxRestartAttempts), send)
+		return
+	}
+
+	backoff := restartBackoffFor(attempt)
+	p.writeNotice(fmt.Sprintf(
+		"\r\n[phrocs] %s crashed — restarting in %s (attempt %d/%d)…\r\n",
+		p.Name, backoff.Round(time.Second), attempt, maxRestartAttempts), send)
+	time.Sleep(backoff)
+
+	// Only restart if the proc is still in the crashed state we observed. Any
+	// other status means something else took over the slot while we backed off
+	// — a manual restart (StatusPending/StatusRunning) or a stop (StatusStopped)
+	// — and restarting now would double-start it.
+	p.mu.Lock()
+	canRestart := p.cmd == cmd && p.status == StatusCrashed
+	p.mu.Unlock()
+	if !canRestart {
+		return
+	}
+
+	_ = p.startInternal(send, true)
+}
+
+// restartBackoffFor returns the exponential backoff delay for a given 1-based
+// restart attempt, capped at restartBackoffMax.
+func restartBackoffFor(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	backoff := restartBackoffBase
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= restartBackoffMax {
+			return restartBackoffMax
+		}
+	}
+	return backoff
+}
+
+// writeNotice injects a phrocs-generated line into the process's output buffer
+// so the user sees autorestart activity inline with the proc's own logs.
+func (p *Process) writeNotice(msg string, send func(tea.Msg)) {
+	p.mu.Lock()
+	if p.emulator != nil {
+		_, _ = p.emulator.Write([]byte(msg))
+	}
+	p.unread = true
+	p.mu.Unlock()
+	send(OutputMsg{Name: p.Name})
 }
 
 // readLoop reads process output, feeds it through a VT terminal emulator,
@@ -659,11 +824,15 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 				p.mu.Unlock()
 			}
 
-			// Feed raw bytes into the VT emulator
+			// Feed raw bytes into the VT emulator. Capture the logFile
+			// pointer under the lock but defer the actual disk write until
+			// after unlock — a slow disk (NFS, contended FS) would otherwise
+			// hold p.mu and block status queries and metrics sampling.
 			p.mu.Lock()
 			if p.emulator != nil {
 				_, _ = p.emulator.Write(data)
 			}
+			logFile := p.logFile
 			// Detect interactive prompts: if the chunk doesn't end with \n,
 			// the process likely wrote a partial line and is waiting for input.
 			// This works for line-based prompts and TUI frameworks like Ink
@@ -671,6 +840,9 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			p.hasPrompt = data[len(data)-1] != '\n'
 			p.unread = true
 			p.mu.Unlock()
+			if logFile != nil {
+				_, _ = logFile.Write(data)
+			}
 			dirty = true
 
 		case <-flushTicker.C:

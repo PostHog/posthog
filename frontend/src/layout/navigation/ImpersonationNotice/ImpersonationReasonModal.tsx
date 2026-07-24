@@ -1,16 +1,32 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useId, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, SideAction } from '@posthog/lemon-ui'
+
+export interface ImpersonationReasonModalCancelButton {
+    label: string
+    status?: 'default' | 'danger'
+    onClick: () => void
+    sideAction?: SideAction
+}
 
 export interface ImpersonationReasonModalProps {
     isOpen: boolean
-    onClose: () => void
+    onClose?: () => void
     onConfirm: (reason: string) => void | Promise<void>
     title: string
     description?: string
     confirmText?: string
     loading?: boolean
     children?: ReactNode
+    cancelButton?: ImpersonationReasonModalCancelButton
+    // Forced-choice modals (e.g. session-expired) set closable={false} so the user
+    // must pick a footer action — no ESC, no overlay-click, no X button.
+    closable?: boolean
+    // Renders inline rather than in a portal — used by Storybook to capture snapshots.
+    inline?: boolean
+    // Pre-fills the reason field each time the modal opens (e.g. the upgrade flow reuses
+    // the original impersonation reason).
+    initialReason?: string
 }
 
 export function ImpersonationReasonModal({
@@ -22,28 +38,56 @@ export function ImpersonationReasonModal({
     confirmText = 'Confirm',
     loading = false,
     children,
+    cancelButton,
+    closable = true,
+    inline = false,
+    initialReason = '',
 }: ImpersonationReasonModalProps): JSX.Element {
-    const [reason, setReason] = useState('')
+    const [reason, setReason] = useState(initialReason)
+    const reasonInputId = useId()
+
+    // Reset to the initial reason whenever the modal opens so each open starts from a
+    // clean, auto-filled state without clobbering edits while it's open.
+    useEffect(() => {
+        if (isOpen) {
+            setReason(initialReason)
+        }
+    }, [isOpen, initialReason])
 
     const handleConfirm = (): void => {
         onConfirm(reason)
     }
 
     const handleClose = (): void => {
-        setReason('')
-        onClose()
+        setReason(initialReason)
+        onClose?.()
     }
+
+    const cancel = cancelButton ?? (onClose ? { label: 'Cancel', onClick: handleClose } : null)
+    // When the cancel action is destructive, separate it from the confirm action
+    // so the danger button isn't adjacent to the primary action.
+    const separateCancel = cancel?.status === 'danger'
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
+            closable={closable}
+            inline={inline}
             title={title}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={handleClose}>
-                        Cancel
-                    </LemonButton>
+                    {cancel && (
+                        <LemonButton
+                            type="secondary"
+                            status={cancel.status}
+                            onClick={cancel.onClick}
+                            sideAction={cancel.sideAction}
+                        >
+                            {cancel.label}
+                        </LemonButton>
+                    )}
+                    {separateCancel && <div className="flex-1" />}
                     <LemonButton
                         type="primary"
                         onClick={handleConfirm}
@@ -59,8 +103,11 @@ export function ImpersonationReasonModal({
             <div className="space-y-2">
                 {description && <p className="text-sm text-secondary">{description}</p>}
                 <div>
-                    <label className="block mb-1 font-semibold">Reason</label>
+                    <label className="block mb-1 font-semibold" htmlFor={reasonInputId}>
+                        Reason
+                    </label>
                     <LemonInput
+                        id={reasonInputId}
                         value={reason}
                         onChange={setReason}
                         placeholder="e.g., Customer support request #12345"

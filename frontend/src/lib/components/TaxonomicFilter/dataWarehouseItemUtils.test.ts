@@ -1,4 +1,4 @@
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import { getDataWarehouseItemWithFieldDefaults } from './dataWarehouseItemUtils'
 

@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -9,6 +11,17 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { dataTableSavedFiltersLogic } from './dataTableSavedFiltersLogic'
 
 jest.mock('uuid')
+
+const switchAppContextTeamId = (newId: number): void => {
+    const appContext = window.POSTHOG_APP_CONTEXT
+    if (!appContext?.current_team) {
+        throw new Error('test harness has no current_team to mutate')
+    }
+    window.POSTHOG_APP_CONTEXT = {
+        ...appContext,
+        current_team: { ...appContext.current_team, id: newId },
+    }
+}
 
 const mockQuery: DataTableNode = {
     kind: NodeKind.DataTableNode,
@@ -47,9 +60,13 @@ describe('dataTableSavedFiltersLogic', () => {
     let logic: ReturnType<typeof dataTableSavedFiltersLogic.build>
     let mockSetQuery: jest.Mock
     let mockRouterPush: jest.SpyInstance
+    let originalAppContext: typeof window.POSTHOG_APP_CONTEXT
 
     beforeEach(() => {
         initKeaTests()
+        // Snapshot app context so per-test mutations (e.g. switchAppContextTeamId)
+        // don't make test ordering load-bearing for later tests in this file.
+        originalAppContext = window.POSTHOG_APP_CONTEXT
         localStorage.clear()
         mockSetQuery = jest.fn()
         ;(uuidv4 as jest.Mock).mockImplementation(() => 'test-uuid')
@@ -60,6 +77,7 @@ describe('dataTableSavedFiltersLogic', () => {
     afterEach(() => {
         logic?.unmount()
         mockRouterPush?.mockRestore()
+        window.POSTHOG_APP_CONTEXT = originalAppContext
     })
 
     describe('with unique key', () => {
@@ -409,6 +427,47 @@ describe('dataTableSavedFiltersLogic', () => {
                 })
 
                 logic2.unmount()
+            })
+
+            it('should use separate storage keys for different teams', () => {
+                logic.actions.createSavedFilter('Team A Filter')
+                logic.unmount()
+
+                switchAppContextTeamId(getCurrentTeamId() + 1)
+
+                logic = dataTableSavedFiltersLogic({
+                    uniqueKey: 'test-table',
+                    query: mockQuery,
+                    setQuery: mockSetQuery,
+                })
+                logic.mount()
+
+                // A different team's saved filters must not leak through.
+                expectLogic(logic).toMatchValues({
+                    savedFilters: [],
+                })
+            })
+
+            it('should return a fresh instance when the team changes without an unmount', () => {
+                logic.actions.createSavedFilter('Team A Filter')
+
+                switchAppContextTeamId(getCurrentTeamId() + 1)
+
+                const switchedLogic = dataTableSavedFiltersLogic({
+                    uniqueKey: 'test-table',
+                    query: mockQuery,
+                    setQuery: mockSetQuery,
+                })
+                switchedLogic.mount()
+
+                // Because the kea key uses getCurrentTeamId(), this must be a
+                // different instance from `logic`, with its own empty state.
+                expect(switchedLogic).not.toBe(logic)
+                expectLogic(switchedLogic).toMatchValues({
+                    savedFilters: [],
+                })
+
+                switchedLogic.unmount()
             })
         })
     })

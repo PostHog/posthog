@@ -1,12 +1,29 @@
 use std::{
     fmt::Display,
     io::{self, BufRead},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 
 use anyhow::{bail, Result};
 
-use crate::{api::releases::ReleaseBuilder, utils::files::FileSelection};
+use crate::{
+    api::{releases::ReleaseBuilder, symbol_sets::DEFAULT_UPLOAD_CONCURRENCY},
+    utils::files::FileSelection,
+};
+
+pub const SOURCEMAP_UPLOAD_CONCURRENCY_ENV: &str = "POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY";
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct UploadConcurrencyArgs {
+    /// The number of sourcemap files to upload concurrently
+    #[arg(
+        long,
+        env = SOURCEMAP_UPLOAD_CONCURRENCY_ENV,
+        default_value_t = DEFAULT_UPLOAD_CONCURRENCY
+    )]
+    pub concurrency: NonZeroUsize,
+}
 
 #[derive(clap::Args, Clone)]
 pub struct FileSelectionArgs {
@@ -14,7 +31,7 @@ pub struct FileSelectionArgs {
     #[arg(short, long, alias = "file")]
     pub directory: Vec<PathBuf>,
 
-    /// Read additional file/directory paths from stdin (one per line)
+    /// Read additional file/directory paths from stdin (one per line) [default: false]
     #[arg(long, default_value = "false")]
     pub stdin: bool,
 
@@ -92,19 +109,160 @@ pub struct ReleaseArgs {
     // deprecated alias for backwards compatibility
     pub version: Option<String>,
 
+    /// The build number (e.g., 42, CFBundleVersion on iOS, versionCode on Android).
+    /// Stored as release metadata. Optional — when omitted, no build info is recorded.
+    #[arg(long)]
+    pub build: Option<String>,
+
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
-    /// retry the upload without associating a release instead of failing.
+    /// retry the upload without associating a release instead of failing. [default: true]
     #[arg(long, default_value = "true")]
     pub skip_release_on_fail: bool,
+}
+
+#[derive(clap::Args, Clone, Default)]
+pub struct UploadConflictArgs {
+    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
+    #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
+    pub force: bool,
+
+    /// Skip symbol sets that already exist with different content instead of failing.
+    /// Existing symbol sets are left unchanged. [default: false]
+    #[arg(long, default_value_t = false, conflicts_with = "force")]
+    pub skip_on_conflict: bool,
+}
+
+/// Pack version and build into a single string for release uniqueness.
+/// Releases are keyed on (name, version), so "1.0+42" and "1.0+43" are
+/// distinct releases. The UI splits on "+" to display them separately.
+pub fn pack_version(version: &Option<String>, build: &Option<String>) -> Option<String> {
+    match (version, build) {
+        (Some(v), Some(b)) => Some(format!("{v}+{b}")),
+        (Some(v), None) => Some(v.clone()),
+        (None, Some(b)) => Some(b.clone()),
+        (None, None) => None,
+    }
 }
 
 impl From<ReleaseArgs> for ReleaseBuilder {
     fn from(args: ReleaseArgs) -> Self {
         let mut builder = ReleaseBuilder::default();
         args.name.as_ref().map(|project| builder.with_name(project));
-        args.version
+        pack_version(&args.version, &args.build)
             .as_ref()
             .map(|version| builder.with_version(version));
         builder
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use std::sync::Mutex;
+
+    static CONCURRENCY_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Debug, Parser)]
+    struct ConcurrencyCli {
+        #[command(flatten)]
+        upload: UploadConcurrencyArgs,
+    }
+
+    fn parse_concurrency(args: &[&str], env: Option<&str>) -> clap::error::Result<ConcurrencyCli> {
+        let _guard = CONCURRENCY_ENV_LOCK.lock().unwrap();
+        let original = std::env::var_os(SOURCEMAP_UPLOAD_CONCURRENCY_ENV);
+
+        match env {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        let parsed = ConcurrencyCli::try_parse_from(args);
+
+        match original {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        parsed
+    }
+
+    fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {
+        ReleaseArgs {
+            name: name.map(String::from),
+            version: version.map(String::from),
+            build: build.map(String::from),
+            skip_release_on_fail: true,
+        }
+    }
+
+    #[test]
+    fn release_args_to_builder() {
+        let cases: Vec<(Option<&str>, Option<&str>, bool)> = vec![
+            // (version,    build,      has_version)
+            (Some("1.0"), None, true),       // version only
+            (Some("1.0"), Some("42"), true), // version+build packed into "1.0+42"
+            (None, Some("42"), true),        // build-only → version="42"
+            (None, None, false),             // neither
+        ];
+
+        for (version, build, expect_version) in cases {
+            let builder: ReleaseBuilder = make_args(Some("com.app"), version, build).into();
+            assert!(builder.has_name(), "name should always be set");
+            assert_eq!(
+                builder.has_version(),
+                expect_version,
+                "version={version:?} build={build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn upload_concurrency_defaults_to_ten() {
+        let parsed = parse_concurrency(&["test"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 10);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_environment_override() {
+        let parsed = parse_concurrency(&["test"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 48);
+    }
+
+    #[test]
+    fn upload_concurrency_prefers_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_zero_cli_value() {
+        let error = parse_concurrency(&["test", "--concurrency", "0"], None).unwrap_err();
+
+        assert!(error.to_string().contains("invalid value '0'"));
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_invalid_environment_values() {
+        for value in ["0", "many"] {
+            let error = parse_concurrency(&["test"], Some(value)).unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains(&format!("invalid value '{value}'"))
+                    && message.contains("--concurrency"),
+                "unexpected error for {value:?}: {message}"
+            );
+        }
     }
 }

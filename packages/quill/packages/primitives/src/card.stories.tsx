@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { UserIcon } from 'lucide-react'
+import { MoreVertical, UserIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
-import { Field } from './field'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
 
 const meta = {
@@ -33,6 +32,114 @@ export const Default: Story = {
                     Cancel
                 </Button>
             </CardFooter>
+        </Card>
+    ),
+} satisfies Story
+
+export const Sizes: Story = {
+    render: () => (
+        <div className="flex flex-col gap-4 max-w-sm">
+            <Card size="sm">
+                <CardHeader>
+                    <CardTitle>Small size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
+                    </CardAction>
+                </CardHeader>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card size="sm">
+                <CardHeader>
+                    <CardTitle>Small size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
+                    </CardAction>
+                </CardHeader>
+                <CardContent>
+                    <p>Card Content</p>
+                </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Default size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
+                    </CardAction>
+                </CardHeader>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Default size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
+                    </CardAction>
+                </CardHeader>
+                <CardContent>
+                    <p>Card Content</p>
+                </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+        </div>
+    ),
+} satisfies Story
+
+// `flush` lets a full-bleed child (here a tinted block standing in for a Table or
+// chart) run to the card's rounded edges: the card drops its section gap + bottom
+// padding and the CardContent its inline padding, while the header keeps its own.
+export const Flush: Story = {
+    render: () => (
+        <Card flush className="max-w-sm">
+            <CardHeader>
+                <CardTitle>Revenue</CardTitle>
+                <CardDescription>Last 30 days</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex h-40 items-center justify-center bg-muted text-muted-foreground">
+                    Full-bleed content (Table / chart)
+                </div>
+            </CardContent>
         </Card>
     ),
 } satisfies Story
@@ -87,41 +194,39 @@ export const CardWithItems: Story = {
             <CardHeader>
                 <CardTitle>Team members</CardTitle>
             </CardHeader>
-            <CardContent>
-                <Field>
-                    <ItemGroup combined>
-                        <Item
-                            variant="pressable"
-                            render={
-                                // eslint-disable-next-line react/forbid-elements
-                                <a href="#">
-                                    <ItemMedia variant="icon">
-                                        <UserIcon />
-                                    </ItemMedia>
-                                    <ItemContent>
-                                        <ItemTitle>Alice</ItemTitle>
-                                        <ItemDescription>Admin</ItemDescription>
-                                    </ItemContent>
-                                </a>
-                            }
-                        />
-                        <Item
-                            variant="pressable"
-                            render={
-                                // eslint-disable-next-line react/forbid-elements
-                                <a href="#">
-                                    <ItemMedia variant="icon">
-                                        <UserIcon />
-                                    </ItemMedia>
-                                    <ItemContent>
-                                        <ItemTitle>Bob</ItemTitle>
-                                        <ItemDescription>Member</ItemDescription>
-                                    </ItemContent>
-                                </a>
-                            }
-                        />
-                    </ItemGroup>
-                </Field>
+            <CardContent className="py-0">
+                <ItemGroup>
+                    <Item
+                        variant="pressable"
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <UserIcon />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>Alice</ItemTitle>
+                                    <ItemDescription>Admin</ItemDescription>
+                                </ItemContent>
+                            </a>
+                        }
+                    />
+                    <Item
+                        variant="pressable"
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <UserIcon />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>Bob</ItemTitle>
+                                    <ItemDescription>Member</ItemDescription>
+                                </ItemContent>
+                            </a>
+                        }
+                    />
+                </ItemGroup>
             </CardContent>
         </Card>
     ),

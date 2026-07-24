@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,19 +59,13 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface InsightsThresholdBoundsApi {
-    /**
-     * Alert fires when the value drops below this number.
-     * @nullable
-     */
+    /** Alert fires when the value drops below this number. */
     lower?: number | null
-    /**
-     * Alert fires when the value exceeds this number.
-     * @nullable
-     */
+    /** Alert fires when the value exceeds this number. */
     upper?: number | null
 }
 
@@ -95,9 +85,12 @@ export interface InsightThresholdApi {
 export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
-    /** Optional name for the threshold. */
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
     name?: string
-    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
 }
 
@@ -115,9 +108,9 @@ export interface AlertConditionApi {
 
 /**
  * * `Firing` - Firing
- * `Not firing` - Not firing
- * `Errored` - Errored
- * `Snoozed` - Snoozed
+ * * `Not firing` - Not firing
+ * * `Errored` - Errored
+ * * `Snoozed` - Snoozed
  */
 export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
@@ -128,6 +121,36 @@ export const AlertCheckStateEnumApi = {
     Snoozed: 'Snoozed',
 } as const
 
+/**
+ * * `pending` - pending
+ * * `running` - running
+ * * `done` - done
+ * * `failed` - failed
+ * * `skipped` - skipped
+ */
+export type InvestigationStatusEnumApi = (typeof InvestigationStatusEnumApi)[keyof typeof InvestigationStatusEnumApi]
+
+export const InvestigationStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Done: 'done',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
@@ -135,12 +158,24 @@ export interface AlertCheckApi {
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
     readonly targets_notified: boolean
-    readonly anomaly_scores: unknown | null
-    readonly triggered_points: unknown | null
-    readonly triggered_dates: unknown | null
+    readonly anomaly_scores: unknown
+    readonly triggered_points: unknown
+    readonly triggered_dates: unknown
     /** @nullable */
     readonly interval: string | null
-    readonly triggered_metadata: unknown | null
+    readonly triggered_metadata: unknown
+    readonly investigation_status: InvestigationStatusEnumApi | null
+    readonly investigation_verdict: InvestigationVerdictEnumApi | null
+    /** @nullable */
+    readonly investigation_summary: string | null
+    /**
+     * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+     * @nullable
+     */
+    readonly investigation_notebook_short_id: string | null
+    /** @nullable */
+    readonly notification_sent_at: string | null
+    readonly notification_suppressed_by_agent: boolean
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -150,31 +185,87 @@ export const TrendsAlertConfigApiType = {
 } as const
 
 export interface TrendsAlertConfigApi {
-    /**
-     * When true, evaluate the current (still incomplete) time interval in addition to completed ones.
-     * @nullable
-     */
+    /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean | null
     /** Zero-based index of the series in the insight's query to monitor. */
     series_index: number
-    type?: TrendsAlertConfigApiType
+    type: TrendsAlertConfigApiType
 }
 
+export type HogQLAlertEvaluationApi = (typeof HogQLAlertEvaluationApi)[keyof typeof HogQLAlertEvaluationApi]
+
+export const HogQLAlertEvaluationApi = {
+    LastRow: 'last_row',
+    FirstRow: 'first_row',
+    AnyRow: 'any_row',
+} as const
+
+export type HogQLAlertConfigApiType = (typeof HogQLAlertConfigApiType)[keyof typeof HogQLAlertConfigApiType]
+
+export const HogQLAlertConfigApiType = {
+    HogQLAlertConfig: 'HogQLAlertConfig',
+} as const
+
+export interface HogQLAlertConfigApi {
+    /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluationApi
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row). */
+    label_column?: string | null
+    type: HogQLAlertConfigApiType
+}
+
+export type FunnelConversionMetricApi = (typeof FunnelConversionMetricApi)[keyof typeof FunnelConversionMetricApi]
+
+export const FunnelConversionMetricApi = {
+    ConversionFromStart: 'conversion_from_start',
+    ConversionFromPrevious: 'conversion_from_previous',
+} as const
+
+export type FunnelsAlertConfigApiType = (typeof FunnelsAlertConfigApiType)[keyof typeof FunnelsAlertConfigApiType]
+
+export const FunnelsAlertConfigApiType = {
+    FunnelsAlertConfig: 'FunnelsAlertConfig',
+} as const
+
+export interface FunnelsAlertConfigApi {
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean | null
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: number | null
+    metric: FunnelConversionMetricApi
+    type: FunnelsAlertConfigApiType
+}
+
+export type MetricsAlertConfigApiType = (typeof MetricsAlertConfigApiType)[keyof typeof MetricsAlertConfigApiType]
+
+export const MetricsAlertConfigApiType = {
+    MetricsAlertConfig: 'MetricsAlertConfig',
+} as const
+
+export interface MetricsAlertConfigApi {
+    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
+    check_ongoing_interval?: boolean | null
+    type: MetricsAlertConfigApiType
+}
+
+/**
+ * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+ * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+ */
+export type AlertConfigUnionApi =
+    | TrendsAlertConfigApi
+    | HogQLAlertConfigApi
+    | FunnelsAlertConfigApi
+    | MetricsAlertConfigApi
+
 export interface PreprocessingConfigApi {
-    /**
-     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
-     * @nullable
-     */
+    /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
     diffs_n?: number | null
-    /**
-     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
-     * @nullable
-     */
+    /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
     lags_n?: number | null
-    /**
-     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
-     * @nullable
-     */
+    /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
     smooth_n?: number | null
 }
 
@@ -187,16 +278,10 @@ export const ZScoreDetectorConfigApiType = {
 export interface ZScoreDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number | null
-    type?: ZScoreDetectorConfigApiType
-    /**
-     * Rolling window size for calculating mean/std (default: 30)
-     * @nullable
-     */
+    type: ZScoreDetectorConfigApiType
+    /** Rolling window size for calculating mean/std (default: 30) */
     window?: number | null
 }
 
@@ -209,16 +294,10 @@ export const MADDetectorConfigApiType = {
 export interface MADDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number | null
-    type?: MADDetectorConfigApiType
-    /**
-     * Rolling window size for calculating median/MAD (default: 30)
-     * @nullable
-     */
+    type: MADDetectorConfigApiType
+    /** Rolling window size for calculating median/MAD (default: 30) */
     window?: number | null
 }
 
@@ -229,18 +308,12 @@ export const IQRDetectorConfigApiType = {
 } as const
 
 export interface IQRDetectorConfigApi {
-    /**
-     * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
-     * @nullable
-     */
+    /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
     multiplier?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    type?: IQRDetectorConfigApiType
-    /**
-     * Rolling window size for calculating quartiles (default: 30)
-     * @nullable
-     */
+    type: IQRDetectorConfigApiType
+    /** Rolling window size for calculating quartiles (default: 30) */
     window?: number | null
 }
 
@@ -252,18 +325,12 @@ export const ThresholdDetectorConfigApiType = {
 } as const
 
 export interface ThresholdDetectorConfigApi {
-    /**
-     * Lower bound - values below this are anomalies
-     * @nullable
-     */
+    /** Lower bound - values below this are anomalies */
     lower_bound?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    type?: ThresholdDetectorConfigApiType
-    /**
-     * Upper bound - values above this are anomalies
-     * @nullable
-     */
+    type: ThresholdDetectorConfigApiType
+    /** Upper bound - values above this are anomalies */
     upper_bound?: number | null
 }
 
@@ -276,16 +343,10 @@ export const ECODDetectorConfigApiType = {
 export interface ECODDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: ECODDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: ECODDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -298,16 +359,10 @@ export const COPODDetectorConfigApiType = {
 export interface COPODDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: COPODDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: COPODDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -319,23 +374,14 @@ export const IsolationForestDetectorConfigApiType = {
 } as const
 
 export interface IsolationForestDetectorConfigApi {
-    /**
-     * Number of trees in the forest (default: 100)
-     * @nullable
-     */
+    /** Number of trees in the forest (default: 100) */
     n_estimators?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: IsolationForestDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: IsolationForestDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -356,23 +402,14 @@ export const KNNDetectorConfigApiType = {
 export interface KNNDetectorConfigApi {
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: MethodApi | null
-    /**
-     * Number of neighbors to consider (default: 5)
-     * @nullable
-     */
+    /** Number of neighbors to consider (default: 5) */
     n_neighbors?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: KNNDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: KNNDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -383,23 +420,14 @@ export const HBOSDetectorConfigApiType = {
 } as const
 
 export interface HBOSDetectorConfigApi {
-    /**
-     * Number of histogram bins (default: 10)
-     * @nullable
-     */
+    /** Number of histogram bins (default: 10) */
     n_bins?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: HBOSDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: HBOSDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -410,23 +438,14 @@ export const LOFDetectorConfigApiType = {
 } as const
 
 export interface LOFDetectorConfigApi {
-    /**
-     * Number of neighbors for LOF (default: 20)
-     * @nullable
-     */
+    /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: LOFDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: LOFDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -437,28 +456,16 @@ export const OCSVMDetectorConfigApiType = {
 } as const
 
 export interface OCSVMDetectorConfigApi {
-    /**
-     * SVM kernel type (default: "rbf")
-     * @nullable
-     */
+    /** SVM kernel type (default: "rbf") */
     kernel?: string | null
-    /**
-     * Upper bound on training errors fraction (default: 0.1)
-     * @nullable
-     */
+    /** Upper bound on training errors fraction (default: 0.1) */
     nu?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: OCSVMDetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: OCSVMDetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -471,16 +478,10 @@ export const PCADetectorConfigApiType = {
 export interface PCADetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
+    /** Anomaly probability threshold (default: 0.9) */
     threshold?: number | null
-    type?: PCADetectorConfigApiType
-    /**
-     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-     * @nullable
-     */
+    type: PCADetectorConfigApiType
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: number | null
 }
 
@@ -516,7 +517,7 @@ export interface EnsembleDetectorConfigApi {
     )[]
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
-    type?: EnsembleDetectorConfigApiType
+    type: EnsembleDetectorConfigApiType
 }
 
 /**
@@ -538,14 +539,18 @@ export type DetectorConfigApi =
     | PCADetectorConfigApi
 
 /**
+ * * `real_time` - real_time
+ * * `every_15_minutes` - every_15_minutes
  * * `hourly` - hourly
- * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
  */
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
 export const CalculationIntervalEnumApi = {
+    RealTime: 'real_time',
+    Every15Minutes: 'every_15_minutes',
     Hourly: 'hourly',
     Daily: 'daily',
     Weekly: 'weekly',
@@ -564,13 +569,35 @@ export interface AlertScheduleRestrictionApi {
     blocked_windows: AlertScheduleRestrictionWindowApi[]
 }
 
+/**
+ * * `notify` - Notify
+ * * `suppress` - Suppress
+ */
+export type InvestigationInconclusiveActionEnumApi =
+    (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
+
+export const InvestigationInconclusiveActionEnumApi = {
+    Notify: 'notify',
+    Suppress: 'suppress',
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users: number[]
@@ -588,17 +615,24 @@ export interface AlertApi {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
-    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /**
+     * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+     * @nullable
+     */
+    readonly checks_total: number | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
-
-* `hourly` - hourly
-* `daily` - daily
-* `weekly` - weekly
-* `monthly` - monthly */
+    /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -617,6 +651,17 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
+    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    investigation_agent_enabled?: boolean
+    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    investigation_gates_notifications?: boolean
+    /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
+    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedAlertListApi {
@@ -634,7 +679,10 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users?: number[]
@@ -652,17 +700,24 @@ export interface PatchedAlertApi {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
-    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /**
+     * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+     * @nullable
+     */
+    readonly checks_total?: number | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
-
-* `hourly` - hourly
-* `daily` - daily
-* `weekly` - weekly
-* `monthly` - monthly */
+    /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -681,6 +736,17 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
+    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    investigation_agent_enabled?: boolean
+    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    investigation_gates_notifications?: boolean
+    /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
+    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface AlertSimulateApi {
@@ -688,13 +754,15 @@ export interface AlertSimulateApi {
     insight: number
     /** Detector configuration to simulate. */
     detector_config: DetectorConfigApi
-    /** Zero-based index of the series to analyze. */
+    /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**
-     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series.
      * @nullable
      */
     date_from?: string | null
+    /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
+    config?: AlertConfigUnionApi | null
 }
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
@@ -748,7 +816,37 @@ export interface AlertSimulateResponseApi {
     breakdown_results?: BreakdownSimulationResultApi[]
 }
 
+export interface ThresholdWithAlertApi {
+    readonly id: string
+    readonly created_at: string
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
+    name?: string
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
+    configuration: InsightThresholdApi
+    readonly alerts: readonly AlertApi[]
+}
+
+export interface PaginatedThresholdWithAlertListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ThresholdWithAlertApi[]
+}
+
 export type AlertsListParams = {
+    /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number
     /**
      * Number of results to return per page.
      */
@@ -757,6 +855,10 @@ export type AlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type AlertsRetrieveParams = {
@@ -772,4 +874,19 @@ export type AlertsRetrieveParams = {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number
+}
+
+export type InsightsThresholdsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

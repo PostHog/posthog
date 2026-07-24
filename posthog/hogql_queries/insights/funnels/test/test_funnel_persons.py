@@ -9,9 +9,11 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,6 +22,8 @@ from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     BreakdownFilter,
+    Compare,
+    CompareFilter,
     DateRange,
     EventsNode,
     FunnelsActorsQuery,
@@ -29,14 +33,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import Cohort, Person
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -50,6 +53,7 @@ def get_actors(
     funnel_trends_entrance_period_start: Optional[str] = None,
     offset: Optional[int] = None,
     include_recordings: bool = False,
+    compare: Optional[Compare] = None,
 ) -> list[list]:
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
@@ -58,6 +62,7 @@ def get_actors(
         funnelTrendsDropOff=funnel_trends_drop_off,
         funnelTrendsEntrancePeriodStart=funnel_trends_entrance_period_start,
         includeRecordings=include_recordings,
+        compare=compare,
     )
     actors_query = ActorsQuery(
         source=funnel_actors_query,
@@ -71,7 +76,8 @@ def get_actors(
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
-            bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+        flush_persons_and_events()
         events = []
         for i in range(5):
             events.append(
@@ -675,34 +681,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         # Should return 2 users: user_does_step1_only and user_does_step1_and_2_only
         self.assertEqual(len(results), 2)
 
-    def test_pre_filter_actors_step1_dropoff(self):
-        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
-        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
-        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
-        # user_2 only does step one — handled by synthetic branch
-        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two")],
-            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
-        )
-        # Verify the pre-filter is actually active for this query
-        context = FunnelQueryContext(query=funnels_query, team=self.team)
-        assert FunnelUDF(context=context)._should_apply_pre_filter()
-
-        # Step 1 dropoff: persons who did step 1 but NOT step 2 (funnelStep=-2)
-        actors = get_actors(funnels_query, self.team, funnel_step=-2)
-        actor_ids = {val[0] for val in actors}
-        # Only user_2 dropped off (did step one but not step two)
-
-        user_2_person = Person.objects.get(team=self.team, persondistinctid__distinct_id="user_2")
-        assert user_2_person.uuid in actor_ids
-        assert len(actor_ids) == 1
-
 
 class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
     """Tests for funnel actors when aggregating by session_id."""
@@ -922,3 +900,130 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert len(response.results) == 0
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelComparePersons(ClickhouseTestMixin, APIBaseTest):
+    def _compare_query(self, compare_to: Optional[str] = None) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.STEPS,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=True, compare_to=compare_to),
+        )
+
+    def _seed_two_periods(self) -> None:
+        # Current window 2021-06-07..06-13 holds one converter; the default previous window
+        # (prior 7 days, 2021-05-31..06-06) holds two. Distinct counts make the period the
+        # actors query scoped to unambiguous: 1=current, 2=previous, 3=combined (a bug).
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "previous_user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+                "previous_user_b": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 2, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 2, 11)},
+                ],
+            },
+            self.team,
+        )
+
+    def test_previous_period_bar_returns_previous_period_actors(self):
+        self._seed_two_periods()
+
+        results = get_actors(self._compare_query(), self.team, funnel_step=1, compare=Compare.PREVIOUS)
+
+        self.assertEqual(len(results), 2)
+
+    def _seed_converters_and_dropoffs(self) -> None:
+        # Current window 2021-06-07..06-13: 1 full conversion + 1 drop-off after step one.
+        # Previous window 2021-05-31..06-06: 2 full conversions + 1 drop-off after step one.
+        # Period-distinct totals at every step pin which window the actors query scoped to.
+        journeys_for(
+            {
+                "current_converter": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "current_dropoff": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 10)},
+                ],
+                "previous_converter_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+                "previous_converter_b": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 2, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 2, 11)},
+                ],
+                "previous_dropoff": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 3, 10)},
+                ],
+            },
+            self.team,
+        )
+
+    @parameterized.expand(
+        [
+            ("current_entrants", Compare.CURRENT, 1, 2),
+            ("current_converted", Compare.CURRENT, 2, 1),
+            ("current_dropoff", Compare.CURRENT, -2, 1),
+            ("previous_entrants", Compare.PREVIOUS, 1, 3),
+            ("previous_converted", Compare.PREVIOUS, 2, 2),
+            ("previous_dropoff", Compare.PREVIOUS, -2, 1),
+        ]
+    )
+    def test_period_scoping_across_step_types(
+        self, _name: str, compare: Compare, funnel_step: int, expected_count: int
+    ) -> None:
+        self._seed_converters_and_dropoffs()
+
+        results = get_actors(self._compare_query(), self.team, funnel_step=funnel_step, compare=compare)
+
+        self.assertEqual(expected_count, len(results))
+
+    def test_actor_count_matches_bar_count(self) -> None:
+        self._seed_converters_and_dropoffs()
+        query = self._compare_query()
+
+        rows = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        bar_count = {(row["compare_label"], row["order"]): row["count"] for row in rows}
+
+        # The number of actors behind each bar must equal the count rendered on that bar.
+        for compare in (Compare.CURRENT, Compare.PREVIOUS):
+            label = compare.value
+            for order, funnel_step in ((0, 1), (1, 2)):
+                actors = get_actors(query, self.team, funnel_step=funnel_step, compare=compare)
+                self.assertEqual(
+                    bar_count[(label, order)],
+                    len(actors),
+                    f"{label} step {funnel_step} actor count must match the bar count",
+                )
+
+    def test_non_compare_actors_unchanged(self) -> None:
+        # A funnel without compare must ignore the period field and return its single-range actors.
+        self._seed_converters_and_dropoffs()
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.STEPS,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        self.assertEqual(len(get_actors(query, self.team, funnel_step=1)), 2)
+        self.assertEqual(len(get_actors(query, self.team, funnel_step=2)), 1)

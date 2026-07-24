@@ -1,8 +1,371 @@
 {% extends "admin/change_form.html" %}
-{% load i18n %}
+{% load i18n admin_modify %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .partitioning-and-sync .partitioning-section {
+            padding: 18px 20px;
+        }
+        .partitioning-and-sync .partitioning-section + .partitioning-section {
+            border-top: 1px solid var(--hairline-color, #eee);
+        }
+        .partitioning-and-sync h3 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+        }
+        .partitioning-and-sync .help {
+            color: var(--body-quiet-color, #666);
+            margin: 0 0 14px 0;
+            line-height: 1.5;
+            max-width: 720px;
+        }
+        .partitioning-and-sync .partitioning-info {
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 720px;
+        }
+        .partitioning-and-sync .partitioning-info th,
+        .partitioning-and-sync .partitioning-info td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--hairline-color, #eee);
+        }
+        .partitioning-and-sync .partitioning-info tr:last-child th,
+        .partitioning-and-sync .partitioning-info tr:last-child td {
+            border-bottom: 0;
+        }
+        .partitioning-and-sync .partitioning-info th {
+            text-align: left;
+            font-weight: 500;
+            width: 220px;
+            white-space: nowrap;
+        }
+        .partitioning-and-sync .partitioning-info td {
+            font-family: var(--font-family-monospace, monospace);
+        }
+        .partitioning-and-sync .partitioning-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+        .partitioning-and-sync .partitioning-controls label {
+            margin: 0;
+            font-weight: 500;
+        }
+        .partitioning-and-sync .partitioning-controls .checkbox-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: normal;
+        }
+        .partitioning-and-sync .partitioning-controls input[type="number"],
+        .partitioning-and-sync .partitioning-controls select {
+            min-width: 180px;
+        }
+        .partitioning-and-sync .partitioning-controls button {
+            margin-left: 4px;
+        }
+    </style>
+{% endblock %}
+
+{% block object-tools %}
+    {{ block.super }}
+    {# Hidden sibling forms for the partitioning + sync POST actions. They live #}
+    {# outside the main admin <form> so they don't nest (HTML5 disallows it — #}
+    {# nesting silently submits the outer form). The visible inputs/buttons #}
+    {# below target these via the HTML5 `form="..."` attribute. #}
+    <form id="repartition-action-form" method="post" action="{{ repartition_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    <form id="trigger-sync-action-form" method="post" action="{{ trigger_sync_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    <form id="pause-schedule-action-form" method="post" action="{{ pause_schedule_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    <form id="unpause-schedule-action-form" method="post" action="{{ unpause_schedule_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    <form id="recreate-schedule-action-form" method="post" action="{{ recreate_schedule_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+{% endblock %}
+
+{# Suppress the default bottom submit_row — we render it inside `after_field_sets` #}
+{# below, immediately above Partitioning & sync, so save/delete sit close to the #}
+{# field sets instead of below the operator panel. #}
+{% block submit_buttons_bottom %}{% endblock %}
 
 {% block after_field_sets %}
     {{ block.super }}
+
+    <div style="margin: 12px 0;">
+        {% submit_row %}
+    </div>
+
+    <fieldset class="module aligned partitioning-and-sync">
+        <h2>Partitioning &amp; sync</h2>
+
+        <div class="form-row partitioning-section">
+            <h3>Current settings</h3>
+            <table class="partitioning-info">
+                <tr>
+                    <th>partitioning_enabled</th>
+                    <td>{{ partitioning_enabled|default:"None" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_mode</th>
+                    <td>{{ current_partition_mode|default:"None" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_format</th>
+                    <td>{{ current_partition_format|default:"None" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_size</th>
+                    <td>{{ current_partition_size|default:"None" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_count</th>
+                    <td>{{ current_partition_count|default:"None" }}</td>
+                </tr>
+                {% if current_partition_count_override is not None %}
+                <tr>
+                    <th>partition_count_override</th>
+                    <td>{{ current_partition_count_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partition_size_override is not None %}
+                <tr>
+                    <th>partition_size_override</th>
+                    <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partition_mode_override is not None %}
+                <tr>
+                    <th>partition_mode_override</th>
+                    <td>{{ current_partition_mode_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partitioning_keys_override is not None %}
+                <tr>
+                    <th>partitioning_keys_override</th>
+                    <td>{{ current_partitioning_keys_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <th>partitioning_keys</th>
+                    <td>{{ current_partition_keys|default:"None" }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="form-row partitioning-section">
+            <h3>Repartition &amp; resync</h3>
+            <p class="help">
+                <strong>Pause the schedule first</strong> (buttons below) to avoid racing the
+                scheduled sync. This stages the partition settings and kicks off a non-billable
+                workflow with <code>reset_pipeline=true</code> — repartitioning without a reset
+                would mix old and new layouts in the same Delta table and corrupt it. The schedule
+                auto-pauses for the run and unpauses on success.
+            </p>
+            <p class="help">
+                Pick the partition <strong>mode</strong> (defaults to the current one). Keep the
+                mode and change only its knob to repartition in place; change the mode to switch
+                strategy — most often <code>md5</code> → <code>datetime</code> on a date column when
+                the primary key has one (the pipeline only auto-selects datetime for columns
+                literally named <code>created_at</code>/<code>inserted_at</code>).
+            </p>
+            <div class="partitioning-controls">
+                <label for="partition_mode_select">Partition mode:</label>
+                <select id="partition_mode_select" name="partition_mode" form="repartition-action-form" required>
+                    {% for choice in partition_mode_choices %}
+                        <option value="{{ choice }}" {% if choice == effective_partition_mode %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="repartition_keys_row">
+                <label for="repartition_keys">Partitioning key(s):</label>
+                {% if available_columns %}
+                    <select id="repartition_keys" name="partitioning_keys" form="repartition-action-form" multiple size="6">
+                        {% for col in available_columns %}
+                            <option value="{{ col }}" {% if current_partition_keys and col in current_partition_keys %}selected{% endif %}>{{ col }}</option>
+                        {% endfor %}
+                    </select>
+                {% else %}
+                    <input id="repartition_keys" name="partitioning_keys" form="repartition-action-form"
+                           type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
+                           placeholder="comma-separated column names (table not synced yet)">
+                {% endif %}
+                <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column. Leave blank for md5 to use the table's primary keys.</span>
+            </div>
+            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
+                <label for="repartition_format">Partition format:</label>
+                <select id="repartition_format" name="partition_format" form="repartition-action-form">
+                    {% for choice in partition_format_choices %}
+                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+                <label for="repartition_count">Partition count:</label>
+                <input id="repartition_count" name="partition_count" form="repartition-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
+                       placeholder="number of buckets">
+            </div>
+            <p class="help" id="repartition_md5_help"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+                md5 hashes the primary key into <code>partition_count</code> buckets.
+                <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a good
+                start is <code>partition_count ≈ ceil(table size / 200&nbsp;MB)</code> (2&nbsp;GB → ~10,
+                10&nbsp;GB → ~50; use the source-side size incl. indexes/TOAST). md5 scatters changed
+                rows across all buckets, so every incremental sync rewrites every changed partition —
+                don't over-partition a small or low-churn table.
+            </p>
+            <div class="partitioning-controls" id="repartition_size_row"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+                <label for="repartition_size">Partition size:</label>
+                <input id="repartition_size" name="partition_size" form="repartition-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
+                       placeholder="rows per bucket">
+            </div>
+            <p class="help" id="repartition_numerical_help"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+                Numerical mode buckets by an integer id, <code>partition_size</code> rows per bucket
+                (typical 1,000,000–10,000,000).
+            </p>
+            <div class="partitioning-controls">
+                <button type="submit" form="repartition-action-form" class="default"
+                        onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
+                    Repartition &amp; resync
+                </button>
+            </div>
+            <script nonce="{{ request.csp_nonce }}">
+                (function () {
+                    var modeSelect = document.getElementById("partition_mode_select");
+                    if (!modeSelect) return;
+                    // Each mode reveals only its own knob (+ help); the others are hidden AND
+                    // disabled so a hidden control is never submitted or HTML5-validated.
+                    var groups = {
+                        datetime: ["repartition_format_row"],
+                        md5: ["repartition_count_row", "repartition_md5_help"],
+                        numerical: ["repartition_size_row", "repartition_numerical_help"],
+                    };
+                    function setVisible(id, visible) {
+                        var el = document.getElementById(id);
+                        if (!el) return;
+                        el.style.display = visible ? "" : "none";
+                        el.querySelectorAll("input, select").forEach(function (c) {
+                            c.disabled = !visible;
+                        });
+                    }
+                    // md5 hashes all keys together (composite), so it allows several; datetime and
+                    // numerical only use the first key, so restrict to a single choice. The picker
+                    // stays a `multiple` listbox in every mode (same size, easy to read the options)
+                    // — we just enforce one selection in JS rather than collapsing the widget.
+                    var keysEl = document.getElementById("repartition_keys");
+                    var keysIsSelect = keysEl && keysEl.tagName === "SELECT";
+                    function keysSelected() {
+                        return keysIsSelect
+                            ? Array.prototype.filter.call(keysEl.options, function (o) { return o.selected; })
+                            : [];
+                    }
+                    var prevKeys = keysSelected().map(function (o) { return o.value; });
+                    function collapseToSingle() {
+                        // Keep the most recently added option (else the first selected) and drop the rest.
+                        var selected = keysSelected();
+                        var added = selected.filter(function (o) { return prevKeys.indexOf(o.value) === -1; });
+                        var keep = added.length ? added[added.length - 1] : selected[0];
+                        Array.prototype.forEach.call(keysEl.options, function (o) { o.selected = o === keep; });
+                    }
+                    function applyKeyMode(mode) {
+                        if (!keysIsSelect) return;
+                        keysEl._singleKey = mode === "datetime" || mode === "numerical";
+                        if (keysEl._singleKey && keysSelected().length > 1) {
+                            collapseToSingle();
+                        }
+                        prevKeys = keysSelected().map(function (o) { return o.value; });
+                    }
+                    if (keysIsSelect) {
+                        keysEl.addEventListener("change", function () {
+                            if (keysEl._singleKey && keysSelected().length > 1) {
+                                collapseToSingle();
+                            }
+                            prevKeys = keysSelected().map(function (o) { return o.value; });
+                        });
+                    }
+                    function sync() {
+                        var mode = modeSelect.value;
+                        Object.keys(groups).forEach(function (m) {
+                            groups[m].forEach(function (id) {
+                                setVisible(id, m === mode);
+                            });
+                        });
+                        applyKeyMode(mode);
+                    }
+                    modeSelect.addEventListener("change", sync);
+                    sync();
+                })();
+            </script>
+        </div>
+
+        <div class="form-row partitioning-section">
+            <h3>Schedule</h3>
+            <p class="help">
+                The scheduled sync uses Temporal's <code>OnlyOne</code> overlap policy, but
+                ad-hoc admin runs bypass the schedule and can race with it. Pause the schedule
+                before doing repartition or trigger-sync work, then unpause when finished.
+            </p>
+            <div class="partitioning-controls">
+                <button type="submit" form="pause-schedule-action-form" class="default"
+                        onclick="return confirm('Pause the Temporal schedule for this schema?');">
+                    Pause schedule
+                </button>
+                <button type="submit" form="unpause-schedule-action-form" class="default"
+                        onclick="return confirm('Unpause the Temporal schedule for this schema?');">
+                    Unpause schedule
+                </button>
+            </div>
+            <p class="help">
+                If the schedule is missing entirely (pause/unpause/sync fail with "workflow not found",
+                typically after an interrupted source creation), recreate it below. This also works as a
+                repair when the schedule exists: it is updated in place. No run is triggered; kick one
+                off with "Trigger sync" below, which is non-billable by default.
+            </p>
+            <div class="partitioning-controls">
+                <button type="submit" form="recreate-schedule-action-form" class="default"
+                        onclick="return confirm('Recreate the Temporal schedule for this schema? No sync run is triggered.');">
+                    Recreate schedule
+                </button>
+            </div>
+        </div>
+
+        <div class="form-row partitioning-section">
+            <h3>Trigger ad-hoc sync</h3>
+            <p class="help">
+                Use this for non-repartition cases (e.g. retrying a failed sync). Repartition
+                already triggers its own non-billable reset resync — don't double up.
+                <strong>Pause the schedule first</strong> if you have any chance of overlap
+                with the regular run.
+            </p>
+            <div class="partitioning-controls">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="reset_pipeline" form="trigger-sync-action-form">
+                    Reset pipeline (re-sync from scratch)
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="billable" form="trigger-sync-action-form">
+                    Billable
+                </label>
+                <button type="submit" form="trigger-sync-action-form" class="default"
+                        onclick="return confirm('Trigger a sync for this schema?');">
+                    Trigger sync
+                </button>
+            </div>
+        </div>
+    </fieldset>
 
     <fieldset class="module aligned">
         <h2>Temporal schedule</h2>
@@ -10,6 +373,16 @@
             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ original.id }}"
                target="_blank">View schedule in Temporal</a>
         </div>
+        {% if cdc_extraction_schedule_id %}
+        <div class="form-row" style="padding: 10px;">
+            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
+               target="_blank">View CDC extraction schedule in Temporal</a>
+            <p class="help">
+                For CDC schemas, the per-schema schedule above is paused once streaming starts.
+                This source-level schedule is what drives the actual change capture.
+            </p>
+        </div>
+        {% endif %}
     </fieldset>
 
     <fieldset class="module aligned">

@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "type": "boolean"
+        },
+        "ids": {
+            "description": "Multiple values may be separated by commas.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
+            "type": "string"
+        },
+        "type": {
+            "description": "* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",
+            "enum": ["api", "external_survey", "popover", "widget"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

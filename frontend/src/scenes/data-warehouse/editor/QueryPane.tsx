@@ -20,6 +20,7 @@ interface QueryPaneProps {
     originalValue?: string
     onRun?: () => void
     editorVimModeEnabled?: boolean
+    constrainHeight?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -34,7 +35,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
-                    maxHeight: queryPaneDesiredSize === null ? '35%' : undefined,
+                    maxHeight: props.constrainHeight !== false && queryPaneDesiredSize === null ? '35%' : undefined,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
@@ -51,8 +52,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
-                                        {...props.codeEditorProps}
                                         autoFocus={true}
+                                        {...props.codeEditorProps}
                                         options={{
                                             minimap: {
                                                 enabled: false,
@@ -61,6 +62,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                             scrollBeyondLastLine: !!props.originalValue,
                                             automaticLayout: true,
                                             fixedOverflowWidgets: true,
+                                            glyphMargin: true,
                                             suggest: {
                                                 showInlineDetails: true,
                                             },

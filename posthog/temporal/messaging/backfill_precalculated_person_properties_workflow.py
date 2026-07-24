@@ -13,14 +13,20 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.database.argmax import argmax_select
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.kafka_client.client import KafkaProducer, _KafkaProducer
+from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
+from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import BytecodeResult, execute_bytecode
@@ -29,6 +35,33 @@ if TYPE_CHECKING:
     pass
 
 LOGGER = get_logger(__name__)
+MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
+
+# Alias for the full ``properties`` JSON column in the fallback query. It doubles as the format
+# discriminator for the row consumer: its presence in a row selects the fallback path. Producer and
+# consumer must use this same constant so they move together.
+FULL_PROPERTIES_KEY = "properties"
+
+
+def build_person_properties_select_fields(
+    person_properties: list[str],
+) -> tuple[dict[str, list[str | int]], dict[str, str]]:
+    """Map each requested person property to an ``argmax_select`` field chain and its ``prop_N`` alias.
+
+    Property names come from cohort filters, so they must never be substring-concatenated into SQL.
+    Returning ``["properties", key]`` field chains keeps each key inside an ``ast.Field`` chain when
+    ``argmax_select`` wraps it in the per-person ``argMax`` aggregation: HogQL either rewrites to a
+    materialized column or routes the key through context parameters when emitting ``JSONExtract``.
+    """
+    select_fields: dict[str, list[str | int]] = {}
+    alias_mapping: dict[str, str] = {}
+
+    for i, prop in enumerate(person_properties):
+        alias = f"prop_{i}"
+        select_fields[alias] = ["properties", prop]
+        alias_mapping[alias] = prop
+
+    return select_fields, alias_mapping
 
 
 def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
@@ -420,7 +453,7 @@ async def backfill_precalculated_person_properties_activity(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
     ) as heartbeater:
         start_time = time.time()
-        kafka_producer = KafkaProducer()
+        kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES)
 
         total_processed = 0
         total_events_produced = 0
@@ -454,76 +487,90 @@ async def backfill_precalculated_person_properties_activity(
             # Not in activity context (e.g., during tests), skip metrics
             pass
 
-        # Build optimized query to only fetch needed person properties
-        MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
-        property_alias_mapping = {}
+        # Build the per-property argmax_select fields — either targeted property accessors (so HogQL
+        # can use materialized columns when present) or the full ``properties`` JSON as a fallback.
+        property_alias_mapping: dict[str, str] = {}
+        select_fields: dict[str, list[str | int]] = {}
 
-        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
-            # Build a single JSONExtract with tuple structure for all properties
-            escaped_properties = []
-            for prop in person_properties:
-                # Use backtick escaping for identifier names in tuple definition
-                escaped_prop = prop.replace("`", "``")
-                escaped_properties.append(f"`{escaped_prop}` String")
+        # A '%' in a property key makes the HogQL printer raise (it can resolve the accessor to a
+        # column identifier, and '%' is banned there). Such keys are rare but valid person-property
+        # names, so when any appear we fall back to fetching the full ``properties`` JSON: the
+        # consumer evaluates filters against the full dict regardless, which keeps these keys working.
+        has_identifier_unsafe_key = any("%" in prop for prop in person_properties)
 
-            tuple_definition = ",\n        ".join(escaped_properties)
+        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES and not has_identifier_unsafe_key:
+            select_fields, property_alias_mapping = build_person_properties_select_fields(person_properties)
 
-            # Build the select statements for tupleElement extractions
-            property_selects = []
-            for i, prop in enumerate(person_properties):
-                safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                # Escape single quotes for string literal in tupleElement
-                string_escaped_prop = prop.replace("'", "''")
-                property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
-                property_alias_mapping[safe_alias] = prop
-
-            tuple_selects = ",\n                ".join(property_selects)
-
-            properties_clause = f"""JSONExtract(
-                properties,
-                'Tuple(
-        {tuple_definition}
-                )'
-            ) AS p,
-                {tuple_selects}"""
-
-            logger.info(
-                f"Optimized query: using single JSONExtract with tuple structure for {len(person_properties)} properties"
-            )
+            logger.info(f"Optimized query: fetching {len(person_properties)} specific properties via HogQL")
         else:
-            # Fallback to all properties if we have too many properties or can't determine which ones are needed
-            properties_clause = "properties"
+            # Emitting the full ``properties`` column also flags this row as fallback-format: the
+            # consumer below keys on ``FULL_PROPERTIES_KEY`` to take the fallback path instead of
+            # reconstructing the dict from per-property ``prop_N`` columns.
+            select_fields[FULL_PROPERTIES_KEY] = [FULL_PROPERTIES_KEY]
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(
                     f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
+                )
+            elif has_identifier_unsafe_key:
+                logger.warning(
+                    "Property key contains '%' (not a valid HogQL identifier) - falling back to fetching all properties"
                 )
             else:
                 logger.warning(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
-        person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
-        persons_query = f"""
-            SELECT
-                id as person_id,
-                {properties_clause}
-            FROM person FINAL
-            WHERE team_id = %(team_id)s
-              AND id >= %(start_person_id)s
-              AND id <= %(end_person_id)s
-              AND is_deleted = 0
-              {person_filter_clause}
-            ORDER BY id
-            FORMAT JSONEachRow
-        """
-
-        query_params = {
-            "team_id": inputs.team_id,
-            "start_person_id": inputs.start_person_id,
-            "end_person_id": inputs.end_person_id,
-        }
+        # These predicates are set as a direct ``WHERE`` on the argMax aggregation below, so they
+        # apply *before* dedup. They must stay id-only (``id`` is the GROUP BY key, so filtering on it
+        # yields the same rows pre- and post-dedup). Adding a non-id predicate here (e.g. a
+        # ``properties.x`` filter) would match raw pre-dedup rows and quietly select the wrong persons.
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.start_person_id),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.end_person_id),
+            ),
+        ]
         if inputs.person_id is not None:
-            query_params["person_id"] = inputs.person_id
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["id"]),
+                    right=ast.Constant(value=inputs.person_id),
+                )
+            )
+
+        # Deduplicate straight off the raw ``person`` table with ``argmax_select`` instead of the
+        # ``persons`` lazy table. ``argmax_select`` is the exact helper the ``persons`` table uses
+        # internally, so the semantics are identical: ``team_id`` scoping (added by the printer),
+        # latest-version-per-id dedup, ``is_deleted = 0`` filtering, and the
+        # ``argMax(created_at) < now() + 1 day`` clamp that drops future-dated persons. The win: going
+        # straight to ``raw_persons`` avoids the ``persons`` lazy table rewriting our ID-range filter
+        # into an ``id IN (subquery)`` that scans the range twice; the direct ``WHERE`` reads the
+        # ``(team_id, id)`` primary key once.
+        # Output column for the person UUID is ``id`` (argmax_select aliases the group field by name).
+        persons_query_ast = argmax_select(
+            table_name="raw_persons",
+            select_fields=select_fields,
+            group_fields=["id"],
+            argmax_field="version",
+            deleted_field="is_deleted",
+            timestamp_field_to_clamp="created_at",
+        )
+        persons_query_ast.where = ast.And(exprs=where_exprs)
+        persons_query_ast.order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")]
+        # optimize_aggregation_in_order lets ClickHouse aggregate as it streams the primary key in
+        # order, so the GROUP BY + ORDER BY id never buffers the whole range. No explicit limit:
+        # compile_hogql_for_streaming uses LimitContext.COHORT_CALCULATION (LIMIT 1_000_000_000), and
+        # ID ranges are bounded by batch_size (default 1000 persons), so the cap is never reached.
+        persons_query_ast.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+
+        persons_query, query_params = await compile_hogql_for_streaming(persons_query_ast, team_id=inputs.team_id)
 
         last_person_id = inputs.start_person_id
         batch_count = 0
@@ -555,26 +602,30 @@ async def backfill_precalculated_person_properties_activity(
                             "First row received from ClickHouse query",
                             team_id=inputs.team_id,
                             time_to_first_row_seconds=round(query_first_row_time - query_start_time, 2),
-                            first_person_id=str(row["person_id"]),
+                            first_person_id=str(row["id"]),
                         )
                         first_row = False
                     batch_count += 1
-                    person_id = str(row["person_id"])
+                    person_id = str(row["id"])
                     last_person_id = person_id  # Track the last person ID for next cursor
 
                     # Handle both optimized (individual property columns) and fallback (full properties JSON) formats
-                    if person_properties and "properties" not in row:
+                    if person_properties and FULL_PROPERTIES_KEY not in row:
                         # Optimized format: reconstruct properties dict from individual columns using alias mapping
                         reconstructed_properties = {}
                         for alias, original_prop_name in property_alias_mapping.items():
                             value = row.get(alias)
-                            if value:  # Only include non-empty values
+                            # The HogQL property extract maps a missing key to SQL NULL (-> None here),
+                            # while a present falsey value (0, false, "") comes back as a non-null string.
+                            # Keying on ``is not None`` keeps those present-but-falsey values instead of
+                            # silently turning them into a missing key, matching the full-properties fallback.
+                            if value is not None:
                                 reconstructed_properties[original_prop_name] = value
 
                         parsed_properties = parse_person_properties(reconstructed_properties, person_id)
                     else:
                         # Fallback format: use full properties JSON
-                        parsed_properties = parse_person_properties(row.get("properties"), person_id)
+                        parsed_properties = parse_person_properties(row.get(FULL_PROPERTIES_KEY), person_id)
 
                     # Evaluate all filters in a single VM call
                     person_filter_start = time.monotonic()

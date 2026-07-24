@@ -2,15 +2,18 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
+from django.contrib.admin.exceptions import NotRegistered
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import RedirectView
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
+
+from products.cdp.backend.api import hooks
 
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
@@ -20,32 +23,19 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import (
-    authentication,
-    billing,
-    conversation,
-    core_memory,
-    dashboard_collaborator,
-    hooks,
-    license,
-    sentry_stats,
-    subscription,
-)
+from .api import authentication, billing, conversation, core_memory, license, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environment_dashboards_router,
-        environments_router,
-        legacy_project_dashboards_router,
         organizations_router,
-        register_grandfathered_environment_nested_viewset,
+        projects_router,
         router as root_router,
     )
 
-    from ee.api import max_tools, session_summaries
+    from ee.api import hands_free, max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -62,37 +52,28 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
-    environment_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "environment_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
+    project_subscriptions_router = projects_router.register(
+        r"subscriptions", subscription.SubscriptionViewSet, "project_subscriptions", ["team_id"]
     )
-    legacy_project_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "project_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
+    project_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "project_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
-        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
-    )
+    projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
 
-    environments_router.register(
-        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
-    )
+    projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
-    environments_router.register(
-        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
-    )
+    projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
 
-    environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
+    projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
-    environments_router.register(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
+    projects_router.register(
+        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
     )
 
 
@@ -105,22 +86,34 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
+    from posthog.admin.admins.code_based_verification_bypass_admin import (
+        CodeBasedVerificationBypassViewSet,
+        CodeBasedVerificationGlobalDisableViewSet,
+        code_based_verification_bypass_view,
+    )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
         health_check_trigger_view,
     )
+    from posthog.admin.admins.notebook_markdown_migration_admin import (
+        notebook_markdown_migration_run_view,
+        notebook_markdown_migration_stats_view,
+        notebook_markdown_migration_view,
+    )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
     admin_urlpatterns = [
+        # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
+        path("admin", RedirectView.as_view(url="/admin/", permanent=False, query_string=True)),
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
@@ -148,24 +141,34 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass-api-detail",
         ),
         path(
-            "admin/email-mfa-bypass/",
-            admin.site.admin_view(email_mfa_bypass_view),
-            name="email-mfa-bypass",
+            "admin/code-based-verification-bypass/",
+            admin.site.admin_view(code_based_verification_bypass_view),
+            name="code-based-verification-bypass",
         ),
         path(
-            "admin/api/email-mfa-bypass/",
-            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="email-mfa-bypass-api-list",
+            "admin/api/code-based-verification-bypass/",
+            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="code-based-verification-bypass-api-list",
         ),
         path(
-            "admin/api/email-mfa-bypass/<str:email>/",
-            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
-            name="email-mfa-bypass-api-detail",
+            "admin/api/code-based-verification-bypass/<str:email>/",
+            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
+            name="code-based-verification-bypass-api-detail",
+        ),
+        path(
+            "admin/api/code-based-verification-global-disable/",
+            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
+            name="code-based-verification-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/backfill-precalculated-events/",
+            admin.site.admin_view(backfill_precalculated_events_view),
+            name="backfill-precalculated-events",
         ),
         path(
             "admin/backfill-precalculated-person-properties/",
@@ -183,6 +186,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="tophog-dashboard",
         ),
         path(
+            "admin/tophog/restrictions/",
+            admin.site.admin_view(tophog_restrictions_view),
+            name="tophog-restrictions",
+        ),
+        path(
             "admin/health-checks/",
             admin.site.admin_view(health_check_list_view),
             name="health-checks",
@@ -196,6 +204,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/health-checks/<str:kind>/runs/",
             admin.site.admin_view(health_check_runs_fragment_view),
             name="health-check-runs",
+        ),
+        path(
+            "admin/notebook-markdown-migration/",
+            admin.site.admin_view(notebook_markdown_migration_view),
+            name="notebook-markdown-migration",
+        ),
+        path(
+            "admin/notebook-markdown-migration/stats/",
+            admin.site.admin_view(notebook_markdown_migration_stats_view),
+            name="notebook-markdown-migration-stats",
+        ),
+        path(
+            "admin/notebook-markdown-migration/run/",
+            admin.site.admin_view(notebook_markdown_migration_run_view),
+            name="notebook-markdown-migration-run",
         ),
         path(
             "admin/logout/",
@@ -213,7 +236,6 @@ else:
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
@@ -253,7 +275,14 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    # Stripe Projects provisioning (APP 0.1d) — the namespace the Stripe app
+    # manifest points at (provisioning.base_url = .../api/partners/stripe/)
+    path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
+    # Account Provisioning
+    # TODO(migration): the Stripe-only routes below (health, services,
+    # update_service) and Stripe's use of the rest are served by
+    # /api/partners/stripe/ - remove the Stripe-only ones once Stripe traffic
+    # has fully moved (watch path_namespace on agentic_provisioning events).
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),
@@ -273,6 +302,11 @@ urlpatterns: list[Any] = [
         "api/agentic/authorize",
         agentic_provisioning_views.agentic_authorize,
         name="agentic_authorize",
+    ),
+    path(
+        "api/agentic/authorize/pending/",
+        agentic_provisioning_views.agentic_authorize_pending,
+        name="agentic_authorize_pending",
     ),
     path(
         "api/agentic/authorize/confirm/",
@@ -300,6 +334,21 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_update_service",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="agentic_provisioning_resource_remove",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="agentic_provisioning_github_integration",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="agentic_provisioning_wizard_runs",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
@@ -310,9 +359,93 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_deep_links",
     ),
     path(
+        "api/agentic/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="agentic_provisioning_github_grants_create",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="agentic_provisioning_github_grant_repositories",
+    ),
+    path(
         "agentic/login",
         agentic_provisioning_views.agentic_login,
         name="agentic_login",
+    ),
+    # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
+    # TODO(migration): health, services, and update_service in this block are
+    # Stripe-only — remove them once Stripe traffic has fully moved to
+    # /api/partners/stripe/, unless another partner adopts them.
+    path(
+        "api/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="provisioning_health",
+    ),
+    path(
+        "api/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="provisioning_services",
+    ),
+    path(
+        "api/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="provisioning_account_requests",
+    ),
+    path(
+        "api/provisioning/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="provisioning_oauth_token",
+    ),
+    path(
+        "api/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="provisioning_resources_create",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="provisioning_rotate_credentials",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/update_service",
+        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
+        name="provisioning_update_service",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="provisioning_resource_remove",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="provisioning_github_integration",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="provisioning_wizard_runs",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="provisioning_resource_detail",
+    ),
+    path(
+        "api/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="provisioning_deep_links",
+    ),
+    path(
+        "api/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="provisioning_github_grants_create",
+    ),
+    path(
+        "api/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="provisioning_github_grant_repositories",
     ),
     *admin_urlpatterns,
 ]

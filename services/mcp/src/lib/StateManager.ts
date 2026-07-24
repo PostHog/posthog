@@ -1,12 +1,27 @@
-import type { ApiClient } from '@/api/client'
-import { ErrorCode } from '@/lib/errors'
+import type { ApiClient, GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import {
+    ErrorCode,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    wrapError,
+} from '@/lib/errors'
+import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
+import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { State } from '@/tools/types'
+import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
-import type { ScopedCache } from './cache/ScopedCache'
+const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
-const AI_CONSENT_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+// Entitlement-related fields shared by both org shapes we read from — the
+// standalone org endpoint and the org embedded in `/api/users/@me/`.
+type OrgEntitlementFields = {
+    is_ai_data_processing_approved?: boolean | null
+    available_product_features?: Array<{ key: string }> | null
+}
 
 export class StateManager {
     private _cache: ScopedCache<State>
@@ -20,7 +35,7 @@ export class StateManager {
     private async _fetchUser(): Promise<ApiUser> {
         const userResult = await this._api.users().me()
         if (!userResult.success) {
-            throw new Error(`Failed to get user: ${userResult.error.message}`)
+            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
         return userResult.data
     }
@@ -36,7 +51,14 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            return apiKeyResult.data
+            const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
+            // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
+            // normalize at the boundary — downstream code treats these as arrays.
+            return {
+                scopes: scopes ?? [],
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
+            }
         }
 
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
@@ -58,8 +80,8 @@ export class StateManager {
 
         return {
             scopes: scope ? scope.split(' ') : [],
-            scoped_teams,
-            scoped_organizations,
+            scoped_teams: scoped_teams ?? [],
+            scoped_organizations: scoped_organizations ?? [],
         }
     }
 
@@ -87,50 +109,110 @@ export class StateManager {
         return _distinctId
     }
 
+    /**
+     * Resolve a default `(organizationId, projectId)` for a session that hasn't
+     * pinned them via header. The user's currently active team/org from
+     * `users/@me` is the source of truth; the API key's `scoped_teams` /
+     * `scoped_organizations` are treated as filters, not directives.
+     *
+     * Never throws. The agent can always recover via `switch-project` /
+     * `switch-organization` tools, so an opaque 500 here would be strictly
+     * worse than a best-effort default.
+     */
     private async _getDefaultOrganizationAndProject(): Promise<{
         organizationId?: string
-        projectId: number
+        projectId?: number
     }> {
-        const { scoped_organizations, scoped_teams } = await this.getApiKey()
-        const { organization: activeOrganization, team: activeTeam } = await this.getUser()
+        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        const { organization: activeOrganization, team: activeTeam } = user
 
+        // Team-scoped key: prefer the active team if the scope allows it,
+        // otherwise pick the first scoped team deterministically. The org is
+        // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            // Keys scoped to projects should only be scoped to one project
-            if (scoped_teams.length > 1) {
-                throw new Error(
-                    'API key has access to multiple projects, please specify a single project ID or change the API key to have access to an organization to include the projects within it.'
-                )
+            if (activeTeam && scoped_teams.includes(activeTeam.id)) {
+                return { projectId: activeTeam.id }
             }
-
-            const projectId = scoped_teams[0]!
-
-            return { projectId }
+            return { projectId: scoped_teams[0]! }
         }
 
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+        // No team scoping: prefer the user's active org/team when the scope
+        // allows it. `activeOrganization` / `activeTeam` can be null for users
+        // with no `current_organization` / `current_team` (newly provisioned
+        // accounts, users who left their last org) — fall through to the
+        // scoped-org fallback below when either is missing.
+        if (
+            activeOrganization &&
+            (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))
+        ) {
+            return activeTeam
+                ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
+                : { organizationId: activeOrganization.id }
         }
 
-        const organizationId = scoped_organizations[0]!
-
-        const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-
-        if (!projectsResult.success) {
-            throw projectsResult.error
+        // Active org isn't in the scope (or the user has no active org). Pick
+        // the first allowed org and fall back to its first project. If the
+        // project lookup fails or the org has no projects, return the org alone
+        // and let the agent disambiguate. With no scoped orgs and no active
+        // org, we have nothing to anchor on — return empty and let the caller
+        // surface a recoverable missing-context error.
+        const organizationId = scoped_organizations[0]
+        if (!organizationId) {
+            return {}
+        }
+        try {
+            const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
+            if (projectsResult.success && projectsResult.data.length > 0) {
+                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+            }
+            if (!projectsResult.success) {
+                // A 404 here means the API key/OAuth token points at an org the
+                // requesting user can no longer access (or a deleted org): the
+                // org-nested projects endpoint is scoped to the user's
+                // memberships. That's a recoverable user-config state — the
+                // agent recovers via switch-project/switch-organization — so
+                // warn instead of capturing, mirroring the 403 permission_denied
+                // path in client.ts. Only genuine 5xx/unexpected failures reach
+                // error tracking.
+                if (this._isRecoverableNotFound(projectsResult.error)) {
+                    console.warn(
+                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                    )
+                } else {
+                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                        organization_id: organizationId,
+                    })
+                }
+            }
+        } catch (error) {
+            this._reportException(error, 'default_org_project_projects_list_threw', {
+                organization_id: organizationId,
+            })
         }
 
-        if (projectsResult.data.length === 0) {
-            throw new Error('API key does not have access to any projects')
+        return { organizationId }
+    }
+
+    /**
+     * A 404 from the scoped-org projects lookup is an expected missing-context
+     * state (org deleted, or the user lost access to a still-scoped org), not a
+     * service bug. Treat it as recoverable so it stays out of error tracking.
+     */
+    private _isRecoverableNotFound(error: unknown): boolean {
+        return error instanceof PostHogApiError && error.status === 404
+    }
+
+    private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        try {
+            getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
+        } catch {
+            // Never let observability break the request.
         }
-
-        const projectId = projectsResult.data[0]!
-
-        return { organizationId, projectId: Number(projectId) }
     }
 
     async setDefaultOrganizationAndProject(): Promise<{
         organizationId: string | undefined
-        projectId: number
+        projectId: number | undefined
     }> {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
@@ -138,20 +220,48 @@ export class StateManager {
             await this._cache.set('orgId', organizationId)
         }
 
-        await this._cache.set('projectId', projectId.toString())
+        if (projectId !== undefined) {
+            await this._cache.set('projectId', projectId.toString())
+        }
 
         return { organizationId, projectId }
     }
 
-    async getOrgID(): Promise<string | undefined> {
-        const orgId = await this._cache.get('orgId')
+    /**
+     * Resolve an organization id without throwing. Reads the cache, then falls
+     * back to the API key's default-org resolution, then derives the org from
+     * the cached project (matches the team-scoped key path in
+     * `_getDefaultOrganizationAndProject` which intentionally omits the org).
+     *
+     * The derived org id is written back to the cache so subsequent calls
+     * short-circuit on the first read — without this, every team-scoped tool
+     * invocation would re-hit `setDefaultOrganizationAndProject` plus a project
+     * fetch.
+     */
+    private async _resolveOrganizationId(): Promise<string | undefined> {
+        const cached = await this._cache.get('orgId')
+        if (cached) {
+            return cached
+        }
 
-        if (!orgId) {
-            const { organizationId } = await this.setDefaultOrganizationAndProject()
-
+        const { organizationId } = await this.setDefaultOrganizationAndProject()
+        if (organizationId) {
             return organizationId
         }
 
+        const project = await this.getCachedOrFetchProject().catch(() => undefined)
+        const derived = project?.organization
+        if (derived) {
+            await this._cache.set('orgId', derived)
+        }
+        return derived
+    }
+
+    async getOrgID(): Promise<string> {
+        const orgId = await this._resolveOrganizationId()
+        if (!orgId) {
+            throw new MissingOrganizationContextError()
+        }
         return orgId
     }
 
@@ -159,44 +269,202 @@ export class StateManager {
         const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
-            const { projectId } = await this.setDefaultOrganizationAndProject()
-            return projectId.toString()
+            const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
+            if (resolved === undefined) {
+                throw new MissingProjectContextError({ organizationId })
+            }
+            return resolved.toString()
         }
 
         return projectId
     }
 
-    async invalidateAiConsent(): Promise<void> {
-        await this._cache.delete('aiConsentGiven')
-        await this._cache.delete('aiConsentFetchedAt')
+    private isCacheStale(fetchedAt: number | undefined): boolean {
+        return !fetchedAt || Date.now() - fetchedAt > CACHE_TTL_MS
     }
 
-    async getAiConsentGiven(): Promise<boolean | undefined> {
-        const fetchedAt = await this._cache.get('aiConsentFetchedAt')
-        const isExpired = !fetchedAt || Date.now() - fetchedAt > AI_CONSENT_TTL_MS
-        if (!isExpired) {
-            const cached = await this._cache.get('aiConsentGiven')
-            if (cached !== undefined) {
-                return cached
-            }
+    /**
+     * Stale-while-cached helper. Returns fresh cached data if available; otherwise
+     * fetches, writes both the value and its timestamp, and returns the fresh value.
+     * On fetcher failure, returns the last-known cached value (possibly `undefined`)
+     * and captures the exception.
+     */
+    private async getOrFetchCached<D extends keyof State, F extends keyof State>(opts: {
+        name: string
+        cacheKey: D
+        fetchedAtKey: F
+        fetcher: () => Promise<NonNullable<State[D]>>
+    }): Promise<State[D]> {
+        const [cached, fetchedAt] = (await Promise.all([
+            this._cache.get(opts.cacheKey),
+            this._cache.get(opts.fetchedAtKey),
+        ])) as [State[D], number | undefined]
+
+        if (!this.isCacheStale(fetchedAt)) {
+            return cached
         }
 
         try {
-            const orgId = await this.getOrgID()
-            if (!orgId) {
-                return undefined
+            const data = await opts.fetcher()
+            await Promise.all([
+                this._cache.set(opts.cacheKey, data as State[D]),
+                this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),
+            ])
+            return data as State[D]
+        } catch (error) {
+            this._reportException(error, `get_or_fetch_${opts.name}`)
+            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            return cached
+        }
+    }
+
+    async getCachedOrFetchUser(): Promise<CachedUser | undefined> {
+        const distinctId = await this.getDistinctId()
+        return this.getOrFetchCached({
+            name: 'user',
+            cacheKey: `cachedUser:${distinctId}` as const,
+            fetchedAtKey: `cachedUserFetchedAt:${distinctId}` as const,
+            fetcher: () => this.getUser(),
+        })
+    }
+
+    async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
+        const apiKey = await this.getApiKey()
+        // `/api/organizations/{id}/` is not project-nested. Backend permission
+        // checks reject project-scoped tokens there even when they carry
+        // `organization:read` or `*`, so skip the best-effort fetch entirely.
+        if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
+            return undefined
+        }
+
+        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
+        // consent checks treat "no org" as "skip", not as a hard error.
+        const orgId = await this._resolveOrganizationId()
+        if (!orgId) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'org',
+            cacheKey: `cachedOrg:${orgId}` as const,
+            fetchedAtKey: `cachedOrgFetchedAt:${orgId}` as const,
+            fetcher: async () => {
+                const result = await this._api.organizations().get({ orgId })
+                if (!result.success) {
+                    throw result.error
+                }
+                return result.data
+            },
+        })
+    }
+
+    async getCachedOrFetchProject(): Promise<CachedProject | undefined> {
+        const projectId = await this.getProjectId()
+        if (!projectId) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'project',
+            cacheKey: `cachedProject:${projectId}` as const,
+            fetchedAtKey: `cachedProjectFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.projects().get({ projectId })
+                if (!result.success) {
+                    throw result.error
+                }
+                return result.data
+            },
+        })
+    }
+
+    async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
+        return this.getOrFetchCached({
+            name: 'group_types',
+            cacheKey: `groupTypes:${projectId}` as const,
+            fetchedAtKey: `groupTypesFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getGroupTypes(projectId),
+        })
+    }
+
+    async getEnvironmentPrompt(): Promise<string | undefined> {
+        const [user, org, project] = await Promise.all([
+            this.getCachedOrFetchUser().catch(() => undefined),
+            this.getCachedOrFetchOrg().catch(() => undefined),
+            this.getCachedOrFetchProject().catch(() => undefined),
+        ])
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
+    }
+
+    /**
+     * Resolve the workspace identifiers used to attach analytics events to the
+     * `organization` and `project` PostHog groups. Reuses the cached user/org/project
+     * entities, so repeat calls within a session are cheap.
+     */
+    async getAnalyticsContext(): Promise<{
+        organizationId?: string
+        projectId?: string
+        projectUuid?: string
+        projectName?: string
+    }> {
+        const [orgId, project] = await Promise.all([
+            this._cache.get('orgId'),
+            this.getCachedOrFetchProject().catch(() => undefined),
+        ])
+
+        return {
+            ...(orgId
+                ? { organizationId: orgId }
+                : project?.organization
+                  ? { organizationId: project.organization }
+                  : {}),
+            ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
+            ...(project?.uuid ? { projectUuid: project.uuid } : {}),
+            ...(project?.name ? { projectName: project.name } : {}),
+        }
+    }
+
+    /**
+     * Resolve a field from the active organization, failing closed to `undefined`.
+     *
+     * Tries `/api/organizations/{id}/` first. Team-scoped tokens (e.g. sandbox
+     * OAuth tokens) can never fetch that endpoint — see the guard in
+     * getCachedOrFetchOrg — so fall back to the org embedded in
+     * `/api/users/@me/` (exempt from team scoping). That embedded org is the
+     * user's *current* org, which isn't necessarily the one owning the scoped
+     * project, so only trust it when it matches the active project's owning org.
+     * Any failure resolves to `undefined` so callers keep failing closed.
+     */
+    private async getOrgField<T>(extract: (org: OrgEntitlementFields) => T): Promise<T | undefined> {
+        try {
+            const org = await this.getCachedOrFetchOrg()
+            if (org) {
+                return extract(org as OrgEntitlementFields)
             }
 
-            const orgResult = await this._api.organizations().get({ orgId })
-            if (orgResult.success) {
-                const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
-                const consent = !!org.is_ai_data_processing_approved
-                await this._cache.set('aiConsentGiven', consent)
-                await this._cache.set('aiConsentFetchedAt', Date.now())
-                return consent
+            const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
+            if (user?.organization && project?.organization === user.organization.id) {
+                return extract(user.organization)
             }
-        } catch {}
+            return undefined
+        } catch {
+            return undefined
+        }
+    }
 
-        return undefined
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
+    }
+
+    async getAvailableFeatures(): Promise<string[] | undefined> {
+        // A fetched org resolves to its entitlement keys, treating both `null`
+        // and a missing field as "no features" (`[]`) rather than falling
+        // through — the fallback only exists for tokens that can't fetch the org
+        // at all, where getCachedOrFetchOrg returns undefined.
+        return this.getOrgField((org) => {
+            const features = org.available_product_features
+            if (!Array.isArray(features)) {
+                return []
+            }
+            return features.map((f) => f.key).filter((k): k is string => typeof k === 'string')
+        })
     }
 }

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -54,13 +55,16 @@ describe('savedInsightsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': (req) => [
-                    200,
-                    createSavedInsights(
-                        req.url.searchParams.get('search') ?? '',
-                        parseInt(req.url.searchParams.get('offset') ?? '0')
-                    ),
-                ],
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const url = new URL(request.url)
+                    return [
+                        200,
+                        createSavedInsights(
+                            url.searchParams.get('search') ?? '',
+                            parseInt(url.searchParams.get('offset') ?? '0')
+                        ),
+                    ]
+                },
                 '/api/environments/:team_id/insights/42': createInsight(42),
                 '/api/environments/:team_id/insights/123': createInsight(123),
             },
@@ -70,9 +74,6 @@ describe('savedInsightsLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
         logic = savedInsightsLogic({ tabId: '1' })
         logic.mount()
@@ -191,6 +192,38 @@ describe('savedInsightsLogic', () => {
             })
     })
 
+    it('carries per-row search_match_type through to the results', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => {
+                    const base = createSavedInsights('hello', 0)
+                    return [
+                        200,
+                        {
+                            ...base,
+                            results: base.results.map((r, i) => ({
+                                ...r,
+                                search_match_type: i === 0 ? 'exact' : 'similar',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+
+        logic.actions.setSavedInsightsFilters({ search: 'hello' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                insights: partial({
+                    results: partial([
+                        partial({ name: 'hello 1', search_match_type: 'exact' }),
+                        partial({ name: 'hello 2', search_match_type: 'similar' }),
+                    ]),
+                }),
+            })
+    })
+
     it('can duplicate and does not use derived name for name', async () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''
@@ -228,8 +261,8 @@ describe('savedInsightsLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': (req) => {
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
                     return new Promise<[number, any]>((resolve) => {
                         pendingRequests.push({ resolve, search })
                         onRequestArrived?.()
@@ -290,6 +323,47 @@ describe('savedInsightsLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
             }).toDispatchActions(['addInsight'])
+        })
+    })
+
+    describe('draft insight row', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const draft = {
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            timestamp: 1721000000000,
+        }
+
+        afterEach(() => {
+            localStorage.removeItem(draftKey)
+        })
+
+        it('loads a stored draft into the draft row', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({
+                draftQuery: draft,
+                draftInsightRow: partial({ id: -1, query: draft.query }),
+            })
+        })
+
+        it.each([
+            ['unparseable JSON', 'not json'],
+            ['a non-numeric timestamp', JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 'yesterday' })],
+            ['a query without a kind', JSON.stringify({ query: {}, timestamp: 1721000000000 })],
+        ])('drops a malformed draft (%s) instead of surfacing it', async (_label, storedValue) => {
+            localStorage.setItem(draftKey, storedValue)
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it('discarding a draft clears localStorage so it does not come back', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            logic.actions.discardDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            await expectLogic(eventUsageLogic).toDispatchActions(['reportInsightDraftDiscarded'])
+            expect(localStorage.getItem(draftKey)).toBeNull()
         })
     })
 })

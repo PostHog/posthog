@@ -3,13 +3,14 @@ import json
 import time
 import uuid
 import inspect
+import logging
 import datetime as dt
 import resource
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
@@ -20,7 +21,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection, connections
+from django.db import connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -29,6 +30,7 @@ from django.test.utils import CaptureQueriesContext
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
 import pendulum  # noqa F401
 import sqlparse
+from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
@@ -37,6 +39,7 @@ from posthog.hogql import (
     ast,
     query as hogql_query_module,
 )
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
@@ -48,6 +51,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
     CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
@@ -66,16 +70,19 @@ from posthog.clickhouse.preaggregation.sql import (
     SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
 )
 from posthog.clickhouse.query_log_archive import (
-    QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_MV,
-    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
-    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_OPS_MV,
+    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
+from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models import Organization, Team, User
+from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -83,7 +90,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -95,13 +101,21 @@ from posthog.models.cohortmembership.sql import (
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
 )
 from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
+    EVENTS_JSON_DATA_TABLE,
+    EVENTS_JSON_TABLE_SQL,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+    WRITABLE_EVENTS_DATA_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE_SQL,
+    WRITABLE_EVENTS_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -112,7 +126,6 @@ from posthog.models.exchange_rate.sql import (
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
@@ -121,17 +134,30 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
+    DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
     DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
+    PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     PRECALCULATED_EVENTS_MV_SQL,
     PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+)
+from posthog.models.precalculated_person_properties.sql import (
+    DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
+    KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
 from posthog.models.raw_sessions.sessions_v2 import (
@@ -192,24 +218,38 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
+from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
+from products.product_analytics.backend.models.insight import Insight
 
-# Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+# Make sure freezegun ignores our utils class that times functions, and heavy optional
+# deps (e.g. transformers) that can break when freezegun walks sys.modules.
+cast(Any, freezegun).configure(
+    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
+)
 
-persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 0
+
+from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
+
+
+def _get_calling_frame_locals() -> dict[str, Any]:
+    frame = inspect.currentframe()
+    if frame is None or frame.f_back is None:
+        raise RuntimeError("Expected a calling frame")
+    return frame.f_back.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -254,6 +294,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # event uuid point lookups (error tracking first/last event fetch) embed random fixture uuids
+    query = re.sub(
+        r"in\(((?:\w+\.)?uuid), \['[0-9a-f-]{36}'(?:, '[0-9a-f-]{36}')*\]\)",
+        r"in(\1, ['00000000-0000-0000-0000-000000000000' /* ... */])",
+        query,
+    )
+
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
         r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
@@ -262,7 +309,10 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
 
     # remove version suffix from funnel UDFs
-    query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
+    query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
+
+    # remove version suffix from the restricted-property blob-strip UDF
+    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -424,13 +474,6 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(
         r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
         '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
-        query,
-    )
-
-    # insight cache key varies with team id
-    query = re.sub(
-        r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
-        """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
         query,
     )
 
@@ -628,17 +671,18 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
-    organization: Organization = None
-    project: Project = None
-    team: Team = None
-    user: User = None
-    organization_membership: OrganizationMembership = None
+    organization: Organization = cast(Organization, None)
+    project: Project = cast(Project, None)
+    team: Team = cast(Team, None)
+    user: User = cast(User, None)
+    organization_membership: OrganizationMembership = cast(OrganizationMembership, None)
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
+        if self.organization is None:
+            raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     @classmethod
@@ -647,19 +691,28 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+
+        # Warm the new-events-schema gate settings so their cold reads don't land inside
+        # assertNumQueries blocks: production workers serve requests with this cache warm
+        # (60s TTL), and counting the cold reads would make every exact-count test depend
+        # on which events-schema mode CI is running.
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True
+            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
-        if len(persons_cache_tests) > 0:
-            persons_cache_tests.clear()
+        from posthog.test.persons import has_unflushed_persons, reset_persons_state
+
+        if has_unflushed_persons():
+            reset_persons_state()
             raise Exception(
                 "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
             )
@@ -671,8 +724,7 @@ class PostHogTestCase(SimpleTestCase):
             )
         # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
         redis.get_client().flushdb()
-        global persons_ordering_int
-        persons_ordering_int = 0
+        reset_persons_state()
         super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
@@ -704,7 +756,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance
@@ -768,6 +820,20 @@ class PostHogTestCase(SimpleTestCase):
                 func(*args, **kwargs)
 
 
+def no_memory_leak_check(method):
+    """Skip the `MemoryLeakTestMixin` re-run-and-measure loop for this test.
+
+    Use on tests whose body is intrinsically noisy from the mixin's
+    point of view — typically tests that assert a parser raises with a
+    verbose error string (the cpp backend's ANTLR error messages
+    accumulate per-call and trip the per-parse byte limit even though
+    nothing leaks). The decorated test method still runs, just once,
+    and skips the priming / measurement loop entirely.
+    """
+    method._no_memory_leak_check = True
+    return method
+
+
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
@@ -778,25 +844,40 @@ class MemoryLeakTestMixin:
     MEMORY_LEAK_CHECK_RUNS_N: int
     """How many times to run every test method to check for memory leaks"""
 
+    # Re-run index for the current test, exposed so a test body can do work that must happen
+    # exactly once (e.g. a snapshot/oracle comparison whose own machinery allocates and would
+    # otherwise trip the leak check on every rerun) only when this is 0, while still exercising
+    # the code under test on every rerun. Outside the priming/measure loop it stays 0.
+    _memory_leak_run_index: int = 0
+
     def _callTestMethod(self, method):
+        # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
+        if getattr(method, "_no_memory_leak_check", False):
+            self._memory_leak_run_index = 0
+            method()
+            return
+        test_case = cast(unittest.TestCase, self)
+        self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
+            self._memory_leak_run_index += 1
         mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
             method()
+            self._memory_leak_run_index += 1
         mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
         avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
@@ -813,6 +894,96 @@ class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):
     pass
 
 
+logger = logging.getLogger(__name__)
+
+# Infrastructure tables whose rows must survive a selective flush: emptying
+# django_content_type / auth_permission would require re-emitting post_migrate
+# (the expensive half of the stock flush command) to repopulate them, and
+# django_migrations / sqlx bookkeeping must never be emptied. Because they are
+# never re-seeded, TransactionTestCase tests must not mutate these tables - a
+# mutation would silently poison every later test in the process.
+_SELECTIVE_FLUSH_PRESERVED_TABLES = frozenset({"django_migrations", "django_content_type", "auth_permission"})
+
+
+def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
+    """Empty only the tables that contain rows, instead of Django's stock ``flush``.
+
+    The stock command TRUNCATEs every table Django knows about (hundreds, almost
+    all already empty after a typical test) and then emits ``post_migrate`` to
+    recreate content types and permissions. Probing for non-empty tables and
+    DELETE-ing just those is an order of magnitude faster, and preserving content
+    types and permissions makes the ``post_migrate`` signal unnecessary. FK
+    triggers are disabled via ``session_replication_role`` so deletion order
+    doesn't matter; that is safe because every non-empty table is emptied, so no
+    dangling references can remain. Like the stock flush, this assumes no
+    concurrent writer commits into a table between its probe and the end of the
+    transaction; run it only from single-threaded teardown.
+    """
+    conn = connections[db_name]
+    quote_name = conn.ops.quote_name
+    with transaction.atomic(using=db_name), conn.cursor() as cursor:
+        # A lock timeout turns a leaked-lock hang into an exception that rolls back
+        # and lands in the callers' lock-guarded stock-flush fallback (see
+        # posthog/test/flush_lock_guard.py for the incident this prevents).
+        cursor.execute(
+            "SELECT set_config('lock_timeout', %s, true)", [f"{flush_lock_guard.FLUSH_LOCK_TIMEOUT_SECONDS}s"]
+        )
+        # Re-list tables on every flush: tests can create or drop tables (schema
+        # migration tests, warehouse DDL), so a cached list goes stale in both
+        # dangerous directions. The catalog query costs ~1ms.
+        cursor.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename NOT LIKE 'pg\\_%'
+              AND tablename NOT LIKE '\\_sqlx\\_%'
+              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            """
+        )
+        tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
+
+        dirty: list[str] = []
+        chunk_size = 150
+        for start in range(0, len(tables), chunk_size):
+            chunk = tables[start : start + chunk_size]
+            cursor.execute(
+                " UNION ALL ".join(f"SELECT %s, EXISTS (SELECT FROM {quote_name(name)})" for name in chunk),
+                chunk,
+            )
+            dirty.extend(name for name, has_rows in cursor.fetchall() if has_rows)
+
+        if dirty:
+            cursor.execute("SET LOCAL session_replication_role = replica")
+            for name in dirty:
+                cursor.execute(f"DELETE FROM {quote_name(name)}")
+
+        if reset_sequences:
+            # pg_sequences.last_value is NULL until a sequence is first read and NULL
+            # again after RESTART, so this finds every sequence advanced since the last
+            # flush - including ones owned by tables that are empty at probe time
+            # because the test deleted its own rows. Sequences owned by preserved
+            # tables keep counting so future inserts can't collide with surviving rows.
+            cursor.execute(
+                """
+                SELECT s.sequencename
+                FROM pg_sequences s
+                WHERE s.schemaname = 'public'
+                  AND s.last_value IS NOT NULL
+                  AND s.sequencename NOT IN (
+                    SELECT seq.relname
+                    FROM pg_class seq
+                    JOIN pg_depend dep ON dep.objid = seq.oid AND dep.deptype IN ('a', 'i')
+                    JOIN pg_class tbl ON tbl.oid = dep.refobjid
+                    WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
+                  )
+                """,
+                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
+            )
+            for (seq_name,) in cursor.fetchall():
+                cursor.execute(f"ALTER SEQUENCE {quote_name(seq_name)} RESTART")
+
+
 class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
     Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
@@ -825,35 +996,23 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        # Override to use CASCADE when truncating tables.
-        # Required when models are moved between Django apps, as PostgreSQL
-        # needs CASCADE to handle FK constraints across app boundaries.
-        for db_name in self._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                # Fall back to the stock flush, with CASCADE: required when models
+                # are moved between Django apps, as PostgreSQL needs CASCADE to
+                # handle FK constraints across app boundaries. Logged so a
+                # systematically failing fast path can't silently regress the
+                # suite to stock-flush speed.
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
                 call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
-    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
-    sequences keep incrementing across tests. Useful when ClickHouse data from
+    Like NonAtomicBaseTest but keeps PG sequences incrementing across tests
+    instead of restarting them. Useful when ClickHouse data from
     earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
     need later tests to get fresh, non-overlapping values.
     """
@@ -863,19 +1022,16 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        for db_name in self._databases_names(include_mirrors=False):
-            conn = connections[db_name]
-            with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=False)
+            except Exception:
+                # This fallback must stay TRUNCATE-based rather than the stock flush
+                # command: stock flush RESTARTs identities, which is the one thing
+                # this class exists to avoid.
+                logger.exception("Selective flush of %r failed; falling back to TRUNCATE", db_name)
+                conn = connections[db_name]
+                with conn.cursor() as cursor:
                     cursor.execute("""
                                    SELECT tablename
                                    FROM pg_tables
@@ -883,9 +1039,9 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                                      AND tablename NOT LIKE 'pg_%'
                                      AND tablename NOT LIKE 'django_%'
                                    """)
-                tables = [row[0] for row in cursor.fetchall()]
-                if tables:
-                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+                    tables = [row[0] for row in cursor.fetchall()]
+                    if tables:
+                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -923,6 +1079,8 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
     def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
         """Create a Personal API Key with specified scopes for the current user."""
+        if self.user is None:
+            raise ValueError("Test user must be set before creating a personal API key")
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -932,13 +1090,13 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         )
         return key_value
 
-    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+    def complete_code_based_verification(self, email: str, user: Optional[Any] = None):
         if user is None:
             user = User.objects.get(email=email)
 
-        token = email_mfa_token_generator.make_token(user)
+        token = code_based_verification_token_generator.make_token(user)
 
-        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+        response = self.client.post("/api/login/code-based-verification/", {"email": email, "token": token})
 
         return response
 
@@ -964,7 +1122,10 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_materialized_columns,
             get_minmax_index_name,
             get_ngram_lower_index_name,
@@ -973,6 +1134,11 @@ def cleanup_materialized_columns():
     except:
         # EE not available? Skip
         return
+
+    # A prior test may have mutated schema with raw sync_execute, bypassing materialize()/
+    # drop_column() (which self-invalidate) — refresh before deciding what to drop below.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
     def optionally_drop(table, filter=None):
         columns_to_drop = [
@@ -993,6 +1159,8 @@ def cleanup_materialized_columns():
                 indexes_to_drop.append(get_bloom_filter_index_name(column.name))
             if column.has_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            if column.has_bloom_filter_lower_index:
+                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
             for index_name in indexes_to_drop:
                 sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
 
@@ -1008,8 +1176,13 @@ def cleanup_materialized_columns():
     }
 
     optionally_drop("events", lambda name: name not in default_column_names)
+
     optionally_drop("person")
     optionally_drop("groups")
+    # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
+    # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
 
 def get_index_from_explain(
@@ -1052,19 +1225,79 @@ def get_index_from_explain(
     return None
 
 
+def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dict]:
+    """Run EXPLAIN PLAN and return the Indexes array from the first ReadFromMergeTree node.
+
+    Unlike get_index_from_explain (which searches by skip-index Name), this returns
+    all indexes by Type (Partition, PrimaryKey, MinMax, Skip) and passes real values
+    instead of dummy placeholders so the planner can produce meaningful conditions.
+
+    This comment is mostly for LLMs who do not like it when you string concatenate SQL:
+    * This is a testing utility, never used in production
+    * It is only used on SQL that is generated by test code
+    * It does not go anywhere near real users or their inputs
+    """
+    settings = {
+        k: "1" if v is True else "0" if v is False else str(v)
+        for k, v in HogQLGlobalSettings().model_dump().items()
+        if v is not None
+    }
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1, json=1 {query}", values or {}, settings=settings)
+    plan_json = json.loads(explain_result[0][0])
+
+    def find_read_node(node: dict) -> dict | None:
+        if node.get("Node Type") == "ReadFromMergeTree":
+            return node
+        for child in node.get("Plans", []):
+            result = find_read_node(child)
+            if result is not None:
+                return result
+        return None
+
+    read_node = find_read_node(plan_json[0]["Plan"])
+    assert read_node is not None, f"No ReadFromMergeTree in plan:\n{json.dumps(plan_json, indent=2)}"
+    return read_node.get("Indexes", [])
+
+
+def get_inner_person_subquery_clickhouse_sql(clickhouse_sql: str) -> str:
+    """Extract the pushed-down person-filter subquery from a compiled persons query.
+
+    Filtering `persons` by a property pushes the filter into a `where_optimization` IN-subquery that
+    ClickHouse evaluates eagerly, so EXPLAIN of the full query never shows the subquery's index analysis.
+    Pass a `HogQLQueryResponse.clickhouse` string; test-only, fails loudly if the subquery is not found.
+    """
+    match = re.search(r"\(\s*SELECT\s+where_optimization", clickhouse_sql)
+    assert match is not None, (
+        f"No `where_optimization` person subquery found - is this a persons query with a property filter?"
+        f"\n{clickhouse_sql}"
+    )
+    depth = 0
+    for i in range(match.start(), len(clickhouse_sql)):
+        if clickhouse_sql[i] == "(":
+            depth += 1
+        elif clickhouse_sql[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return clickhouse_sql[match.start() + 1 : i]
+    raise AssertionError(f"Unbalanced parentheses extracting the person subquery:\n{clickhouse_sql}")
+
+
 @contextmanager
 def materialized(
     table,
     property,
     create_minmax_index: bool = False,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
+    create_bloom_filter_lower_index: bool = False,
 ) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
         from ee.clickhouse.materialized_columns.columns import (
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_minmax_index_name,
             get_ngram_lower_index_name,
             materialize,
@@ -1079,22 +1312,30 @@ def materialized(
             property,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
+            create_bloom_filter_lower_index=create_bloom_filter_lower_index,
         )
         yield column
     finally:
         if column is not None:
-            data_table = "sharded_events" if table == "events" else table
-            indexes_to_drop = []
-            if create_minmax_index:
-                indexes_to_drop.append(get_minmax_index_name(column.name))
-            if create_bloom_filter_index:
-                indexes_to_drop.append(get_bloom_filter_index_name(column.name))
-            if create_ngram_lower_index:
-                indexes_to_drop.append(get_ngram_lower_index_name(column.name))
-            for index_name in indexes_to_drop:
-                sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
+            event_materialization_disabled = table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            if not event_materialization_disabled:
+                data_table = "sharded_events" if table == "events" else table
+                indexes_to_drop = []
+                if create_minmax_index:
+                    indexes_to_drop.append(get_minmax_index_name(column.name))
+                if create_bloom_filter_index:
+                    indexes_to_drop.append(get_bloom_filter_index_name(column.name))
+                if create_ngram_lower_index:
+                    indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+                if create_bloom_filter_lower_index:
+                    indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
+                for index_name in indexes_to_drop:
+                    sync_execute(
+                        f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2"
+                    )
         cleanup_materialized_columns()
 
 
@@ -1149,7 +1390,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals
+        frame_locals: Any = _get_calling_frame_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -1157,30 +1398,68 @@ def also_test_with_materialized_columns(
     return decorator
 
 
+# sqlparse.format(reindent=True) is quadratic-ish on large statements (~70ms on a big HogQL
+# listing query) and snapshot-heavy suites format hundreds per run. It's a pure function of the
+# input, and clean_varying_query_parts normalizes team ids/UUIDs/timestamps so the same query
+# shapes recur across tests - cache the formatting. Keys are the full SQL strings, so the cap
+# bounds memory rather than correctness.
+_sqlparse_format_cache: dict[str, str] = {}
+_SQLPARSE_FORMAT_CACHE_MAX_ENTRIES = 2048
+
+
+def _format_sql_for_snapshot(query: str) -> str:
+    formatted = _sqlparse_format_cache.get(query)
+    if formatted is None:
+        formatted = sqlparse.format(query, reindent=True)
+        if len(_sqlparse_format_cache) < _SQLPARSE_FORMAT_CACHE_MAX_ENTRIES:
+            _sqlparse_format_cache[query] = formatted
+    return formatted
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
     replace_all_numbers: bool = False
+
+    def _allow_dual_schema_snapshots(self) -> None:
+        if getattr(self, "allow_dual_schema_snapshots", False):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False):
+        if not use_new_events_schema_snapshot:
+            self._allow_dual_schema_snapshots()
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
 
         query = clean_varying_query_parts(query, replace_all_numbers)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in query.lower()
+        )
 
+        query_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert _format_sql_for_snapshot(query) == query_snapshot
         except AssertionError:
-            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            diff_lines = "\n".join(query_snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
             raise AssertionError(error_message)
 
         if params is not None:
             del params["team_id"]  # Changes every run
+            params_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
             try:
-                assert params == self.snapshot
+                assert params == params_snapshot
             except AssertionError:
-                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_diff_lines = "\n".join(params_snapshot.get_assert_diff())
                 params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
                 raise AssertionError(params_error_message)
 
@@ -1275,6 +1554,19 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # An earlier test in the same process can leave a connection's underlying psycopg
+        # connection closed (e.g. dropped server-side) without Django noticing. Every
+        # migration test in the class then fails with "the connection is closed", and
+        # in-process reruns reuse the same dead wrapper, so they can never recover.
+        # Reset unusable connections before the class transaction machinery starts.
+        for conn in connections.all():
+            if conn.connection is not None and not conn.is_usable():
+                conn.close()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
+
     def setUp(self):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
@@ -1285,6 +1577,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
+        self._flush_deferred_constraint_triggers()
         executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
@@ -1293,12 +1586,22 @@ class BaseTestMigrations(QueryMatchingTest):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
 
+        self._flush_deferred_constraint_triggers()
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
             executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
+
+    @staticmethod
+    def _flush_deferred_constraint_triggers() -> None:
+        # Fixture inserts (e.g. BaseTest teams) queue deferred FK checks in the open test
+        # transaction; (un)applying a migration that adds or drops an FK on those tables then
+        # fails with "cannot ALTER TABLE ... because it has pending trigger events". Firing
+        # the checks now clears the queue.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
@@ -1329,6 +1632,30 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
 
 
+def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None:
+    """Mirror AI events into the ai_events table during tests."""
+    ai_events = [e for e in events if e.get("event") in _AI_EVENT_TYPES]
+    if not ai_events:
+        return
+
+    for event in ai_events:
+        distinct_id = event.get("distinct_id", "")
+        if distinct_id in person_mapping:
+            person = person_mapping[distinct_id]
+            event["person_id"] = str(person.uuid if hasattr(person, "uuid") else person)
+        elif "person_id" not in event:
+            team = event.get("team")
+            team_id = event.get("team_id") or (team.pk if team else None)
+            if team_id:
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
+
+    from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+    bulk_create_ai_events(ai_events)
+
+
 def flush_persons_and_events():
     """
     Flush any created persons and events to Clickhouse
@@ -1341,12 +1668,12 @@ def flush_persons_and_events():
     pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
     the cause.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
+        _flush_ai_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
 
@@ -1403,34 +1730,8 @@ def _warn_if_session_id_malformed(session_id: str):
 
 
 def _create_person(*args, **kwargs):
-    """
-    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
-    Pass immediate=True to create immediately and get a pk back
-    """
-    global persons_ordering_int
-    if not (kwargs.get("uuid")):
-        kwargs["uuid"] = uuid.UUID(
-            int=persons_ordering_int, version=4
-        )  # make sure the ordering of uuids is always consistent
-    persons_ordering_int += 1
-    # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
-        if kwargs.get("immediate"):
-            del kwargs["immediate"]
-        create_person(
-            team_id=kwargs.get("team_id") or kwargs["team"].pk,
-            properties=kwargs.get("properties"),
-            uuid=kwargs["uuid"],
-            version=kwargs.get("version", 0),
-        )
-        return Person.objects.create(**kwargs)
-    if len(args) > 0:
-        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
-
-    persons_cache_tests.append(kwargs)
-    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+    """Thin wrapper — delegates to posthog.test.persons.stage_person_for_bulk_create."""
+    return stage_person_for_bulk_create(*args, **kwargs)
 
 
 def _create_action(**kwargs):
@@ -1462,12 +1763,48 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
+    @staticmethod
+    def _strip_leading_sql_comments(sql: str) -> str:
+        """Drop leading whitespace and comments (keeping any parens) so head-anchored query
+        filters see the first real token. Equivalent to sqlparse.format(strip_comments=True)
+        for every filter used with capture_queries — all of them match on the statement head —
+        but without paying sqlparse's full-statement lexing (~100ms on large generated SQL)."""
+        i, n, parens = 0, len(sql), []
+        while i < n:
+            char = sql[i]
+            if char.isspace():
+                i += 1
+            elif char == "(":
+                parens.append("(")
+                i += 1
+            elif sql.startswith("/*", i):
+                end = sql.find("*/", i + 2)
+                if end == -1:
+                    break
+                i = end + 2
+            elif sql.startswith("--", i):
+                newline = sql.find("\n", i)
+                if newline == -1:
+                    i = n
+                    break
+                i = newline + 1
+            else:
+                break
+        return "".join(parens) + sql[i:]
+
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
+        """Capture ClickHouse queries that pass query_filter.
+
+        The filter receives the query after stripping leading whitespace and comments (head-only
+        — see _strip_leading_sql_comments). All built-in filters (capture_select_queries,
+        capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
+        pass a filter that matches on mid-statement text; it will not see comments embedded there.
+        """
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
-            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+            if query_filter(self._strip_leading_sql_comments(query)):
                 queries.append(query)
             return original_client_execute(query, *args, **kwargs)
 
@@ -1485,7 +1822,17 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
-def run_clickhouse_statement_in_parallel(statements: list[str]):
+def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
+    # Test infrastructure runs a single-node ClickHouse, so ON CLUSTER only adds
+    # distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
+    # the outcome — strip it from TRUNCATEs.
+    # If a CI variant ever runs multi-replica this strip must be removed or gated; without it,
+    # TRUNCATE without ON CLUSTER only touches the connected node and leaves others dirty.
+    statements = [
+        re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", stmt) if stmt.lstrip().upper().startswith("TRUNCATE") else stmt
+        for stmt in statements
+    ]
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
@@ -1513,7 +1860,88 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             raise exceptions[0]
 
 
+def clickhouse_events_table_drop_statements() -> list[str]:
+    statements = [
+        DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+        DROP_EVENTS_TABLE_SQL(),
+    ]
+
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        statements = [
+            f"DROP TABLE IF EXISTS {DISTRIBUTED_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}",
+            *statements,
+        ]
+
+    return statements
+
+
+def clickhouse_events_data_table_sqls() -> list[str]:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return [EVENTS_TABLE_SQL(), EVENTS_JSON_TABLE_SQL()]
+    return [EVENTS_TABLE_SQL()]
+
+
+def clickhouse_events_distributed_table_sqls() -> list[str]:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return [
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            WRITABLE_EVENTS_TABLE_SQL(),
+            WRITABLE_EVENTS_JSON_TABLE_SQL(),
+            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
+        ]
+    return [DISTRIBUTED_EVENTS_TABLE_SQL()]
+
+
+# A client checkout is the "ClickHouse may have changed" signal. Counted at two
+# choke points: get_client_from_pool (covers sync_execute and the HTTP client)
+# and ChPool.get_client itself (covers every pool instance, including
+# ClickhouseCluster's own pools and module-level ch_pool users). Known paths
+# that do NOT advance the counter: default_client() (system-state queries only,
+# per its docstring) and rows arriving via Kafka-engine tables - if a test
+# mutates data exclusively through those, its ClickhouseDestroyTablesMixin
+# reset must not rely on the skip. The canary in
+# posthog/test/test_conftest_cache_canaries.py fails loudly if either hook
+# gets unwired.
+_clickhouse_pool_checkouts = 0
+_clickhouse_checkouts_at_last_reset: int | None = None
+
+
+def _count_clickhouse_checkout(orig_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    global _clickhouse_pool_checkouts
+    _clickhouse_pool_checkouts += 1
+    return orig_fn(*args, **kwargs)
+
+
+if settings.TEST:
+    get_client_from_pool._patch(_count_clickhouse_checkout)
+
+    _original_chpool_get_client = ChPool.get_client
+
+    @wraps(_original_chpool_get_client)
+    def _counting_chpool_get_client(self: ChPool, *args: Any, **kwargs: Any) -> Any:
+        global _clickhouse_pool_checkouts
+        _clickhouse_pool_checkouts += 1
+        return _original_chpool_get_client(self, *args, **kwargs)
+
+    ChPool.get_client = _counting_chpool_get_client
+
+
 def reset_clickhouse_database() -> None:
+    # Dropping tables below removes their materialized columns behind the metadata cache's back,
+    # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
+    try:
+        from ee.clickhouse.materialized_columns.columns import (  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
+        )
+
+        for _mat_table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(_mat_table)
+    except ModuleNotFoundError:
+        pass
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
@@ -1534,8 +1962,7 @@ def reset_clickhouse_database() -> None:
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-            DROP_EVENTS_TABLE_SQL(),
+            *clickhouse_events_table_drop_statements(),
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
@@ -1556,9 +1983,15 @@ def reset_clickhouse_database() -> None:
             DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
             DROP_COHORT_MEMBERSHIP_MV_SQL(),
             DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_MV_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -1570,13 +2003,14 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            TRUNCATE_AI_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
-            EVENTS_TABLE_SQL(),
+            *clickhouse_events_data_table_sqls(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -1591,11 +2025,10 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
-            ),
+            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
         ]
     )
@@ -1603,7 +2036,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_DICTIONARY_SQL(),
             EXCHANGE_RATE_DICTIONARY_SQL(),
-            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            *clickhouse_events_distributed_table_sqls(),
             DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
@@ -1615,11 +2048,16 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1638,8 +2076,23 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
+            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
+                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
+            ),
         ]
     )
+
+    global _clickhouse_checkouts_at_last_reset
+    _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
+
+
+def reset_clickhouse_database_if_dirty() -> None:
+    """Reset ClickHouse only if something has checked out a ClickHouse client since
+    the last reset finished; with zero checkouts the state cannot have changed and
+    the reset would be a no-op costing dozens of DDL statements."""
+    if _clickhouse_pool_checkouts != _clickhouse_checkouts_at_last_reset:
+        reset_clickhouse_database()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -1650,11 +2103,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
 
 def snapshot_clickhouse_queries(fn_or_class):
@@ -1681,7 +2134,9 @@ def snapshot_clickhouse_queries(fn_or_class):
             fn_or_class(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query:
+            # system.columns / system.tables reads are schema bookkeeping (materialized-column
+            # discovery, events-table existence checks), not behavior worth snapshotting.
+            if "FROM system.columns" not in query and "FROM system.tables" not in query:
                 replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
@@ -1783,7 +2238,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1791,7 +2246,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
@@ -1838,7 +2293,7 @@ class HogQLSnapshotExtension(AmberSnapshotExtension):
     def serialize(cls, data, **kwargs):
         """Serialize the HogQL query."""
         # Format the query for readability
-        formatted = sqlparse.format(data, reindent=True)
+        formatted = _format_sql_for_snapshot(data)
         return f"'''\n{formatted}\n'''\n"
 
 
@@ -1859,7 +2314,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1872,7 +2327,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn

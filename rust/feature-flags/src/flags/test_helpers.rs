@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
-    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    flags::{
+        feature_flag_list::PreparedFlags,
+        flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    },
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -69,9 +72,9 @@ pub async fn get_flags_from_redis(
     );
 
     Ok(FeatureFlagList {
-        flags: wrapper.flags,
-        evaluation_metadata: wrapper.evaluation_metadata,
-        cohorts: wrapper.cohorts,
+        flags: PreparedFlags::seal(wrapper.flags),
+        evaluation_metadata: Arc::new(wrapper.evaluation_metadata),
+        cohorts: wrapper.cohorts.map(Arc::from),
         ..Default::default()
     })
 }
@@ -91,9 +94,9 @@ pub async fn update_flags_in_hypercache(
     ttl_seconds: Option<u64>,
 ) -> Result<(), FlagError> {
     let wrapper = HypercacheFlagsWrapper {
-        flags: flags.flags.clone(),
-        evaluation_metadata: flags.evaluation_metadata.clone(),
-        cohorts: flags.cohorts.clone(),
+        flags: flags.flags.to_vec(),
+        evaluation_metadata: (*flags.evaluation_metadata).clone(),
+        cohorts: flags.cohorts.as_ref().map(|c| c.to_vec()),
     };
 
     // Match Django's format: JSON string -> Pickle
@@ -125,6 +128,8 @@ pub async fn update_flags_in_hypercache(
     })?;
 
     let cache_key = hypercache_test_key(team_id);
+    let etag_key = format!("{cache_key}:etag");
+    let etag = common_hypercache::writer::compute_etag(&json_string);
 
     tracing::info!(
         "Writing flags to hypercache at key '{}' (pickle format): {} flags",
@@ -139,6 +144,24 @@ pub async fn update_flags_in_hypercache(
             tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
             FlagError::Internal(format!("Failed to update cache: {e}"))
         })?;
+
+    // Mirror Django's `HyperCache._set_cache_value_redis` (enable_etag=True),
+    // which writes the etag in the same `set_many` pipeline as the payload.
+    // FlagService now keys the in-memory cache on this etag, so test setups
+    // that bypass the real HyperCache writer must still publish it for the
+    // version-key fast path to be exercised end-to-end.
+    let etag_write = match ttl_seconds {
+        Some(ttl) => client.setex(etag_key, etag, ttl).await,
+        None => client.set(etag_key, etag).await,
+    };
+    etag_write.map_err(|e| {
+        tracing::error!(
+            "Failed to write hypercache etag for team {}: {}",
+            team_id,
+            e
+        );
+        FlagError::Internal(format!("Failed to write etag: {e}"))
+    })?;
 
     Ok(())
 }

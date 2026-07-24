@@ -51,8 +51,17 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
+    integration_id: int | None = None,
 ):
     """Helper function to run Postgres main activity and assert records are exported."""
+    if integration_id is not None:
+        config = postgres_config.copy()
+        for conn_param in ("host", "port", "user", "password"):
+            # These should be present in the integration, so drop them to confirm
+            config.pop(conn_param)
+    else:
+        config = postgres_config
+
     insert_inputs = PostgresInsertInputs(
         team_id=team.pk,
         table_name=table_name,
@@ -63,12 +72,13 @@ async def _run_activity(
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
-        **postgres_config,
+        integration_id=integration_id,
+        **config,
     )
 
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
     assert insert_inputs.batch_export_id is not None
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -84,7 +94,8 @@ async def _run_activity(
             destination_default_fields=postgres_default_fields(),
         ),
     )
-    insert_inputs.stage_folder = stage_folder
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
     result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_postgres(
@@ -107,6 +118,7 @@ async def _run_activity(
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize("integration", [True, False], indirect=True)
 async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     clickhouse_client,
     activity_environment,
@@ -117,6 +129,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     generate_test_data,
     data_interval_start,
     data_interval_end,
+    integration,
     ateam,
 ):
     """Test that the insert_into_postgres_activity_from_stage function inserts data into a PostgreSQL table.
@@ -169,6 +182,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
             batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
             sort_key=sort_key,
+            integration_id=integration.id if integration is not None else None,
         )
 
 
@@ -467,7 +481,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         # First run the internal stage activity
         assert insert_inputs.batch_export_id is not None
-        stage_folder = await activity_environment.run(
+        stage_result = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -483,7 +497,8 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
                 destination_default_fields=postgres_default_fields(),
             ),
         )
-        insert_inputs.stage_folder = stage_folder
+        insert_inputs.stage_folder = stage_result.stage_folder
+        insert_inputs.records_total = stage_result.records_total
         result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
         assert result.error is not None

@@ -13,6 +13,8 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSelectAll,
+    DropdownMenuSeparator,
 } from './dropdown-menu'
 import {
     Item,
@@ -82,6 +84,47 @@ export const Pressable: Story = {
     ),
 } satisfies Story
 
+// Semantic `tone` is orthogonal to `variant` — here paired with `pressable`
+// (the right way to build a clickable, link-like row). Each renders as an <a>.
+export const Tones: Story = {
+    render: () => {
+        const tones = [
+            { tone: undefined, title: 'Default', description: 'Neutral pressable row' },
+            { tone: 'info' as const, title: 'Info', description: 'Informational status' },
+            { tone: 'success' as const, title: 'Success', description: 'Completed successfully' },
+            { tone: 'warning' as const, title: 'Warning', description: 'Needs attention' },
+            { tone: 'completed' as const, title: 'Completed', description: 'Merged / terminal state' },
+            { tone: 'destructive' as const, title: 'Destructive', description: 'Failed or removed' },
+        ]
+        return (
+            <ItemGroup className="max-w-md">
+                {tones.map(({ tone, title, description }) => (
+                    <Item
+                        key={title}
+                        variant="pressable"
+                        tone={tone}
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <BadgeCheckIcon className="size-5" />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>{title}</ItemTitle>
+                                    <ItemDescription>{description}</ItemDescription>
+                                </ItemContent>
+                                <ItemActions>
+                                    <ChevronRightIcon className="size-4" />
+                                </ItemActions>
+                            </a>
+                        }
+                    />
+                ))}
+            </ItemGroup>
+        )
+    },
+} satisfies Story
+
 export const Group: Story = {
     render: () => (
         <ItemGroup>
@@ -120,7 +163,7 @@ export const Group: Story = {
 
 export const GroupList: Story = {
     render: () => (
-        <ItemGroup combined>
+        <ItemGroup>
             <Item
                 variant="pressable"
                 size="xs"
@@ -166,7 +209,7 @@ export const DropdownInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -216,7 +259,7 @@ export const DropdownCheckboxesInItem: Story = {
             setChecked((prev) => ({ ...prev, [username]: !prev[username] }))
         }
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -254,13 +297,74 @@ export const DropdownCheckboxesInItem: Story = {
     },
 } satisfies Story
 
+export const DropdownCheckboxesInItemWithSelectAll: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [selected, setSelected] = useState<string[]>([people[0].username])
+
+        const usernames = people.map((p) => p.username)
+
+        const toggle = (username: string, checked: boolean): void => {
+            setSelected((prev) =>
+                checked ? [...prev, username] : prev.filter((u) => u !== username)
+            )
+        }
+
+        return (
+            <Item variant="outline" className="max-w-md">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>
+                        Multi-select with a headless select-all action above the list.
+                    </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <DropdownMenu open={open} onOpenChange={setOpen}>
+                        <DropdownMenuTrigger render={(props) => <Button variant="outline" {...props} />}>
+                            {selected.length} / {people.length} selected
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-auto" align="end">
+                            <DropdownMenuGroup>
+                                <DropdownMenuSelectAll
+                                    values={usernames}
+                                    selected={selected}
+                                    onChange={(next) => setSelected([...next])}
+                                />
+                                <DropdownMenuSeparator />
+                                {people.map((person) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={person.username}
+                                        checked={selected.includes(person.username)}
+                                        onCheckedChange={(checked) => toggle(person.username, !!checked)}
+                                        closeOnClick={false}
+                                        render={(props) => (
+                                            <ItemCheckbox size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
+                                                    <ItemTitle>{person.username}</ItemTitle>
+                                                    <ItemDescription className="leading-none">
+                                                        {person.email}
+                                                    </ItemDescription>
+                                                </ItemContent>
+                                            </ItemCheckbox>
+                                        )}
+                                    />
+                                ))}
+                            </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
 export const DropdownRadiosInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [radioValue, setRadioValue] = useState('John Doe')
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -302,7 +406,7 @@ export const SelectInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -349,7 +453,7 @@ export const ComboboxInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>

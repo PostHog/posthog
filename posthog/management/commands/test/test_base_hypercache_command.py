@@ -8,12 +8,14 @@ Tests cover:
 - Continued processing after individual team errors
 """
 
+from functools import partial
 from io import StringIO
 from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.management.base import OutputWrapper
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -53,7 +55,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe calls get_cache_stats successfully."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.return_value = {"total_keys": 100}
@@ -74,7 +76,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe catches exceptions and logs warning."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.side_effect = exception
@@ -91,7 +93,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         other_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             command._update_cache_stats_safe(other_config)
@@ -102,7 +104,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe uses get_hypercache_config() when no config provided."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             command._update_cache_stats_safe()
@@ -118,6 +120,9 @@ def create_mock_config():
     mock_config.cache_display_name = "test cache"
     mock_config.get_teams_queryset_fn = None  # Match real config default
     mock_config.get_teams_queryset.return_value = Team.objects.all()
+    # Run narrowing for real so the command gets an actual queryset back
+    mock_config.refresh_only_fields = None
+    mock_config.narrow_team_queryset.side_effect = partial(HyperCacheManagementConfig.narrow_team_queryset, mock_config)
     return mock_config
 
 
@@ -133,7 +138,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=RedisTimeoutError("Connection timed out"),
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -171,7 +176,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=verify_side_effect,
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         # Create a second team
         from posthog.models import Team
@@ -205,7 +210,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=ConnectionError("Redis unavailable"),
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         from posthog.models import Team
 
@@ -240,7 +245,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -265,7 +270,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -288,7 +293,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -313,7 +318,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -342,7 +347,7 @@ class TestRunVerificationErrorHandling(BaseTest):
         mock_config = create_mock_config()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.side_effect = RedisTimeoutError("Connection timed out")
@@ -435,7 +440,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config = create_mock_config_with_expiry()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -468,7 +473,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config = create_mock_config_with_expiry()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -500,7 +505,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config = create_mock_config_with_expiry()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {"fixed": 0, "fix_failed": 0}
 
@@ -516,7 +521,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config.update_fn.return_value = False
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {"fixed": 0, "fix_failed": 0}
 
@@ -531,7 +536,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config.update_fn.side_effect = Exception("Redis error")
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {"fixed": 0, "fix_failed": 0}
 
@@ -545,7 +550,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config = create_mock_config_with_expiry()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -576,7 +581,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -602,7 +607,7 @@ class TestExpiryTrackingVerification(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         # All caches match, but some have expiry issues
         stats = {
@@ -651,7 +656,7 @@ class TestGracePeriodSkipping(BaseTest):
                 "details": "test mismatch",
             },
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -692,7 +697,7 @@ class TestGracePeriodSkipping(BaseTest):
                 "details": "test mismatch",
             },
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -732,7 +737,7 @@ class TestGracePeriodSkipping(BaseTest):
                 "details": "test mismatch",
             },
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -770,7 +775,7 @@ class TestGracePeriodSkipping(BaseTest):
                 "details": "test mismatch",
             },
         )
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 0,
@@ -797,7 +802,7 @@ class TestGracePeriodSkipping(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -828,7 +833,7 @@ class TestGracePeriodSkipping(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         stats = {
             "total": 10,
@@ -875,7 +880,7 @@ class TestGetTeamsQueryset(BaseTest):
 
         mock_config = create_scoped_mock_config(scoped_team_ids=[team2.id])
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats"):
             command.run_verification(team_ids=None, sample_size=None, verbose=False, fix=False)
@@ -891,7 +896,7 @@ class TestGetTeamsQueryset(BaseTest):
 
         mock_config = create_scoped_mock_config(scoped_team_ids=[team2.id])
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats"):
             command.run_verification(team_ids=None, sample_size=10, verbose=False, fix=False)
@@ -910,7 +915,7 @@ class TestGetTeamsQueryset(BaseTest):
         # Scope to 2 of 3 teams, then sample 1
         mock_config = create_scoped_mock_config(scoped_team_ids=[self.team.id, team2.id])
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats"):
             command.run_verification(team_ids=None, sample_size=1, verbose=False, fix=False)
@@ -924,7 +929,7 @@ class TestGetTeamsQueryset(BaseTest):
         """Explicit --team-ids bypasses config's get_teams_queryset() scoping."""
         mock_config = create_scoped_mock_config(scoped_team_ids=[])
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats"):
             command.run_verification(team_ids=[self.team.id], sample_size=None, verbose=False, fix=False)
@@ -940,7 +945,7 @@ class TestPrintScopeInfo(BaseTest):
     def test_prints_message_when_scoped(self):
         """Scope info message printed when scoped count < total count."""
         command = ConcreteHyperCacheCommand(mock_config=create_mock_config())
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         command._print_scope_info(1, 10)
 
@@ -952,7 +957,7 @@ class TestPrintScopeInfo(BaseTest):
     def test_omits_message_when_not_scoped(self):
         """Scope info message omitted when scoped count equals total count."""
         command = ConcreteHyperCacheCommand(mock_config=create_mock_config())
-        command.stdout = StringIO()  # type: ignore[assignment]
+        command.stdout = OutputWrapper(StringIO())
 
         command._print_scope_info(5, 5)
 
@@ -967,7 +972,8 @@ class TestFlagVerifyCommandScoping(BaseTest):
     def test_includes_teams_with_only_soft_deleted_flags(self):
         """Teams where all flags are soft-deleted are still included in scope."""
         from posthog.management.commands.verify_flags_cache import Command as VerifyFlagsCommand
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -997,7 +1003,8 @@ class TestFlagVerifyCommandScoping(BaseTest):
         """verify_flag_definitions_cache uses identical scoping logic."""
         from posthog.management.commands.verify_flag_definitions_cache import Command as VerifyFlagDefinitionsCommand
         from posthog.models import Team as TeamModel
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         team_with_flag = TeamModel.objects.create(organization=self.organization, name="Has Flag")
         team_no_flags = TeamModel.objects.create(organization=self.organization, name="No Flags")

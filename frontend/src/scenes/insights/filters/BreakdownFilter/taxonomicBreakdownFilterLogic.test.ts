@@ -296,7 +296,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('only one data warehouse breakdown is allowed', async () => {
+        it('only one data warehouse person property breakdown is allowed', async () => {
             logic = taxonomicBreakdownFilterLogic(
                 makeProps({
                     breakdownFilter: {
@@ -309,18 +309,24 @@ describe('taxonomicBreakdownFilterLogic', () => {
             await expectLogic(logic).toMatchValues({
                 addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
             })
+        })
 
-            logic = taxonomicBreakdownFilterLogic(
-                makeProps({
-                    breakdownFilter: {
-                        breakdown_type: 'data_warehouse',
-                        breakdown: 'prop',
-                    },
-                })
-            )
+        it.each<[string, breakdownLogic.TaxonomicBreakdownFilterLogicProps['breakdownFilter']]>([
+            ['legacy single data warehouse breakdown', { breakdown_type: 'data_warehouse', breakdown: 'prop' }],
+            [
+                'multi data warehouse breakdowns',
+                {
+                    breakdowns: [
+                        { type: 'data_warehouse', property: 'prop1' },
+                        { type: 'data_warehouse', property: 'prop2' },
+                    ],
+                },
+            ],
+        ])('multiple data warehouse breakdowns are allowed: %s', async (_label, breakdownFilter) => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter }))
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -889,7 +895,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('addBreakdown: does not migrate a data warehouse properties breakdown', async () => {
+        it('addBreakdown: migrates a data warehouse properties breakdown to multi-breakdowns', async () => {
             logic = taxonomicBreakdownFilterLogic(
                 makeProps({
                     breakdownFilter: {
@@ -910,8 +916,15 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdown_type: 'data_warehouse',
-                breakdown: 'new_prop',
+                breakdown: undefined,
+                breakdown_type: undefined,
+                breakdown_histogram_bin_count: undefined,
+                breakdown_normalize_url: undefined,
+                breakdown_group_type_index: undefined,
+                breakdowns: [
+                    { type: 'data_warehouse', property: 'prop' },
+                    { type: 'data_warehouse', property: 'new_prop' },
+                ],
             })
         })
 
@@ -941,8 +954,9 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        // In the UI it's not possible to add a second breakdown to a data warehouse query, but just in case.
-        it('addBreakdown: does add multiple breakdowns when there is a data warehouse breakdown', async () => {
+        // `data_warehouse_person_property` still only supports a single breakdown — the UI gates this in
+        // `addBreakdownDisabledReason`. This test covers the defensive path if it ever does fire.
+        it('addBreakdown: does add multiple breakdowns when there is a data warehouse person property breakdown', async () => {
             logic = taxonomicBreakdownFilterLogic(
                 makeProps({
                     breakdownFilter: {
@@ -1111,17 +1125,52 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdownFilter: {
                         breakdown: 'prop',
                         breakdown_type: 'event',
-                        breakdown_normalize_url: true,
+                        breakdown_normalize_url: false,
                     },
                 })
             )
             logic.mount()
 
+            await expectLogic(logic).toMatchValues({ normalizeBreakdownUrl: false })
+
             await expectLogic(logic, () => {
-                logic.actions.setNormalizeBreakdownURL('prop', 'event', false)
+                logic.actions.setNormalizeBreakdownURL('prop', 'event', true)
             }).toFinishListeners()
 
-            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_normalize_url: false })
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_normalize_url: true })
+        })
+
+        it('setPathCleaningEnabled: updates correctly', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown: 'prop',
+                        breakdown_type: 'event',
+                        breakdown_path_cleaning: true,
+                    },
+                })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ pathCleaningEnabled: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setPathCleaningEnabled('prop', 'event', false)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_path_cleaning: false })
+        })
+
+        it('normalize url and path cleaning: defaults when unset', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({ breakdownFilter: { breakdown: 'prop', breakdown_type: 'event' } })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                normalizeBreakdownUrl: true,
+                pathCleaningEnabled: false,
+            })
         })
 
         it('setHistogramBinsUsed: updates correctly', async () => {

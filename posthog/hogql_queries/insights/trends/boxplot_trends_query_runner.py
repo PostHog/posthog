@@ -10,6 +10,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -24,18 +25,9 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             date_to=self.query_date_range.date_to(),
         )
 
-        if not self.query.series:
-            return TrendsQueryResponse(
-                results=[],
-                boxplot_data=[],
-                modifiers=self.modifiers,
-                resolved_date_range=resolved_date_range,
-            )
-
         if any(not s.math_property for s in self.query.series):
             return TrendsQueryResponse(
                 results=[],
-                boxplot_data=[],
                 modifiers=self.modifiers,
                 error="A numeric property must be selected for box plot.",
                 resolved_date_range=resolved_date_range,
@@ -87,7 +79,6 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             elif getattr(series_node, "math_property_type", None) == "session_properties":
                 return TrendsQueryResponse(
                     results=[],
-                    boxplot_data=[],
                     modifiers=self.modifiers,
                     error=f"Unsupported session property: {series_node.math_property}",
                     resolved_date_range=resolved_date_range,
@@ -111,14 +102,18 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
         debug_errors: list[str] = []
 
         for series_index, series_label, boxplot_query in series_queries:
-            response = execute_hogql_query(
-                query_type="BoxPlotTrendsQuery",
-                query=boxplot_query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
+            # `BoxPlotTrendsQuery` isn't a NodeKind, so the fallback query tagger can't attribute
+            # it — tag it explicitly so the queries are attributed (and don't trip the untagged-query guard).
+            with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY):
+                response = execute_hogql_query(
+                    query_type="BoxPlotTrendsQuery",
+                    query=boxplot_query,
+                    team=self.team,
+                    user=self.user,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
 
             if response.timings is not None:
                 all_timings.extend(response.timings)
@@ -163,8 +158,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
                     )
 
         return TrendsQueryResponse(
-            results=[],
-            boxplot_data=all_boxplot_data,
+            results=[d.model_dump() for d in all_boxplot_data],
             timings=all_timings or None,
             hogql=response_hogql,
             error=". ".join(debug_errors) if debug_errors else None,

@@ -97,6 +97,22 @@ export function ChartFilter(): JSX.Element {
                           },
                       ]
                     : []),
+                ...(featureFlags[FEATURE_FLAGS.SLOPE_GRAPH_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.SlopeGraph,
+                              icon: <IconTrends />,
+                              label: 'Slope graph',
+                              disabledReason: trendsOnlyDisabledReason,
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Slope graph"
+                                      description="Change from the start to the end of the range, one line per series."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
         {
@@ -128,6 +144,22 @@ export function ChartFilter(): JSX.Element {
                     ),
                     disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
                 },
+                ...(featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.Metric,
+                              icon: <IconTrends />,
+                              label: 'Metric',
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Metric"
+                                      description="A headline value with a sparkline and period-over-period change."
+                                  />
+                              ),
+                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
@@ -175,21 +207,15 @@ export function ChartFilter(): JSX.Element {
                         <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),
                 },
-                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.CalendarHeatmap,
-                              icon: <IconRetentionHeatmap />,
-                              label: 'Calendar heatmap',
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Calendar heatmap"
-                                      description="Values per day and hour."
-                                  />
-                              ),
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.CalendarHeatmap,
+                    icon: <IconRetentionHeatmap />,
+                    label: 'Calendar heatmap',
+                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
+                    ),
+                },
             ],
         },
     ]

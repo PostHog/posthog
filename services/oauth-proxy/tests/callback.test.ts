@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { handleCallback } from '@/handlers/callback'
+import { hashKey } from '@/lib/kv'
 
 import { createMockKV, mockKVGet } from './helpers'
 
@@ -12,8 +13,9 @@ beforeEach(() => {
 
 describe('handleCallback', () => {
     it('redirects to original redirect_uri with code and state', async () => {
+        const stateHash = await hashKey('test_state_123')
         mockKVGet(mockKV, (key: string) => {
-            if (key === 'callback:test_state_123') {
+            if (key === `callback:${stateHash}`) {
                 return Promise.resolve('http://localhost:3000/callback')
             }
             return Promise.resolve(null)
@@ -48,8 +50,9 @@ describe('handleCallback', () => {
     })
 
     it('forwards error params to client redirect_uri', async () => {
+        const stateHash = await hashKey('err_state')
         mockKVGet(mockKV, (key: string) => {
-            if (key === 'callback:err_state') {
+            if (key === `callback:${stateHash}`) {
                 return Promise.resolve('http://localhost:3000/callback')
             }
             return Promise.resolve(null)

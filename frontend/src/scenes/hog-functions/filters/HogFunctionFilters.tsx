@@ -1,15 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
+import { DataWarehouseColumnsHint } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import MaxTool from 'scenes/max/MaxTool'
@@ -17,12 +19,23 @@ import MaxTool from 'scenes/max/MaxTool'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { truncateHogFunctionContext } from '../hog-function-utils'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
 const MASKING_HASH_PER_PERSON = '{person.id}'
 const MASKING_HASH_PER_PERSON_PER_EVENT = '{concat(person.id, event.event)}'
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY =
+    "{concat(toString(person.id), '-', event.event, '-', formatDateTime(now(), '%Y-%m-%d'))}"
+
+const CALENDAR_DAY_HASHES = [MASKING_HASH_PER_PERSON_PER_DAY, MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY] as string[]
+// TTL for calendar-day options: 24h is sufficient for Redis cleanup since the date is in the hash
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+const DEFAULT_INTERVAL_TTL = 60 * 30
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -88,10 +101,31 @@ export function HogFunctionFilters({
         reportAIFiltersPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
+    useAttachedContext([
+        {
+            type: 'hog_function_filters',
+            value: truncateHogFunctionContext(
+                JSON.stringify({ filters: configuration?.filters ?? {}, function_type: type })
+            ),
+            label: 'Current filters',
+        },
+    ])
+
     const isTransformation = type === 'transformation'
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
+
+    // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
+    // automatically in this scene — kick it off when a warehouse table is the source.
+    const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { loadDatabase } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (isDataWarehouse && !dataWarehouseTables.length) {
+            loadDatabase()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isDataWarehouse])
 
     const excludedProperties: ExcludedProperties = {
         [TaxonomicFilterGroupType.EventProperties]: [
@@ -133,7 +167,9 @@ export function HogFunctionFilters({
         return types
     }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
+    // Masking trigger options are event/person based (hashes of person.id / event.event and
+    // event-count thresholds), so they don't apply to data-warehouse row triggers.
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions && !isDataWarehouse
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -165,8 +201,8 @@ export function HogFunctionFilters({
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
                             <br />
-                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
-                            warehouse.
+                            <b>Warehouse table</b> will trigger whenever a new row is synced into a data warehouse
+                            table.
                         </>
                     }
                 >
@@ -179,7 +215,7 @@ export function HogFunctionFilters({
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse-table', label: 'Data warehouse' }]
+                                        ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
                                 ]}
                                 value={value?.source ?? 'events'}
@@ -203,6 +239,13 @@ export function HogFunctionFilters({
                 {({ value, onChange: _onChange }) => {
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
+
+                    const dataWarehouseTableName = isDataWarehouse
+                        ? currentFilters?.data_warehouse?.[0]?.table_name
+                        : undefined
+                    const dataWarehouseColumns = dataWarehouseTableName
+                        ? Object.values(dataWarehouseTablesMap[dataWarehouseTableName]?.fields ?? {})
+                        : []
 
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
@@ -279,7 +322,7 @@ export function HogFunctionFilters({
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : isDataWarehouse
-                                                  ? [TaxonomicFilterGroupType.DataWarehouse]
+                                                  ? [TaxonomicFilterGroupType.DataWarehouseSourceTables]
                                                   : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
@@ -300,6 +343,13 @@ export function HogFunctionFilters({
                                         excludedProperties={excludedProperties}
                                         allowNonCapturedEvents
                                     />
+                                    {dataWarehouseTableName ? (
+                                        <DataWarehouseColumnsHint
+                                            schemaColumns={dataWarehouseColumns}
+                                            tableName={dataWarehouseTableName}
+                                            personAvailable
+                                        />
+                                    ) : null}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
@@ -378,16 +428,31 @@ export function HogFunctionFilters({
                                         value: MASKING_HASH_PER_PERSON_PER_EVENT,
                                         label: 'Run once per person per event name per interval',
                                     },
+                                    {
+                                        value: MASKING_HASH_PER_PERSON_PER_DAY,
+                                        label: 'Once per person per day (UTC)',
+                                    },
+                                    {
+                                        value: MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY,
+                                        label: 'Once per person per event per day (UTC)',
+                                    },
                                 ]}
                                 value={value?.hash ?? null}
-                                onChange={(val) =>
+                                onChange={(val) => {
+                                    const isCalendarDay = CALENDAR_DAY_HASHES.includes(val)
+                                    const wasCalendarDay = CALENDAR_DAY_HASHES.includes(value?.hash)
                                     onChange({
                                         hash: val,
-                                        ttl: value?.ttl ?? 60 * 30,
+                                        ttl: isCalendarDay
+                                            ? CALENDAR_DAY_TTL
+                                            : wasCalendarDay
+                                              ? DEFAULT_INTERVAL_TTL
+                                              : (value?.ttl ?? DEFAULT_INTERVAL_TTL),
                                     })
-                                }
+                                }}
                             />
-                            {configuration.masking?.hash ? (
+                            {configuration.masking?.hash &&
+                            !CALENDAR_DAY_HASHES.includes(configuration.masking.hash) ? (
                                 <>
                                     <div className="flex flex-wrap gap-1 items-center">
                                         <span>of</span>
@@ -469,12 +534,17 @@ export function HogFunctionFilters({
                     )}
                 </LemonField>
             ) : null}
-            {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT &&
+            {(configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT ||
+                configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY) &&
             (configuration.filters?.actions?.length ?? 0) > 0 ? (
                 <LemonBanner type="info">
                     When filtering by an action that matches multiple event names, this destination will trigger once
                     per event name per person, not once per action. If you want to trigger only once regardless of event
-                    name, use "Run once per person per interval" instead.
+                    name, use "
+                    {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY
+                        ? 'Once per person per day (UTC)'
+                        : 'Run once per person per interval'}
+                    " instead.
                 </LemonBanner>
             ) : null}
         </div>

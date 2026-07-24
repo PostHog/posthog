@@ -1,7 +1,40 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { ServerCommands } from '~/common/utils/commands'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
+import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    ProducerName,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/outputs/producers'
+import {
+    ErrorTrackingConsumerConfig,
+    ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingConsumerConfig,
+    getDefaultErrorTrackingOutputsConfig,
+} from '~/ingestion/pipelines/errortracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
-import { initializePrometheusLabels } from '../api/router'
 import {
     HogTransformerServiceConfig,
     HogTransformerServiceDeps,
@@ -9,43 +42,14 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import {
-    KafkaProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
 } from '../ingestion/config'
-import {
-    ErrorTrackingConsumerConfig,
-    ErrorTrackingOutputsConfig,
-    getDefaultErrorTrackingOutputsConfig,
-} from '../ingestion/error-tracking/config'
-import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
-import { ServerCommands } from '../utils/commands'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { GeoIPService } from '../utils/geoip'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -62,13 +66,14 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    CookielessServerConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -87,13 +92,17 @@ export class ErrorTrackingServer implements NodeServer {
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
+    private cookielessRedisPool?: RedisPool
+    private cookielessManager?: CookielessManager
     private pubsub?: PubSub
 
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultErrorTrackingConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
             ...config,
         }
@@ -124,7 +133,7 @@ export class ErrorTrackingServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        this.producerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
 
@@ -135,6 +144,16 @@ export class ErrorTrackingServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
         logger.info('👍', 'Ingestion Redis ready')
+
+        logger.info('🤔', 'Connecting to cookieless Redis...')
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Cookieless Redis ready')
+
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
 
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
@@ -148,25 +167,16 @@ export class ErrorTrackingServer implements NodeServer {
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 
-        const postgresPersonRepository = new PostgresPersonRepository(this.postgres)
-        const personRepository = buildPersonRepository(
-            personhogClient,
-            postgresPersonRepository,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
-        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
-        const groupRepository = buildGroupRepository(
-            personhogClient,
-            postgresGroupRepository,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
+        if (!personhogClient) {
+            throw new Error(
+                'PersonHog client is required for error tracking — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
+            )
+        }
+
+        const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
+        const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -176,7 +186,6 @@ export class ErrorTrackingServer implements NodeServer {
             integrationManager,
             monitoringOutputs: outputs,
             teamManager,
-            internalCaptureService,
         }
 
         // 3. Error tracking consumer
@@ -191,23 +200,21 @@ export class ErrorTrackingServer implements NodeServer {
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
                     cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
-                    overflowEnabled:
-                        !!this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                        this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                            this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                    overflowMode: this.config.INGESTION_OVERFLOW_MODE,
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                    statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                    pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                    pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
                 },
                 {
                     outputs,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
+                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
+                    cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
                 }
@@ -229,11 +236,12 @@ export class ErrorTrackingServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool].filter(Boolean) as RedisPool[],
+            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
                 await this.producerRegistry?.disconnectAll()
+                this.cookielessManager?.shutdown()
             },
         }
     }

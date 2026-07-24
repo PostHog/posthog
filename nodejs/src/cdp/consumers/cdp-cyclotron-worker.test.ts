@@ -1,13 +1,15 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createExampleInvocation,
@@ -37,7 +39,7 @@ describe('CdpCyclotronWorker', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
 
         fn = await insertHogFunction(
             hub.postgres,
@@ -256,6 +258,23 @@ describe('CdpCyclotronWorker', () => {
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
 
+        it.each([['project'], ['event']] as const)(
+            'should DLQ a malformed invocation whose globals is missing %s instead of crashing',
+            async (field) => {
+                const dequeueInvocationsSpy = jest
+                    .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                    .mockResolvedValue(undefined)
+
+                const malformed = createExampleInvocation(fn, globals)
+                delete (malformed.state.globals as any)[field]
+
+                const results = await processor['loadHogFunctions']([malformed])
+
+                expect(results).toEqual([])
+                expect(dequeueInvocationsSpy).toHaveBeenCalledWith([malformed])
+            }
+        )
+
         it('should skip a loaded function if it is disabled', async () => {
             const fn2 = await insertHogFunction(
                 hub.postgres,
@@ -409,17 +428,22 @@ describe('CdpCyclotronWorker', () => {
         describe('thread relief', () => {
             jest.setTimeout(10000)
             let interval: NodeJS.Timeout
+            const blockTime = 200
+            let originalThresholdMs: number
+
             beforeEach(() => {
                 jest.spyOn(Date, 'now').mockRestore()
                 jest.useRealTimers()
+                originalThresholdMs = getEventLoopYieldThresholdMs()
+                configureEventLoopYield(blockTime)
             })
 
             afterEach(() => {
                 clearInterval(interval)
+                configureEventLoopYield(originalThresholdMs)
             })
 
             it('should process batches in a way that does not block the main thread', async () => {
-                const blockTime = 200
                 let lastCheck = Date.now()
                 let longestDelay = 0
 

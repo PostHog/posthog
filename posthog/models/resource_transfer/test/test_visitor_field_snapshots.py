@@ -18,6 +18,8 @@ def _classify_fields(visitor: type[ResourceTransferVisitor]) -> dict[str, Any]:
     skipped: list[str] = []
 
     for attr_name in sorted(model.__dict__.keys()):
+        if attr_name == "__annotations__":
+            continue
         if not visitor.should_touch_field(attr_name):
             skipped.append(attr_name)
             continue

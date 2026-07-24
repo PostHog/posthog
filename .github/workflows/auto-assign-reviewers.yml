@@ -9,6 +9,7 @@ name: Auto Assign Reviewers
 #
 # This has the small downside that changes to CODEOWNERS will not be reflected in here until we merge it to master,
 # which means testing this workflow is slightly less convenient but that's well worth it.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
         # Only opened or when clicking ready otherwise you can never remove the reviewers
@@ -27,13 +28,13 @@ jobs:
             # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Checkout master branch
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   # this value MUST be set to `master` to avoid executing untrusted code.
@@ -44,6 +45,24 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  # Resolve the node-versions manifest on the app token, not the shared per-repo GITHUB_TOKEN bucket
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+
+            # The assigner shells out to the owners resolver
+            # (`python -m posthog_owners`) for ownership. That entrypoint
+            # only needs pyyaml, so set up python and install just that — no full
+            # project sync in this node-first workflow.
+            - name: Setup Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13'
+
+            # Exact pin: this pull_request_target workflow runs with an app token,
+            # so a floating version must not be able to pull fresh code at run time.
+            # -I (isolated mode) keeps the checkout's CWD off sys.path, so a
+            # repo-root pip.py can never shadow the real pip here.
+            - name: Install resolver dependency
+              run: python -I -m pip install --quiet 'pyyaml==6.0.2'
 
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
@@ -53,5 +72,6 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
                   node .github/scripts/assign-reviewers.js

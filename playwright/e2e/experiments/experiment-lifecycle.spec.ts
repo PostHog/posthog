@@ -75,20 +75,37 @@ test.describe('Experiment lifecycle', () => {
 
                 // Variants step — wait for stepper to confirm transition
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Variant rollout' })).toBeVisible()
+
+                // Customize split to 70/30 — exercises the full variant payload round-trip
+                await page.getByRole('button', { name: 'Customize split' }).click()
+                const splitInputs = page.getByTestId('experiment-variant-rollout-percentage-input')
+                await splitInputs.nth(0).fill('70')
+                await splitInputs.nth(1).fill('30')
+
                 await page.getByRole('button', { name: 'Continue' }).click()
 
                 // Analytics step — wait for stepper and step content to render
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Analytics' })).toBeVisible()
                 await expect(page.getByText('How to measure impact?')).toBeVisible()
 
+                // Wait for the step transition to fully settle before interacting
+                const saveButton = page.getByRole('button', { name: 'Save as draft' })
+                await expect(saveButton).toBeEnabled({ timeout: 10000 })
+
                 // This click occasionally doesn't produce a navigation. Possible causes:
                 // the click not reaching React's event handler after the step transition,
                 // or the backend response being slow. Retry until navigation confirms success.
                 await expect(async () => {
-                    await page.getByRole('button', { name: 'Save as draft' }).click()
-                    await page.waitForURL(/\/experiments\/\d+$/, { timeout: 5000 })
-                }).toPass({ timeout: 30000 })
+                    await saveButton.click()
+                    await page.waitForURL(/\/experiments\/\d+$/, { timeout: 15000 })
+                }).toPass({ timeout: 45000 })
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
+
+                // Verify the custom split is preserved
+                await page.getByRole('tab', { name: 'Variants' }).click()
+                await expect(page.getByText('70%')).toBeVisible()
+                await expect(page.getByText('30%')).toBeVisible()
+                await page.getByRole('tab', { name: 'Metrics' }).click()
             })
 
             await test.step('add primary metric', async () => {

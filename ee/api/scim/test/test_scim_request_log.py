@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -36,14 +37,15 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
     def test_get_request_creates_log(self):
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Users",
-            HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
+            f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -69,7 +71,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
                 "active": True,
             },
             content_type="application/scim+json",
-            HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
+            headers={"authorization": f"Bearer {self.plain_token}"},
         )
 
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
@@ -78,10 +80,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
         assert "test@example.com" not in str(log.request_body)
 
     def test_authorization_header_is_fully_masked(self):
-        self.client.get(
-            f"/scim/v2/{self.domain.id}/Users",
-            HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
-        )
+        self.client.get(f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"})
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
         assert log is not None
         auth_header = log.request_headers.get("Authorization", "")
@@ -90,8 +89,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
 
     def test_response_body_stored(self):
         self.client.get(
-            f"/scim/v2/{self.domain.id}/ServiceProviderConfig",
-            HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
+            f"/scim/v2/{self.domain.id}/ServiceProviderConfig", headers={"authorization": f"Bearer {self.plain_token}"}
         )
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
         assert log is not None
@@ -99,10 +97,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
         assert "schemas" in log.response_body
 
     def test_duration_is_tracked(self):
-        self.client.get(
-            f"/scim/v2/{self.domain.id}/Users",
-            HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
-        )
+        self.client.get(f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"})
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
         assert log is not None
         assert log.duration_ms is not None

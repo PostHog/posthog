@@ -37,6 +37,9 @@ def _create_ai_generation_event(
 
 
 class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+
     def test_finds_prev_and_next_traces(self):
         """Test that the query finds both previous and next traces correctly."""
         _create_person(distinct_ids=["person1"], team=self.team)

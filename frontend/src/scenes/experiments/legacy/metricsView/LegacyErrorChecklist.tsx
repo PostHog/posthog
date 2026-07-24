@@ -8,7 +8,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { getInsightType, legacyExperimentLogic } from '~/scenes/experiments/legacy'
+import { getExperimentVariants } from '~/scenes/experiments/utils'
 import { ActivityTab, InsightType } from '~/types'
 
 export enum ResultErrorCode {
@@ -121,11 +122,13 @@ function ChecklistItem({
 }
 
 export function LegacyErrorChecklist({ error, metric }: { error: any; metric: any }): JSX.Element {
-    const { experiment, variants, getInsightType } = useValues(experimentLogic)
+    const { experiment } = useValues(legacyExperimentLogic)
 
     if (!error) {
         return <></>
     }
+
+    const variants = getExperimentVariants(experiment)
 
     const { statusCode, hasDiagnostics } = error
 

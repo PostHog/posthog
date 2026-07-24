@@ -1,6 +1,6 @@
 import FastPriorityQueue from 'fastpriorityqueue'
 
-import { promiseResolveReject } from 'lib/utils'
+import { promiseResolveReject } from 'lib/utils/async'
 
 // Note that this file also exists in the nodejs package, please keep them in sync as the tests only exist for this version
 
@@ -118,5 +118,5 @@ export class ConcurrencyController {
 
 // Create a fake AbortError that allows us to use e.name === 'AbortError' to check if an error is an AbortError
 class FakeAbortError extends Error {
-    name = 'AbortError'
+    override name = 'AbortError'
 }

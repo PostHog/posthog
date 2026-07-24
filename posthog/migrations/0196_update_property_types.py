@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         (
                             "property_type__in",

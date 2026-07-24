@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getIOSSteps } from '../product-analytics/ios'
 import { StepDefinition } from '../steps'
@@ -27,7 +27,7 @@ function getSurveysIOSSteps(ctx: OnboardingComponentsContext): StepDefinition[] 
                                     let POSTHOG_PROJECT_TOKEN = "<ph_project_token>"
                                     // usually 'https://us.i.posthog.com' or 'https://eu.i.posthog.com'
                                     let POSTHOG_HOST = "<ph_client_api_host>"
-                                    let config = PostHogConfig(apiKey: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST) 
+                                    let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
 
                                     // Surveys require iOS 15.0 or later
                                     if #available(iOS 15.0, *) {

@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this review queue item.",
+            "type": "string"
+        },
+        "queue_id": {
+            "description": "Review queue ID that should own this pending trace.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

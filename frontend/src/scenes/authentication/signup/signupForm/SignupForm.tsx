@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { userLogic } from '../../../userLogic'
@@ -28,12 +31,31 @@ export function SignupForm(): JSX.Element | null {
         signupPanelOnboardingManualErrors,
         isSignupPanel2Submitting,
         signupPanel2ManualErrors,
+        signupPanelEmail,
         panel,
         passkeySignupEnabled,
         panelTitle,
     } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const [showSpinner, setShowSpinner] = useState(true)
+
+    const supportLink = preflight?.cloud ? (
+        <>
+            {' '}
+            <Link
+                data-attr="login-error-contact-support"
+                onClick={(e) => {
+                    e.preventDefault()
+                    openSupportForm({ kind: 'support', target_area: 'login', email: signupPanelEmail.email })
+                }}
+            >
+                Contact us
+            </Link>{' '}
+            to resolve this.
+        </>
+    ) : null
 
     useEffect(() => {
         setShowSpinner(true)
@@ -47,11 +69,12 @@ export function SignupForm(): JSX.Element | null {
     if (passkeySignupEnabled) {
         return !user ? (
             <div className="deprecated-space-y-2">
-                <h2>{panelTitle}</h2>
+                {panelTitle ? <h2>{panelTitle}</h2> : null}
                 {!isSignupPanelOnboardingSubmitting && signupPanelOnboardingManualErrors?.generic && (
                     <LemonBanner type="error">
                         {signupPanelOnboardingManualErrors.generic?.detail ||
                             'Could not complete your signup. Please try again.'}
+                        {supportLink}
                     </LemonBanner>
                 )}
                 {panel === 0 ? (
@@ -95,10 +118,11 @@ export function SignupForm(): JSX.Element | null {
     // Legacy 2-panel flow (when passkey signup is disabled)
     return !user ? (
         <div className="deprecated-space-y-2">
-            <h2>{panelTitle}</h2>
+            {panelTitle ? <h2>{panelTitle}</h2> : null}
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <LemonBanner type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
+                    {supportLink}
                 </LemonBanner>
             )}
             {panel === 0 ? (

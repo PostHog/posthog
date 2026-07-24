@@ -1,1 +1,1 @@
-0042_alter_externaldataschema_sync_type
+0057_managed_warehouse_backfill_partition

@@ -18,6 +18,8 @@ from posthog import settings
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.profiles import KafkaClusterProfile
+from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -41,6 +43,12 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                 ErrorCodes.NOT_ENOUGH_SPACE,
                 ErrorCodes.SOCKET_TIMEOUT,
+                # Raised by waitMutationToFinishOnReplicas / cross-replica reads when the
+                # coordinator's snapshot of active replicas momentarily lacks the covering
+                # part (e.g. mid-fetch, mid-merge) or no replica is online. The mutation
+                # itself usually proceeds; the wait is what fails. Retry to re-poll.
+                ErrorCodes.NO_REPLICA_HAS_PART,  # 234
+                ErrorCodes.NO_ACTIVE_REPLICAS,  # 254
                 439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
             )
         )
@@ -65,6 +73,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
     host: str = settings.CLICKHOUSE_HOST
     cluster: str | None = None
+    retry_max_attempts: int = 8
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
@@ -73,8 +82,39 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
-                max_attempts=8,
-                delay=ExponentialBackoff(20),
+                max_attempts=self.retry_max_attempts,
+                delay=ExponentialBackoff(20, max_delay=60),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+        )
+
+
+class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+    max_execution_time: int
+    max_memory_usage: int
+
+    # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
+    # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
+    # app host/cluster don't match. Mirrors get_migrations_cluster, the path migrations use to reach OPS.
+    host: str = settings.CLICKHOUSE_MIGRATIONS_HOST
+    cluster: str = settings.CLICKHOUSE_MIGRATIONS_CLUSTER
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            client_settings={
+                "max_execution_time": str(self.max_execution_time),
+                "max_memory_usage": str(self.max_memory_usage),
+                # Socket read timeout must outlast the query's own time cap.
+                "receive_timeout": str(self.max_execution_time + 300),
+                "mutations_sync": "0",
+            },
+            retry_policy=RetryPolicy(
+                max_attempts=2,
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -89,6 +129,9 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     use_concurrency_control=0 (configured in users.xml via Ansible) because
     async BACKUP threads don't inherit session-level settings.
     """
+
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str = settings.CLICKHOUSE_CLUSTER
 
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
@@ -109,10 +152,12 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             )
         return get_cluster(
             context.log,
+            host=self.host,
+            cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -149,7 +194,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -202,7 +247,7 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
             )
 
         asyncio.run(initialize_self_capture_api_token())
-        posthoganalytics.personal_api_key = self.personal_api_key
+        posthoganalytics.personal_api_key = self.personal_api_key  # ty: ignore[invalid-assignment]
 
         return None
 
@@ -229,12 +274,20 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 
 @dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
+    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
+
+    Every existing consumer of this resource (`detach_distinct_id_op`,
+    `person_property_reconciliation`, `person_property_reconciliation_restore`)
+    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
+    routing map sends to the INGESTION profile. Binding the resource here keeps
+    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
+    fails loud rather than silently dropping writes via the DEFAULT fallback.
+
+    Ops producing to topics on a different profile must call
+    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
     """
-    Kafka producer resource with proper cleanup.
-    Flushes pending messages on teardown.
-    """
-    producer = _KafkaProducer()
+    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
     try:
         yield producer
     finally:

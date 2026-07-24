@@ -1,5 +1,9 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { asNonEmptyString, safeFetch } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -19,24 +23,44 @@ export async function refreshOAuthTokens(
     refreshPromise = (async () => {
         const startTime = performance.now()
         try {
-            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
-            })
+            // Every failure below is an expected request outcome (expired/revoked refresh
+            // token, network hiccup, proxy error page) - tracked via the capture event and
+            // logs, never reported to error tracking.
+            let response: Response
+            try {
+                response = await safeFetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
+                })
+            } catch {
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'network_error',
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
+                throw new ToolbarRequestError('Refresh failed: network error')
+            }
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
-                throw err
+                throw new ToolbarRequestError(`Refresh failed: ${response.status}`, response.status)
             }
 
-            const data = await response.json()
+            let data: OAuthTokens
+            try {
+                data = await response.json()
+            } catch {
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'invalid_response',
+                    http_status: response.status,
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
+                throw new ToolbarRequestError('Refresh failed: malformed response', response.status)
+            }
             toolbarPosthogJS.capture('toolbar token refresh', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
@@ -64,7 +88,18 @@ export async function withTokenRefresh(
     const clientId = logic?.values.clientId
     const uiHost = logic?.values.uiHost
 
-    if (response.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+    // `response?.status` (not `response.status`) so a non-Response value from a customer-page
+    // `fetch` wrapper can't throw here — callers that don't route through `safeFetch` stay safe too.
+    if (response?.status !== 401 || !accessToken || !clientId || !uiHost) {
+        return response
+    }
+
+    // Refresh-less tokens (impersonation-minted, refresh-less by design) can't be refreshed —
+    // a 401 means the short-lived access token has expired, so prompt the user to re-authenticate.
+    if (!refreshToken) {
+        toolbarLogger.warn('auth', 'Access token expired and no refresh token available, re-authentication required')
+        lemonToast.error('Please re-authenticate to continue using the toolbar.')
+        toolbarConfigLogic.actions.tokenExpired()
         return response
     }
 
@@ -73,11 +108,35 @@ export async function withTokenRefresh(
         if (!toolbarConfigLogic.findMounted()) {
             return response
         }
-        toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
-        return await retryRequest(tokens.access_token)
+        const access = asNonEmptyString(tokens?.access_token)
+        const refresh = asNonEmptyString(tokens?.refresh_token)
+        if (!access || !refresh) {
+            toolbarLogger.warn('auth', 'Refresh response missing string tokens, discarding')
+            // Refresh fired in response to a user action (not mount-time restore), so the
+            // tokenExpired suppression by source !== 'localstorage' doesn't apply — surface
+            // a toast directly so the user knows why the action failed.
+            lemonToast.error('Please re-authenticate to continue using the toolbar.')
+            toolbarConfigLogic.actions.tokenExpired()
+            return response
+        }
+        toolbarConfigLogic.actions.setOAuthTokens(access, refresh, clientId)
+        try {
+            return await retryRequest(access)
+        } catch {
+            // The refresh succeeded but the replayed request failed at the network level -
+            // an expected request outcome. Hand back the original 401 so callers treat it
+            // as an ordinary failed response instead of an exception.
+            toolbarLogger.warn('auth', 'Request replay after token refresh failed at network level')
+            return response
+        }
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // Failed refreshes are expected request outcomes (ToolbarRequestError) - only a
+        // genuine bug in the refresh/retry code itself is worth an exception.
+        if (!isToolbarRequestError(e)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
+        lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
     }

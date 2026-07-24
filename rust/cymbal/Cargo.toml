@@ -17,12 +17,13 @@ common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
+common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
-limiters = { path = "../common/limiters" }
+common-posthog = { path = "../common/posthog" }
+cymbal-proto = { path = "../cymbal-proto" }
 posthog-symbol-data = { path = "../common/symbol_data" }
-common-geoip = { path = "../common/geoip" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
@@ -32,8 +33,9 @@ sourcemap = "9.0.0"
 symbolic = { version = "12.12", features = ["sourcemapcache", "debuginfo", "symcache", "demangle"] }
 zip = "4.0"
 proguard = "5.6.2"
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["brotli", "deflate", "gzip", "zstd"] }
 sha2 = "0.10.8"
+semver = "1.0"
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 uuid = { workspace = true }
@@ -42,18 +44,29 @@ moka = { workspace = true }
 rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
+bytes = { workspace = true }
 regex = { workspace = true }
-once_cell = { workspace = true }
+rand = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-tower.workspace = true
 tiktoken-rs.workspace = true
+tonic = { workspace = true }
+tokio-stream = "0.1"
+personhog-common = { path = "../personhog-common" }
+async-stream = { workspace = true }
+subtle = "2.6"
+common-temporal = { path = "../common/temporal" }
 
 
 [dev-dependencies]
+common-compression = { path = "../common/compression" }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
+tower.workspace = true
+# For decompressing the committed native ELF test fixture
+zstd = "0.13"
+testcontainers = { workspace = true }
 
 [lints]
 workspace = true

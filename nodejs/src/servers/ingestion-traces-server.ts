@@ -1,17 +1,31 @@
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
+import {
+    LogsIngestionConsumerConfig,
+    LogsIngestionOutputsConfig,
+    TracesIngestionConsumerConfig,
+    getDefaultLogsIngestionOutputsConfig,
+} from '~/logs/config'
+import { createProducerRegistry } from '~/logs/outputs/producer-registry'
+import {
+    KafkaWarpstreamIngestionProducerEnvConfig,
+    KafkaWarpstreamLogsProducerEnvConfig,
+    LogsProducerName,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+    getDefaultKafkaWarpstreamLogsProducerEnvConfig,
+} from '~/logs/outputs/producers'
+import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
+import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
 
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
-import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerWrapper } from '../kafka/producer'
-import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '../logs-ingestion/config'
-import { TracesIngestionConsumer } from '../logs-ingestion/traces-ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { logger } from '../utils/logger'
-import { TeamManager } from '../utils/team-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -21,12 +35,17 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - LogsIngestionConsumerConfig: base consumer config (traces reuses the logs consumer)
  * - TracesIngestionConsumerConfig: traces-specific Kafka topics, Redis, rate limiter settings
+ * - LogsIngestionOutputsConfig: per-output topic + producer routing
+ * - Producer env configs: typed env vars for the Warpstream logs + ingestion producers
  * - Infrastructure configs: Kafka broker, Postgres, Redis
  * - Remaining CommonConfig picks: server mode, observability
  */
 export type IngestionTracesServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     TracesIngestionConsumerConfig &
+    LogsIngestionOutputsConfig &
+    KafkaWarpstreamLogsProducerEnvConfig &
+    KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -38,11 +57,16 @@ export class IngestionTracesServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private posthogRedisPool?: RedisPool
-    private kafkaProducer?: KafkaProducerWrapper
-    private mskProducer?: KafkaProducerWrapper
+    private producerRegistry?: KafkaProducerRegistry<LogsProducerName>
 
     constructor(config: Partial<IngestionTracesServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -65,8 +89,7 @@ export class IngestionTracesServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.mskProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER')
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to PostHog Redis...')
@@ -80,15 +103,17 @@ export class IngestionTracesServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
-        // 2. Traces ingestion consumer
+        // 2. Resolve outputs (topic + producer per logical name, env-controlled)
+        const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
+
+        // 3. Traces ingestion consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                kafkaProducer: this.kafkaProducer!,
-                mskProducer: this.mskProducer!,
+                outputs,
             })
             await consumer.start()
             return consumer.service
@@ -100,9 +125,12 @@ export class IngestionTracesServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.mskProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

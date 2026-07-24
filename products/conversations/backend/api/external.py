@@ -6,9 +6,12 @@ to third-party developers in the future.
 Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 """
 
+import uuid
 import hashlib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from rest_framework import serializers, status
@@ -20,13 +23,15 @@ from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, Team
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 logger = structlog.get_logger(__name__)
 
@@ -78,8 +83,91 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
     sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
+    # `sla_amount`/`sla_unit`/`sla_business_hours` are the raw workflow inputs;
+    # the backend computes `sla_due_at` from them so the calculation stays
+    # testable and timezone-aware. Clear still routes through `sla_due_at: null`.
+    sla_amount = serializers.FloatField(required=False, min_value=0.000001)
+    sla_unit = serializers.ChoiceField(choices=["minute", "hour", "day"], required=False, default="hour")
+    sla_business_hours = serializers.JSONField(required=False, allow_null=True)
+    snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
-    tags = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
+    tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+
+    def validate_sla_business_hours(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("sla_business_hours must be an object")
+
+        days = value.get("days")
+        if not isinstance(days, list) or not days:
+            raise serializers.ValidationError("sla_business_hours.days must be a non-empty list")
+        unknown = [d for d in days if d not in WEEKDAYS]
+        if unknown:
+            raise serializers.ValidationError(f"Unknown weekday names: {unknown}")
+
+        time_cfg = value.get("time", "any")
+        if time_cfg != "any":
+            if not (isinstance(time_cfg, list) and len(time_cfg) == 2):
+                raise serializers.ValidationError("sla_business_hours.time must be 'any' or [start, end]")
+            if not isinstance(time_cfg[0], str) or not isinstance(time_cfg[1], str):
+                raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
+            if time_cfg[0] >= time_cfg[1]:
+                raise serializers.ValidationError("sla_business_hours.time start must be strictly before end")
+
+        tz_name = value.get("timezone") or "UTC"
+        if not isinstance(tz_name, str):
+            raise serializers.ValidationError("sla_business_hours.timezone must be a string")
+        try:
+            ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            raise serializers.ValidationError(f"Invalid timezone: {tz_name}")
+        return value
+
+    def validate(self, attrs):
+        if "sla_due_at" in attrs and "sla_amount" in attrs:
+            raise serializers.ValidationError(
+                {"sla_amount": "Cannot set both sla_due_at and sla_amount in the same request"}
+            )
+        return attrs
+
+
+def _validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
+    """Return an error Response if ticket_id is not a valid UUID, else None."""
+    # Django's <uuid:ticket_id> converter passes uuid.UUID; uuid.UUID(uuid_obj)
+    # wrongly treats it as ``hex`` and raises AttributeError.
+    if isinstance(ticket_id, uuid.UUID):
+        return None
+    try:
+        uuid.UUID(str(ticket_id))
+    except (ValueError, AttributeError, TypeError):
+        return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+# Header a HogFlow workflow step forwards so activity entries can attribute the change to it.
+HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
+
+
+def _workflow_trigger_from_request(request: Request) -> Trigger | None:
+    """Build an activity-log Trigger when the request originates from a HogFlow workflow step.
+
+    Only the workflow id is taken from the (caller-supplied) header, and only as a well-formed
+    UUID. The display name is resolved from the workflow itself on the frontend, so a token
+    holder can't spoof an arbitrary workflow name into the audit log. Module boundaries keep
+    conversations independent of workflows, so we can't validate id ownership here; the endpoint
+    is team-token authenticated, so the worst case is a token holder pointing attribution at
+    another workflow id within its own team — no cross-team or privilege impact.
+    """
+    hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
+    if not hog_flow_id:
+        return None
+    try:
+        uuid.UUID(hog_flow_id)
+    except (ValueError, TypeError):
+        return None
+    return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
 
 
 class ExternalTicketView(APIView):
@@ -101,10 +189,13 @@ class ExternalTicketView(APIView):
 
         assert team is not None
 
+        if error := _validate_ticket_id(ticket_id):
+            return error
+
         try:
-            ticket = Ticket.objects.select_related("assignment", "assignment__user", "assignment__role").get(
-                id=ticket_id, team_id=team.id
-            )
+            ticket = Ticket.objects.select_related(
+                "assignment", "assignment__user", "assignment__role", "email_config"
+            ).get(id=ticket_id, team_id=team.id)
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -142,11 +233,16 @@ class ExternalTicketView(APIView):
                 "unread_team_count": ticket.unread_team_count,
                 "unread_customer_count": ticket.unread_customer_count,
                 "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
                 "assignee": assignee,
                 "url": session_context.get("current_url"),
                 "slack_channel_id": ticket.slack_channel_id,
                 "slack_thread_ts": ticket.slack_thread_ts,
                 "slack_team_id": ticket.slack_team_id,
+                "email_subject": ticket.email_subject,
+                "email_from": ticket.email_from,
+                "email_to": ticket.email_config.from_email if ticket.email_config else None,
+                "cc_participants": ticket.cc_participants,
                 "tags": tags,
             }
         )
@@ -157,6 +253,13 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        # When a HogFlow workflow step makes the change, it forwards its identity via
+        # headers so the activity log can attribute (and link to) the workflow.
+        workflow_trigger = _workflow_trigger_from_request(request)
+
+        if error := _validate_ticket_id(ticket_id):
+            return error
 
         serializer = ExternalTicketUpdateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -222,6 +325,71 @@ class ExternalTicketView(APIView):
                         action="changed",
                     )
                 )
+        elif "sla_amount" in serializer.validated_data:
+            try:
+                new_sla_due_at = compute_sla_deadline(
+                    now=timezone.now(),
+                    amount=serializer.validated_data["sla_amount"],
+                    unit=serializer.validated_data.get("sla_unit", "hour"),
+                    business_hours=serializer.validated_data.get("sla_business_hours"),
+                )
+            except (ValueError, RuntimeError) as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+                return Response({"error": "Invalid SLA configuration."}, status=status.HTTP_400_BAD_REQUEST)
+
+            ticket.sla_due_at = new_sla_due_at
+            if "sla_due_at" not in update_fields:
+                update_fields.append("sla_due_at")
+
+            if old_sla_due_at != ticket.sla_due_at:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="sla_due_at",
+                        before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                        after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                        action="changed",
+                    )
+                )
+
+        old_snoozed_until = ticket.snoozed_until
+        if "snoozed_until" in serializer.validated_data:
+            ticket.snoozed_until = serializer.validated_data["snoozed_until"]
+            update_fields.append("snoozed_until")
+
+            if old_snoozed_until != ticket.snoozed_until:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="snoozed_until",
+                        before=old_snoozed_until.isoformat() if old_snoozed_until else None,
+                        after=ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
+                        action="changed",
+                    )
+                )
+
+                # Auto-status on snooze transitions (only when status wasn't explicitly set)
+                if new_status is None:
+                    auto_status = None
+                    if old_snoozed_until is None and ticket.snoozed_until is not None:
+                        auto_status = "on_hold"
+                    elif old_snoozed_until is not None and ticket.snoozed_until is None:
+                        auto_status = "open"
+
+                    if auto_status and ticket.status != auto_status:
+                        auto_old_status = ticket.status
+                        ticket.status = auto_status
+                        if "status" not in update_fields:
+                            update_fields.append("status")
+                        changes.append(
+                            Change(
+                                type="Ticket",
+                                field="status",
+                                before=auto_old_status,
+                                after=auto_status,
+                                action="changed",
+                            )
+                        )
 
         if update_fields:
             ticket.save(update_fields=[*update_fields, "updated_at"])
@@ -239,6 +407,7 @@ class ExternalTicketView(APIView):
                     detail=Detail(
                         name=f"Ticket #{ticket.ticket_number}",
                         changes=changes,
+                        trigger=workflow_trigger,
                     ),
                 )
             except Exception as e:
@@ -253,6 +422,7 @@ class ExternalTicketView(APIView):
                     user=None,
                     team_id=team.id,
                     was_impersonated=False,
+                    trigger=workflow_trigger,
                 )
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
@@ -260,13 +430,34 @@ class ExternalTicketView(APIView):
 
         if "tags" in serializer.validated_data:
             try:
-                new_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
-                for tag_name in new_tags:
-                    tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                    ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                for tagged_item in ticket.tagged_items.exclude(tag__name__in=new_tags):
-                    tagged_item.delete()
-                Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                tags_mode = serializer.validated_data.get("tags_mode", "add")
+                normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
+
+                # Tag adds and removes are both logged by the TaggedItem model activity signal
+                # (to the ticket's timeline and the Tag audit stream). Removals must go through
+                # the per-instance delete() so the signal fires for them too; a bulk queryset
+                # delete would skip it. The trigger context attributes every resulting entry
+                # to the workflow that made the change.
+                with ActivityTriggerContext(workflow_trigger):
+                    if tags_mode == "remove":
+                        for tagged_item in ticket.tagged_items.filter(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    elif tags_mode == "set":
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                        for tagged_item in ticket.tagged_items.exclude(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    else:
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)

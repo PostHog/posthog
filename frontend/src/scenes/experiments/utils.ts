@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
@@ -21,6 +21,7 @@ import {
     ExperimentTrendsQuery,
     GroupNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -29,10 +30,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -44,15 +47,36 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import type {
+    ExperimentFeatureFlagFiltersApi,
+    ExperimentFeatureFlagInputApi,
+} from 'products/experiments/frontend/generated/api.schemas'
+
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    EXPOSURE_FEATURE_FLAG_PROPERTY,
+    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
+    featureFlagVariantProperty,
+} from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
-const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
 
 export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
     return variants.filter(
         (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
     )
+}
+
+/**
+ * Resolves the effective multi-variant handling, applying the backend default when unset.
+ * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ */
+export function resolveMultipleVariantHandling(
+    handling: 'exclude' | 'first_seen' | undefined
+): 'exclude' | 'first_seen' {
+    return handling ?? 'exclude'
 }
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
@@ -65,7 +89,46 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
-    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
+    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
+}
+
+/**
+ * Variants for an experiment. Saved experiments resolve from the linked feature flag (the source
+ * of truth); an unsaved draft has no flag yet, so it resolves from the draft flag config instead.
+ */
+export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
+    return (
+        experiment?.feature_flag?.filters?.multivariate?.variants ??
+        experiment?.feature_flag_config?.filters?.multivariate?.variants ??
+        []
+    )
+}
+
+/**
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ */
+export function getFlagVariants(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): MultivariateFlagVariant[] {
+    return flag?.filters?.multivariate?.variants ?? []
+}
+
+/**
+ * The effective baseline variant, mirroring the backend rule (get_baseline_variant_key):
+ * the configured stats_config.baseline_variant_key, else 'control' when the flag has one,
+ * else the flag's first variant. A control-less draft can lack the configured key until
+ * launch pins it, so callers must not assume 'control' exists.
+ */
+export function getBaselineVariantKey(experiment: Partial<Experiment> | null | undefined): string {
+    const configured = experiment?.stats_config?.baseline_variant_key
+    if (configured) {
+        return configured
+    }
+    const variants = getExperimentVariants(experiment)
+    if (variants.length === 0 || variants.some((variant) => variant.key === 'control')) {
+        return 'control'
+    }
+    return variants[0].key
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -106,7 +169,7 @@ function seriesToFilterLegacy(
             type: 'events',
             properties: [
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
@@ -152,10 +215,35 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
     return null
 }
 
+/**
+ * Mirrors the backend's exposure semantics (`build_common_exposure_conditions`, also behind the
+ * replay player's experiment session context): the variant property must be IN the experiment's
+ * variant keys. Matching only on the event would include sessions of users who evaluated the flag
+ * but were never enrolled, e.g. `$feature_flag_called` with a `false` response on a partial rollout.
+ */
+function variantPropertyFilter(propertyKey: string, variantKeys: string[]): AnyPropertyFilter {
+    if (variantKeys.length === 0) {
+        // Variants unknown (flag not loaded) — the variant property being stamped at all is the
+        // closest available enrollment marker.
+        return {
+            key: propertyKey,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsSet,
+            operator: PropertyOperator.IsSet,
+        }
+    }
+    return {
+        key: propertyKey,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
+    }
+}
+
 function createExposureFilter(
     exposureConfig: ExperimentExposureConfig,
     featureFlagKey: string,
-    variantKey: string
+    variantKeys: string[]
 ): UniversalFiltersGroupValue {
     const isEvent = isEventExposureConfig(exposureConfig)
     return {
@@ -164,14 +252,44 @@ function createExposureFilter(
         type: isEvent ? 'events' : 'actions',
         properties: [
             ...(exposureConfig.properties || []),
-            {
-                key: `$feature/${featureFlagKey}`,
-                type: PropertyFilterType.Event,
-                value: [variantKey],
-                operator: PropertyOperator.Exact,
-            },
+            variantPropertyFilter(featureFlagVariantProperty(featureFlagKey), variantKeys),
         ],
     }
+}
+
+/**
+ * Exposure filter for an experiment's recordings: one variant, or every enrolled session (variant
+ * property IN the experiment's variants) when `variantKey` is omitted. Exposure-only — metric
+ * steps are never added, so a metric event captured without a `$session_id` can't zero out the
+ * result.
+ */
+export function getViewRecordingFiltersForVariant(
+    experiment: Experiment,
+    variantKey?: string
+): UniversalFiltersGroupValue[] {
+    const variantKeys =
+        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
+    }
+
+    return [
+        {
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
+            type: 'events',
+            properties: [
+                variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
+                {
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        },
+    ]
 }
 
 /**
@@ -185,37 +303,10 @@ export function getViewRecordingFilters(
     metric: ExperimentMetric,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
-    const filters: UniversalFiltersGroupValue[] = []
     /**
-     * We need to check the exposure criteria as the first on the filter chain.
+     * The exposure criteria is always the first link in the filter chain.
      */
-    const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (
-        exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
-    ) {
-        filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
-    } else {
-        filters.push({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: '$feature_flag_response',
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: '$feature_flag',
-                    type: PropertyFilterType.Event,
-                    value: experiment.feature_flag_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
-    }
+    const filters: UniversalFiltersGroupValue[] = getViewRecordingFiltersForVariant(experiment, variantKey)
 
     /**
      * for mean metrics, we add the single action/event to the filters
@@ -260,6 +351,117 @@ export function getViewRecordingFilters(
     return filters
 }
 
+/**
+ * Event/action filters for one metric's sources — the "session reached this metric" part of a
+ * recordings query. Data-warehouse sources have no session events and are skipped, so a metric
+ * whose every source is a data-warehouse node (or a retention metric, whose steps the recordings
+ * surfaces don't enumerate) yields no filters.
+ */
+export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+        ? [metric.source]
+        : isExperimentFunnelMetric(metric)
+          ? metric.series
+          : isExperimentRatioMetric(metric)
+            ? [metric.numerator, metric.denominator]
+            : []
+    return sources
+        .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
+        .map((source) => seriesToFilter(source))
+        .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
+}
+
+/**
+ * Whether a recordings event filter can only match zero sessions: the project has never seen the
+ * event with a `$session_id` (e.g. it is captured server-side). Action and data warehouse filters
+ * pass through unchecked, matching the replay playlist's own posture.
+ */
+export function isUnlinkableEventFilter(
+    filter: UniversalFiltersGroupValue,
+    unlinkableEventNames: Set<string>
+): boolean {
+    return (
+        'type' in filter &&
+        filter.type === 'events' &&
+        'name' in filter &&
+        typeof filter.name === 'string' &&
+        unlinkableEventNames.has(filter.name)
+    )
+}
+
+/**
+ * Event names whose session-linkability must be checked before building "View recordings" links:
+ * the exposure event plus every plain-event metric step across primary, secondary and shared
+ * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
+ * steps pass through unchecked (same as the replay playlist's own check), as do "all events"
+ * steps, which have no event name.
+ */
+export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
+    const eventNames = new Set<string>()
+
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        if (isEventExposureConfig(exposureConfig) && exposureConfig.event) {
+            eventNames.add(exposureConfig.event)
+        }
+    } else {
+        eventNames.add(EXPOSURE_DEFAULT_EVENT)
+    }
+
+    const metrics = [
+        ...(experiment.metrics || []),
+        ...(experiment.metrics_secondary || []),
+        ...(experiment.saved_metrics || []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric?.query),
+    ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
+
+    for (const metric of metrics) {
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
+        for (const source of sources) {
+            if (source.kind === NodeKind.EventsNode && source.event) {
+                eventNames.add(source.event)
+            }
+        }
+    }
+
+    return Array.from(eventNames)
+}
+
+/**
+ * Post-filters `getViewRecordingFilters` output. Recordings are matched through events carrying
+ * a `$session_id`, so an event filter the project has never seen with that property (e.g. one
+ * captured server-side) would zero out the whole AND-combined recordings query. The exposure
+ * filter is always first; when it is itself unlinkable there are no recordings to show at all.
+ */
+export function applySessionLinkability(
+    filters: UniversalFiltersGroupValue[],
+    unlinkableEventNames: Set<string>
+): { filters: UniversalFiltersGroupValue[]; droppedMetricEventCount: number; exposureUnlinkable: boolean } {
+    const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
+        isUnlinkableEventFilter(filter, unlinkableEventNames)
+
+    if (filters.length === 0) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false }
+    }
+
+    const [exposureFilter, ...metricFilters] = filters
+    if (isUnlinkable(exposureFilter)) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true }
+    }
+
+    const keptMetricFilters = metricFilters.filter((filter) => !isUnlinkable(filter))
+    return {
+        filters: [exposureFilter, ...keptMetricFilters],
+        droppedMetricEventCount: metricFilters.length - keptMetricFilters.length,
+        exposureUnlinkable: false,
+    }
+}
+
 export function getViewRecordingFiltersLegacy(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
@@ -276,7 +478,7 @@ export function getViewRecordingFiltersLegacy(
                         type: 'events',
                         properties: [
                             {
-                                key: `$feature/${featureFlagKey}`,
+                                key: featureFlagVariantProperty(featureFlagKey),
                                 type: PropertyFilterType.Event,
                                 value: [variantKey],
                                 operator: PropertyOperator.Exact,
@@ -299,18 +501,18 @@ export function getViewRecordingFiltersLegacy(
             }
         } else {
             filters.push({
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
+                id: EXPOSURE_DEFAULT_EVENT,
+                name: EXPOSURE_DEFAULT_EVENT,
                 type: 'events',
                 properties: [
                     {
-                        key: `$feature_flag_response`,
+                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: [variantKey],
                         operator: PropertyOperator.Exact,
                     },
                     {
-                        key: '$feature_flag',
+                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: featureFlagKey,
                         operator: PropertyOperator.Exact,
@@ -337,15 +539,16 @@ export function getViewRecordingFiltersLegacy(
     return filters
 }
 
+// Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
-        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
-            throw new Error('Feature flag must have control as the first variant.')
-        }
-        return true
+    const variants = getFlagVariants(featureFlag)
+    if (variants.length < 2) {
+        throw new Error('Feature flag must have at least 2 variants (a baseline and at least one test variant).')
     }
-
-    throw new Error('Feature flag must use multiple variants with control as the first variant.')
+    if (variants.length > MAX_EXPERIMENT_VARIANTS) {
+        throw new Error(`Feature flag must have at most ${MAX_EXPERIMENT_VARIANTS} variants.`)
+    }
+    return true
 }
 
 /**
@@ -698,12 +901,16 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  *
  * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
  */
-export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
+    if (!experiment) {
+        return false
+    }
+    const { metrics, metrics_secondary, saved_metrics } = experiment
     // saved_metrics has a different structure and so we need to check for it separately
-    if (saved_metrics.some(isLegacySharedMetric)) {
+    if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true
     }
-    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
+    return [...(metrics ?? []), ...(metrics_secondary ?? [])].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
@@ -820,6 +1027,9 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         },
         interval: 'day',
         filterTestAccounts: isDWQuery ? false : filterTestAccounts,
+        tags: {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+        },
     }
 }
 
@@ -938,13 +1148,133 @@ export function getOrderedMetricsWithResults(
         }))
 }
 
-export function matchesSharedMetricSearch(
-    metric: { name: string; description?: string; tags?: string[] },
-    searchLower: string
-): boolean {
-    return (
-        metric.name.toLowerCase().includes(searchLower) ||
-        (metric.description?.toLowerCase().includes(searchLower) ?? false) ||
-        (metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
-    )
+export type MetricWithResult = {
+    metric: ExperimentMetric
+    result: CachedNewExperimentQueryResponse | undefined
+    error: unknown
+    displayIndex: number
+    metricIndex: number
 }
+
+/**
+ * Narrows to a real, saved experiment: present and not the "new"/draft sentinel id. Used by the
+ * recalculation-flow component wrappers before mounting experiment-keyed child logics.
+ */
+export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
+    experiment?.id != null && experiment.id !== 'new'
+
+export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_config'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi
+}
+
+/** Update payload for the experiment API: flag config travels in the write shape. An echoed
+ * read-only flag is also accepted — the backend ignores flag objects carrying a non-null id. */
+export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
+    update_feature_flag_params?: boolean
+}
+
+/** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
+export function toFlagVariantsInput(
+    variants: MultivariateFlagVariant[]
+): NonNullable<ExperimentFeatureFlagFiltersApi['multivariate']>['variants'] {
+    return variants.map(({ key, name, rollout_percentage }) => ({
+        key,
+        ...(name != null ? { name } : {}),
+        rollout_percentage,
+    }))
+}
+
+/**
+ * Builds an experiment write payload. Draft flag config lives on `feature_flag_config` in the
+ * flag's own input shape; it moves to the `feature_flag` write field. The read-only `feature_flag`
+ * echoed by a GET response is dropped, and `feature_flag_config` never travels literally.
+ *
+ * Pass `omitFlagConfig` when the experiment links to a pre-existing flag: the flag is linked
+ * as-is, and the API rejects explicit config for it.
+ */
+export function toExperimentWritePayload<T extends Pick<Experiment, 'feature_flag_config'>>(
+    experiment: T,
+    { omitFlagConfig = false }: { omitFlagConfig?: boolean } = {}
+): ExperimentWritePayload<T> {
+    const {
+        feature_flag: _echoedFlag,
+        feature_flag_config,
+        ...rest
+    } = experiment as T & { feature_flag?: unknown; feature_flag_config?: ExperimentFeatureFlagInputApi }
+    const payload = { ...rest } as ExperimentWritePayload<T>
+
+    if (!omitFlagConfig && feature_flag_config) {
+        payload.feature_flag = feature_flag_config
+    }
+    return payload
+}
+
+/**
+ * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.
+ * Same shaping as {@link getOrderedMetricsWithResults} but curried over the experiment, so a caller can
+ * bind it once per experiment instance and reuse it for both primary and secondary:
+ *
+ *   const zip = metricResults(experiment)
+ *   const primary = zip(primaryResults, primaryErrors, 'primary')
+ *   const secondary = zip(secondaryResults, secondaryErrors, 'secondary')
+ *
+ * Used by the recalculation flow; the legacy per-metric path keeps using getOrderedMetricsWithResults.
+ */
+export const metricResults =
+    (experiment: Experiment) =>
+    (
+        results: CachedNewExperimentQueryResponse[],
+        errors: unknown[],
+        type: 'primary' | 'secondary'
+    ): MetricWithResult[] => {
+        const regularMetrics = (
+            type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
+        ) as ExperimentMetric[]
+
+        /**
+         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
+         * ordered together below.
+         */
+        const sharedMetrics = (experiment.saved_metrics || [])
+            .filter((sharedMetric) => sharedMetric.metadata?.type === type)
+            .map((sharedMetric) => ({
+                ...sharedMetric.query,
+                name: sharedMetric.name,
+                sharedMetricId: sharedMetric.saved_metric,
+                isSharedMetric: true,
+                breakdownFilter: {
+                    ...sharedMetric.query?.breakdownFilter,
+                    breakdowns: sharedMetric.metadata?.breakdowns || [],
+                },
+            })) as ExperimentMetric[]
+
+        /**
+         * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
+         * carries everything the output row needs, keyed by uuid for the ordering pass below.
+         */
+        const byUuid = new Map(
+            [...regularMetrics, ...sharedMetrics]
+                .map((metric, index) => ({ metric, result: results[index], error: errors[index], index }))
+                .filter((entry): entry is { metric: ExperimentMetric & { uuid: string } } & typeof entry =>
+                    Boolean(entry.metric.uuid)
+                )
+                .map((entry) => [entry.metric.uuid, entry])
+        )
+
+        const orderedUuids =
+            type === 'secondary'
+                ? experiment.secondary_metrics_ordered_uuids || []
+                : experiment.primary_metrics_ordered_uuids || []
+
+        return orderedUuids
+            .map((uuid) => byUuid.get(uuid))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .map(({ metric, result, error, index }, displayIndex) => ({
+                metric,
+                result,
+                error,
+                displayIndex,
+                metricIndex: index,
+            }))
+    }

@@ -6,8 +6,9 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -169,6 +170,22 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert behavioral_filter_4["type"] == "behavioral"
         assert behavioral_filter_4["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "page_view", 32, "event", 1, 1, 11]
         assert behavioral_filter_4["conditionHash"] is not None
+
+    def test_resave_backfills_null_condition_type_with_no_other_change(self):
+        team: Team = self.team
+
+        cohort = Cohort.objects.create(team=team, name="rt", filters=_make_realtime_filters())
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None)
+
+        call_command("resave_cohorts", team_id=team.id)
+
+        cohort.refresh_from_db()
+        assert cohort.condition_type == {
+            "person_properties": True,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
 
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):

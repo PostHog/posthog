@@ -16,9 +16,10 @@ import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import {
-    IconBalance,
+    IconBrackets,
     IconCollapse,
     IconCopy,
+    IconEllipsis,
     IconExpand,
     IconInfo,
     IconLaptop,
@@ -28,7 +29,17 @@ import {
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonLabel,
+    LemonMenu,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -37,14 +48,16 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyNumber } from 'lib/utils'
-import { clamp } from 'lib/utils'
+import { clamp, humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
     AnyPropertyFilter,
     FeatureFlagBucketingIdentifier,
@@ -59,6 +72,9 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -67,7 +83,10 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
+    withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -79,9 +98,28 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+    /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
+    hideEarlyExit?: boolean
 }
 
-function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
+const PERSON = 'person' as const
+type AggregationValue = number | typeof PERSON
+
+type MatchByOption = {
+    value: 'properties' | 'device'
+    icon: JSX.Element
+    label: string
+    description: string
+    badge?: { type: 'warning' | 'highlight'; text: string }
+    learnMoreUrl?: string
+}
+
+function summarizeProperties(
+    properties: AnyPropertyFilter[],
+    aggregationTargetName: string,
+    getDistinctIdName: (distinctId: string) => string,
+    getFlagKey: (flagId: string) => string
+): string {
     if (!properties || properties.length === 0) {
         // Capitalize first letter of aggregation target name
         const capitalizedTarget = aggregationTargetName.charAt(0).toUpperCase() + aggregationTargetName.slice(1)
@@ -93,7 +131,8 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
         if (property.type === PropertyFilterType.Cohort) {
             key = 'Cohort'
         } else if (property.type === PropertyFilterType.Flag) {
-            key = property.label || property.key || 'flag'
+            const resolved = withResolvedFlagLabels([property], getFlagKey)[0]
+            key = (resolved.type === PropertyFilterType.Flag && resolved.label) || 'flag'
         } else {
             key = property.key || 'property'
         }
@@ -102,22 +141,27 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
             property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
                 ? ((property as any).group_key_names ?? {})
                 : {}
-        const hasGroupKeyNames = Object.keys(groupKeyNames).length > 0
+        const isDistinctId = isDistinctIdFilter(property)
+        // Resolve a single raw value to its display name: server-provided group name,
+        // frontend-fetched person name, or the raw value as fallback.
+        const resolveValue = (raw: unknown): string => {
+            const strVal = String(raw)
+            if (isDistinctId) {
+                return getDistinctIdName(strVal)
+            }
+            return groupKeyNames[strVal] || strVal
+        }
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
             value = property.cohort_name || `ID ${property.value}`
         } else if (Array.isArray(property.value)) {
-            const displayValues = hasGroupKeyNames
-                ? property.value.map((v) => groupKeyNames[String(v)] || String(v))
-                : property.value.map(String)
+            const displayValues = property.value.map(resolveValue)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
         } else if (property.value === null || property.value === undefined) {
             value = ''
         } else {
-            value = hasGroupKeyNames
-                ? groupKeyNames[String(property.value)] || String(property.value)
-                : String(property.value)
+            value = resolveValue(property.value)
         }
 
         return `${key} ${operator} ${value}`
@@ -136,6 +180,8 @@ interface ConditionHeaderProps {
     totalGroups: number
     affectedCount: number | undefined
     aggregationTargetName: string
+    getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -146,11 +192,15 @@ function ConditionHeader({
     totalGroups,
     affectedCount,
     aggregationTargetName,
+    getDistinctIdName,
+    getFlagKey,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
     // Use description if available, otherwise summarize the filters
-    const summary = group.description || summarizeProperties(group.properties || [], aggregationTargetName)
+    const summary =
+        group.description ||
+        summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName, getFlagKey)
     const rollout = group.rollout_percentage ?? 100
 
     const actualCount =
@@ -167,32 +217,37 @@ function ConditionHeader({
                 <span className="text-sm break-all">{summary}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <span className="text-sm text-muted mr-2">
+                <span className="text-sm text-muted mr-2 tabular-nums">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
-                <LemonButton
-                    icon={<IconCopy />}
-                    size="xsmall"
-                    noPadding
-                    tooltip="Duplicate condition set"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onDuplicate()
-                    }}
-                />
-                {totalGroups > 1 && (
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Duplicate condition set',
+                            icon: <IconCopy />,
+                            onClick: onDuplicate,
+                        },
+                        ...(totalGroups > 1
+                            ? [
+                                  {
+                                      label: 'Remove condition set',
+                                      icon: <IconTrash />,
+                                      onClick: onRemove,
+                                      status: 'danger' as const,
+                                  },
+                              ]
+                            : []),
+                    ]}
+                >
                     <LemonButton
-                        icon={<IconTrash />}
+                        icon={<IconEllipsis />}
                         size="xsmall"
                         noPadding
-                        tooltip="Remove condition set"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onRemove()
-                        }}
+                        aria-label="Condition set actions"
+                        onClick={(e) => e.stopPropagation()}
                     />
-                )}
+                </LemonMenu>
             </div>
         </div>
     )
@@ -281,12 +336,19 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
+    blastRadiusErrors: Record<string, boolean>
+    calculateBlastRadiusForCondition: (
+        sortKey: string,
+        properties: AnyPropertyFilter[] | undefined,
+        groupTypeIndex: number | null
+    ) => void
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
+    getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
-    isMixedTargetingEnabled: boolean
-    mixedGroupTypeIndex: number
+    isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
     onDuplicate: () => void
@@ -301,6 +363,7 @@ interface ConditionProps {
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
+    propertySelectErrors: PropertySelectError[] | null | undefined
     openConditions: string[]
     handleOpenConditionsChange: (newKeys: string[]) => void
     flagId?: FeatureFlagLogicProps['id']
@@ -350,12 +413,15 @@ const ConditionContent = ({
     totalGroups,
     affectedCounts,
     totalCounts,
+    blastRadiusErrors,
+    calculateBlastRadiusForCondition,
     aggregationTargetName,
+    getDistinctIdName,
+    getFlagKey,
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
-    isMixedTargetingEnabled,
-    mixedGroupTypeIndex,
+    isDeviceTargeting,
     onMoveUp,
     onMoveDown,
     onDuplicate,
@@ -364,6 +430,7 @@ const ConditionContent = ({
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
+    propertySelectErrors,
     openConditions,
     handleOpenConditionsChange,
     flagId,
@@ -389,6 +456,7 @@ const ConditionContent = ({
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const { aggregationLabel } = useValues(groupsModel)
 
     // Combined ref callback
     const combinedRef = (element: HTMLDivElement | null): void => {
@@ -429,6 +497,13 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
+    const resolvedSingularTargetName = aggregationLabel(
+        resolveAggregationGroupTypeIndex(
+            group.aggregation_group_type_index,
+            releaseFilters.aggregation_group_type_index
+        ),
+        true
+    ).singular
 
     return (
         <div
@@ -472,6 +547,8 @@ const ConditionContent = ({
                                 totalGroups={totalGroups}
                                 affectedCount={group.sort_key ? affectedCounts[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                                getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -502,57 +579,63 @@ const ConditionContent = ({
                                         />
                                     </div>
 
-                                    {isMixedTargetingEnabled && groupTypes.size > 0 && (
+                                    {groupTypes.size > 0 && !isDeviceTargeting && (
                                         <div>
-                                            <LemonLabel className="mb-1">Targeting criteria</LemonLabel>
-                                            <LemonSelect
+                                            <LemonLabel className="mb-1">Target by</LemonLabel>
+                                            <LemonSelect<AggregationValue>
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
-                                                value={group.aggregation_group_type_index != null ? 'group' : 'person'}
+                                                value={
+                                                    group.aggregation_group_type_index !== undefined
+                                                        ? (group.aggregation_group_type_index ?? PERSON)
+                                                        : (releaseFilters.aggregation_group_type_index ?? PERSON)
+                                                }
                                                 onChange={(value) => {
-                                                    setConditionAggregation(
-                                                        index,
-                                                        value === 'person' ? null : mixedGroupTypeIndex
-                                                    )
+                                                    setConditionAggregation(index, value === PERSON ? null : value)
                                                 }}
-                                                options={(() => {
-                                                    const gt = groupTypes.get(mixedGroupTypeIndex as GroupTypeIndex)
-                                                    const groupLabel = gt
-                                                        ? gt.name_plural ||
-                                                          gt.group_type.charAt(0).toUpperCase() +
-                                                              gt.group_type.slice(1) +
-                                                              's'
-                                                        : 'Groups'
-                                                    return [
-                                                        { value: 'person' as const, label: 'Users' },
-                                                        {
-                                                            value: 'group' as const,
-                                                            label: groupLabel,
-                                                        },
-                                                    ]
-                                                })()}
+                                                options={[
+                                                    {
+                                                        options: [
+                                                            {
+                                                                value: PERSON,
+                                                                label: 'Users',
+                                                                icon: <IconPerson />,
+                                                            },
+                                                        ],
+                                                    },
+                                                    {
+                                                        title: 'Group types',
+                                                        options: Array.from(groupTypes.values()).map((gt) => ({
+                                                            value: gt.group_type_index as number,
+                                                            label:
+                                                                gt.name_plural ||
+                                                                gt.group_type.charAt(0).toUpperCase() +
+                                                                    gt.group_type.slice(1) +
+                                                                    's',
+                                                            icon: <IconPeople />,
+                                                        })),
+                                                    },
+                                                ]}
                                             />
                                         </div>
                                     )}
-
                                     <div>
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
-                                            propertyFilters={group?.properties}
+                                            propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
                                             addText="Add filter"
                                             onChange={(properties) => {
                                                 updateConditionSet(index, undefined, properties)
                                             }}
                                             taxonomicGroupTypes={taxonomicGroupTypesForCondition(
-                                                group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index
+                                                group.aggregation_group_type_index
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            exactMatchFeatureFlagCohortOperators={true}
+                                            errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -589,9 +672,35 @@ const ConditionContent = ({
                                                 }}
                                                 suffix={<span>%</span>}
                                                 className="w-20"
+                                                data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
+                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                            <div
+                                                role="status"
+                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                            >
+                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
+                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        group.sort_key &&
+                                                        calculateBlastRadiusForCondition(
+                                                            group.sort_key,
+                                                            group.properties,
+                                                            resolveAggregationGroupTypeIndex(
+                                                                group.aggregation_group_type_index,
+                                                                releaseFilters.aggregation_group_type_index
+                                                            )
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
                                                 {(() => {
                                                     const affected = group.sort_key
@@ -611,43 +720,45 @@ const ConditionContent = ({
                                                     const receivingFlag = Math.floor(
                                                         (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )
-                                                    if (rolloutPct === 100) {
-                                                        return (
-                                                            <>
-                                                                <b>{humanFriendlyNumber(affected)}</b> of{' '}
-                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
-                                                                these filters
-                                                            </>
-                                                        )
-                                                    }
                                                     return (
-                                                        <>
-                                                            Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
-                                                            the filters)
-                                                        </>
+                                                        <div className="flex flex-col">
+                                                            <span>
+                                                                Filters match:{' '}
+                                                                <b className="tabular-nums">
+                                                                    ~
+                                                                    {pluralize(
+                                                                        affected,
+                                                                        resolvedSingularTargetName,
+                                                                        resolvedTargetName
+                                                                    )}
+                                                                </b>
+                                                                {resolveAggregationGroupTypeIndex(
+                                                                    group.aggregation_group_type_index,
+                                                                    releaseFilters.aggregation_group_type_index
+                                                                ) == null && (
+                                                                    <Tooltip
+                                                                        title={MATCHING_ESTIMATE_TOOLTIP}
+                                                                        interactive
+                                                                    >
+                                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </span>
+                                                            <span>
+                                                                Rollout will be to{' '}
+                                                                <b className="tabular-nums">
+                                                                    ~
+                                                                    {pluralize(
+                                                                        receivingFlag,
+                                                                        resolvedSingularTargetName,
+                                                                        resolvedTargetName
+                                                                    )}
+                                                                </b>{' '}
+                                                                - <b className="tabular-nums">{rolloutPct}%</b>
+                                                            </span>
+                                                        </div>
                                                     )
                                                 })()}
-                                                {(group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index) == null && (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                A user may have{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                                    target="_blank"
-                                                                >
-                                                                    multiple profiles
-                                                                </Link>
-                                                            </>
-                                                        }
-                                                        interactive
-                                                    >
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                    </Tooltip>
-                                                )}
                                             </div>
                                         ) : (
                                             <div className="text-xs text-muted mt-2 flex items-center gap-1">
@@ -662,16 +773,11 @@ const ConditionContent = ({
                                             <span className="flex items-center gap-1">
                                                 <span className="font-medium text-default">Optional override</span>
                                                 <Tooltip
+                                                    docLink="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
                                                     title={
                                                         <>
                                                             Force all matching {resolvedTargetName} to receive a
-                                                            specific variant.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
+                                                            specific variant.
                                                         </>
                                                     }
                                                 >
@@ -755,6 +861,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onBucketingIdentifierChange,
     evaluationRuntime,
     hideMatchOptions,
+    hideEarlyExit,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -768,26 +875,25 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filtersTaxonomicOptions,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         aggregationTargetName,
+        getDistinctIdName,
+        getFlagKey,
         taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
         openConditions,
         properties,
-        isMixedTargeting,
-        mixedGroupTypeIndex,
+        propertySelectErrors,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
-    const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
-
-    const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
 
     const {
         updateConditionSet,
@@ -800,11 +906,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setAggregationGroupTypeIndex,
         setConditionAggregation,
         setOpenConditions,
-        setIsMixedTargeting,
-        switchToMixedTargeting,
-        setMixedGroupTypeIndex,
         setIsAnyItemDragging,
         setDraggedGroup,
+        setEarlyExit,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -866,13 +971,16 @@ export function FeatureFlagReleaseConditionsCollapsible({
         return (
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
+                {releaseFilters.early_exit && <EarlyExitIndicator />}
                 {filterGroups.map((group: FeatureFlagGroupType, index: number) => {
                     // Use description if available, otherwise summarize the filters
                     const summary =
                         group.description ||
                         summarizeProperties(
                             group.properties || [],
-                            aggregationTargetName(group.aggregation_group_type_index)
+                            aggregationTargetName(group.aggregation_group_type_index),
+                            getDistinctIdName,
+                            getFlagKey
                         )
                     const rollout = group.rollout_percentage ?? 100
                     return (
@@ -886,7 +994,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">
+                                    <span className="text-muted tabular-nums">
                                         ({rollout}%{group.variant && ` · ${group.variant}`})
                                     </span>
                                 </div>
@@ -899,36 +1007,66 @@ export function FeatureFlagReleaseConditionsCollapsible({
     }
 
     const showGroupsOptions = groupTypes.size > 0
+    const isDeviceTargeting = bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+
+    const matchByOptions = [
+        {
+            value: 'properties' as const,
+            icon: <IconBrackets className="text-base shrink-0" />,
+            label: 'Properties',
+            description: showGroupsOptions
+                ? 'Target by user or group property filters. Each condition picks its own targeting type.'
+                : 'Target by user property filters.',
+        },
+        ...(onBucketingIdentifierChange
+            ? [
+                  {
+                      value: 'device' as const,
+                      icon: <IconLaptop className="text-base shrink-0" />,
+                      label: 'Device',
+                      description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
+                      badge: { type: 'warning' as const, text: 'BETA' },
+                      learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
+                  },
+              ]
+            : []),
+    ] satisfies MatchByOption[]
 
     // Compute current selected option (shared between keyboard navigation and selection rendering)
-    const currentSelected = isMixedTargeting
-        ? 'mixed'
-        : releaseFilters.aggregation_group_type_index != null
-          ? 'group'
-          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
-            ? 'device'
-            : 'user'
+    const currentSelected = isDeviceTargeting && onBucketingIdentifierChange ? 'device' : 'properties'
 
     // Handler for option selection logic (shared by click and keyboard events)
-    const selectMatchByOption = (value: string): void => {
-        if (value === 'user') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-        } else if (value === 'device') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-        } else if (value === 'group') {
-            setIsMixedTargeting(false)
-            const firstGroupType = groupTypeValues[0]
-            if (firstGroupType) {
-                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+    const selectMatchByOption = (value: 'properties' | 'device'): void => {
+        const applyChange = (targetValue: 'properties' | 'device'): void => {
+            if (targetValue === 'properties') {
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+            } else if (targetValue === 'device') {
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
             }
-            onBucketingIdentifierChange?.(null)
-        } else if (value === 'mixed') {
-            switchToMixedTargeting()
-            onBucketingIdentifierChange?.(null)
+        }
+
+        // Only confirm when changing bucketing on an existing flag
+        const isExistingFlag = flagId !== 'new'
+        const isChangingValue = value !== currentSelected
+        if (isExistingFlag && isChangingValue) {
+            LemonDialog.open({
+                title: 'Change bucketing option?',
+                description:
+                    'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
+                primaryButton: {
+                    children: 'Continue',
+                    onClick: () => applyChange(value),
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+        } else {
+            applyChange(value)
         }
     }
 
@@ -938,9 +1076,30 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <LemonLabel>Release conditions</LemonLabel>
             </div>
             <p className="text-xs text-muted mb-2">
-                Target users for this flag. Conditions are evaluated top to bottom – the first match wins. A condition
-                matches when all property filters pass AND the target falls within the rollout percentage.
+                Target users for this flag. A condition matches when all property filters pass AND the target falls
+                within the rollout percentage.
             </p>
+
+            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && !hideEarlyExit && (
+                <div className="flex flex-col gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                        <LemonCheckbox
+                            data-attr="flag-early-exit"
+                            checked={releaseFilters.early_exit ?? false}
+                            onChange={(checked) => setEarlyExit(checked)}
+                            label="Stop evaluation at first matching condition set"
+                            info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
+                        />
+                    </div>
+                    {releaseFilters.early_exit && (
+                        <LemonBanner type="warning" className="mt-1">
+                            Early exit is not applied when a server-side SDK evaluates this flag with local evaluation —
+                            those SDKs evaluate all condition sets. It takes effect when the flag is evaluated through
+                            the <code>/flags</code> endpoint.
+                        </LemonBanner>
+                    )}
+                </div>
+            )}
 
             {isDisabled && (
                 <LemonBanner type="info" className="mb-3">
@@ -953,7 +1112,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
-            {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
+            {!hideMatchOptions && matchByOptions.length > 1 && (
                 <div>
                     <LemonLabel
                         className="mb-2"
@@ -971,12 +1130,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             // Handle arrow key navigation for radio group
                             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                                 e.preventDefault()
-                                const options = [
-                                    'user',
-                                    ...(onBucketingIdentifierChange ? ['device'] : []),
-                                    ...(showGroupsOptions ? ['group'] : []),
-                                    ...(showGroupsOptions && isMixedTargetingEnabled ? ['mixed'] : []),
-                                ]
+                                const options = matchByOptions.map((option) => option.value)
 
                                 const currentIndex = options.indexOf(currentSelected)
                                 let nextIndex = currentIndex
@@ -994,50 +1148,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             }
                         }}
                     >
-                        {[
-                            {
-                                value: 'user',
-                                icon: <IconPerson className="text-base shrink-0" />,
-                                label: 'User',
-                                description: 'Stable assignment for logged-in users based on their distinct ID.',
-                            },
-                            ...(onBucketingIdentifierChange
-                                ? [
-                                      {
-                                          value: 'device',
-                                          icon: <IconLaptop className="text-base shrink-0" />,
-                                          label: 'Device',
-                                          description:
-                                              'Stable assignment per device. Good fit for experiments on anonymous users.',
-                                          badge: { type: 'warning' as const, text: 'BETA' },
-                                          learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
-                                      },
-                                  ]
-                                : []),
-                            ...(showGroupsOptions
-                                ? [
-                                      {
-                                          value: 'group',
-                                          icon: <IconPeople className="text-base shrink-0" />,
-                                          label: 'Group',
-                                          description:
-                                              'Stable assignment for everyone in an organization, company, or other custom group type.',
-                                      },
-                                  ]
-                                : []),
-                            ...(showGroupsOptions && isMixedTargetingEnabled
-                                ? [
-                                      {
-                                          value: 'mixed',
-                                          icon: <IconBalance className="text-base shrink-0" />,
-                                          label: 'User & Group',
-                                          description:
-                                              'Mix user and group targeting across condition sets. Each condition set picks its own targeting type.',
-                                          badge: { type: 'highlight' as const, text: 'NEW' },
-                                      },
-                                  ]
-                                : []),
-                        ].map((option) => {
+                        {matchByOptions.map((option) => {
                             const isSelected = option.value === currentSelected
 
                             return (
@@ -1091,57 +1202,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 </>
                                             )}
                                         </div>
-                                        {/* Group type selector for selected group option */}
-                                        {option.value === 'group' &&
-                                            isSelected &&
-                                            releaseFilters.aggregation_group_type_index != null &&
-                                            !isMixedTargeting &&
-                                            (groupTypeValues.length > 1 ? (
-                                                <div onClick={(e) => e.stopPropagation()}>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        dropdownMatchSelectWidth={false}
-                                                        data-attr="feature-flag-group-type-select"
-                                                        value={releaseFilters.aggregation_group_type_index}
-                                                        onChange={(value) => {
-                                                            if (value != null) {
-                                                                setAggregationGroupTypeIndex(value)
-                                                            }
-                                                        }}
-                                                        options={groupTypeValues.map((groupType) => ({
-                                                            value: groupType.group_type_index,
-                                                            label: groupType.group_type,
-                                                        }))}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <span className="text-xs font-medium">
-                                                    {groupTypeValues[0]?.group_type}
-                                                </span>
-                                            ))}
-                                        {/* Mixed group type selector */}
-                                        {option.value === 'mixed' &&
-                                            isSelected &&
-                                            isMixedTargeting &&
-                                            groupTypeValues.length > 1 && (
-                                                <div onClick={(e) => e.stopPropagation()}>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        dropdownMatchSelectWidth={false}
-                                                        data-attr="feature-flag-mixed-group-type-select"
-                                                        value={mixedGroupTypeIndex}
-                                                        onChange={(value) => {
-                                                            if (value != null) {
-                                                                setMixedGroupTypeIndex(value)
-                                                            }
-                                                        }}
-                                                        options={groupTypeValues.map((groupType) => ({
-                                                            value: groupType.group_type_index,
-                                                            label: groupType.group_type,
-                                                        }))}
-                                                    />
-                                                </div>
-                                            )}
                                     </div>
                                 </div>
                             )
@@ -1216,12 +1276,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 totalGroups={filterGroups.length}
                                                 affectedCounts={affectedCounts}
                                                 totalCounts={totalCounts}
+                                                blastRadiusErrors={blastRadiusErrors}
+                                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                                 aggregationTargetName={aggregationTargetName}
+                                                getDistinctIdName={getDistinctIdName}
+                                                getFlagKey={getFlagKey}
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
-                                                isMixedTargetingEnabled={isMixedTargeting}
-                                                mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                                isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
                                                 onDuplicate={() => duplicateConditionSet(index)}
@@ -1230,6 +1293,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                                 releaseFilters={releaseFilters}
                                                 variants={variants}
+                                                propertySelectErrors={propertySelectErrors}
                                                 openConditions={openConditions}
                                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                                 flagId={flagId}
@@ -1259,12 +1323,14 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 draggedGroup.properties || [],
                                                                 aggregationTargetName(
                                                                     draggedGroup.aggregation_group_type_index
-                                                                )
+                                                                ),
+                                                                getDistinctIdName,
+                                                                getFlagKey
                                                             )}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    <span className="text-sm text-muted mr-2">
+                                                    <span className="text-sm text-muted mr-2 tabular-nums">
                                                         ({draggedGroup.rollout_percentage ?? 100}%
                                                         {draggedGroup.variant && ` · ${draggedGroup.variant}`})
                                                     </span>
@@ -1290,12 +1356,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
+                                        getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isMixedTargetingEnabled={isMixedTargeting}
-                                        mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                        isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
@@ -1304,6 +1373,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1340,12 +1410,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
+                                        getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isMixedTargetingEnabled={isMixedTargeting}
-                                        mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                        isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
@@ -1354,6 +1427,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1372,12 +1446,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 totalGroups={filterGroups.length}
                                 affectedCounts={affectedCounts}
                                 totalCounts={totalCounts}
+                                blastRadiusErrors={blastRadiusErrors}
+                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                 aggregationTargetName={aggregationTargetName}
+                                getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
-                                isMixedTargetingEnabled={isMixedTargeting}
-                                mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
                                 onDuplicate={() => duplicateConditionSet(index)}
@@ -1386,6 +1463,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}
+                                propertySelectErrors={propertySelectErrors}
                                 openConditions={openConditions}
                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                 flagId={flagId}

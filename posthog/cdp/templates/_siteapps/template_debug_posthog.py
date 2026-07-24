@@ -7,14 +7,15 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     id="template-debug-posthog-js",
     name="PostHog JS debugger",
     description="Enable extra debugging tools on your posthog-js",
-    icon_url="/static/hedgehog/builder-hog-01.png",
+    icon_url="https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png",
     category=["Custom"],
     code_language="javascript",
     code="""
 export function onLoad({ inputs, posthog }) {
     if (inputs.enable_debugging) {
         console.log("[PostHog JS debugger site app] Enabling PostHog.js debugging", posthog)
-        posthog.debug(true)
+        globalThis.POSTHOG_DEBUG = true
+        globalThis.__POSTHOG_JS_DEBUGGER_ENABLED = true
     }
 
     if (inputs.capture_config) {

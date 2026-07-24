@@ -1,23 +1,180 @@
-"""Tests that person API endpoints produce identical results
-via the ORM and personhog paths.
+"""Tests that person API endpoints produce identical results via personhog.
 
-Covers delete_property and batch_by_distinct_ids — extracted from
-test_person.py so both code paths are validated with @parameterized_class.
+Covers retrieve, update, split, delete_property, batch_by_distinct_ids, and
+person deletion — extracted from test_person.py.
 """
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from parameterized import parameterized_class
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
+
+from products.cohorts.backend.models.cohort import Cohort
 
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
+    def test_retrieve_by_uuid(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1", "did-2"],
+            properties={"email": "test@example.com"},
+        )
+
+        resp = self.client.get(f"/api/person/{person.uuid}/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["uuid"] == str(person.uuid)
+        assert data["properties"]["email"] == "test@example.com"
+        assert set(data["distinct_ids"]) == {"did-1", "did-2"}
+        self._assert_personhog_called("get_person_by_uuid")
+
+    def test_retrieve_by_pk(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1"],
+            properties={"name": "Test User"},
+        )
+
+        resp = self.client.get(f"/api/person/{person.pk}/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["uuid"] == str(person.uuid)
+        assert data["properties"]["name"] == "Test User"
+        self._assert_personhog_not_called("get_person_by_uuid")
+        self._assert_personhog_called("get_person")
+
+    def test_retrieve_nonexistent_returns_404(self):
+        resp = self.client.get(f"/api/person/{UUID_NONEXISTENT}/")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_retrieve_invalid_id_returns_validation_error(self):
+        resp = self.client.get("/api/person/not-a-valid-id/")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not look like a personID" in resp.json().get("detail", "")
+
+    def test_retrieve_cross_team_isolation(self):
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_person = self._seed_person(team=other_team, distinct_ids=["other-did"])
+
+        resp = self.client.get(f"/api/person/{other_person.uuid}/")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_properties_by_uuid(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1"],
+            properties={"existing": "value"},
+        )
+
+        resp = self.client.patch(
+            f"/api/person/{person.uuid}/",
+            {"properties": {"new_key": "new_value"}},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args[1]
+        assert call_kwargs["distinct_id"] == "did-1"
+        assert call_kwargs["properties"] == {"$set": {"new_key": "new_value"}}
+        self._assert_personhog_called("get_person_by_uuid")
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_properties_by_pk(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1"],
+            properties={},
+        )
+
+        resp = self.client.patch(
+            f"/api/person/{person.pk}/",
+            {"properties": {"key": "val"}},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        self._assert_personhog_not_called("get_person_by_uuid")
+        self._assert_personhog_called("get_person")
+
+
+class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
+    @mock.patch("posthog.api.person.split_person")
+    def test_split_by_uuid(self, mock_split):
+        mock_split.delay = mock.MagicMock()
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1", "did-2", "did-3"],
+        )
+
+        resp = self.client.post(f"/api/person/{person.uuid}/split/")
+
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json() == {"success": True}
+        mock_split.delay.assert_called_once_with(
+            person.pk,
+            self.team.pk,
+            None,
+            None,
+            distinct_ids_to_split=None,
+        )
+        self._assert_personhog_called("get_person_by_uuid")
+
+    @mock.patch("posthog.api.person.split_person")
+    def test_split_nonexistent_returns_404(self, mock_split):
+        resp = self.client.post(f"/api/person/{UUID_NONEXISTENT}/split/")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        mock_split.delay.assert_not_called()
+
+
+class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
+    def test_cohorts_by_uuid(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["did-1"],
+        )
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+
+        with mock.patch(
+            "posthog.api.person.get_all_cohort_ids_by_person_uuid",
+            return_value=[cohort.pk],
+        ):
+            resp = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}")
+
+        assert resp.status_code == status.HTTP_200_OK
+        results = resp.json()["results"]
+        assert len(results) == 1
+        assert results[0]["name"] == "Test Cohort"
+        self._assert_personhog_called("get_person_by_uuid")
+
+    def test_cohorts_nonexistent_person_returns_404(self):
+        with mock.patch(
+            "posthog.api.person.get_all_cohort_ids_by_person_uuid",
+            return_value=[],
+        ):
+            resp = self.client.get(f"/api/person/cohorts/?person_id={UUID_NONEXISTENT}")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
 class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
     @mock.patch("posthog.api.person.capture_internal")
     def test_uuid_lookup(self, mock_capture):
@@ -73,7 +230,6 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code != 201
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
     def test_happy_path(self):
         self._seed_person(team=self.team, distinct_ids=["user_1"], properties={"email": "user1@example.com"})
@@ -176,3 +332,152 @@ class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert distinct_ids[200] not in results
+
+
+class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
+    def test_destroy_returns_202(self):
+        person = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.delete(f"/api/person/{person.uuid}/")
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.content == b""
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(person.uuid)]
+
+    def test_destroy_removes_person_from_postgres(self):
+        person = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+
+        self.client.delete(f"/api/person/{person.uuid}/")
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(person.uuid)]
+
+    def test_destroy_nonexistent_returns_404(self):
+        resp = self.client.delete(f"/api/person/{UUID_NONEXISTENT}/")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_personhog_not_called("delete_persons")
+
+    def test_destroy_with_keep_person_skips_delete(self):
+        person = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert get_person_by_uuid(self.team.pk, str(person.uuid)) is not None
+        self._assert_personhog_not_called("delete_persons")
+
+
+class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
+    def test_bulk_delete_by_ids(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid), str(p2.uuid)]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 2
+        assert data["deletion_errors"] == []
+        assert data["events_queued_for_deletion"] is False
+        assert data["recordings_queued_for_deletion"] is False
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+
+    def test_bulk_delete_by_distinct_ids(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"distinct_ids": ["did-1", "did-2"]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 2
+        assert data["deletion_errors"] == []
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+
+    def test_bulk_delete_with_keep_person(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid)], "keep_person": True, "delete_events": True},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_deleted"] == 0
+        assert data["events_queued_for_deletion"] is True
+        assert data["deletion_errors"] == []
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
+        self._assert_personhog_not_called("delete_persons")
+
+    def test_cross_team_isolation(self):
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_person = self._seed_person(team=other_team, distinct_ids=["other-did"])
+
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid)]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_deleted"] == 1
+        assert data["deletion_errors"] == []
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
+        # Other team's person should be untouched
+        assert get_person_by_uuid(other_team.pk, str(other_person.uuid)) is not None
+
+    @mock.patch("posthog.models.person.bulk_delete.delete_person")
+    def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+
+        mock_delete_person.side_effect = [Exception("CH write failed"), None]
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid), str(p2.uuid)]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 1
+        assert len(data["deletion_errors"]) == 1
+        assert data["deletion_errors"][0]["person_uuid"] == str(p1.uuid)
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            # Only the successful person should be sent to personhog for PG deletion
+            assert list(calls[0].request.person_uuids) == [str(p2.uuid)]

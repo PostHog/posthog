@@ -4,6 +4,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
 [
   {
     "abort_action": null,
+    "action_redirects": null,
     "actions": [
       {
         "config": {
@@ -65,10 +66,12 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
   {
     "abort_action": null,
+    "action_redirects": null,
     "actions": [
       {
         "config": {
@@ -130,6 +133,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
 ]

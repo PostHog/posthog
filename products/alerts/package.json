@@ -1,6 +1,29 @@
 {
     "name": "@posthog/products-alerts",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test_max_tools.py -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "chartjs-plugin-annotation": "*",
+        "fast-equals": "catalog:",
+        "react": "*",
+        "typescript": "catalog:*",
+        "zod": "*"
     }
 }

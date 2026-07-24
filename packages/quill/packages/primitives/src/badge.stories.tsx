@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { Badge } from './badge'
+import { InfoIcon } from 'lucide-react'
+import { Spinner } from './spinner'
 
 const meta = {
     title: 'Primitives/Badge',
@@ -9,7 +11,7 @@ const meta = {
     argTypes: {
         variant: {
             control: 'select',
-            options: ['default', 'secondary', 'destructive', 'outline', 'ghost'],
+            options: ['default', 'info', 'destructive', 'warning', 'success', 'completed'],
         },
     },
 } satisfies Meta<typeof Badge>
@@ -26,6 +28,7 @@ export const Default = {
                 <Badge variant="destructive">Destructive</Badge>
                 <Badge variant="warning">Warning</Badge>
                 <Badge variant="success">Success</Badge>
+                <Badge variant="completed">Completed</Badge>
             </div>
         </div>
     ),

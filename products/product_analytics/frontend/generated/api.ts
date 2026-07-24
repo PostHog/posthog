@@ -9,14 +9,48 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     ColumnConfigurationApi,
     ColumnConfigurationsListParams,
     ElementApi,
+    ElementStatsResponseApi,
+    ElementValueApi,
     ElementsListParams,
+    ElementsStatsRetrieveParams,
+    ElementsValuesListParams,
+    InsightApi,
+    InsightBulkDeleteRequestApi,
+    InsightBulkDeleteResponseApi,
+    InsightBulkRestoreResponseApi,
+    InsightViewedRequestApi,
+    InsightsActivityRetrieveParams,
+    InsightsAllActivityRetrieveParams,
+    InsightsAnalyzeRetrieveParams,
+    InsightsBulkDeleteCreateParams,
+    InsightsBulkRestoreCreateParams,
+    InsightsBulkUpdateTagsCreateParams,
+    InsightsCancelCreateParams,
+    InsightsCreateParams,
+    InsightsDestroyParams,
+    InsightsGenerateMetadataCreateParams,
+    InsightsListParams,
+    InsightsMyLastViewedRetrieveParams,
+    InsightsPartialUpdateParams,
+    InsightsRetrieveParams,
+    InsightsSuggestionsCreateParams,
+    InsightsSuggestionsRetrieveParams,
+    InsightsTrendingRetrieveParams,
+    InsightsUpdateParams,
+    InsightsViewedCreateParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
+    PaginatedInsightListApi,
+    PaginatedTrendingInsightListApi,
     PatchedColumnConfigurationApi,
     PatchedElementApi,
+    PatchedInsightApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -41,15 +75,15 @@ export const getColumnConfigurationsListUrl = (projectId: string, params?: Colum
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/column_configurations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/column_configurations/`
+        ? `/api/projects/${projectId}/column_configurations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/column_configurations/`
 }
 
 export const columnConfigurationsList = async (
@@ -64,7 +98,7 @@ export const columnConfigurationsList = async (
 }
 
 export const getColumnConfigurationsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/column_configurations/`
+    return `/api/projects/${projectId}/column_configurations/`
 }
 
 export const columnConfigurationsCreate = async (
@@ -81,7 +115,7 @@ export const columnConfigurationsCreate = async (
 }
 
 export const getColumnConfigurationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsRetrieve = async (
@@ -96,7 +130,7 @@ export const columnConfigurationsRetrieve = async (
 }
 
 export const getColumnConfigurationsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsUpdate = async (
@@ -114,13 +148,13 @@ export const columnConfigurationsUpdate = async (
 }
 
 export const getColumnConfigurationsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedColumnConfigurationApi: NonReadonly<PatchedColumnConfigurationApi>,
+    patchedColumnConfigurationApi?: NonReadonly<PatchedColumnConfigurationApi>,
     options?: RequestInit
 ): Promise<ColumnConfigurationApi> => {
     return apiMutator<ColumnConfigurationApi>(getColumnConfigurationsPartialUpdateUrl(projectId, id), {
@@ -132,7 +166,7 @@ export const columnConfigurationsPartialUpdate = async (
 }
 
 export const getColumnConfigurationsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsDestroy = async (
@@ -151,7 +185,7 @@ export const getElementsListUrl = (projectId: string, params?: ElementsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -179,7 +213,7 @@ export const getElementsCreateUrl = (projectId: string) => {
 
 export const elementsCreate = async (
     projectId: string,
-    elementApi: ElementApi,
+    elementApi?: ElementApi,
     options?: RequestInit
 ): Promise<ElementApi> => {
     return apiMutator<ElementApi>(getElementsCreateUrl(projectId), {
@@ -208,7 +242,7 @@ export const getElementsUpdateUrl = (projectId: string, id: number) => {
 export const elementsUpdate = async (
     projectId: string,
     id: number,
-    elementApi: ElementApi,
+    elementApi?: ElementApi,
     options?: RequestInit
 ): Promise<ElementApi> => {
     return apiMutator<ElementApi>(getElementsUpdateUrl(projectId, id), {
@@ -226,7 +260,7 @@ export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
 export const elementsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedElementApi: PatchedElementApi,
+    patchedElementApi?: PatchedElementApi,
     options?: RequestInit
 ): Promise<ElementApi> => {
     return apiMutator<ElementApi>(getElementsPartialUpdateUrl(projectId, id), {
@@ -248,30 +282,753 @@ export const elementsDestroy = async (projectId: string, id: number, options?: R
     })
 }
 
-/**
- * The original version of this API always and only returned $autocapture elements
-If no include query parameter is sent this remains true.
-Now, you can pass a combination of include query parameters to get different types of elements
-Currently only $autocapture and $rageclick and $dead_click are supported
- */
-export const getElementsStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/stats/`
+export const getElementsStatsRetrieveUrl = (projectId: string, params?: ElementsStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/elements/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/stats/`
 }
 
-export const elementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsStatsRetrieveUrl(projectId), {
+/**
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
+ */
+export const elementsStatsRetrieve = async (
+    projectId: string,
+    params?: ElementsStatsRetrieveParams,
+    options?: RequestInit
+): Promise<ElementStatsResponseApi> => {
+    return apiMutator<ElementStatsResponseApi>(getElementsStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getElementsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/values/`
+export const getElementsValuesListUrl = (projectId: string, params: ElementsValuesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/elements/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/values/`
 }
 
-export const elementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsValuesRetrieveUrl(projectId), {
+export const elementsValuesList = async (
+    projectId: string,
+    params: ElementsValuesListParams,
+    options?: RequestInit
+): Promise<ElementValueApi[]> => {
+    return apiMutator<ElementValueApi[]>(getElementsValuesListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightsListUrl = (projectId: string, params?: InsightsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsList = async (
+    projectId: string,
+    params?: InsightsListParams,
+    options?: RequestInit
+): Promise<PaginatedInsightListApi> => {
+    return apiMutator<PaginatedInsightListApi>(getInsightsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsCreateUrl = (projectId: string, params?: InsightsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsCreate = async (
+    projectId: string,
+    insightApi?: NonReadonly<InsightApi>,
+    params?: InsightsCreateParams,
+    options?: RequestInit
+): Promise<InsightApi> => {
+    return apiMutator<InsightApi>(getInsightsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsRetrieveUrl = (projectId: string, id: number | string, params?: InsightsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsRetrieve = async (
+    projectId: string,
+    id: number | string,
+    params?: InsightsRetrieveParams,
+    options?: RequestInit
+): Promise<InsightApi> => {
+    return apiMutator<InsightApi>(getInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsUpdateUrl = (projectId: string, id: number | string, params?: InsightsUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsUpdate = async (
+    projectId: string,
+    id: number | string,
+    insightApi?: NonReadonly<InsightApi>,
+    params?: InsightsUpdateParams,
+    options?: RequestInit
+): Promise<InsightApi> => {
+    return apiMutator<InsightApi>(getInsightsUpdateUrl(projectId, id, params), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsPartialUpdateUrl = (
+    projectId: string,
+    id: number | string,
+    params?: InsightsPartialUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsPartialUpdate = async (
+    projectId: string,
+    id: number | string,
+    patchedInsightApi?: NonReadonly<PatchedInsightApi>,
+    params?: InsightsPartialUpdateParams,
+    options?: RequestInit
+): Promise<InsightApi> => {
+    return apiMutator<InsightApi>(getInsightsPartialUpdateUrl(projectId, id, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedInsightApi),
+    })
+}
+
+export const getInsightsDestroyUrl = (projectId: string, id: number | string, params?: InsightsDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const insightsDestroy = async (
+    projectId: string,
+    id: number | string,
+    params?: InsightsDestroyParams,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getInsightsDestroyUrl(projectId, id, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getInsightsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: InsightsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/activity/`
+}
+
+/**
+ * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
+ */
+export const insightsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: InsightsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsAnalyzeRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: InsightsAnalyzeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/analyze/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/analyze/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsAnalyzeRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: InsightsAnalyzeRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsAnalyzeRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsSuggestionsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: InsightsSuggestionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/suggestions/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsSuggestionsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: InsightsSuggestionsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsSuggestionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsSuggestionsCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: InsightsSuggestionsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/suggestions/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsSuggestionsCreate = async (
+    projectId: string,
+    id: number,
+    insightApi?: NonReadonly<InsightApi>,
+    params?: InsightsSuggestionsCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsSuggestionsCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsAllActivityRetrieveUrl = (projectId: string, params?: InsightsAllActivityRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/activity/`
+}
+
+/**
+ * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
+ */
+export const insightsAllActivityRetrieve = async (
+    projectId: string,
+    params?: InsightsAllActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsAllActivityRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsBulkDeleteCreateUrl = (projectId: string, params?: InsightsBulkDeleteCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_delete/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_delete/`
+}
+
+/**
+ * Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint.
+ */
+export const insightsBulkDeleteCreate = async (
+    projectId: string,
+    insightBulkDeleteRequestApi: InsightBulkDeleteRequestApi,
+    params?: InsightsBulkDeleteCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkDeleteResponseApi> => {
+    return apiMutator<InsightBulkDeleteResponseApi>(getInsightsBulkDeleteCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightBulkDeleteRequestApi),
+    })
+}
+
+export const getInsightsBulkRestoreCreateUrl = (projectId: string, params?: InsightsBulkRestoreCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_restore/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_restore/`
+}
+
+/**
+ * Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`.
+ */
+export const insightsBulkRestoreCreate = async (
+    projectId: string,
+    insightBulkDeleteRequestApi: InsightBulkDeleteRequestApi,
+    params?: InsightsBulkRestoreCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkRestoreResponseApi> => {
+    return apiMutator<InsightBulkRestoreResponseApi>(getInsightsBulkRestoreCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightBulkDeleteRequestApi),
+    })
+}
+
+export const getInsightsBulkUpdateTagsCreateUrl = (projectId: string, params?: InsightsBulkUpdateTagsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_update_tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const insightsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    params?: InsightsBulkUpdateTagsCreateParams,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getInsightsBulkUpdateTagsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+export const getInsightsCancelCreateUrl = (projectId: string, params?: InsightsCancelCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/cancel/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/cancel/`
+}
+
+/**
+ * DRF ViewSet mixin that gates coalesced responses behind permission checks.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
+ */
+export const insightsCancelCreate = async (
+    projectId: string,
+    insightApi?: NonReadonly<InsightApi>,
+    params?: InsightsCancelCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsCancelCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsGenerateMetadataCreateUrl = (
+    projectId: string,
+    params?: InsightsGenerateMetadataCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/generate_metadata/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/generate_metadata/`
+}
+
+/**
+ * Generate an AI-suggested name and description for an insight based on its query configuration.
+ */
+export const insightsGenerateMetadataCreate = async (
+    projectId: string,
+    insightApi?: NonReadonly<InsightApi>,
+    params?: InsightsGenerateMetadataCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsGenerateMetadataCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsMyLastViewedRetrieveUrl = (projectId: string, params?: InsightsMyLastViewedRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/my_last_viewed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/my_last_viewed/`
+}
+
+/**
+ * Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
+ */
+export const insightsMyLastViewedRetrieve = async (
+    projectId: string,
+    params?: InsightsMyLastViewedRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsMyLastViewedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsTrendingRetrieveUrl = (projectId: string, params?: InsightsTrendingRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/trending/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/trending/`
+}
+
+/**
+ * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
+ */
+export const insightsTrendingRetrieve = async (
+    projectId: string,
+    params?: InsightsTrendingRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedTrendingInsightListApi> => {
+    return apiMutator<PaginatedTrendingInsightListApi>(getInsightsTrendingRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsViewedCreateUrl = (projectId: string, params?: InsightsViewedCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/viewed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/viewed/`
+}
+
+/**
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ */
+export const insightsViewedCreate = async (
+    projectId: string,
+    insightViewedRequestApi: InsightViewedRequestApi,
+    params?: InsightsViewedCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInsightsViewedCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightViewedRequestApi),
     })
 }

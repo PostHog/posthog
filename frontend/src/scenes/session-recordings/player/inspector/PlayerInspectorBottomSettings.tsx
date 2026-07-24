@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 
 import { BaseIcon, IconCheck } from '@posthog/icons'
 
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -124,6 +124,20 @@ function GroupRepeatedItems(): JSX.Element {
     )
 }
 
+function ShowLineTooltips(): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
+    const { setShowLineTooltips } = useActions(miniFiltersLogic)
+
+    return (
+        <SettingsToggle
+            title={showLineTooltips ? 'Hide hover tooltips on inspector lines' : 'Show the full line content on hover'}
+            label="Show line tooltips"
+            onClick={() => setShowLineTooltips(!showLineTooltips)}
+            active={showLineTooltips}
+        />
+    )
+}
+
 export function PlayerInspectorBottomSettings(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { collapseInspectorItems } = useValues(playerInspectorLogic(logicProps))
@@ -133,6 +147,7 @@ export function PlayerInspectorBottomSettings(): JSX.Element {
             <SyncScrolling />
             <ShowOnlyMatching />
             {collapseInspectorItems ? <GroupRepeatedItems /> : null}
+            <ShowLineTooltips />
             <HideProperties />
         </SettingsBar>
     )

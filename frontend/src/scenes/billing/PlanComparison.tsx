@@ -11,7 +11,7 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getProductIcon } from 'scenes/onboarding/utils'
+import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -332,6 +332,7 @@ export const PlanComparison = ({
                                                 <div className="flex items-center gap-x-2 my-2">
                                                     {getProductIcon(includedProduct.icon_key, {
                                                         className: 'text-2xl',
+                                                        productType: includedProduct.type,
                                                     })}
                                                     <Tooltip title={includedProduct.description}>
                                                         <span className="font-bold">{includedProduct.name}</span>

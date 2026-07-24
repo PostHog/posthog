@@ -5,20 +5,30 @@ import {
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
+    IconDownload,
+    IconEye,
     IconFlask,
     IconHome,
+    IconList,
     IconLive,
+    IconListTree,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMessage,
     IconNotebook,
     IconNotification,
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPulse,
     IconRewindPlay,
     IconRocket,
+    IconShare,
+    IconScatter,
     IconSpotlight,
     IconToggle,
+    IconToolbar,
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
@@ -47,36 +57,56 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconApps />
         case 'experiment':
             return <IconFlask />
+        case 'export':
+            return <IconDownload />
         case 'external_data_source':
+            return <IconDatabase />
+        case 'warehouse_objects':
             return <IconDatabase />
         case 'feature_flag':
             return <IconToggle />
+        case 'hog_flow':
+            return <IconDecisionTree />
         case 'insight':
             return <IconTrends />
         case 'llm_analytics':
             return <IconLlmAnalytics />
+        case 'llm_skill':
+            return <IconLlmPromptManagement />
+        case 'ai_observability_clusters':
+            return <IconScatter />
         case 'live_debugger':
             return <IconBug />
         case 'logs':
             return <IconLive />
+        case 'metrics':
+            return <IconPulse />
         case 'notebook':
             return <IconNotebook />
         case 'product_tour':
             return <IconSpotlight />
         case 'property_definition':
             return <IconApps />
+        case 'replay_scanner':
+            return <IconEye />
         case 'revenue_analytics':
             return <IconPiggyBank />
         case 'session_recording':
             return <IconRewindPlay />
+        case 'sharing_configuration':
+            return <IconShare />
         case 'survey':
             return <IconMessage />
+        case 'tagger':
+            return <IconList />
         case 'task':
             return <IconBug />
         case 'web_analytics':
             return <IconPieChart />
         case 'tracing':
-            return <IconLive />
+            return <IconListTree />
+        case 'toolbar':
+            return <IconToolbar />
         default:
             return null
     }

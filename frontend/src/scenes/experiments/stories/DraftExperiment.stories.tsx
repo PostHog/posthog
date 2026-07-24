@@ -23,6 +23,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
                 '/api/projects/:team_id/feature_flags/24/': {},
                 '/api/projects/:team_id/feature_flags/24/status/': {},
+                '/api/environments/:team_id/default_release_conditions/': [],
             },
         }),
     ],

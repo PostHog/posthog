@@ -3,15 +3,15 @@
 import pytest
 
 from django.conf import settings
-from django.db import connections
 from django.test import TestCase
 
 from posthog.models.person import Person
+from posthog.persons_db import persons_db_connection
 
 
-def table_exists(table_name: str, database: str = "persons_db_writer") -> bool:
-    """Check if a table exists in the specified database."""
-    with connections[database].cursor() as cursor:
+def table_exists(table_name: str) -> bool:
+    """Check if a table exists in the persons database via off-Django psycopg."""
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT EXISTS (
@@ -21,13 +21,12 @@ def table_exists(table_name: str, database: str = "persons_db_writer") -> bool:
         """,
             [table_name],
         )
-        return cursor.fetchone()[0]
+        row = cursor.fetchone()
+        return bool(row[0]) if row else False
 
 
 class TestPersonSchemaConsistency(TestCase):
     """Smoke test that Rust sqlx migrations ran successfully."""
-
-    databases = {"default", "persons_db_writer"}
 
     def test_posthog_person_exists(self):
         """Verify posthog_person table exists in persons_db after Rust sqlx migrations."""

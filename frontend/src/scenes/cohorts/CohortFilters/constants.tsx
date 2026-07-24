@@ -434,6 +434,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
             },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
+            },
         ],
     },
     [BehavioralEventType.NotPerformedEvent]: {
@@ -460,6 +465,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -501,6 +511,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -715,18 +730,14 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
-                type: FilterType.Text,
-                defaultValue: 'in the last',
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -958,7 +969,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PersonMetadata,
+                ]}
                 placeholder="Choose person property"
             />
         )

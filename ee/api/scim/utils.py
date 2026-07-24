@@ -2,6 +2,7 @@ from typing import Any
 
 from rest_framework.request import Request
 
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
@@ -87,38 +88,38 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     return result
 
 
-def enable_scim_for_domain(domain: OrganizationDomain) -> str:
+def enable_scim_for_config(config: IdentityProviderConfig) -> str:
     """
-    Enable SCIM for an OrganizationDomain and generate a new bearer token.
+    Enable SCIM for an IdentityProviderConfig and generate a new bearer token.
     Returns the plain text token (only shown once).
     """
     plain_token, hashed_token = generate_scim_token()
 
-    domain.scim_enabled = True
-    domain.scim_bearer_token = hashed_token
-    domain.save()
+    config.scim_enabled = True
+    config.scim_bearer_token = hashed_token
+    config.save()
 
     return plain_token
 
 
-def disable_scim_for_domain(domain: OrganizationDomain) -> None:
+def disable_scim_for_config(config: IdentityProviderConfig) -> None:
     """
-    Disable SCIM for an OrganizationDomain.
+    Disable SCIM for an IdentityProviderConfig.
     """
-    domain.scim_enabled = False
-    domain.scim_bearer_token = None
-    domain.save()
+    config.scim_enabled = False
+    config.scim_bearer_token = None
+    config.save()
 
 
-def regenerate_scim_token(domain: OrganizationDomain) -> str:
+def regenerate_scim_token_for_config(config: IdentityProviderConfig) -> str:
     """
-    Regenerate SCIM bearer token for a domain.
+    Regenerate SCIM bearer token for an IdentityProviderConfig.
     Returns the new plain text token (only shown once).
     """
     plain_token, hashed_token = generate_scim_token()
 
-    domain.scim_bearer_token = hashed_token
-    domain.save()
+    config.scim_bearer_token = hashed_token
+    config.save()
 
     return plain_token
 
@@ -137,7 +138,7 @@ def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityPr
     """
     Detect identity provider from request User-Agent header.
     """
-    user_agent = request.META.get("HTTP_USER_AGENT", "").lower()
+    user_agent = request.headers.get("user-agent", "").lower()
 
     if "okta" in user_agent:
         return SCIMProvisionedUser.IdentityProvider.OKTA

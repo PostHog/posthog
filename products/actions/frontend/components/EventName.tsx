@@ -42,6 +42,7 @@ export function EventName({
             allowClear={allEventsOption === 'clear'}
             excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
             size="small"
+            selectingKeyOnly
             {...props}
         />
     )

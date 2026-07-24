@@ -2,15 +2,23 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
+import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryRunHistory,
+} from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
@@ -88,12 +96,41 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
         runHistoryMapLoading,
         materializedViewsCurrentPage,
         viewsCurrentPage,
+        accessControlModalOpen,
+        editingAccessControlView,
+        featureFlags,
     } = useValues(viewsTabLogic)
-    const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
-        useActions(viewsTabLogic)
+    const {
+        setSearchTerm,
+        deleteView,
+        runMaterialization,
+        setMaterializedViewsPage,
+        setViewsPage,
+        openAccessControlModal,
+        closeAccessControlModal,
+    } = useActions(viewsTabLogic)
+
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
+
+    const accessControlMenuButton = (view: DataWarehouseSavedQuery): JSX.Element | null => {
+        if (!warehouseAccessControlEnabled || view.managed_viewset_kind !== null) {
+            return null
+        }
+        return <LemonButton onClick={() => openAccessControlModal(view)}>Access control</LemonButton>
+    }
 
     return (
         <div className="space-y-4">
+            {editingAccessControlView ? (
+                <AccessControlObjectModal
+                    isOpen={accessControlModalOpen}
+                    onClose={closeAccessControlModal}
+                    resource={AccessControlResourceType.WarehouseView}
+                    resource_id={editingAccessControlView.id}
+                    title={editingAccessControlView.name}
+                    description="Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
+                />
+            ) : null}
             {(filteredViews.length > 0 || filteredMaterializedViews.length > 0 || searchTerm) && (
                 <div className="flex gap-2 justify-between items-center">
                     <LemonInput
@@ -124,6 +161,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
@@ -229,23 +267,35 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    onClick={() => runMaterialization(view.id)}
-                                                    disabledReason={
-                                                        view.status === 'Running'
-                                                            ? 'Materialization is already running'
-                                                            : undefined
-                                                    }
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
                                                 >
-                                                    Sync now
-                                                </LemonButton>
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => deleteView(view.id)}
-                                                    disabledReason={getDisabledReason(view)}
+                                                    <LemonButton
+                                                        onClick={() => runMaterialization(view.id)}
+                                                        disabledReason={
+                                                            view.status === 'Running'
+                                                                ? 'Materialization is already running'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Sync now
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                                {accessControlMenuButton(view)}
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={view.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => deleteView(view.id)}
+                                                        disabledReason={getDisabledReason(view)}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </AccessControlAction>
                                             </>
                                         }
                                     />
@@ -286,6 +336,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
@@ -354,13 +405,20 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => deleteView(view.id)}
-                                                    disabledReason={getDisabledReason(view)}
+                                                {accessControlMenuButton(view)}
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={view.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => deleteView(view.id)}
+                                                        disabledReason={getDisabledReason(view)}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </AccessControlAction>
                                             </>
                                         }
                                     />
@@ -394,9 +452,14 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                             Create your first view to transform and organize your data warehouse tables.
                         </p>
                     )}
-                    <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
-                        Create view
-                    </LemonButton>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.WarehouseObjects}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton type="primary" to={urls.sqlEditor({ source: 'view' })} className="inline-block">
+                            Create view
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             )}
         </div>

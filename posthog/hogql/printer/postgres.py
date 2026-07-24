@@ -1,40 +1,100 @@
 import re
 import hashlib
-from typing import Literal
+from collections.abc import Callable
+from datetime import date, datetime
+from typing import ClassVar
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
     POSTGRES_FUNCTION_RENAMES_LOWER,
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
 
+from posthog.uuidt import UUIDT
+
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class PostgresPrinter(HogQLPrinter):
+class PostgresPrinter(BasePrinter):
+    DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
+    # Human-readable dialect name used in error messages; subclasses override.
+    DIALECT_LABEL: ClassVar[str] = "Postgres"
+
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["postgres"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
-        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        super().__init__(context=context, stack=stack, settings=settings, pretty=pretty)
         self._truncated_identifiers: dict[str, str] = {}
         self._used_truncated_identifiers: set[str] = set()
         self._connection_supported_functions = self._get_connection_supported_functions()
+
+    def _min_function_name(self) -> str:
+        return "least"
+
+    def _dialect_error_suffix(self) -> str:
+        return f"in {self.DIALECT_LABEL} mode"
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        return
+
+    def _assert_recursive_cte_supported(self) -> None:
+        return
+
+    def _assert_qualify_supported(self) -> None:
+        return
+
+    def _assert_with_ties_supported(self) -> None:
+        raise QueryError("WITH TIES is not supported in postgres dialect")
+
+    def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
+        col_names = ", ".join(self._print_identifier(c) for c in column_aliases)
+        return f" ({col_names})"
+
+    def _render_column_aliases_appended(self, column_aliases: list[str]) -> str | None:
+        col_aliases = ", ".join(self._print_identifier(ca) for ca in column_aliases)
+        return f"({col_aliases})"
+
+    def _dict_tuple_function_name(self) -> str:
+        return "ROW"
+
+    def _render_column_aliased_field_name(self, type: ast.FieldType, resolved_field) -> str:
+        return self._print_identifier(type.name)
+
+    def _apply_window_function_rewrites(
+        self, identifier: str, exprs: list[str], cloned_node: ast.WindowFunction
+    ) -> str:
+        # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
+        return identifier
+
+    def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
+        return f"{limit_str} %"
+
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        # ClickHouse accepts a bare per-branch LIMIT/ORDER BY inside a set operation; the
+        # Postgres-family grammars only allow those on a parenthesized operand.
+        return f"({super()._visit_set_operand(node)})"
+
+    def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
+        rendered = f"LIMIT {self.visit(limit)}"
+        if is_percent:
+            rendered += " %"
+        return rendered
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -47,7 +107,8 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name.upper()` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name.upper()
 
@@ -70,28 +131,29 @@ class PostgresPrinter(HogQLPrinter):
 
         if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
             if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+                raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
             minute_bucket_sizes: dict[str, int] = {
                 "toStartOfFiveMinutes": 5,
                 "toStartOfTenMinutes": 10,
                 "toStartOfFifteenMinutes": 15,
             }
-            bucket_arg = self.visit(node.args[0])
-            bucket_size = minute_bucket_sizes[node.name]
-            return (
-                f"date_trunc('hour', {bucket_arg}) + "
-                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
-            )
+            return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
+
+        function_renames = self._get_function_renames()
+        function_handlers = self._get_function_handlers()
+        passthrough_functions = self._get_passthrough_functions()
 
         if node.order_by:
             # ORDER BY in function calls is only supported for passthrough functions.
             func_name = node.name.lower()
             if (
-                func_name not in POSTGRES_PASSTHROUGH_FUNCTIONS
-                and func_name not in POSTGRES_FUNCTION_HANDLERS_LOWER
-                and func_name not in POSTGRES_FUNCTION_RENAMES_LOWER
+                func_name not in passthrough_functions
+                and func_name not in function_handlers
+                and func_name not in function_renames
             ):
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
 
         # Validate function name characters to prevent SQL injection via
         # backtick-quoted identifiers that can contain arbitrary characters.
@@ -103,24 +165,60 @@ class PostgresPrinter(HogQLPrinter):
 
         func_name = node.name.lower()
 
-        handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
+        handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
+            if node.distinct:
+                if func_name in self._get_distinct_capable_handlers():
+                    # Fold DISTINCT into the rendered args so the handler emits e.g.
+                    # COUNT(DISTINCT expr) — valid SQL these aggregates support.
+                    args = [f"DISTINCT {', '.join(args)}"]
+                else:
+                    # Other handlers compose custom SQL from pre-rendered args; injecting
+                    # DISTINCT blindly risks silently changing what the aggregate counts.
+                    raise QueryError(
+                        f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
+                    )
             return handler(args)
 
-        pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
-        if pg_name is not None:
-            return f"{pg_name}({', '.join(args)}{order_by_part})"
+        args_str = ", ".join(args)
+        if func_name == "count" and not args and not node.distinct:
+            # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
+            args_str = "*"
+        if node.distinct:
+            args_str = f"DISTINCT {args_str}"
 
-        if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
-            return f"{func_name}({', '.join(args)}{order_by_part})"
+        renamed = function_renames.get(func_name)
+        if renamed is not None:
+            return f"{renamed}({args_str}{order_by_part})"
+
+        if func_name in passthrough_functions:
+            return f"{func_name}({args_str}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
             # Use the validated name — never the raw node.name
-            return f"{func_name}({', '.join(args)})"
+            return f"{func_name}({args_str})"
 
-        raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
+        raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
+
+    def _get_function_renames(self) -> dict[str, str]:
+        """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""
+        return POSTGRES_FUNCTION_RENAMES_LOWER
+
+    def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
+        """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
+        return POSTGRES_FUNCTION_HANDLERS_LOWER
+
+    def _get_passthrough_functions(self) -> frozenset[str]:
+        """Lowercased function names that are emitted verbatim without renaming."""
+        return POSTGRES_PASSTHROUGH_FUNCTIONS
+
+    def _get_distinct_capable_handlers(self) -> frozenset[str]:
+        """Lowercased handler names whose SQL accepts a leading DISTINCT (e.g. COUNT(DISTINCT x))."""
+        return frozenset()
 
     def visit_array_slice(self, node: ast.ArraySlice):
         start = self.visit(node.start_expr) if node.start_expr is not None else ""
@@ -128,7 +226,25 @@ class PostgresPrinter(HogQLPrinter):
         return f"{self.visit(node.array)}[{start}:{end}]"
 
     def visit_try_cast(self, node: ast.TryCast):
-        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
+        return f"TRY_CAST({self.visit(node.expr)} AS {self._print_identifier(node.type_name)})"
+
+    def visit_constant(self, node: ast.Constant):
+        # Parameterize string (and other complex-typed) constants via ``context.add_value`` so
+        # psycopg binds them safely at ``cursor.execute(sql, values)`` time. Inlining them
+        # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
+        # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection.
+        if (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
+        ):
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
+                raise QueryError(f"Invalid character '%' in constant: {value}")
+            return value
+        return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
@@ -160,35 +276,28 @@ class PostgresPrinter(HogQLPrinter):
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
-            raise QueryError(f"{node.name} expects at least 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects at least 1 argument {self._dialect_error_suffix()}.")
 
         truncated_arg = self.visit(node.args[0])
 
-        if node.name in {
-            "toStartOfSecond",
-            "toStartOfMinute",
-            "toStartOfHour",
-            "toStartOfMonth",
-            "toStartOfQuarter",
-            "toStartOfYear",
-        }:
-            if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+        start_of_units: dict[str, str] = {
+            "toStartOfSecond": "second",
+            "toStartOfMinute": "minute",
+            "toStartOfHour": "hour",
+            "toStartOfMonth": "month",
+            "toStartOfQuarter": "quarter",
+            "toStartOfYear": "year",
+        }
 
-            start_of_units: dict[str, str] = {
-                "toStartOfSecond": "second",
-                "toStartOfMinute": "minute",
-                "toStartOfHour": "hour",
-                "toStartOfMonth": "month",
-                "toStartOfQuarter": "quarter",
-                "toStartOfYear": "year",
-            }
-            return f"date_trunc('{start_of_units[node.name]}', {truncated_arg})"
+        if node.name in start_of_units:
+            if len(node.args) != 1:
+                raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
+            return self._render_start_of(start_of_units[node.name], truncated_arg)
 
         if node.name == "toStartOfDay":
             if len(node.args) == 1:
-                return f"date_trunc('day', {truncated_arg})"
-            raise QueryError("toStartOfDay with a timezone override is not supported in Postgres mode.")
+                return self._render_start_of("day", truncated_arg)
+            raise QueryError(f"toStartOfDay with a timezone override is not supported {self._dialect_error_suffix()}.")
 
         if node.name == "toStartOfWeek":
             if len(node.args) == 1:
@@ -196,24 +305,35 @@ class PostgresPrinter(HogQLPrinter):
             elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
                 week_mode = node.args[1].value
             else:
-                raise QueryError("toStartOfWeek only supports literal week modes in Postgres mode.")
-
-            if week_mode in {1, 3}:
-                return f"date_trunc('week', {truncated_arg})"
-            if week_mode == 0:
-                return f"(date_trunc('week', ({truncated_arg} + interval '1 day')) - interval '1 day')"
-            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in Postgres mode.")
+                raise QueryError(f"toStartOfWeek only supports literal week modes {self._dialect_error_suffix()}.")
+            return self._render_start_of("week", truncated_arg, week_mode=week_mode)
 
         if node.name == "toStartOfISOYear":
             if len(node.args) != 1:
-                raise QueryError("toStartOfISOYear expects exactly 1 argument in Postgres mode.")
-
-            return f"date_trunc('week', make_date(extract(isoyear from {truncated_arg})::int, 1, 4)::timestamp)"
+                raise QueryError(f"toStartOfISOYear expects exactly 1 argument {self._dialect_error_suffix()}.")
+            return self._render_start_of("isoyear", truncated_arg)
 
         if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
 
-        return f"date_trunc('day', {truncated_arg})"
+        return self._render_start_of("day", truncated_arg)
+
+    def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
+        if unit == "week":
+            if week_mode in {1, 3}:
+                return f"date_trunc('week', {arg})"
+            if week_mode == 0:
+                return f"(date_trunc('week', ({arg} + interval '1 day')) - interval '1 day')"
+            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` {self._dialect_error_suffix()}.")
+        if unit == "isoyear":
+            return f"date_trunc('week', make_date(extract(isoyear from {arg})::int, 1, 4)::timestamp)"
+        return f"date_trunc('{unit}', {arg})"
+
+    def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:
+        return (
+            f"date_trunc('hour', {arg}) + "
+            f"(floor(extract(minute from {arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
+        )
 
     def visit_and(self, node):
         return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
@@ -271,6 +391,11 @@ class PostgresPrinter(HogQLPrinter):
             return f"({left} IN {right})"
         elif op == ast.CompareOperationOp.NotIn:
             return f"({left} NOT IN {right})"
+        elif op == ast.CompareOperationOp.GlobalIn:
+            # Postgres has no distributed GLOBAL concept, so it maps to a plain IN
+            return f"({left} IN {right})"
+        elif op == ast.CompareOperationOp.GlobalNotIn:
+            return f"({left} NOT IN {right})"
         elif op == ast.CompareOperationOp.Regex:
             return f"({left} ~ {right})"
         elif op == ast.CompareOperationOp.NotRegex:
@@ -301,6 +426,14 @@ class PostgresPrinter(HogQLPrinter):
         # Team ID filtering is not required for Postgres queries
         pass
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        # Access control is not implemented for Postgres dialect yet
+        return None
+
     def _print_identifier(self, name: str) -> str:
         if len(name) > 63 and "__" in name:
             name = self._truncate_identifier(name)
@@ -327,14 +460,16 @@ class PostgresPrinter(HogQLPrinter):
         return candidate
 
     def _json_property_args(self, chain):
-        return [self._print_escaped_string(name) for name in chain]
+        # Parameterize JSON property keys via ``context.add_value`` so psycopg binds them
+        # safely. Inlining them through ``_print_escaped_string`` would emit ClickHouse-style
+        # ``\'`` escapes, which Postgres/DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection. Same reasoning as
+        # ``visit_constant`` above.
+        return [self.context.add_value(name) for name in chain]
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
-            return (
-                f"{escape_postgres_identifier(table.postgres_schema)}."
-                f"{escape_postgres_identifier(table.postgres_table_name)}"
-            )
+            return table.to_printed_postgres(self.context)
         if hasattr(table, "to_printed_postgres"):
             return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
@@ -372,6 +507,11 @@ class PostgresPrinter(HogQLPrinter):
             if isinstance(column, ast.Field) and isinstance(column.type, ast.PropertyType):
                 alias_name = ".".join(map(str, column.chain))
                 column = ast.Alias(alias=alias_name, expr=column)
+            elif isinstance(column, ast.PropertyAccess) and isinstance(column.expr, ast.Field):
+                # A lowered property read: reconstruct the same `properties.X` column name the un-lowered Field above
+                # would get (source chain + keys), so logical lowering doesn't change the result column name.
+                alias_name = ".".join(map(str, [*column.expr.chain, *column.keys]))
+                column = ast.Alias(alias=alias_name, expr=column)
 
             columns_sql.append(self.visit(column))
         return columns_sql
@@ -386,7 +526,11 @@ class PostgresPrinter(HogQLPrinter):
         elif node.op == ast.ArithmeticOperationOp.Div:
             return f"({self.visit(node.left)} / {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Mod:
-            return f"({self.visit(node.left)} % {self.visit(node.right)})"
+            # A bare `%` can't appear in printed SQL — during client-side binding psycopg
+            # reads it as the start of a parameter placeholder (valid ones look like
+            # `%(hogql_val_0)s`) and errors on the incomplete placeholder. So modulo renders
+            # as MOD(a, b). Both Postgres and DuckDB (which subclasses this printer) support MOD().
+            return f"MOD({self.visit(node.left)}, {self.visit(node.right)})"
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 

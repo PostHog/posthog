@@ -4,20 +4,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationsList } from 'scenes/surveys/components/SurveyNotificationsList'
 import { SurveysTable } from 'scenes/surveys/components/SurveysTable'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, SurveyEventName } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
@@ -42,7 +42,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Survey} minAccessLevel={AccessControlLevel.Editor}>
-            <AppShortcut
+            <Shortcut
                 name="NewSurvey"
                 keybind={[keyBinds.new]}
                 intent="New survey"
@@ -59,7 +59,7 @@ function NewSurveyButton(): JSX.Element {
                 >
                     New survey
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }
@@ -109,16 +109,7 @@ function Surveys(): JSX.Element {
                 sceneInset={true}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
-            {tab === SurveysTabs.Notifications && (
-                <>
-                    <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        type="destination"
-                        subTemplateIds={['survey-response']}
-                        forceFilterGroups={[{ events: [{ id: SurveyEventName.SENT, type: 'events' }] }]}
-                    />
-                </>
-            )}
+            {tab === SurveysTabs.Notifications && <SurveyNotificationsList />}
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 

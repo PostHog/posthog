@@ -1,9 +1,9 @@
 import { CapturedNetworkRequest } from 'posthog-js'
-
-import { eventWithTime } from '@posthog/rrweb-types'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { assignField, humanizeBytes, isKeyOf } from 'lib/utils'
+import { assignField, isKeyOf } from 'lib/utils/guards'
+import { humanizeBytes } from 'lib/utils/numbers'
 
 import { PerformanceEvent } from '~/types'
 
@@ -239,6 +239,9 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
                 snapshot.data.plugin === NETWORK_PLUGIN_NAME
             ) {
                 const properties = snapshot.data.payload as any
+                if (!properties || typeof properties !== 'object') {
+                    return
+                }
 
                 const data: Partial<PerformanceEvent> = {
                     timestamp: snapshot.timestamp,
@@ -261,7 +264,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
             ) {
                 const payload = snapshot.data.payload as any
 
-                if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+                if (!payload || !Array.isArray(payload.requests) || payload.requests.length === 0) {
                     return
                 }
 

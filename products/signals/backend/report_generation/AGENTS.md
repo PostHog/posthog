@@ -28,6 +28,10 @@ the safety judge first, then calls into this flow via a Temporal activity if the
     The repository used for research is tracked separately via the `repo_selection` artefact.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
+- `fixtures/insight_scene_logic_mode_property_bug.json`
+  Saved research output for a single-signal, `immediately_actionable` P1 report.
+  Used by the `ingest_report_json` management command to exercise the autostart
+  path without running the sandbox research flow.
 
 ## Mental model
 
@@ -43,7 +47,18 @@ the safety judge first, then calls into this flow via a Temporal activity if the
   lightly validate old findings before reusing them
   fully research only new or stale signals
   show previous actionability, priority, title, and summary as context
-  regenerate those outputs only as much as needed
+  the agent confirms still-correct findings/assessments (via the `*Update` wrapper schemas)
+  instead of regenerating them — `ReportResearchOutput` splits its findings/assessments into
+  `old_artefacts` (confirmed unchanged, already persisted) and `new_artefacts` (produced this run),
+  and the caller activity persists the new ones unconditionally; read the report's effective state
+  via the `effective_*` accessors
+
+When a report was spawned because a signal would have grouped into an already-**resolved**
+report (resolved reports are terminal and never reopen), the grouping pipeline links the two with
+symmetric `related_to` artefacts (one on each, pointing at the other). The caller activity finds the
+linked report that is resolved and passes `resolved_report_title` / `resolved_report_summary`. The
+initial research prompt then includes a `## Previously resolved report` block so the agent can judge
+whether the recurrence is a regression, a new dimension of the same issue, or distinct.
 
 In production, the `update` path is triggered automatically when a `ready` report is
 re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`)
@@ -53,6 +68,12 @@ title/summary fields, then passes it to `run_multi_turn_research()`.
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity,
 so this module stays isolated from report DB writes.
+
+The caller activity passes `has_business_knowledge=True` when the team's business knowledge
+product is both feature-flagged on and has at least one READY source (via
+`products.business_knowledge.backend.logic.is_available_for_team`). When true, the research
+prompt includes a `## Business knowledge` block that instructs the agent to search the team's
+curated knowledge base via MCP tools.
 
 ## Local debug commands
 

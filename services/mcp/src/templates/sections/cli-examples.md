@@ -1,0 +1,50 @@
+**CORRECT usage pattern:**
+
+<example>
+User: How many weekly active users do we have?
+Assistant: I need to find the right query tool and data schema tool.
+[Runs posthog:exec({ "command": "search query-trends" }) and posthog:exec({ "command": "search read-data" }) in parallel]
+Assistant: Let me check the tool descriptions and schemas.
+[Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
+Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
+[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" }) in parallel]
+Assistant: Now I know the exact series structure and available events. Let me construct the query.
+[Runs posthog:exec({ "command": "call query-trends {...}" })]
+</example>
+
+<example>
+User: Create a dashboard for our key revenue metrics
+Assistant: I'll need dashboard and query tools. Let me search for them.
+[Runs posthog:exec({ "command": "search dashboard" }) and posthog:exec({ "command": "search execute-sql" }) in parallel]
+Assistant: Let me check the schemas for the tools I'll need.
+[Runs posthog:exec({ "command": "info dashboard-create" }) and posthog:exec({ "command": "info execute-sql" }) in parallel]
+Assistant: Now I have both schemas. Let me start by searching for existing revenue insights.
+[Makes call commands with correct parameters]
+</example>
+
+**INCORRECT usage patterns — NEVER do this:**
+
+<bad-example>
+User: Show me our feature flags
+Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
+WRONG: Run `info feature-flag-get-all` once when its schema is missing.
+</bad-example>
+
+<bad-example>
+User: Query our events
+Assistant: [Calls three tools in parallel without any `info` calls first]
+WRONG: Run `info` once for each missing schema.
+</bad-example>
+
+<bad-example>
+User: Show me a trends chart of signups
+Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
+WRONG — info returned a summary with hint: "DO NOT GUESS – run `schema query-trends series` before populating this field".
+You MUST follow the hint and run `schema` before constructing the series field.
+</bad-example>
+
+<bad-example>
+User: query pageviews for the last 7 days
+Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never query an event name taken or inferred from the prompt — canonical-looking (`$pageview`) or guessed (`downloaded_file`) names still need per-team confirmation.
+</bad-example>

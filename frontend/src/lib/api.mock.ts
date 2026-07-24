@@ -55,7 +55,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
-    slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
     updated_at: '2022-03-17T16:09:21.566253Z',
     anonymize_ips: false,
@@ -90,6 +89,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         maskAllInputs: true,
     },
     session_recording_retention_period: '30d',
+    event_retention_months: 84,
+    events_retention_enforced: false,
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -152,36 +153,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
             },
         ],
         filter_test_accounts: false,
-        goals: [
-            // Past goal
-            {
-                due_date: '2020-12-31',
-                name: '2020 Q4',
-                goal: 1_000_000,
-                mrr_or_gross: 'gross',
-            },
-            // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
-            // These are both "Current" goals since they're for the same day
-            {
-                due_date: '2035-12-31',
-                name: '2035 Q4',
-                goal: 1_500_000,
-                mrr_or_gross: 'gross',
-            },
-            {
-                due_date: '2035-12-31',
-                name: '2035 Q4 MRR',
-                goal: 1_200_000,
-                mrr_or_gross: 'mrr',
-            },
-            // Future goal
-            {
-                due_date: '2040-12-31',
-                name: '2040 Q4',
-                goal: 1_800_000,
-                mrr_or_gross: 'gross',
-            },
-        ],
     },
     flags_persistence_default: false,
     feature_flag_confirmation_enabled: false,
@@ -206,6 +177,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         subscription_event: {},
         payment_event: {},
     } as CustomerAnalyticsConfig,
+    workflows_config: {
+        capture_workflows_engagement_events: false,
+    },
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
@@ -221,6 +195,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
+    is_pending_deletion: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -245,6 +220,8 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
     is_active: true,
     is_not_active_reason: null,
+    is_pending_deletion: false,
+    is_ai_data_processing_approved: true,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -268,6 +245,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         error_tracking_issue_assigned: false,
         error_tracking_weekly_digest: true,
         discussions_mentioned: false,
+        web_analytics_weekly_digest: false,
         organization_member_join_email_disabled: {},
     },
     anonymize_data: false,
@@ -296,6 +274,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             allow_publicly_shared_resources,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         }) => ({
             id,
             name,
@@ -306,6 +285,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             logo_media_id: null,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         })
     ),
     events_column_config: {
@@ -425,7 +405,6 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     order: 1,
     config: {},
     team_id: MOCK_TEAM_ID,
-    delivery_rate_24h: 0.999,
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }

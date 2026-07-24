@@ -8,7 +8,7 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, webAnalyticsHealthStatusLoading } =
+    const { overallHealthStatus, checksByCategory, healthIssuesLoading, refreshDisabledReason } =
         useValues(webAnalyticsHealthLogic)
     const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
 
@@ -20,7 +20,8 @@ export function HealthStatusTab(): JSX.Element {
                 passedCount={overallHealthStatus.passedCount}
                 totalCount={overallHealthStatus.totalCount}
                 onRefresh={refreshHealthChecks}
-                loading={webAnalyticsHealthStatusLoading}
+                loading={healthIssuesLoading}
+                refreshDisabledReason={refreshDisabledReason}
             />
 
             <div className="space-y-3">
@@ -56,6 +57,7 @@ interface OverallHealthBannerProps {
     totalCount: number
     onRefresh: () => void
     loading: boolean
+    refreshDisabledReason: string | null
 }
 
 function OverallHealthBanner({
@@ -65,6 +67,7 @@ function OverallHealthBanner({
     totalCount,
     onRefresh,
     loading,
+    refreshDisabledReason,
 }: OverallHealthBannerProps): JSX.Element {
     if (status === 'loading') {
         return (
@@ -86,7 +89,14 @@ function OverallHealthBanner({
                         {passedCount} of {totalCount} checks passed
                     </div>
                 </div>
-                <LemonButton type="secondary" size="small" icon={<IconRefresh />} onClick={onRefresh} loading={loading}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    onClick={() => onRefresh()}
+                    loading={loading}
+                    disabledReason={loading ? undefined : refreshDisabledReason}
+                >
                     Refresh
                 </LemonButton>
             </div>

@@ -32,6 +32,17 @@ on:
                 description: 'Comma-separated list of images to build (empty = all)'
                 type: string
                 default: ''
+            push:
+                description: 'Whether to push built images to the registry'
+                type: boolean
+                default: true
+        secrets:
+            POSTHOG_API_TOKEN:
+                required: false
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
+                required: false
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'
@@ -48,7 +59,7 @@ jobs:
             matrix: ${{ steps.set.outputs.matrix }}
         steps:
             - name: Check out rust-images.yml
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/rust-images.yml
                   sparse-checkout-cone-mode: false
@@ -92,7 +103,7 @@ jobs:
             - name: Check Out Repo
               # Use sparse checkout to only select files in rust directory
               # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.checkout-ref || '' }}
                   sparse-checkout: |
@@ -105,16 +116,16 @@ jobs:
               run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
               with:
                   image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
                   platforms: all
 
             - name: Login to ghcr.io
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -122,21 +133,49 @@ jobs:
 
             - name: Docker meta
               id: meta
-              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+              uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
               with:
                   images: ghcr.io/posthog/posthog/${{ matrix.image }}
                   tags: ${{ inputs.tag-rules }}
 
             - name: Set up Docker Buildx
               id: buildx
-              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Retrieve sccache configuration
               id: sccache
+              env:
+                  IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  if [ "$IS_FORK_PR" = "true" ]; then
+                      echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
+                      exit 0
+                  fi
                   echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
+            # Native debug symbols upload to PostHog error tracking from inside the
+            # image build (see rust/Dockerfile). Only master builds on the canonical
+            # deploy repo get the token; everywhere else the Dockerfile skips the
+            # upload, so unrebased branches and forks are unaffected.
+            - name: Prepare symbol upload token
+              id: symbols
+              env:
+                  TOKEN: ${{ secrets.POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY }}
+                  ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
+              run: |
+                  if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
+                      echo "::add-mask::$TOKEN"
+                      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+                      # Unique per run: secret mounts don't participate in the layer
+                      # cache key, so this busts the cache to guarantee the upload
+                      # actually runs on token-bearing builds (see rust/Dockerfile).
+                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Native symbol upload disabled for this build"
+                  fi
 
             - name: Build and push image
               id: docker_build
@@ -145,17 +184,24 @@ jobs:
                   project: ${{ matrix.project }}
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
-                  push: true
+                  target: ${{ matrix.target || '' }}
+                  push: ${{ inputs.push }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
-                      BIN=${{ matrix.image }}
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
+                      SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+                      posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
 
             - name: Build failure properties
               if: failure()
@@ -171,9 +217,17 @@ jobs:
 
             - name: Report failure
               if: failure() && github.event_name != 'pull_request'
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: ${{ inputs.event-name }}
+                  properties: ${{ steps.failure-props.outputs.json }}
+            - name: Report failure to DevEx PostHog
+              if: failure() && github.event_name != 'pull_request'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: ${{ inputs.event-name }}
                   properties: ${{ steps.failure-props.outputs.json }}
 

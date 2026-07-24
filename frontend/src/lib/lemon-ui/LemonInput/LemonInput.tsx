@@ -25,6 +25,7 @@ interface LemonInputPropsBase extends Pick<
     | 'onKeyDown'
     | 'onKeyUp'
     | 'onKeyPress'
+    | 'onPaste'
     | 'autoComplete'
     | 'autoCorrect'
     | 'autoCapitalize'
@@ -161,9 +162,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             suffix = showPasswordButton
         }
     }
-    // allowClear button takes precedence if set
+    // when allowClear is set with a value, render a clear button alongside any
+    // existing suffix so consumers (e.g. TaxonomicFilter's category dropdown)
+    // remain reachable while the user is typing
     if (allowClear && value) {
-        suffix = (
+        const clearButton = (
             <LemonButton
                 size="small"
                 noPadding
@@ -186,6 +189,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     focus()
                 }}
             />
+        )
+        suffix = suffix ? (
+            <>
+                {suffix}
+                {clearButton}
+            </>
+        ) : (
+            clearButton
         )
     }
 
@@ -211,7 +222,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}
-                onClick={() => focus()}
+                onClick={(event) => {
+                    // Native segmented inputs (notably `type="time"` in Safari) reset to their
+                    // first segment when focused again. The input already handles its own clicks;
+                    // only focus it when the surrounding input chrome was clicked.
+                    if (event.target !== internalInputRef.current) {
+                        focus()
+                    }
+                }}
                 ref={ref}
             >
                 {prefix}
@@ -219,7 +237,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className="LemonInput__input"
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                    value={value}
+                    // A cleared controlled number input holds NaN; pass '' so the input stays
+                    // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
+                    value={type === 'number' && typeof value === 'number' && Number.isNaN(value) ? '' : value}
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {

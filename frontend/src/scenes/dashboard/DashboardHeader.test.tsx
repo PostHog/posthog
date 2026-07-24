@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -75,14 +76,19 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel>
         dashboardMode?: DashboardMode | null
+        dashboardModeSource?: DashboardEventSource
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
-        const { dashboard = MOCK_DASHBOARD, dashboardMode = null } = opts
+        const {
+            dashboard = MOCK_DASHBOARD,
+            dashboardMode = null,
+            dashboardModeSource = DashboardEventSource.Browser,
+        } = opts
 
         const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
+            logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
         render(
@@ -110,10 +116,25 @@ describe('DashboardHeader', () => {
             notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
         },
         {
-            scenario: 'Edit mode',
+            scenario: 'Filter edit mode',
             dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            visible: ['dashboard-add-tile'],
+            notVisible: [
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-share-button',
+                'add-text-tile-to-dashboard',
+                'dashboard-add-graph-header',
+            ],
+        },
+        {
+            scenario: 'Layout edit mode',
+            dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
+            canEdit: true,
+            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
             notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
         },
         {
@@ -123,17 +144,42 @@ describe('DashboardHeader', () => {
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
-    ])('$scenario shows correct action buttons', ({ dashboardMode, canEdit, visible, notVisible }) => {
-        const dashboard = makeDashboard({
-            user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
-        })
-        const { logic } = renderHeader({ dashboard, dashboardMode })
+    ])(
+        '$scenario shows correct action buttons',
+        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+            const dashboard = makeDashboard({
+                user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+            })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
 
-        for (const attr of visible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            for (const attr of visible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            }
+            for (const attr of notVisible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+            }
+
+            logic.unmount()
         }
-        for (const attr of notVisible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+    )
+
+    it.each([
+        { variant: 'control', showsLabel: false },
+        { variant: 'control_b', showsLabel: false },
+        { variant: 'test', showsLabel: true },
+    ])('$variant variant sets the PostHog AI button label', ({ variant, showsLabel }) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL], {
+            [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: variant,
+        })
+
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
+        const aiButton = document.querySelector('[data-attr="open-context-panel-ai-button"]')
+
+        expect(aiButton).toBeInTheDocument()
+        if (showsLabel) {
+            expect(aiButton).toHaveTextContent('PostHog AI')
+        } else {
+            expect(aiButton).not.toHaveTextContent('PostHog AI')
         }
 
         logic.unmount()

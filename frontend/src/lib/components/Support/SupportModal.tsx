@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
@@ -13,7 +13,7 @@ import { SupportForm } from './SupportForm'
 import { supportLogic } from './supportLogic'
 
 function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
-    const { sendSupportRequest, isSupportFormOpen, title } = useValues(supportLogic)
+    const { sendSupportRequest, isSupportFormOpen, title, isSendSupportRequestSubmitting } = useValues(supportLogic)
     const { closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { sidePanelAvailable } = useValues(sidePanelStateLogic)
@@ -45,7 +45,13 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
+                    <LemonButton
+                        form="support-modal-form"
+                        htmlType="submit"
+                        type="primary"
+                        data-attr="submit"
+                        loading={isSendSupportRequestSubmitting}
+                    >
                         Submit
                     </LemonButton>
                 </div>

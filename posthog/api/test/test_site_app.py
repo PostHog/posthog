@@ -5,7 +5,8 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.api.site_app import get_site_config_from_schema
-from posthog.models import Plugin, PluginConfig, PluginSourceFile
+
+from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 
 
 class TestSiteApp(BaseTest):
@@ -62,14 +63,14 @@ class TestSiteApp(BaseTest):
 
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()
-        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
         response = unauthenticated_client.get(
             f"/site_app/{plugin_config.id}/tokentoken/somehash/",
             data={},
             follow=False,
             secure=False,
-            headers={},
-            **request_headers,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+            HTTP_ORIGIN="*",
+            USER_AGENT="Agent 008",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

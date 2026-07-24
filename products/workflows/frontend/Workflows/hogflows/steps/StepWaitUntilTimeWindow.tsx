@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { timeZoneLabel } from 'lib/utils'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,6 +13,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { stepWaitUntilTimeWindowLogic } from './stepWaitUntilTimeWindowLogic'
+import { TIME_RANGE_OPTIONS, WEEKDAY_OPTIONS } from './timeWindowConstants'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -35,22 +34,6 @@ const TIME_OPTIONS = [
     { value: 'any', label: 'Any time' },
     { value: 'custom', label: 'Specific time range' },
 ]
-
-const WEEKDAY_OPTIONS = [
-    { key: 'monday', label: 'Monday' },
-    { key: 'tuesday', label: 'Tuesday' },
-    { key: 'wednesday', label: 'Wednesday' },
-    { key: 'thursday', label: 'Thursday' },
-    { key: 'friday', label: 'Friday' },
-    { key: 'saturday', label: 'Saturday' },
-    { key: 'sunday', label: 'Sunday' },
-]
-
-// Generate time range options (00:00 to 23:00)
-const TIME_RANGE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-    value: `${i.toString().padStart(2, '0')}:00`,
-    label: `${i.toString().padStart(2, '0')}:00`,
-}))
 
 // Configuration utility functions
 const isCustomDay = (day: DayConfig): day is WeekdayType[] => {
@@ -113,9 +96,6 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     )
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showPersonTimezone = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PERSON_TIMEZONE]
 
     const timezoneOptions = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
         key: tz,
@@ -187,7 +167,6 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                     onTimezoneChange={handleTimezoneChange}
                     onUsePersonTimezoneChange={handleUsePersonTimezoneChange}
                     onFallbackTimezoneChange={handleFallbackTimezoneChange}
-                    showPersonTimezoneOption={showPersonTimezone}
                 />
             </div>
         </>
@@ -285,7 +264,6 @@ function TimezoneConfiguration({
     onTimezoneChange,
     onUsePersonTimezoneChange,
     onFallbackTimezoneChange,
-    showPersonTimezoneOption,
 }: {
     timezone: string | null
     usePersonTimezone?: boolean
@@ -295,22 +273,19 @@ function TimezoneConfiguration({
     onTimezoneChange: (timezone: string[]) => void
     onUsePersonTimezoneChange: (checked: boolean) => void
     onFallbackTimezoneChange: (timezone: string[]) => void
-    showPersonTimezoneOption: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
-            {showPersonTimezoneOption && (
-                <LemonSwitch
-                    checked={usePersonTimezone ?? false}
-                    onChange={onUsePersonTimezoneChange}
-                    label="Use person's timezone"
-                    bordered
-                    tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
-                    data-attr="use-person-timezone-switch"
-                />
-            )}
+            <LemonSwitch
+                checked={usePersonTimezone ?? false}
+                onChange={onUsePersonTimezoneChange}
+                label="Use person's timezone"
+                bordered
+                tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
+                data-attr="use-person-timezone-switch"
+            />
 
-            {showPersonTimezoneOption && usePersonTimezone ? (
+            {usePersonTimezone ? (
                 <div>
                     <LemonLabel>Fallback timezone</LemonLabel>
                     <p className="text-xs text-muted mb-2">

@@ -1,5 +1,7 @@
 import time
+from collections.abc import Sequence
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID
 
 from django.conf import settings
@@ -34,6 +36,17 @@ class ErrorTrackingIssueManager(models.Manager):
         return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
 
 
+class ErrorTrackingIssueMergeResult(StrEnum):
+    # The merge completed and moved source fingerprints onto the target issue.
+    MERGED = "merged"
+    # The request only referenced the target issue, duplicate source IDs, or no source IDs.
+    NO_SOURCE_ISSUES = "no_source_issues"
+    # The target or at least one source issue disappeared before row locks were acquired.
+    STALE_ISSUES = "stale_issues"
+    # A guarded fingerprint no longer belongs to the issue observed before the merge transaction.
+    STALE_FINGERPRINTS = "stale_fingerprints"
+
+
 class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
@@ -44,7 +57,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -53,21 +66,57 @@ class ErrorTrackingIssue(UUIDTModel):
     class Meta:
         db_table = "posthog_errortrackingissue"
 
-    def merge(self, issue_ids: list[str]) -> None:
-        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+    def merge(
+        self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
+    ) -> ErrorTrackingIssueMergeResult:
+        team_id = self.team_id
+        target_issue_id = self.id
+        source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
+        if not source_issue_ids:
+            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
 
         with transaction.atomic():
-            overrides = update_error_tracking_issue_fingerprints(
-                team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
+            existing_source_issue_ids = _lock_merge_issues(
+                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
+            if not existing_source_issue_ids:
+                return ErrorTrackingIssueMergeResult.STALE_ISSUES
+            if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
+                team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
+            ):
+                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+
+            locked_source_fingerprints = list(
+                ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+                .filter(team_id=team_id, issue_id__in=existing_source_issue_ids)
+                .order_by("fingerprint", "id")
+            )
+
+            overrides = update_error_tracking_issue_fingerprints(
+                team_id=team_id,
+                issue_id=target_issue_id,
+                fingerprints=[fingerprint.fingerprint for fingerprint in locked_source_fingerprints],
+            )
+
             # Reassign spike events from merged issues before deleting them
-            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
-            ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
+                issue_id=target_issue_id
+            )
+            # Read source assignees before the delete cascades their assignment rows away
+            _adopt_source_assignee_on_merge(
+                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
+            )
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            _sync_error_tracking_issue_changes_on_commit(
+                team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
+            )
+            return ErrorTrackingIssueMergeResult.MERGED
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        team_id = self.team_id
         own_fingerprints = set(
-            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=self.id).values_list(
                 "fingerprint", flat=True
             )
         )
@@ -81,19 +130,20 @@ class ErrorTrackingIssue(UUIDTModel):
                 if fp not in own_fingerprints:
                     continue
                 new_issue = ErrorTrackingIssue.objects.create(
-                    team=self.team,
+                    team_id=team_id,
                     name=entry.get("name") or "Untitled issue",
                     description=entry.get("description"),
                 )
                 new_issues.append(new_issue)
                 overrides.extend(
-                    update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
-                    )
+                    update_error_tracking_issue_fingerprints(team_id=team_id, issue_id=new_issue.id, fingerprints=[fp])
                 )
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
             # Spike events are no longer meaningful after splitting since the issue composition changed
-            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
+            ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id=self.id).delete()
+            issue_ids_to_sync = [self.id] + [issue.id for issue in new_issues]
+            _sync_error_tracking_issue_changes_on_commit(
+                team_id=team_id, issue_ids=issue_ids_to_sync, overrides=overrides
+            )
         return new_issues
 
 
@@ -126,7 +176,7 @@ class ErrorTrackingIssueCohort(UUIDTModel):
         related_name="cohorts",
     )
     cohort = models.ForeignKey(
-        "posthog.Cohort",
+        "cohorts.Cohort",
         on_delete=models.CASCADE,
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -165,6 +215,79 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
         db_table = "posthog_errortrackingissuefingerprintv2"
+
+
+def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue_id: UUID) -> list[UUID]:
+    source_issue_ids: set[UUID] = set()
+    for issue_id in issue_ids:
+        normalized_issue_id = UUID(str(issue_id))
+        if normalized_issue_id != target_issue_id:
+            source_issue_ids.add(normalized_issue_id)
+    return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
+
+
+def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> list[UUID]:
+    locked_issue_ids = {
+        issue.id
+        for issue in ErrorTrackingIssue.objects.select_for_update()
+        .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
+        .order_by("id")
+    }
+    if target_issue_id not in locked_issue_ids or not set(source_issue_ids).issubset(locked_issue_ids):
+        return []
+
+    return source_issue_ids
+
+
+def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:
+    """Carry a single shared assignee from merged issues onto an unassigned target.
+
+    Only fires when the target has no assignee and the sources resolve to exactly one
+    distinct assignee — ambiguous (2+) or empty assignee sets leave the target untouched.
+    Source issue ids are already team-scoped and row-locked by the caller.
+    """
+    if ErrorTrackingIssueAssignment.objects.filter(issue_id=target_issue_id).exists():
+        return
+
+    # Lock the source assignments so a concurrent assign can't commit a new assignee that we then
+    # read as stale and delete via cascade — matches the fingerprint locking in merge().
+    distinct_assignees = {
+        (assignment.user_id, assignment.role_id)
+        for assignment in ErrorTrackingIssueAssignment.objects.select_for_update().filter(issue_id__in=source_issue_ids)
+    }
+    if len(distinct_assignees) != 1:
+        return
+
+    user_id, role_id = next(iter(distinct_assignees))
+    if user_id is None and role_id is None:
+        return
+
+    ErrorTrackingIssueAssignment.objects.create(
+        team_id=team_id, issue_id=target_issue_id, user_id=user_id, role_id=role_id
+    )
+
+
+def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_issue_ids: dict[str, UUID]) -> bool:
+    current_fingerprint_issue_ids = {
+        row.fingerprint: row.issue_id
+        for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+        .filter(team_id=team_id, fingerprint__in=list(expected_fingerprint_issue_ids))
+        .order_by("fingerprint", "id")
+    }
+    return current_fingerprint_issue_ids == expected_fingerprint_issue_ids
+
+
+def _sync_error_tracking_issue_changes_on_commit(
+    *, team_id: int, issue_ids: list[UUID], overrides: list[ErrorTrackingIssueFingerprintV2]
+) -> None:
+    def sync_fingerprint_overrides() -> None:
+        update_error_tracking_issue_fingerprint_overrides(team_id=team_id, overrides=overrides)
+
+    def sync_issues() -> None:
+        sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
+
+    transaction.on_commit(sync_fingerprint_overrides)
+    transaction.on_commit(sync_issues)
 
 
 class ErrorTrackingRelease(UUIDTModel):
@@ -237,7 +360,10 @@ class ErrorTrackingSymbolSet(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
-            models.Index(fields=["last_used"]),
+            # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
+            # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
+            # then created_at range), so batch cleanup avoids a full PK-ordered scan.
+            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
         ]
 
         constraints = [
@@ -340,6 +466,30 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingBypassRule(UUIDTModel):
+    # Bypass rules exempt matching exception events from rate limiting. When an incoming event
+    # matches an enabled rule, Cymbal keeps it and charges no rate-limit tokens (neither the
+    # per-issue nor the project bucket), recording a "bypassed" status instead of
+    # "allowed"/"rate_limited". They are evaluated only inside the rate-limiting stage and never
+    # affect suppression, which runs earlier.
+    # db_constraint=False keeps the create lock-free on posthog_team (a hot table); team scoping
+    # is enforced at the ORM layer and Cymbal reads by team_id via raw SQL.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    bytecode = models.JSONField(null=True, blank=True)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Bypass rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        db_table = "posthog_errortrackingbypassrule"
+
+
 class ErrorTrackingAutoCaptureControls(UUIDTModel):
     """
     Controls for error tracking autocapture behavior.
@@ -355,11 +505,9 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         WEB = "web"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+    library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
-    match_type = models.CharField(
-        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
-    )
+    match_type = models.CharField(max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL)
 
     sample_rate = models.DecimalField(
         max_digits=3,
@@ -425,7 +573,7 @@ class ErrorTrackingGroup(UUIDTModel):
         blank=False,
         default=list,
     )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.CharField(max_length=40, choices=Status, default=Status.ACTIVE, null=False)
     assignee = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -459,8 +607,11 @@ def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[
 
 
 def update_error_tracking_issue_fingerprints(
-    team_id: int, issue_id: str, fingerprints: list[str]
+    team_id: int, issue_id: str | UUID, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
+    if not fingerprints:
+        return []
+
     return list(
         # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
         ErrorTrackingIssueFingerprintV2.objects.raw(
@@ -490,7 +641,6 @@ def override_error_tracking_issue_fingerprint(
     issue_id: UUID,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -503,8 +653,18 @@ def override_error_tracking_issue_fingerprint(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
+
+
+DEPRECATED_CLICKHOUSE_STATUSES = frozenset(
+    {ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE}
+)
+
+
+def _clickhouse_status(issue_status: str) -> str:
+    if issue_status in DEPRECATED_CLICKHOUSE_STATUSES:
+        return ErrorTrackingIssue.Status.RESOLVED
+    return issue_status
 
 
 def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
@@ -547,7 +707,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
                 "team_id": team_id,
                 "issue_name": issue.name,
                 "issue_description": issue.description,
-                "issue_status": issue.status,
+                "issue_status": _clickhouse_status(issue.status),
                 "assigned_user_id": assigned_user_id,
                 "assigned_role_id": assigned_role_id,
                 "first_seen": first_seen,
@@ -560,6 +720,16 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
 def delete_symbol_set_contents(upload_path: str) -> None:
     if settings.OBJECT_STORAGE_ENABLED:
         object_storage.delete(file_name=upload_path)
+    else:
+        raise ValidationError(
+            code="object_storage_required",
+            detail="Object storage must be available to delete source maps.",
+        )
+
+
+def delete_symbol_set_contents_many(upload_paths: list[str]) -> list[str]:
+    if settings.OBJECT_STORAGE_ENABLED:
+        return object_storage.delete_objects(file_names=upload_paths)
     else:
         raise ValidationError(
             code="object_storage_required",
@@ -582,6 +752,22 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
         db_table = "posthog_errortrackingspikedetectionconfig"
 
 
+class ErrorTrackingSettings(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_settings",
+    )
+    project_rate_limit_value = models.IntegerField(null=True, blank=True)
+    project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingsettings"
+
+
 class ErrorTrackingSpikeEvent(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
@@ -595,4 +781,30 @@ class ErrorTrackingSpikeEvent(UUIDModel):
             models.Index(fields=["team", "-detected_at"]),
             models.Index(fields=["issue", "-detected_at"]),
             models.Index(fields=["-detected_at"]),
+        ]
+
+
+class ErrorTrackingRecommendation(UUIDTModel):
+    """Materialized recommendation for a team, computed asynchronously via Celery."""
+
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        COMPUTING = "computing", "Computing"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
+    # so adding new recommendations doesn't require a Django migration each time
+    type = models.CharField(max_length=64)
+    meta = models.JSONField(default=dict, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendation"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
         ]

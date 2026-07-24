@@ -1,13 +1,29 @@
-import os
-import socket
 import ipaddress
 import urllib.parse as urlparse
+from collections.abc import Iterable, Mapping
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from threading import BoundedSemaphore
+
+from django.conf import settings
 
 import structlog
+import dns.resolver
+import dns.exception
 
 from posthog.cloud_utils import is_dev_mode
 
 logger = structlog.get_logger(__name__)
+
+ResolvedIPs = set[ipaddress.IPv4Address | ipaddress.IPv6Address]
+
+DNS_RESOLUTION_LIFETIME_SECONDS = 2.0
+DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS = 2.5
+DNS_RESOLUTION_MAX_WORKERS = 20
+_dns_resolution_executor = ThreadPoolExecutor(
+    max_workers=DNS_RESOLUTION_MAX_WORKERS,
+    thread_name_prefix="url-validation-dns",
+)
+_dns_resolution_capacity = BoundedSemaphore(DNS_RESOLUTION_MAX_WORKERS)
 
 # Schemes that should never be allowed for external URLs
 DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
@@ -33,21 +49,65 @@ INTERNAL_DOMAIN_PATTERNS = (
 )
 
 
-def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+def resolve_host_ips(host: str) -> ResolvedIPs:
     """Resolve a hostname to its IP addresses."""
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        logger.warning("url_validation.dns_resolution_failed", host=host, errno=e.errno, strerror=e.strerror)
+        return {ipaddress.ip_address(host)}
+    except ValueError:
+        pass
+
+    try:
+        answers = dns.resolver.Resolver().resolve_name(host, lifetime=DNS_RESOLUTION_LIFETIME_SECONDS)
+    except dns.exception.DNSException as error:
+        logger.warning("url_validation.dns_resolution_failed", host=host, error=str(error))
         return set()
-    ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
-    for _fam, *_rest, sockaddr in infos:
-        ip = sockaddr[0]
+
+    ips: ResolvedIPs = set()
+    for address in answers.addresses():
         try:
-            ips.add(ipaddress.ip_address(ip))
+            ips.add(ipaddress.ip_address(address))
         except ValueError:
             pass
     return ips
+
+
+def _submit_dns_resolution(host: str) -> Future[ResolvedIPs] | None:
+    if not _dns_resolution_capacity.acquire(blocking=False):
+        logger.warning("url_validation.dns_resolution_capacity_exhausted", host=host)
+        return None
+    try:
+        future = _dns_resolution_executor.submit(resolve_host_ips, host)
+    except Exception as error:
+        _dns_resolution_capacity.release()
+        logger.exception("url_validation.dns_resolution_submit_failed", host=host, error=str(error))
+        return None
+    future.add_done_callback(lambda _future: _dns_resolution_capacity.release())
+    return future
+
+
+def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
+    unique_hosts = set(hosts)
+    resolved: dict[str, ResolvedIPs] = {host: set() for host in unique_hosts}
+    futures = {host: future for host in unique_hosts if (future := _submit_dns_resolution(host)) is not None}
+    if not futures:
+        return resolved
+
+    completed, pending = wait(futures.values(), timeout=DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS)
+
+    for future in pending:
+        future.cancel()
+
+    for host, future in futures.items():
+        if future not in completed:
+            logger.warning("url_validation.dns_resolution_timed_out", host=host)
+            resolved[host] = set()
+            continue
+        try:
+            resolved[host] = future.result()
+        except Exception as error:
+            logger.exception("url_validation.dns_resolution_failed", host=host, error=str(error))
+            resolved[host] = set()
+    return resolved
 
 
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -89,18 +149,65 @@ def _is_private_ip_literal(host: str) -> bool:
     )
 
 
-def _dev_bypass_enabled() -> bool:
+def has_authority_bypass_chars(url: str) -> bool:
     """
-    Dev mode short-circuits is_url_allowed unless POSTHOG_FORCE_URL_VALIDATION is set.
-    Developers can set the env var to exercise the production code path locally
-    (e.g. to reproduce or verify SSRF-related fixes) without flipping global DEBUG.
+    Detect characters that produce a parser-vs-client disagreement on the URL authority.
+
+    ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
+    returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
+    interpret ``\\`` as the end of the authority (a path separator) and connect to
+    the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
+
+    URLs containing these characters cannot be safely validated by host, because
+    the validated host differs from the host the client will actually connect to.
+    """
+    if "\\" in url:
+        return True
+    if "%5c" in url.lower():
+        return True
+    return False
+
+
+def _dev_bypass_enabled() -> bool:
+    """Dev mode short-circuits is_url_allowed.
+
+    Set the FORCE_URL_VALIDATION setting (POSTHOG_FORCE_URL_VALIDATION env var) to
+    exercise the production code path locally (e.g. to reproduce or verify SSRF-related
+    fixes) without flipping global DEBUG.
     """
     if not is_dev_mode():
         return False
-    return os.environ.get("POSTHOG_FORCE_URL_VALIDATION", "").lower() not in {"1", "true"}
+    return not settings.FORCE_URL_VALIDATION
 
 
-def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
+def resolve_url_hosts_ips(raw_urls: Iterable[str]) -> dict[str, ResolvedIPs]:
+    if _dev_bypass_enabled():
+        return {}
+    hosts: set[str] = set()
+    for raw_url in raw_urls:
+        if has_authority_bypass_chars(raw_url):
+            continue
+        try:
+            parsed_url = urlparse.urlparse(raw_url)
+            host = (parsed_url.hostname or "").lower()
+        except Exception:
+            continue
+        if (
+            parsed_url.scheme not in {"http", "https"}
+            or not parsed_url.netloc
+            or host in METADATA_HOSTS
+            or host in {"localhost", "127.0.0.1", "::1"}
+            or any(host.endswith(pattern) for pattern in INTERNAL_DOMAIN_PATTERNS)
+            or _is_private_ip_literal(host)
+        ):
+            continue
+        hosts.add(host)
+    return resolve_hosts_ips(hosts)
+
+
+def is_url_allowed(
+    raw_url: str, *, resolved_ips_by_host: Mapping[str, ResolvedIPs] | None = None
+) -> tuple[bool, str | None]:
     """
     Validate a URL for SSRF protection.
 
@@ -111,13 +218,41 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     - Host must not be localhost, metadata service, or internal domain
     - Resolved IPs must not be private/internal
     """
+    allowed, reason, _ips = _validate_url_with_ips(raw_url, resolved_ips_by_host=resolved_ips_by_host)
+    return allowed, reason
+
+
+def validate_url_and_pin_ips(
+    raw_url: str,
+) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    """
+    Like ``is_url_allowed`` but also returns the validated IP set.
+
+    Callers that subsequently open a connection to the URL MUST use the
+    returned IPs (via ``PinnedIPAdapter``) instead of re-resolving DNS.
+    This eliminates the TOCTOU window that enables DNS-rebinding SSRF.
+    """
+    return _validate_url_with_ips(raw_url)
+
+
+def _validate_url_with_ips(
+    raw_url: str,
+    *,
+    resolved_ips_by_host: Mapping[str, ResolvedIPs] | None = None,
+) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    empty: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+
     if _dev_bypass_enabled():
-        return True, None
+        return True, None, empty
 
-    def _blocked(reason: str, **log_kwargs) -> tuple[bool, str]:
+    def _blocked(
+        reason: str, **log_kwargs: object
+    ) -> tuple[bool, str, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
-        return False, reason
+        return False, reason, empty
 
+    if has_authority_bypass_chars(raw_url):
+        return _blocked("Invalid URL: ambiguous authority")
     try:
         u = urlparse.urlparse(raw_url)
     except Exception:
@@ -141,13 +276,13 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     if _is_private_ip_literal(host):
         return _blocked("Private IP address not allowed", host=host)
 
-    ips = resolve_host_ips(host)
+    ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
         return _blocked("Could not resolve host", host=host)
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))
-    return True, None
+    return True, None, ips
 
 
 def should_block_url(u: str) -> bool:

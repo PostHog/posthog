@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from functools import cache as functools_cache
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -53,9 +54,13 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    signals_credits: OrganizationUsageResource | None
+    posthog_code_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
+    workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
+    replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
 
 
@@ -69,11 +74,31 @@ class ProductFeature(TypedDict):
     is_plan_default: bool
 
 
+@functools_cache
+def _enterprise_only_feature_keys() -> frozenset[str]:
+    """Enterprise-plan-only feature keys, computed once per process.
+
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Returns an empty
+    set when the ee package isn't importable.
+    """
+    keys: set[str] = set()
+    try:
+        from ee.models.license import License
+
+        scale_features = {str(f) for f in License.SCALE_FEATURES}
+        keys |= {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+    except ImportError:
+        pass
+    return frozenset(keys)
+
+
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
+        if "is_ai_training_opted_in" not in kwargs:
+            kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -90,6 +115,8 @@ class OrganizationManager(models.Manager):
             # Set default_anonymize_ips based on deployment if not explicitly provided
             if "default_anonymize_ips" not in kwargs:
                 kwargs["default_anonymize_ips"] = default_anonymize_ips()
+            if "is_ai_training_opted_in" not in kwargs:
+                kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
@@ -113,6 +140,11 @@ class OrganizationManager(models.Manager):
 def default_anonymize_ips():
     """Default to True for EU cloud deployments to comply with stricter privacy requirements"""
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
+
+
+def default_is_ai_training_opted_in():
+    """Default to False (opted out) for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
 class Organization(ModelActivityMixin, UUIDTModel):
@@ -145,6 +177,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
+        through_fields=("organization", "user"),
         related_name="organizations",
         related_query_name="organization",
     )
@@ -183,9 +216,38 @@ class Organization(ModelActivityMixin, UUIDTModel):
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_training_opted_in = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, this organization allows its data to be used to train PostHog AI models.",
+    )
+    is_ai_training_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API.",
+    )
+    is_ai_training_cta_shown = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, in-app callouts inviting members to enable AI training are shown.",
+    )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_create_projects = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
+    )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    members_can_see_org_members = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
         "ee.Role",
@@ -199,12 +261,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
+        choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=DefaultExperimentStatsMethod.choices,
+        choices=DefaultExperimentStatsMethod,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
@@ -215,6 +277,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
@@ -232,6 +300,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
@@ -312,6 +383,25 @@ class Organization(ModelActivityMixin, UUIDTModel):
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
 
+    def get_plan_tier(self) -> Literal["free", "paid", "enterprise"]:
+        """Best-effort plan tier derived from `available_product_features`.
+
+        "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
+        minus `SCALE_FEATURES`). "paid" if any feature is present, otherwise "free". Paid uses
+        "any feature present" rather than an allow-list because the billing service grants
+        features (alerts, surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an
+        allow-list silently downgrades those orgs to free.
+        """
+        available_keys = {
+            feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
+        }
+        if not available_keys:
+            return "free"
+
+        if available_keys & _enterprise_only_feature_keys():
+            return "enterprise"
+        return "paid"
+
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
         Limit a resource for all teams of this organization until the end of the current billing cycle.
@@ -319,7 +409,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
             add_limited_team_tokens,
+            dispatch_recordings_remote_config_sync,
             update_organization_usage_fields,
         )
 
@@ -329,9 +421,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
             _start, end = billing_period
             billing_period_end_timestamp = int(end.timestamp())
 
-            team_tokens: dict[str, int] = {
-                t: billing_period_end_timestamp for t in self.teams.values_list("api_token", flat=True) if t
-            }
+            team_rows = [
+                (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+            ]
+            team_tokens: dict[str, int] = {api_token: billing_period_end_timestamp for _, api_token in team_rows}
             add_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
             update_organization_usage_fields(
@@ -339,6 +432,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 resource,
                 {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
             )
+
+            if resource == QuotaResource.RECORDINGS:
+                dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -349,17 +445,26 @@ class Organization(ModelActivityMixin, UUIDTModel):
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
+            dispatch_recordings_remote_config_sync,
             remove_limited_team_tokens,
             update_organization_usage_fields,
         )
 
-        team_tokens: list[str] = [t for t in self.teams.values_list("api_token", flat=True) if t]
-        remove_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        team_rows = [
+            (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+        ]
+        remove_limited_team_tokens(
+            resource, [api_token for _, api_token in team_rows], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
         if self.usage and resource.value in self.usage:
             update_organization_usage_fields(
                 self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
+
+        if resource == QuotaResource.RECORDINGS:
+            dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """
@@ -497,15 +602,33 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
+    # the OrganizationInvite row itself is deleted during use() and can't be looked up afterwards.
+    invited_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    # Transient flag set by the pre_save signal to communicate level changes to post_save.
+    _level_changed: bool = False
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
             ),
         ]
 
@@ -616,11 +739,11 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from posthog.models.alert import AlertSubscription
+    from products.alerts.backend.models.alert import AlertSubscription
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:
@@ -648,20 +771,55 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
     transaction.on_commit(_sync_if_org_exists)
 
 
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    # A loop run executes with its owner's credentials, so offboarding a member must pause their loops
+    # in that org and cancel in-flight runs. Deferred import keeps loops/Temporal deps off the model
+    # import path (mirrors the User-deactivation hook).
+    from products.tasks.backend.facade.loops import pause_loops_for_removed_member  # noqa: PLC0415
+
+    user_id = instance.user_id
+    organization_id = str(instance.organization_id)
+    transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
+
+
 @receiver(models.signals.pre_save, sender=OrganizationMembership)
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed
 
+    instance._level_changed = False
     try:
         old_instance = OrganizationMembership.objects.get(id=instance.id)
         if old_instance.level != instance.level:
-            # the level has been changed
+            instance._level_changed = True
             report_user_organization_membership_level_changed(
                 instance.user, instance.organization, instance.level, old_instance.level
             )
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def sync_billing_on_membership_save(sender, instance: OrganizationMembership, created: bool, **kwargs):
+    # Covers any path that creates a membership or changes its level, including
+    # Organization.bootstrap, the Vercel integration, and direct ORM saves that
+    # bypass OrganizationMemberSerializer. Mirrors sync_billing_on_membership_removal.
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    if not created and not getattr(instance, "_level_changed", False):
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(post_save, sender=Organization)

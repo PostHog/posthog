@@ -62,8 +62,12 @@ test.describe('Retention', () => {
 
         await test.step('change period from Day to Week', async () => {
             await insight.retention.selectPeriod('weeks')
-            const headerTexts = await insight.retention.getColumnHeaderTexts()
-            expect(headerTexts.filter(isWeekHeader).length).toBe(8)
+            // The period change refetches the query; poll until the weekly headers render
+            // instead of reading the (possibly still daily/loading) table immediately.
+            await expect(async () => {
+                const headerTexts = await insight.retention.getColumnHeaderTexts()
+                expect(headerTexts.filter(isWeekHeader).length).toBe(8)
+            }).toPass({ timeout: 15000 })
         })
 
         await test.step('toggle to cumulative retention', async () => {
@@ -78,7 +82,7 @@ test.describe('Retention', () => {
 
         await test.step('verify line chart renders', async () => {
             await expect(insight.retention.chart).toBeVisible()
-            await expect(insight.retention.chart.locator('canvas')).toBeVisible()
+            await expect(insight.retention.chart.locator('canvas[role="img"]')).toBeVisible()
         })
     })
 
@@ -90,7 +94,7 @@ test.describe('Retention', () => {
             await insight.retention.waitForChart()
             await insight.retention.selectTargetEvent(EVENT_NAME)
             await insight.retention.selectReturningEvent(EVENT_NAME)
-            await expect(insight.retention.chart.locator('canvas')).toBeVisible()
+            await expect(insight.retention.chart.locator('canvas[role="img"]')).toBeVisible()
         })
 
         await test.step('hover over chart points and verify tooltips', async () => {
@@ -105,10 +109,15 @@ test.describe('Retention', () => {
         })
 
         await test.step('click cohort row and verify persons modal', async () => {
+            // Dismiss any lingering chart tooltip from the previous step so it
+            // doesn't overlay and block the cohort row click.
+            await insight.retention.hoverAway()
+            await expect(insight.retention.tooltip).not.toBeVisible({ timeout: 5000 })
+
             await insight.retention.clickCohortRow(1)
             const personLinks = insight.retention.personsModal.locator('[data-attr="retention-person-link"]')
+            await expect(personLinks).toHaveCount(10, { timeout: 30000 })
             await expect(personLinks.first()).toBeVisible()
-            expect(await personLinks.count()).toBe(10)
         })
 
         await test.step('close modal and verify table is intact', async () => {

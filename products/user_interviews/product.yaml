@@ -1,0 +1,8 @@
+name: User interviews
+# Individual owners (not a team), quoted because YAML disallows a plain scalar
+# starting with `@`. The ownership resolver treats `@handle` entries as individual
+# owners, so these people get review-assigned without tagging an unrelated team.
+owners:
+    - '@pauldambra'
+    - '@fivestarspicy'
+    - '@ksvat'

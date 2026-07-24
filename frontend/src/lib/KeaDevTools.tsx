@@ -103,7 +103,7 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max)
 }
 
-function compactJSON(x: unknown) {
+function compactJSON(x: unknown): string {
     try {
         return JSON.stringify(x)
     } catch {
@@ -1524,7 +1524,7 @@ function MemoryTree({
     rootId: string
     state: TreeState
     depth?: number
-}) {
+}): JSX.Element {
     try {
         const children = getChildrenSorted(rootValue)
         return (
@@ -1567,11 +1567,11 @@ class MemoryErrorBoundary extends React.Component<{ children: React.ReactNode },
         return { hasError: true, msg: err?.message ?? String(err) }
     }
 
-    componentDidCatch(err: any): void {
+    override componentDidCatch(err: any): void {
         console.warn('MemoryTree error', err)
     }
 
-    render(): JSX.Element | null {
+    override render(): JSX.Element | null {
         if (this.state.hasError) {
             return (
                 <div style={{ padding: 6, color: 'rgba(0,0,0,0.7)' }}>

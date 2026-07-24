@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { Plus } from 'lucide-react'
 import React from 'react'
 
+import { Button } from './button'
 import {
     Combobox,
     ComboboxChip,
@@ -9,6 +11,7 @@ import {
     ComboboxCollection,
     ComboboxContent,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxGroup,
     ComboboxInput,
     ComboboxItem,
@@ -37,8 +40,8 @@ export const Default: Story = {
             <div className="max-w-xs">
                 <Combobox items={frameworks}>
                     <ComboboxInput placeholder="Select a framework" />
-                    <ComboboxContent>
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                    <ComboboxContent className="w-[218px]">
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof frameworks)[number]) => (
                                 <ComboboxItem key={item} value={item}>
@@ -69,8 +72,8 @@ function MultipleComboboxInner(): React.ReactElement {
                     )}
                 </ComboboxValue>
             </ComboboxChips>
-            <ComboboxContent anchor={anchor}>
-                <ComboboxEmpty>No items found.</ComboboxEmpty>
+            <ComboboxContent anchor={anchor} className="w-[218px]">
+                <ComboboxEmpty>No items found</ComboboxEmpty>
                 <ComboboxList>
                     {(item) => (
                         <ComboboxItem key={item} value={item}>
@@ -100,7 +103,7 @@ export const Clearable: Story = {
                 <Combobox items={frameworks} defaultValue={frameworks[0]}>
                     <ComboboxInput placeholder="Select a framework" showClear className="max-w-xs" />
                     <ComboboxContent>
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item) => (
                                 <ComboboxItem key={item} value={item}>
@@ -266,13 +269,201 @@ export const CustomItems: Story = {
     },
 } satisfies Story
 
+// "Input inside popup" pattern — the ComboboxInput lives inside ComboboxContent
+// (the popup), not outside. A plain button triggers the popup. Useful when the
+// trigger should be a compact chip or button, not a full-width input. See
+// https://base-ui.com/react/components/combobox#input-inside-popup
+export const InputInsidePopup: Story = {
+    render: () => {
+        const [open, setOpen] = React.useState(false)
+        const [value, setValue] = React.useState<string | null>(null)
+        const triggerRef = React.useRef<HTMLButtonElement>(null)
+        return (
+            <div className="max-w-xs">
+                <Combobox
+                    items={frameworks}
+                    open={open}
+                    onOpenChange={setOpen}
+                    value={value}
+                    onValueChange={setValue}
+                >
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOpen((prev) => !prev)}
+                    >
+                        {value ?? 'Select framework'}
+                    </Button>
+                    <ComboboxContent anchor={triggerRef}>
+                        <ComboboxInput placeholder="Search..." showTrigger={false} />
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
+                        <ComboboxList>
+                            {(item: (typeof frameworks)[number]) => (
+                                <ComboboxItem key={item} value={item}>
+                                    {item}
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
+            </div>
+        )
+    },
+} satisfies Story
+
+const manyItems = [
+    'Next.js',
+    'SvelteKit',
+    'Nuxt.js',
+    'Remix',
+    'Astro',
+    'Gatsby',
+    'Vite',
+    'Parcel',
+    'Webpack',
+    'Rollup',
+    'esbuild',
+    'Turbopack',
+    'Create React App',
+    'Angular CLI',
+    'Ember CLI',
+    'Solid Start',
+    'Qwik City',
+    'Fresh',
+    'Hono',
+    'Redwood',
+] as const
+
+export const InputInsidePopupOverflow: Story = {
+    render: () => {
+        const [open, setOpen] = React.useState(false)
+        const [value, setValue] = React.useState<string | null>(null)
+        const triggerRef = React.useRef<HTMLButtonElement>(null)
+        return (
+            <div className="max-w-xs">
+                <Combobox
+                    items={manyItems}
+                    open={open}
+                    onOpenChange={setOpen}
+                    value={value}
+                    onValueChange={setValue}
+                >
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOpen((prev) => !prev)}
+                    >
+                        {value ?? 'Select framework'}
+                    </Button>
+                    <ComboboxContent anchor={triggerRef}>
+                        <ComboboxInput placeholder="Search..." showTrigger={false} />
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
+                        <ComboboxList>
+                            {(item: (typeof manyItems)[number]) => (
+                                <ComboboxItem key={item} value={item}>
+                                    {item}
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
+            </div>
+        )
+    },
+} satisfies Story
+
+// Action item as the last ComboboxItem inside ComboboxList — arrow-key navigable.
+// ComboboxListFooter wraps it with `sticky bottom-0` so it pins below the scrollable
+// items. The sentinel value is intercepted in onValueChange to run the action
+// instead of selecting. In production, use custom filtering (filter={null} +
+// filteredItems) to keep the action visible regardless of search input.
+const CREATE_ACTION = 'Create new'
+
+export const InputInsidePopupWithFooter: Story = {
+    render: () => {
+        const [open, setOpen] = React.useState(false)
+        const [value, setValue] = React.useState<string | null>(null)
+        const triggerRef = React.useRef<HTMLButtonElement>(null)
+        const allItems = [...manyItems, CREATE_ACTION]
+        return (
+            <div className="max-w-xs">
+                <Combobox
+                    items={allItems}
+                    open={open}
+                    onOpenChange={setOpen}
+                    value={value}
+                    onValueChange={(val) => {
+                        if (val === CREATE_ACTION) {
+                            // eslint-disable-next-line no-console
+                            console.log('Create new clicked')
+                            return
+                        }
+                        setValue(val)
+                    }}
+                >
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOpen((prev) => !prev)}
+                    >
+                        {value ?? 'Select framework'}
+                    </Button>
+                    <ComboboxContent anchor={triggerRef}>
+                        <ComboboxInput placeholder="Search..." showTrigger={false} />
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
+                        <ComboboxList>
+                            {(item: string) =>
+                                item === CREATE_ACTION ? (
+                                    <ComboboxListFooter key="footer">
+                                        <ComboboxItem value={CREATE_ACTION}>
+                                            <Plus className="size-3" />
+                                            {CREATE_ACTION}
+                                        </ComboboxItem>
+                                    </ComboboxListFooter>
+                                ) : (
+                                    <ComboboxItem key={item} value={item}>
+                                        {item}
+                                    </ComboboxItem>
+                                )
+                            }
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
+            </div>
+        )
+    },
+} satisfies Story
+
 export const Invalid: Story = {
     render: () => {
         return (
             <Combobox items={frameworks}>
                 <ComboboxInput placeholder="Select a framework" aria-invalid="true" className="max-w-xs" />
                 <ComboboxContent>
-                    <ComboboxEmpty>No items found.</ComboboxEmpty>
+                    <ComboboxEmpty>No items found</ComboboxEmpty>
+                    <ComboboxList>
+                        {(item) => (
+                            <ComboboxItem key={item} value={item}>
+                                {item}
+                            </ComboboxItem>
+                        )}
+                    </ComboboxList>
+                </ComboboxContent>
+            </Combobox>
+        )
+    },
+} satisfies Story
+
+export const Empty: Story = {
+    render: () => {
+        return (
+            <Combobox>
+                <ComboboxInput placeholder="Search..." className="max-w-xs" />
+                <ComboboxContent>
+                    <ComboboxEmpty>No items found</ComboboxEmpty>
                     <ComboboxList>
                         {(item) => (
                             <ComboboxItem key={item} value={item}>

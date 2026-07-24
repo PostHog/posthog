@@ -56,7 +56,7 @@ Focus:
 - Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
-- Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
+- Presentation layer (DRF) sits above the facade, outside the contract surface — but a product is only soundly skippable once that presentation is thin and reaches internals exclusively through the facade (see [What makes the skip sound](#what-makes-the-skip-sound)); an unsealed presentation that still holds business logic is not
 
 Eventually this grows into:
 
@@ -64,6 +64,54 @@ Eventually this grows into:
 - True selective test execution
 
 But this document is about foundational structure, not full rollout.
+
+### What makes the skip sound
+
+Skipping the full suite for an isolated product is a claim that _a change inside the product can only break the product's own tests._
+tach proves the import half of that claim — no external code reaches past `facade.*` / `presentation.views.*`.
+It cannot prove the other half.
+A product's HTTP API is exercised **in-process** by tests (the Django test client dispatches into the view stack in the same process, not over a real socket), and cross-cutting tests — permissions, schema, activity-log, "every viewset does X" — reach a product's endpoints by URL.
+That couples them to the product's live behavior with **zero imports**, so it is invisible to tach, to `lint-imports`, and to any import-graph audit.
+"No importers" is necessary, not sufficient.
+
+Because this channel can't be enumerated, it is closed by construction rather than inspection:
+
+1. Keep the presentation layer thin and reaching internals only through the facade, so every observable behavior lives either in the facade (tested in-product, inside the boundary) or in the serializer shape (the OpenAPI schema, whose changes already force the full suite).
+2. Keep behavior tests in-product.
+
+A product whose views still hold business logic is not soundly skippable even if nothing imports it.
+This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
+The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
+
+### Wiring couplings
+
+Core sometimes needs behavior from a product, not data: query runners it dispatches on, Temporal workflows it registers, Max tools it offers.
+These cross the boundary as classes — allowed only under all three rules:
+
+1. **Approved interface.**
+   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn`, and Celery's `@shared_task`.
+   Core code may rely only on the base's interface, never on product-specific members.
+   Extending the list is a core PR: define the base and validate at the registration point.
+   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (facades must not import DRF) — their soundness is governed by the presentation rules above.
+2. **Designated location.**
+   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
+3. **Validated registration.**
+   Registration points check `issubclass(cls, Base)` and reject anything else.
+   Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
+   `ee/hogai/registry.py` (MaxTool) is the reference implementation: subclass auto-registration with validation.
+
+Django models never cross, with or without an approved base.
+A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
+Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
+There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
+
+A behavioral class that fits no approved interface must not cross at all.
+Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
+A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+
+Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
+Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
+The facade stays honest only if what crosses is a frozen dataclass or an implementation of a core-owned interface — nothing else.
 
 # 3. Folder Structure
 
@@ -123,9 +171,31 @@ Each product defines its public interface as **frozen dataclasses** in `backend/
 - Small, hashable, stable
 - Facades accept them as inputs and return them as outputs
 
+### Choosing a dataclass flavor
+
+Stdlib `dataclasses.dataclass` is the baseline.
+`pydantic.dataclasses.dataclass` is the preferred upgrade when construction-time validation is useful:
+it keeps full dataclass semantics (passes `is_dataclass()`, works with `DataclassSerializer`, identical kwargs construction, `frozen=True`, `field(default_factory=...)`)
+and adds Pydantic's runtime type validation as a 1-line import swap.
+
+Use `pydantic.BaseModel` only when a contract genuinely needs features that dataclasses don't have — field aliases (e.g., camelCase wire / snake_case Python), computed fields exposed in the schema, custom validators, discriminated unions.
+Stay with one of the dataclass flavors otherwise;
+switching to `BaseModel` loses `is_dataclass()`-based tooling.
+
+DTO validation is **best-effort, not HTTP validation**.
+DRF serializers (or Pydantic schemas at the HTTP boundary) own the contract for untrusted input.
+Pydantic dataclass validation catches construction-site mistakes inside the backend — structural mismatches from mappers, malformed data from internal callers — close to the bug rather than at the wire.
+
+Note that Pydantic v2 dataclasses coerce inputs where the conversion is unambiguous (string → UUID/datetime, int → str) rather than reject them.
+Structural mistakes (None for a required int, dict where a list is expected, unparseable UUID) still raise `ValidationError`.
+If a contract genuinely needs strict typing — e.g., to catch a string sneaking into a UUID field — opt in per-contract via `@dataclass(frozen=True, config=ConfigDict(strict=True))`.
+
 ### Example
 
 ```python
+from pydantic.dataclasses import dataclass
+
+
 @dataclass(frozen=True)
 class Artifact:
     id: UUID
@@ -148,7 +218,9 @@ If input and output shapes are identical, reuse the same dataclass.
 
 # 5. Facades: The Public Interface
 
-Each product exposes a facade via `backend/facade/api.py`. This is the **only** file other products are allowed to import.
+Each product exposes a facade via the `backend/facade/` package — the only place core and other products may import from (tach enforces this).
+`api.py` holds the data capabilities: functions that accept and return contracts.
+Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, …) exist only to re-export wiring implementations — see [Wiring couplings](#wiring-couplings) — and contain no logic of their own.
 
 ### Responsibilities
 
@@ -225,6 +297,22 @@ Responsibilities:
 - Convert frozen dataclasses → JSON responses
 - No business logic
 
+Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
+
+### Where do cross-cutting utilities go?
+
+If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
+
+- **Presentation concern** (response caching, rate limiting, user RBAC — see below) → `presentation/`
+- **Business concern** (domain-level caching, tenant scoping, domain invariants) → `logic/`, exposed through the facade
+- **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
+### Who owns RBAC?
+
+User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
+
+The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
+
 ### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
@@ -292,7 +380,18 @@ def process_artifact(artifact: Artifact) -> None:
 
 ### What tach enforces
 
-The `interfaces` setting in `tach.toml` controls which paths inside a product other products can import. This is machine-enforced — tach will reject any import that doesn't go through the declared interfaces.
+Global `[[interfaces]]` blocks in `tach.toml` control which paths inside a product other modules can import. All modules — including core (`posthog`, `ee`) — sit in a single `modules` layer, so interface enforcement applies everywhere. tach will reject any import that doesn't go through the declared `expose` patterns.
+
+Products with legacy interface leaks (where core still imports internals directly) get explicit blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+
+### What import-linter enforces
+
+[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import any backend internals directly — they can only reach `facade` and other `presentation` modules. This is configured as a single forbidden contract in `pyproject.toml` that blocks `products.*.backend` from presentation, with allowlist ignores for facade and self-imports. Any new internal module (cache, helpers, etc.) is blocked automatically.
+
+tach handles _inter_-module boundaries (what can cross a product boundary). import-linter handles _intra_-product architecture (how code is structured within a product). Both run in CI.
+
+> [!TIP]
+> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 
@@ -321,6 +420,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 - `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
 - `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
+- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings))
 
 **Implementation inputs** (used by `backend:test`):
 
@@ -328,7 +428,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 Other products depend on a product's **contract files only**. When contract files haven't changed, downstream products don't need retesting.
 
-**Import boundaries** are enforced by tach via `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model.
+**Import boundaries** are enforced by tach via global `[[interfaces]]` blocks in `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
 
 **Dependency rules for contract files (keep them pure):**
 

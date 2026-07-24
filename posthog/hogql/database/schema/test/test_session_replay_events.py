@@ -12,6 +12,8 @@ from posthog.test.base import (
 
 from django.utils.timezone import now
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -20,9 +22,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
-from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.uuidt import uuid7
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -136,6 +138,8 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
+
     def setUp(self):
         super().setUp()
 
@@ -257,6 +261,8 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
+
     def setUp(self):
         super().setUp()
 
@@ -463,3 +469,48 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [("This is an info message",), ("This is a generic message",)]
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSelectAggregatedArrayColumns(ClickhouseTestMixin, APIBaseTest):
+    """Regression coverage for `groupUniqArrayArray` columns on the session_replay_events lazy table.
+
+    Before the HogQL registry knew about `groupUniqArrayArray`, selecting any of these three
+    columns raised `QueryError: Unsupported function call 'groupUniqArrayArray(...)'`.
+    """
+
+    snapshot_replace_all_numbers = True
+
+    session_id = str(uuid7("2021-01-01T10"))
+
+    def setUp(self):
+        super().setUp()
+
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id=self.session_id,
+            all_urls=["https://example.com", "https://example.com/about"],
+        )
+
+    @parameterized.expand(
+        [
+            ("all_urls", {"https://example.com", "https://example.com/about"}),
+            ("ai_tags_fixed", set()),
+            ("ai_tags_freeform", set()),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_select_group_uniq_array_array_column(self, column: str, expected_values: set[str]):
+        response = execute_hogql_query(
+            parse_select(
+                f"select {column} from session_replay_events where session_id = {{sid}}",
+                placeholders={"sid": ast.Constant(value=self.session_id)},
+            ),
+            self.team,
+        )
+
+        assert len(response.results) == 1
+        assert set(response.results[0][0]) == expected_values

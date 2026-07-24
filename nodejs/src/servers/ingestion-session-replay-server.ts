@@ -1,12 +1,31 @@
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+} from '~/ingestion/common/outputs/producers'
+import {
+    SessionReplayOutputsConfig,
+    type SessionReplayProducerName,
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+    getDefaultSessionReplayOutputsConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
+import {
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
-import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerWrapper } from '../kafka/producer'
-import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
+import { KafkaBrokerConfig, RedisConnectionsConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
-import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -25,6 +44,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
+    KafkaDownstreamProducerEnvConfig &
+    KafkaSessionreplayProducerEnvConfig &
+    SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
     Pick<
@@ -32,18 +54,71 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'
     >
 
+/** Builds the session-recording and restriction Redis pools a replay deployment needs. */
+export function buildSessionReplayRedisPools(config: IngestionSessionReplayServerConfig): {
+    redisPool: RedisPool
+    restrictionRedisPool: RedisPool
+} {
+    const redisPool = createRedisPoolFromConfig({
+        connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
+            ? {
+                  url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                  options: {
+                      port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+                  },
+                  name: 'session-recording-redis',
+              }
+            : {
+                  url: config.REDIS_URL,
+                  options: { commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS },
+                  name: 'session-recording-redis-fallback',
+              },
+        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+    })
+
+    const restrictionRedisPool = createRedisPoolFromConfig({
+        connection: config.INGESTION_REDIS_HOST
+            ? {
+                  url: config.INGESTION_REDIS_HOST,
+                  options: { port: config.INGESTION_REDIS_PORT },
+                  name: 'ingestion-redis',
+              }
+            : config.POSTHOG_REDIS_HOST
+              ? {
+                    url: config.POSTHOG_REDIS_HOST,
+                    options: { port: config.POSTHOG_REDIS_PORT, password: config.POSTHOG_REDIS_PASSWORD },
+                    name: 'ingestion-redis',
+                }
+              : { url: config.REDIS_URL, name: 'ingestion-redis' },
+        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+    })
+
+    return { redisPool, restrictionRedisPool }
+}
+
 export class IngestionSessionReplayServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayServerConfig
 
     private postgres?: PostgresRouter
-    private kafkaProducer?: KafkaProducerWrapper
-    private kafkaWarpStreamProducer?: KafkaProducerWrapper
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -59,55 +134,24 @@ export class IngestionSessionReplayServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
 
-        this.kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-            this.config.KAFKA_CLIENT_RACK,
-            'WARPSTREAM_PRODUCER'
-        )
-
-        // Session recording uses its own Redis instance with fallback to default
-        this.redisPool = createRedisPoolFromConfig({
-            connection: this.config.POSTHOG_SESSION_RECORDING_REDIS_HOST
-                ? {
-                      url: this.config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      options: { port: this.config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
-                      name: 'session-recording-redis',
-                  }
-                : { url: this.config.REDIS_URL, name: 'session-recording-redis-fallback' },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
-
-        // Restriction manager needs to read from the same Redis as Django writes to
-        this.restrictionRedisPool = createRedisPoolFromConfig({
-            connection: this.config.INGESTION_REDIS_HOST
-                ? {
-                      url: this.config.INGESTION_REDIS_HOST,
-                      options: { port: this.config.INGESTION_REDIS_PORT },
-                      name: 'ingestion-redis',
-                  }
-                : this.config.POSTHOG_REDIS_HOST
-                  ? {
-                        url: this.config.POSTHOG_REDIS_HOST,
-                        options: { port: this.config.POSTHOG_REDIS_PORT, password: this.config.POSTHOG_REDIS_PASSWORD },
-                        name: 'ingestion-redis',
-                    }
-                  : { url: this.config.REDIS_URL, name: 'ingestion-redis' },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
+        const pools = buildSessionReplayRedisPools(this.config)
+        this.redisPool = pools.redisPool
+        this.restrictionRedisPool = pools.restrictionRedisPool
 
         const ingester = new SessionRecordingIngester(
             this.config,
             this.postgres!,
-            this.kafkaProducer!,
-            this.kafkaWarpStreamProducer,
+            outputs,
             this.redisPool,
             this.restrictionRedisPool
         )
@@ -117,11 +161,12 @@ export class IngestionSessionReplayServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaWarpStreamProducer].filter(
-                Boolean
-            ) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

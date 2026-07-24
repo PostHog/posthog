@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.ducklake.storage import (
@@ -226,6 +228,30 @@ class TestDuckLakeStorageConfigProduction:
         assert "aws_secret_access_key" not in options
         assert "endpoint_url" not in options
 
+    @parameterized.expand(
+        [
+            ("us_default", None, "us-east-1"),
+            ("eu_deployment", "EU", "eu-central-1"),
+        ]
+    )
+    def test_from_runtime_org_config_empty_region_falls_back_to_deployment_default(
+        self, _name, cloud_deployment, expected_region
+    ):
+        # Mirrors DuckgresServer.to_catalog_public_config() when bucket_region is NULL
+        org_config = {
+            "DUCKLAKE_BUCKET_REGION": "",
+            "DUCKLAKE_S3_ACCESS_KEY": "",
+            "DUCKLAKE_S3_SECRET_KEY": "",
+        }
+        with (
+            patch("posthog.ducklake.storage.get_org_config", return_value=org_config) as mock_get_org_config,
+            override_settings(CLOUD_DEPLOYMENT=cloud_deployment),
+        ):
+            config = DuckLakeStorageConfig.from_runtime(use_local_setup=False, organization_id="org-123")
+
+        mock_get_org_config.assert_called_once_with("org-123")
+        assert config.region == expected_region
+
 
 class TestDuckLakeStorageConfigEdgeCases:
     def test_empty_values_filtered_from_deltalake_options(self, monkeypatch):
@@ -311,43 +337,6 @@ class TestCrossAccountDestination:
             bucket_name="bucket",
         )
         assert dest.external_id is None
-        assert dest.region is None
-
-
-class TestDuckLakeCatalogToCrossAccountDestination:
-    def test_converts_to_cross_account_destination(self):
-        from unittest.mock import MagicMock
-
-        from posthog.ducklake.models import DuckLakeCatalog
-
-        # Create a mock catalog with the required attributes
-        catalog = MagicMock(spec=DuckLakeCatalog)
-        catalog.cross_account_role_arn = "arn:aws:iam::222222222222:role/CustomerRole"
-        catalog.cross_account_external_id = "external-id-456"
-        catalog.bucket = "customer-bucket"
-        catalog.bucket_region = "eu-west-1"
-
-        # Call the real method on the mock
-        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
-
-        assert dest.role_arn == "arn:aws:iam::222222222222:role/CustomerRole"
-        assert dest.external_id == "external-id-456"
-        assert dest.bucket_name == "customer-bucket"
-        assert dest.region == "eu-west-1"
-
-    def test_none_region_handled(self):
-        from unittest.mock import MagicMock
-
-        from posthog.ducklake.models import DuckLakeCatalog
-
-        catalog = MagicMock(spec=DuckLakeCatalog)
-        catalog.cross_account_role_arn = "arn:aws:iam::111:role/Role"
-        catalog.cross_account_external_id = "ext-id"
-        catalog.bucket = "bucket"
-        catalog.bucket_region = ""  # Empty string should become None
-
-        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
-
         assert dest.region is None
 
 
@@ -474,34 +463,40 @@ class TestGetDeltaSnapshotFiles:
         mock_deltalake = types.ModuleType("deltalake")
         mock_deltalake.DeltaTable = mock_delta_table_cls  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "deltalake", mock_deltalake)
-        monkeypatch.setattr("posthog.ducklake.storage.get_deltalake_storage_options", lambda: {"key": "val"})
+        monkeypatch.setattr(
+            "posthog.ducklake.storage.get_deltalake_storage_options",
+            lambda storage_config=None, *, team_id=None, organization_id=None: {
+                "team_id": str(team_id),
+                "organization_id": str(organization_id),
+            },
+        )
 
         from posthog.ducklake.storage import _get_delta_snapshot_files
 
-        version, keys = _get_delta_snapshot_files("s3://customer-bucket/data/table")
+        version, keys = _get_delta_snapshot_files(
+            "s3://customer-bucket/data/table",
+            team_id=123,
+            organization_id="org-123",
+        )
         assert version == 3
         assert keys == ["data/table/part-00000.parquet", "data/table/part-00001.parquet"]
 
         mock_delta_table_cls.assert_called_once_with(
             table_uri="s3://customer-bucket/data/table",
-            storage_options={"key": "val"},
+            storage_options={"team_id": "123", "organization_id": "org-123"},
         )
 
 
 class TestStageDeltaTable:
     @patch("boto3.client")
     def test_copies_only_pinned_version_files(self, mock_boto3_client, monkeypatch):
-        monkeypatch.setattr(
-            "posthog.ducklake.storage._get_delta_snapshot_files",
-            lambda source_uri: (
+        mock_get_snapshot_files = MagicMock(
+            return_value=(
                 2,
                 ["data/table/part-00000.parquet", "data/table/part-00001.parquet"],
-            ),
+            )
         )
-        monkeypatch.setattr(
-            "posthog.ducklake.storage._get_cross_account_credentials",
-            lambda role_arn, external_id=None: ("ak", "sk", "tok"),
-        )
+        monkeypatch.setattr("posthog.ducklake.storage._get_delta_snapshot_files", mock_get_snapshot_files)
 
         mock_s3 = MagicMock()
         mock_s3.get_paginator.return_value = _mock_paginator(
@@ -522,10 +517,16 @@ class TestStageDeltaTable:
         result = stage_delta_table(
             source_uri="s3://customer-bucket/data/table",
             catalog_bucket="catalog-bucket",
-            role_arn="arn:aws:iam::123:role/Role",
+            organization_id="org-123",
         )
 
         assert result == "s3://catalog-bucket/__posthog_staging/data/table"
+        mock_get_snapshot_files.assert_called_once_with(
+            "s3://customer-bucket/data/table",
+            storage_config=None,
+            team_id=None,
+            organization_id="org-123",
+        )
 
         copied_keys = sorted(call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list)
         expected = sorted(

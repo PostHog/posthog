@@ -6,6 +6,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+# Remove gh CLI telemetry
+ENV GH_TELEMETRY=false
+
 # Install system packages (expanded for coding environments)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -23,6 +26,8 @@ RUN apt-get update && \
     # Build tools
     build-essential \
     pkg-config \
+    # Loader for the musl-linked @openai/codex binary bundled with @posthog/agent
+    musl \
     # Languages and runtimes
     python3 \
     python3-pip \
@@ -58,8 +63,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
+# Install ruff and ty
+# uv comes from its pinned, registry-verified official image (same pattern as the
+# main Dockerfile) rather than piping a remote installer script to a shell.
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+ARG RUFF_VERSION=0.14.11
+ARG TY_VERSION=0.0.29
+RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
+    UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ty==${TY_VERSION}" && \
+    ruff --version && \
+    ty --version
+
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.89.0
+ARG GH_CLI_VERSION=2.93.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -68,12 +84,18 @@ RUN set -eux; \
     rm /tmp/gh.deb
 
 # Install agentsh for runtime egress policy enforcement
-ARG AGENTSH_TAG=v0.16.7
+ARG AGENTSH_TAG=v0.18.3
 RUN set -eux; \
     version="${AGENTSH_TAG#v}"; \
     arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) agentsh_sha256="4ac486eea1e10600c29078a7a992d2067774edfb66be1318a2acf1fcf8b6d774" ;; \
+      arm64) agentsh_sha256="d1393a27943d207442ea077b1d36d9561a8af5613e7b67d9f7d4fafd00626c6b" ;; \
+      *) echo "Unsupported architecture for agentsh: $arch" >&2; exit 1 ;; \
+    esac; \
     curl -fsSL -o /tmp/agentsh.deb \
       "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_${arch}.deb" && \
+    echo "${agentsh_sha256}  /tmp/agentsh.deb" | sha256sum -c - && \
     dpkg -i /tmp/agentsh.deb && \
     rm /tmp/agentsh.deb && \
     agentsh --version && \
@@ -82,17 +104,42 @@ RUN set -eux; \
 
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
+# Install rtk (https://github.com/rtk-ai/rtk), a proxy that compresses the output of
+# common dev commands before it reaches the model. Claude runs auto-detect it on PATH
+# and route eligible Bash commands through it via a PreToolUse rewrite hook; Codex has
+# no command-rewrite channel, so its runs are told to prefix eligible commands in the
+# developer instructions instead. POSTHOG_RTK=0 (set per run from the task processing
+# context) opts a run out of both.
+ARG RTK_VERSION=0.43.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) rtk_asset="rtk-x86_64-unknown-linux-musl.tar.gz"; \
+             rtk_sha256="ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609" ;; \
+      arm64) rtk_asset="rtk-aarch64-unknown-linux-gnu.tar.gz"; \
+             rtk_sha256="5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731" ;; \
+      *) echo "Unsupported architecture for rtk: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/rtk.tar.gz \
+      "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/${rtk_asset}" && \
+    echo "${rtk_sha256}  /tmp/rtk.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk && \
+    rm /tmp/rtk.tar.gz && \
+    rtk --version
+
 ###
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so we always get @latest
+# Set up /scripts as a Node.js project and install @posthog/agent.
+# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
+# PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
+    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.
@@ -107,6 +154,11 @@ RUN chmod +x /tmp/install-skills.sh && \
 # GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
 RUN git config --global user.email "code@posthog.com" && \
     git config --global user.name "PostHog Code"
+
+# Block `git commit`/`git push` so unsigned commits cannot leave the sandbox
+COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
+RUN chmod +x /opt/posthog/bin/git
+ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1

@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -12,10 +13,22 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
-from posthog.schema import ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    BoxPlotDatum,
+    ChartDisplayType,
+    DataWarehouseNode,
+    DateRange,
+    EventsNode,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 from posthog.models.utils import uuid7
+
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
+
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.boxplot"
 
 
 @freeze_time("2024-01-01T00:00:00Z")
@@ -63,28 +76,20 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = BoxPlotTrendsQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
+    @staticmethod
+    def _parse_boxplot_results(response) -> list[BoxPlotDatum]:
+        return [BoxPlotDatum(**d) for d in response.results]
+
     @snapshot_clickhouse_queries
     def test_no_data_fills_all_dates_with_zeros(self):
         response = self._run_boxplot_query("2023-12-08", "2023-12-10")
+        data = self._parse_boxplot_results(response)
 
-        assert len(response.boxplot_data) == 3
-        for datum in response.boxplot_data:
+        assert len(data) == 3
+        for datum in data:
             assert datum.min == 0.0
             assert datum.max == 0.0
             assert datum.mean == 0.0
-        assert response.results == []
-
-    @snapshot_clickhouse_queries
-    def test_empty_results_when_no_series(self):
-        query = TrendsQuery(
-            dateRange=DateRange(date_from="2023-12-08", date_to="2023-12-15"),
-            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
-            series=[],
-        )
-        runner = BoxPlotTrendsQueryRunner(team=self.team, query=query)
-        response = runner.calculate()
-
-        assert response.results == []
 
     @parameterized.expand(
         [
@@ -151,9 +156,10 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-02")
+        data = self._parse_boxplot_results(response)
 
-        assert len(response.boxplot_data) == 1
-        datum = response.boxplot_data[0]
+        assert len(data) == 1
+        datum = data[0]
 
         assert datum.min == expected_min
         assert datum.max == expected_max
@@ -177,17 +183,18 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-03")
+        data = self._parse_boxplot_results(response)
 
-        assert len(response.boxplot_data) == 2
+        assert len(data) == 2
 
-        day1 = response.boxplot_data[0]
+        day1 = data[0]
         assert day1.day == "2023-12-02"
         assert day1.min == 100.0
         assert day1.max == 200.0
         assert day1.mean == 150.0
         assert day1.min <= day1.p25 <= day1.median <= day1.p75 <= day1.max
 
-        day2 = response.boxplot_data[1]
+        day2 = data[1]
         assert day2.day == "2023-12-03"
         assert day2.min == 500.0
         assert day2.max == 600.0
@@ -205,9 +212,10 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-02")
+        data = self._parse_boxplot_results(response)
 
-        assert len(response.boxplot_data) == 1
-        datum = response.boxplot_data[0]
+        assert len(data) == 1
+        datum = data[0]
         assert datum.min == 10.0
         assert datum.max == 90.0
         assert datum.mean == 50.0
@@ -227,8 +235,9 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-01", "2023-12-07")
+        data = self._parse_boxplot_results(response)
 
-        days = [d.day for d in response.boxplot_data]
+        days = [d.day for d in data]
         assert days == [
             "2023-12-01",
             "2023-12-02",
@@ -239,7 +248,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-07",
         ]
 
-        days_with_data = {d.day: d for d in response.boxplot_data}
+        days_with_data = {d.day: d for d in data}
         assert days_with_data["2023-12-01"].min == 100.0
         assert days_with_data["2023-12-05"].min == 500.0
 
@@ -271,10 +280,11 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_boxplot_query(date_from, date_to, interval=interval)
 
-        assert len(response.boxplot_data) >= 1
+        data = self._parse_boxplot_results(response)
+        assert len(data) >= 1
         from datetime import datetime
 
-        datetime.strptime(response.boxplot_data[0].day, expected_format)
+        datetime.strptime(data[0].day, expected_format)
 
     @parameterized.expand(
         [
@@ -301,8 +311,9 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-02", filter_test_accounts=filter_test_accounts)
 
-        assert len(response.boxplot_data) == 1
-        assert response.boxplot_data[0].max == expected_max
+        data = self._parse_boxplot_results(response)
+        assert len(data) == 1
+        assert data[0].max == expected_max
 
     @parameterized.expand(
         [
@@ -342,9 +353,10 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-02", properties=properties)
 
-        assert len(response.boxplot_data) == 1
-        assert response.boxplot_data[0].min == expected_min
-        assert response.boxplot_data[0].max == expected_max
+        data = self._parse_boxplot_results(response)
+        assert len(data) == 1
+        assert data[0].min == expected_min
+        assert data[0].max == expected_max
 
     @snapshot_clickhouse_queries
     def test_multiple_series_returns_data_for_each(self):
@@ -365,9 +377,10 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert len(response.boxplot_data) == 2
-        series_0 = [d for d in response.boxplot_data if d.series_index == 0]
-        series_1 = [d for d in response.boxplot_data if d.series_index == 1]
+        data = self._parse_boxplot_results(response)
+        assert len(data) == 2
+        series_0 = [d for d in data if d.series_index == 0]
+        series_1 = [d for d in data if d.series_index == 1]
         assert len(series_0) == 1
         assert len(series_1) == 1
         assert series_0[0].min == 100.0
@@ -395,9 +408,10 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-02")
+        data = self._parse_boxplot_results(response)
 
-        assert len(response.boxplot_data) == 1
-        datum = response.boxplot_data[0]
+        assert len(data) == 1
+        datum = data[0]
         assert datum.min == 0.0
         assert datum.max == 0.0
         assert datum.mean == 0.0
@@ -421,12 +435,13 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_boxplot_query("2023-12-01", "2023-12-05")
+        data = self._parse_boxplot_results(response)
 
-        days = [d.day for d in response.boxplot_data]
+        days = [d.day for d in data]
         assert days == ["2023-12-01", "2023-12-02", "2023-12-03", "2023-12-04", "2023-12-05"]
-        assert response.boxplot_data[0].min == 100.0
-        assert response.boxplot_data[2].min == 300.0
-        assert response.boxplot_data[4].min == 500.0
+        assert data[0].min == 100.0
+        assert data[2].min == 300.0
+        assert data[4].min == 500.0
 
     @snapshot_clickhouse_queries
     def test_custom_event_name(self):
@@ -441,8 +456,9 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(kind="EventsNode", event="purchase", math="sum", math_property="amount")],
         )
 
-        assert len(response.boxplot_data) == 1
-        assert response.boxplot_data[0].min == 42.0
+        data = self._parse_boxplot_results(response)
+        assert len(data) == 1
+        assert data[0].min == 42.0
 
     @snapshot_clickhouse_queries
     def test_each_datum_has_label_and_day(self):
@@ -460,7 +476,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_boxplot_query("2023-12-02", "2023-12-03")
 
-        for datum in response.boxplot_data:
+        for datum in self._parse_boxplot_results(response):
             assert datum.day is not None
             assert datum.label is not None
             assert len(datum.label) > 0
@@ -505,9 +521,88 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert len(response.boxplot_data) == 1
-        datum = response.boxplot_data[0]
+        data = self._parse_boxplot_results(response)
+        assert len(data) == 1
+        datum = data[0]
         assert datum.day == "2023-12-02"
         assert datum.min > 0
         assert datum.max > 0
         assert datum.min <= datum.p25 <= datum.median <= datum.p75 <= datum.max
+
+
+# S3-backed table creation must happen with the real clock (frozen time breaks request signing),
+# so these tests freeze time around query execution only, unlike TestBoxPlotTrendsQueryRunner.
+class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest):
+    def teardown_method(self, method) -> None:
+        if getattr(self, "cleanUpDataWarehouse", None):
+            self.cleanUpDataWarehouse()
+
+    @staticmethod
+    def _boxplot_query(series: DataWarehouseNode) -> TrendsQuery:
+        return TrendsQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
+            series=[series],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_data_warehouse_series_returns_distribution(self):
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "boxplot_data.csv",
+            table_name="boxplot_table",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "revenue": {"clickhouse": "Float64", "hogql": "FloatDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        query = self._boxplot_query(
+            DataWarehouseNode(
+                id=table.name,
+                table_name=table.name,
+                id_field="id",
+                distinct_id_field="id",
+                timestamp_field="created",
+                math_property="revenue",
+                math_property_type="data_warehouse_properties",
+            )
+        )
+        with freeze_time("2024-01-01T00:00:00Z"):
+            response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
+        data = [BoxPlotDatum(**d) for d in response.results]
+
+        assert len(data) == 3
+        by_day = {d.day: d for d in data}
+
+        datum = by_day["2023-12-02"]
+        assert datum.min == 10.0
+        assert datum.p25 == pytest.approx(20.0)
+        assert datum.median == pytest.approx(30.0)
+        assert datum.p75 == pytest.approx(40.0)
+        assert datum.max == 50.0
+        assert datum.mean == pytest.approx(30.0)
+        assert datum.series_label == f"{table.name} - revenue"
+
+        for zero_day in ["2023-12-01", "2023-12-03"]:
+            assert by_day[zero_day].min == 0.0
+            assert by_day[zero_day].max == 0.0
+
+    def test_data_warehouse_series_without_property_returns_error(self):
+        query = self._boxplot_query(
+            DataWarehouseNode(
+                id="some_table",
+                table_name="some_table",
+                id_field="id",
+                distinct_id_field="id",
+                timestamp_field="created",
+            )
+        )
+        with freeze_time("2024-01-01T00:00:00Z"):
+            response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert response.results == []
+        assert response.error == "A numeric property must be selected for box plot."

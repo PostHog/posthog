@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -8,6 +10,7 @@ from rest_framework.test import APIClient
 from posthog.models.team.team import Team
 
 from products.logs.backend.models import LogsView
+from products.logs.backend.presentation.views.views_api import LogsViewColumnSerializer
 
 
 class TestLogsViewAPI(APIBaseTest):
@@ -35,7 +38,7 @@ class TestLogsViewAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "Error logs"
@@ -67,7 +70,7 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["short_id"] == created["short_id"]
         assert response.json()["name"] == "Error logs"
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_partial_update(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -96,7 +99,7 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["name"] == "Just rename"
         assert response.json()["filters"] == {"severityLevels": ["error"], "serviceNames": ["api"]}
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_delete(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -119,6 +122,63 @@ class TestLogsViewAPI(APIBaseTest):
         response = self.client.post(self.base_url, {"name": "Minimal view"}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["filters"] == {}
+
+    def test_columns_round_trip(self):
+        columns = [
+            {"id": "ts", "type": "timestamp"},
+            {
+                "id": "c1",
+                "type": "custom",
+                "name": "Pod",
+                "expression": "resource_attributes.k8s.pod.name",
+                "width": 240,
+            },
+            {"id": "msg", "type": "message"},
+        ]
+        data = self._create_via_api(columns=columns)
+        assert data["columns"] == columns
+
+        # Update replaces the whole list; other fields untouched
+        response = self.client.patch(f"{self.base_url}{data['short_id']}/", {"columns": columns[:2]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["columns"] == columns[:2]
+        assert response.json()["filters"] == {"severityLevels": ["error", "fatal"]}
+
+    def test_update_omitting_columns_preserves_saved_layout(self):
+        columns = [{"id": "ts", "type": "timestamp", "width": 200}]
+        created = self._create_via_api(columns=columns)
+
+        # A full PUT that omits columns must leave the saved layout untouched
+        response = self.client.put(
+            f"{self.base_url}{created['short_id']}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["columns"] == columns
+
+        # Sending null explicitly clears the layout
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/",
+            {"columns": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["columns"] is None
+
+    def test_columns_default_to_null_and_reject_bad_type(self):
+        # Pre-columns views (and views saved without a column preference) round-trip null
+        data = self._create_via_api()
+        assert data["columns"] is None
+        response = self.client.get(f"{self.base_url}{data['short_id']}/")
+        assert response.json()["columns"] is None
+
+        bad = self.client.post(
+            self.base_url,
+            self._valid_payload(columns=[{"id": "x", "type": "not_a_type"}]),
+            format="json",
+        )
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_with_complex_filters(self):
         filters = {
@@ -236,3 +296,24 @@ class TestLogsViewAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["pinned"] is True
+
+
+class TestLogsViewColumnSerializer(SimpleTestCase):
+    # Field-level validation runs without a DB; the endpoint test above is the wiring guard.
+
+    @parameterized.expand(
+        [
+            ("custom_without_expression", {"id": "c", "type": "custom"}),
+            ("width_zero", {"id": "c", "type": "message", "width": 0}),
+            ("width_negative", {"id": "c", "type": "message", "width": -10}),
+            ("width_too_large", {"id": "c", "type": "message", "width": 5000}),
+        ]
+    )
+    def test_rejects_invalid_column(self, _label, column):
+        assert not LogsViewColumnSerializer(data=column).is_valid()
+
+    def test_accepts_custom_with_expression(self):
+        serializer = LogsViewColumnSerializer(
+            data={"id": "c", "type": "custom", "expression": "attributes.foo", "width": 240}
+        )
+        assert serializer.is_valid(), serializer.errors

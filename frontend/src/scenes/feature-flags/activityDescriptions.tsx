@@ -14,7 +14,7 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -117,7 +117,10 @@ const featureFlagActionsMapping: Record<
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
-                                                    <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                                    <strong className="tabular-nums">
+                                                        {rollout_percentage ?? 100}%
+                                                    </strong>{' '}
+                                                    of{' '}
                                                 </span>
                                             )}
                                             <PropertyFilterButton item={property} />
@@ -127,7 +130,7 @@ const featureFlagActionsMapping: Record<
                             newButtons[0] = (
                                 <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
-                                        <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                        <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
                                     <PropertyFilterButton
                                         key={nonEmptyProperties[0].key}
@@ -139,7 +142,8 @@ const featureFlagActionsMapping: Record<
                         } else {
                             groupAdditions.push(
                                 <>
-                                    <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
+                                    <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
+                                    <strong>all users</strong>
                                 </>
                             )
                         }
@@ -220,7 +224,7 @@ const featureFlagActionsMapping: Record<
                     <SentenceList
                         listParts={changedVariants.map((v) => (
                             <div key={v.key} className="highlighted-activity">
-                                {v.key}: <strong>{v.rollout_percentage}%</strong>
+                                {v.key}: <strong className="tabular-nums">{v.rollout_percentage}%</strong>
                             </div>
                         ))}
                         prefix="changed the rollout percentage for the variants to"
@@ -259,6 +263,13 @@ const featureFlagActionsMapping: Record<
         const isDeleted = detectBoolean(change?.after)
         return {
             description: [<>{isDeleted ? 'deleted' : 'restored'}</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
+    },
+    archived: function onArchived(change, logItem) {
+        const isArchived = detectBoolean(change?.after)
+        return {
+            description: [<>{isArchived ? 'archived' : 'unarchived'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
@@ -421,6 +432,36 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity == 'updated') {
+        // A referenced cohort's conditions changed: the flag's own fields are untouched
+        // (only its version moved), so describe the cohort change instead of a field diff.
+        // job_type must stay in sync with COHORT_CONDITIONS_UPDATED_JOB_TYPE in
+        // products/feature_flags/backend/flag_version_sync.py.
+        if (logItem.detail.trigger?.job_type === 'cohort_conditions_updated') {
+            const { cohort_id, cohort_name } = logItem.detail.trigger.payload ?? {}
+            return {
+                description: (
+                    <SentenceList
+                        listParts={[
+                            <Fragment key="cohort-conditions-updated">
+                                changed the conditions of linked cohort{' '}
+                                {cohort_id ? (
+                                    <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                                ) : (
+                                    <span>{cohort_name || 'unknown'}</span>
+                                )}
+                            </Fragment>,
+                        ]}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                on {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>

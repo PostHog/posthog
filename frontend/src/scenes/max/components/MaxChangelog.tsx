@@ -6,8 +6,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { urls } from 'scenes/urls'
 
 import { AlertEntry, ChangelogEntry, maxChangelogLogic } from '../maxChangelogLogic'
 
@@ -42,17 +41,14 @@ export function getAlertTagProps(severity: AlertEntry['severity']): {
 
 export function MaxChangelog(): JSX.Element | null {
     const changelogFlagEnabled = useFeatureFlag('POSTHOG_AI_CHANGELOG')
-    const alertsFlagEnabled = useFeatureFlag('POSTHOG_AI_ALERTS')
     const { entries, alerts, isOpen, hasUnread, hasAlerts, isVisible } = useValues(maxChangelogLogic)
     const { openChangelog, closeChangelog, dismissChangelog } = useActions(maxChangelogLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const displayedEntries = useMemo(() => entries.slice(0, 4), [entries])
     const hasMoreEntries = entries.length > 4
 
-    const showAlerts = alertsFlagEnabled && hasAlerts
     const showChangelog = changelogFlagEnabled && entries.length > 0
 
-    if (!isVisible || (!showAlerts && !showChangelog)) {
+    if (!isVisible || (!hasAlerts && !showChangelog)) {
         return null
     }
 
@@ -66,11 +62,11 @@ export function MaxChangelog(): JSX.Element | null {
                 <div className="p-3 min-w-[280px] max-w-[320px]">
                     <div className="flex items-center justify-between mb-3">
                         <h3 className="font-semibold text-sm m-0">
-                            {showAlerts ? 'PostHog AI status' : "What's new in PostHog AI"}
+                            {hasAlerts ? 'PostHog AI status' : "What's new in PostHog AI"}
                         </h3>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={closeChangelog} />
                     </div>
-                    {showAlerts && (
+                    {hasAlerts && (
                         <ul className="space-y-2 mb-3">
                             {alerts.map((alert, index) => (
                                 <li
@@ -90,7 +86,7 @@ export function MaxChangelog(): JSX.Element | null {
                     )}
                     {showChangelog && (
                         <>
-                            {showAlerts && <h4 className="font-semibold text-xs text-muted m-0 mb-2">What's new</h4>}
+                            {hasAlerts && <h4 className="font-semibold text-xs text-muted m-0 mb-2">What's new</h4>}
                             <ul className="space-y-3 mb-3">
                                 {displayedEntries.map((entry, index) => (
                                     <li key={index} className="flex gap-2 text-sm">
@@ -109,10 +105,8 @@ export function MaxChangelog(): JSX.Element | null {
                                     <LemonButton
                                         size="xsmall"
                                         type="tertiary"
-                                        onClick={() => {
-                                            closeChangelog()
-                                            openSettingsPanel({ sectionId: 'environment-max' })
-                                        }}
+                                        onClick={() => closeChangelog()}
+                                        to={urls.settings('environment-max')}
                                     >
                                         Show all
                                     </LemonButton>
@@ -131,15 +125,15 @@ export function MaxChangelog(): JSX.Element | null {
             <LemonButton
                 size="xsmall"
                 type="tertiary"
-                icon={showAlerts ? <IconWarning /> : <IconSparkles />}
+                icon={hasAlerts ? <IconWarning /> : <IconSparkles />}
                 onClick={isOpen ? closeChangelog : openChangelog}
                 className="relative"
             >
-                {showAlerts ? 'Status' : "What's new"}
-                {(hasUnread || showAlerts) && (
+                {hasAlerts ? 'Status' : "What's new"}
+                {(hasUnread || hasAlerts) && (
                     <span
                         className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${
-                            showAlerts ? 'bg-warning' : 'bg-danger'
+                            hasAlerts ? 'bg-warning' : 'bg-danger'
                         }`}
                     />
                 )}

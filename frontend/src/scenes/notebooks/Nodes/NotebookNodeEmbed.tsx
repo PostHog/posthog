@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -14,8 +13,6 @@ type NotebookNodeEmbedAttributes = {
     width?: string | number
     height?: string | number
 }
-
-const IFRAME_MATCHER = /(?:<iframe[^>]*)(?:(?:\/>)|(?:>.*?<\/iframe>))/gi
 
 const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null => {
     const parser = new DOMParser()
@@ -142,21 +139,4 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
         width: {},
         height: {},
     },
-    pasteOptions: {
-        find: IFRAME_MATCHER,
-        getAttributes: async (match) => {
-            return parseIframeString(match[0]) ?? {}
-        },
-    },
 })
-
-export function buildNodeEmbed(): JSONContent {
-    return {
-        type: NotebookNodeType.Embed,
-        attrs: {
-            __init: {
-                showSettings: true,
-            },
-        },
-    }
-}

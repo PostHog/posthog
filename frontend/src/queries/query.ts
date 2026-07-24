@@ -1,6 +1,6 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import {
     DashboardFilter,
@@ -16,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    dataWarehouseSourcesFromResponse,
     HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
@@ -23,7 +24,7 @@ import {
     isHogQLQuery,
     isInsightQueryNode,
     isPersonsNode,
-    shouldQueryBeAsync,
+    queryUsesDataWarehouse,
 } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
@@ -136,9 +137,8 @@ export async function pollForResults(
             const parsed = parseErrorMessage(e.data?.query_status?.error_message)
             e.detail = parsed.message
 
-            if (parsed.code) {
-                e.code = parsed.code
-            }
+            // Prefer the structured code from QueryStatus over one parsed out of the message
+            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -169,21 +169,16 @@ async function executeQuery<N extends DataNode>(
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
      */
     pollOnly = false,
-    limitContext?: 'posthog_ai'
+    limitContext?: 'posthog_ai',
+    /**
+     * When the backend serves a cached result while kicking off a background recompute
+     * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
+     * attached), return the cached results immediately instead of blocking on the recompute.
+     */
+    acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
-        // Determine the refresh type based on the query node type and refresh parameter
-        let refreshParam: RefreshType
-
-        if (posthog.isFeatureEnabled('always-query-blocking')) {
-            refreshParam = refresh || 'blocking'
-        } else if (shouldQueryBeAsync(queryNode)) {
-            // For insight queries, use async variants but preserve explicit force requests
-            refreshParam = refresh || 'async'
-        } else {
-            // For other queries, use blocking unless explicitly set to a different RefreshType
-            refreshParam = refresh || 'blocking'
-        }
+        const refreshParam: RefreshType = refresh || 'blocking'
 
         const response = await api.query(queryNode, {
             requestOptions: methodOptions,
@@ -200,6 +195,12 @@ async function executeQuery<N extends DataNode>(
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
+            return response
+        }
+
+        if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
+            // Cached results are already present alongside a background recompute, so use them
+            // now rather than discarding them to poll a job that may take a while (or be stuck).
             return response
         }
 
@@ -227,7 +228,8 @@ export async function performQuery<N extends DataNode>(
     filtersOverride?: DashboardFilter | null,
     variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false,
-    limitContext?: 'posthog_ai'
+    limitContext?: 'posthog_ai',
+    acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -246,25 +248,46 @@ export async function performQuery<N extends DataNode>(
                 filtersOverride,
                 variablesOverride,
                 pollOnly,
-                limitContext
+                limitContext,
+                acceptStaleCache
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
+            if (response && typeof response === 'object') {
+                // Web analytics responses report which read path served them and whether
+                // a lazy-precompute read was served stale. Undefined elsewhere, so these
+                // props only land on events that carry them.
+                const { preComputeStrategy, preComputeStale } = response as {
+                    preComputeStrategy?: string
+                    preComputeStale?: boolean
+                }
+                logParams.precompute_strategy = preComputeStrategy
+                logParams.precompute_stale = preComputeStale
+            }
         }
+        const warehouseSources = dataWarehouseSourcesFromResponse(response)
         posthog.capture('query completed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
             is_cached: response?.is_cached,
+            uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
+            data_warehouse_source_ids: warehouseSources.map((s) => s.id),
+            data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
         })
         return response
     } catch (e) {
+        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+        const error = e as (Error & { status?: number; code?: string | null }) | null
         posthog.capture('query failed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            error_status: error?.status ?? null,
+            error_code: error?.code ?? null,
+            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
             ...logParams,
         })
         throw e

@@ -3,7 +3,6 @@ from typing import Any
 from django.conf import settings
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import (
     ExecuteWorkflowInput,
     Interceptor,
@@ -13,6 +12,13 @@ from temporalio.worker import (
 
 from posthog.slo.events import emit_slo_completed, emit_slo_started
 from posthog.slo.types import SloCompletedProperties, SloConfig, SloOutcome, SloStartedProperties
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    resolve_error_trace,
+    resolve_exception_class,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 
 
 class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -54,11 +60,13 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
             return result
         except BaseException as exc:
             outcome = slo.outcome if slo.outcome is not None else SloOutcome.FAILURE
-            # Temporal wraps activity errors as ActivityError → ApplicationError;
-            # unwrap to get the original exception type and message.
-            cause = exc.cause if isinstance(exc, ActivityError) and isinstance(exc.cause, ApplicationError) else exc
-            slo.completion_properties.setdefault("error_type", getattr(cause, "type", None) or type(cause).__name__)
-            slo.completion_properties.setdefault("error_message", str(cause))
+            # setdefault lets workflows pre-populate completion_properties to override any of these.
+            slo.completion_properties.setdefault("error_type", resolve_exception_class(exc))
+            slo.completion_properties.setdefault(
+                "error_message",
+                truncate_for_temporal_payload(str(unwrap_temporal_cause(exc) or exc), MAX_ERROR_MESSAGE_CHARS),
+            )
+            slo.completion_properties.setdefault("error_trace", resolve_error_trace(exc))
             raise
         finally:
             duration_ms = (workflow.time() - start_time) * 1000

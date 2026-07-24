@@ -1,0 +1,365 @@
+import { useActions, useValues } from 'kea'
+
+import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { urls } from 'scenes/urls'
+
+import { DateMappingOption } from '~/types'
+
+import { FilterPill } from '../../components/FilterPill'
+import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import {
+    OBSERVATIONS_PAGE_SIZE,
+    ObservationStatusValue,
+    ObservationTriggeredByValue,
+    ObservationVerdictValue,
+    replayScannerLogic,
+} from '../replayScannerLogic'
+import { OBSERVATION_TRIGGER_TAG } from '../types'
+
+const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
+    { value: 'succeeded', label: 'Succeeded' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'ineligible', label: 'Ineligible' },
+    { value: 'running', label: 'Running' },
+    { value: 'pending', label: 'Pending' },
+]
+
+const TRIGGERED_BY_OPTIONS = Object.entries(OBSERVATION_TRIGGER_TAG).map(([value, { label }]) => ({
+    value: value as ObservationTriggeredByValue,
+    label,
+}))
+
+const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
+    { value: 'yes', label: 'Yes' },
+    { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
+]
+
+// Empty values on "All time" clear the range, matching the unfiltered default.
+const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'All time', values: [] },
+    { key: 'Last 24 hours', values: ['-24h'] },
+    { key: 'Last 3 days', values: ['-3d'] },
+    { key: 'Last 7 days', values: ['-7d'] },
+    { key: 'Last 30 days', values: ['-30d'] },
+    { key: 'Last 90 days', values: ['-90d'] },
+]
+
+// Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
+const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
+
+export function versionTag(
+    obsVersion: number | null | undefined,
+    currentVersion: number | null | undefined
+): { type: LemonTagType; label: string; tooltip: string } | null {
+    if (obsVersion == null) {
+        return null
+    }
+    const label = `v${obsVersion}`
+    if (currentVersion == null) {
+        return { type: 'muted', label, tooltip: `Ran with scanner version ${obsVersion}` }
+    }
+    const age = Math.max(0, currentVersion - obsVersion)
+    const type = VERSION_TAG_TYPES[Math.min(age, VERSION_TAG_TYPES.length - 1)]
+    const tooltip =
+        age === 0 ? `Current version (v${currentVersion})` : `${age} version(s) behind current (v${currentVersion})`
+    return { type, label, tooltip }
+}
+
+export function ScannerObservationsTable({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const {
+        observations,
+        observationsLoading,
+        hasObservationsInFlight,
+        observationsPage,
+        observationsTotal,
+        observationsSort,
+        observationStatusFilter,
+        observationTriggeredByFilter,
+        observationVerdictFilter,
+        observationTagFilter,
+        observationSubjectFilter,
+        observationDateFrom,
+        observationDateTo,
+        hasActiveObservationFilters,
+        observationDetailLinkParams,
+        availableTags,
+        observationStats,
+        scanner,
+        triggeringOnDemandObservation,
+        retryingObservationIds,
+    } = useValues(logic)
+    const {
+        refreshObservations,
+        retryObservation,
+        setObservationsPage,
+        setObservationsSort,
+        setObservationStatusFilter,
+        setObservationTriggeredByFilter,
+        setObservationVerdictFilter,
+        setObservationTagFilter,
+        setObservationSubjectFilter,
+        setObservationDateRange,
+        clearObservationFilters,
+    } = useActions(logic)
+    const scannerType = scanner?.scanner_type
+    const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
+
+    const columns: LemonTableColumns<ReplayObservationApi> = [
+        {
+            title: 'Session',
+            key: 'session',
+            width: 300,
+            render: (_, obs) => (
+                <Link
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                    className="font-mono text-xs text-primary truncate block"
+                >
+                    {obs.session_id}
+                </Link>
+            ),
+        },
+        {
+            title: 'Person',
+            key: 'recording_subject',
+            sorter: true,
+            render: (_, obs) =>
+                obs.recording_subject_email ? (
+                    <Tooltip title={obs.distinct_id ?? undefined}>
+                        <span className="truncate block max-w-[16rem]">{obs.recording_subject_email}</span>
+                    </Tooltip>
+                ) : obs.distinct_id ? (
+                    <span className="font-mono text-xs text-muted truncate block max-w-[16rem]">{obs.distinct_id}</span>
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, obs) => (
+                <div className="flex items-center gap-1">
+                    <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
+                    {obs.status === 'failed' && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => retryObservation(obs.id)}
+                            loading={retryingObservationIds.includes(obs.id)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                            tooltip="Retry scan"
+                            data-attr="vision-observation-retry"
+                        />
+                    )}
+                </div>
+            ),
+        },
+        {
+            title: 'Result',
+            key: 'result',
+            render: (_, obs) => (
+                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)} className="block">
+                    <div className="min-w-[18rem] max-w-xl">
+                        <ObservationResultSummary observation={obs} />
+                    </div>
+                </Link>
+            ),
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
+        },
+        {
+            title: 'Version',
+            key: 'version',
+            render: (_, obs) => {
+                const tag = versionTag(obs.scanner_snapshot?.scanner_version, scanner?.scanner_version)
+                if (!tag) {
+                    return <span className="text-muted">—</span>
+                }
+                return (
+                    <Tooltip title={tag.tooltip}>
+                        <LemonTag type={tag.type} className="font-mono">
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            },
+            sorter: true,
+        },
+        {
+            title: 'Triggered by',
+            key: 'triggered_by',
+            render: (_, obs) => (
+                <LemonTag type={OBSERVATION_TRIGGER_TAG[obs.triggered_by].type}>
+                    {OBSERVATION_TRIGGER_TAG[obs.triggered_by].label}
+                </LemonTag>
+            ),
+        },
+        {
+            title: 'Created',
+            key: 'created_at',
+            render: (_, obs) => <TZLabel time={obs.created_at} />,
+            sorter: true,
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 1,
+            render: (_, obs) => (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconEye />}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                    className="whitespace-nowrap"
+                    data-attr="vision-observation-view-details"
+                >
+                    View details
+                </LemonButton>
+            ),
+        },
+    ]
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center gap-3">
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
+                <span className="text-muted text-sm whitespace-nowrap">
+                    {observationStats.total.toLocaleString()} total ·{' '}
+                    <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
+                        {observationStats.failed.toLocaleString()} failed
+                    </span>{' '}
+                    · {observationStats.inFlight.toLocaleString()} in flight
+                </span>
+                <div className="ml-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        {(observationStats.total > 0 || hasActiveObservationFilters) && (
+                            <>
+                                <LemonInput
+                                    type="search"
+                                    size="small"
+                                    placeholder="Person email"
+                                    value={observationSubjectFilter}
+                                    onChange={setObservationSubjectFilter}
+                                    className="w-56"
+                                />
+                                <DateFilter
+                                    size="small"
+                                    dateFrom={observationDateFrom}
+                                    dateTo={observationDateTo}
+                                    dateOptions={OBSERVATION_DATE_OPTIONS}
+                                    onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
+                                />
+                                <FilterPill<ObservationStatusValue>
+                                    label="Status"
+                                    options={STATUS_OPTIONS}
+                                    value={observationStatusFilter}
+                                    onChange={setObservationStatusFilter}
+                                />
+                                <FilterPill<ObservationTriggeredByValue>
+                                    label="Triggered by"
+                                    options={TRIGGERED_BY_OPTIONS}
+                                    value={observationTriggeredByFilter}
+                                    onChange={setObservationTriggeredByFilter}
+                                />
+                                {scannerType === 'monitor' && (
+                                    <FilterPill<ObservationVerdictValue>
+                                        label="Verdict"
+                                        options={VERDICT_OPTIONS}
+                                        value={observationVerdictFilter}
+                                        onChange={setObservationVerdictFilter}
+                                    />
+                                )}
+                                {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
+                                    <FilterPill<string>
+                                        label="Tag"
+                                        options={tagFilterOptions}
+                                        value={observationTagFilter}
+                                        onChange={setObservationTagFilter}
+                                        searchable
+                                    />
+                                )}
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => clearObservationFilters()}
+                                    disabledReason={hasActiveObservationFilters ? undefined : 'No active filters'}
+                                >
+                                    Clear filters
+                                </LemonButton>
+                            </>
+                        )}
+                        <Tooltip
+                            title={
+                                hasObservationsInFlight
+                                    ? 'Auto-refreshing while observations are in flight'
+                                    : 'Refresh observations'
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => refreshObservations()}
+                                loading={observationsLoading}
+                                data-attr="vision-observations-refresh"
+                            >
+                                Refresh
+                            </LemonButton>
+                        </Tooltip>
+                    </div>
+                </div>
+            </div>
+            <LemonTable
+                columns={columns}
+                dataSource={observations}
+                loading={triggeringOnDemandObservation || observationsLoading}
+                rowKey="id"
+                pagination={{
+                    controlled: true,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    currentPage: observationsPage,
+                    entryCount: observationsTotal,
+                    onForward: () => setObservationsPage(observationsPage + 1),
+                    onBackward: () => setObservationsPage(observationsPage - 1),
+                }}
+                sorting={observationsSort}
+                onSort={(next) => setObservationsSort(next)}
+                useURLForSorting={false}
+                // The URL scheme can't express "no sort", so a third header click would snap back with duplicate fetches.
+                noSortingCancellation
+                nouns={['observation', 'observations']}
+                emptyState={
+                    hasActiveObservationFilters ? (
+                        <div className="p-6 text-center text-muted">No observations match your filters.</div>
+                    ) : (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                            <div className="text-muted">
+                                No observations yet. They'll appear here once the scanner fires on its schedule — or
+                                scan a recording right now.
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlay />}
+                                to={`${urls.replayVision(scannerId)}?tab=on-demand`}
+                                data-attr="vision-observations-empty-scan-now"
+                            >
+                                Scan a recording now
+                            </LemonButton>
+                        </div>
+                    )
+                }
+            />
+        </div>
+    )
+}

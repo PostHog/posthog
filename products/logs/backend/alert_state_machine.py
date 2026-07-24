@@ -1,22 +1,67 @@
+"""Single source of truth for LogsAlertConfiguration state transitions.
+
+Any write to `LogsAlertConfiguration.state` or `LogsAlertConfiguration.consecutive_failures`
+MUST originate here — the check-driven path goes through `evaluate_alert_check`, the
+control-plane path goes through one of the `apply_*` helpers, and every caller applies
+the resulting outcome via `apply_outcome`, which is the only function in the codebase
+that mutates those two fields.
+
+The semgrep rule at `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`
+enforces this invariant in CI.
+
+The decision logic itself lives in the shared machine at `common/alerting/state_machine.py`
+(configured here with `LOGS_ALERT_POLICY`); this module owns the logs-shaped inputs
+(`AlertSnapshot`, `CheckResult`) and the model mutation (`apply_outcome`).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum, StrEnum
+from typing import TYPE_CHECKING
 
+from common.alerting.state_machine import (
+    LOGS_ALERT_POLICY,
+    MAX_CONSECUTIVE_FAILURES,
+    AlertCheckOutcome,
+    AlertSnapshot as SharedAlertSnapshot,
+    AlertState,
+    CheckInput,
+    ControlPlaneOutcome,
+    InvalidTransition,
+    NotificationAction,
+    Outcome,
+    apply_disable,
+    apply_enable,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
+    evaluate_alert_check as shared_evaluate_alert_check,
+)
 
-class AlertState(StrEnum):
-    NOT_FIRING = "not_firing"
-    FIRING = "firing"
-    PENDING_RESOLVE = "pending_resolve"
-    ERRORED = "errored"
-    SNOOZED = "snoozed"
+if TYPE_CHECKING:
+    from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
-
-class NotificationAction(Enum):
-    NONE = "none"
-    FIRE = "fire"
-    RESOLVE = "resolve"
+__all__ = [
+    "MAX_CONSECUTIVE_FAILURES",
+    "AlertCheckOutcome",
+    "AlertSnapshot",
+    "AlertState",
+    "CheckResult",
+    "ControlPlaneOutcome",
+    "InvalidTransition",
+    "NotificationAction",
+    "Outcome",
+    "apply_disable",
+    "apply_enable",
+    "apply_outcome",
+    "apply_snooze",
+    "apply_threshold_change",
+    "apply_unsnooze",
+    "apply_user_reset",
+    "evaluate_alert_check",
+]
 
 
 @dataclass(frozen=True)
@@ -25,6 +70,7 @@ class CheckResult:
     threshold_breached: bool
     error_message: str | None = None
     query_duration_ms: int | None = None
+    is_transient_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -36,16 +82,7 @@ class AlertSnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     consecutive_failures: int
-    recent_checks_breached: tuple[bool, ...]
-
-
-@dataclass(frozen=True)
-class AlertCheckOutcome:
-    new_state: AlertState
-    notification: NotificationAction
-    consecutive_failures: int
-    update_last_notified_at: bool
-    error_message: str | None
+    recent_events_breached: tuple[bool, ...]
 
 
 def evaluate_alert_check(
@@ -57,84 +94,54 @@ def evaluate_alert_check(
     (CloudWatch-style) for firing, immediate resolution on the first OK
     check, and cooldown suppression.
     """
-    if snapshot.state == AlertState.SNOOZED:
-        if snapshot.snooze_until is not None and snapshot.snooze_until > now:
-            return AlertCheckOutcome(
-                new_state=AlertState.SNOOZED,
-                notification=NotificationAction.NONE,
-                consecutive_failures=snapshot.consecutive_failures,
-                update_last_notified_at=False,
-                error_message=None,
-            )
-        effective_state = AlertState.NOT_FIRING
-    else:
-        effective_state = snapshot.state
-
-    if check.error_message is not None:
-        return AlertCheckOutcome(
-            new_state=AlertState.ERRORED,
-            notification=NotificationAction.NONE,
-            consecutive_failures=snapshot.consecutive_failures + 1,
-            update_last_notified_at=False,
+    return shared_evaluate_alert_check(
+        SharedAlertSnapshot(
+            state=snapshot.state,
+            cooldown=timedelta(minutes=snapshot.cooldown_minutes),
+            last_notified_at=snapshot.last_notified_at,
+            snooze_until=snapshot.snooze_until,
+            consecutive_failures=snapshot.consecutive_failures,
+            evaluation_periods=snapshot.evaluation_periods,
+            datapoints_to_alarm=snapshot.datapoints_to_alarm,
+            recent_events_breached=snapshot.recent_events_breached,
+        ),
+        CheckInput(
+            threshold_breached=check.threshold_breached,
             error_message=check.error_message,
-        )
-
-    consecutive_failures = 0
-
-    window = [check.threshold_breached, *snapshot.recent_checks_breached]
-    m = snapshot.evaluation_periods
-    window = window[:m]
-
-    breach_count = sum(1 for b in window if b)
-    n = snapshot.datapoints_to_alarm
-
-    if effective_state == AlertState.ERRORED:
-        effective_state = AlertState.NOT_FIRING
-
-    new_state: AlertState
-    notification = NotificationAction.NONE
-
-    if effective_state == AlertState.NOT_FIRING:
-        if breach_count >= n:
-            new_state = AlertState.FIRING
-            notification = NotificationAction.FIRE
-        else:
-            new_state = AlertState.NOT_FIRING
-
-    # PENDING_RESOLVE is currently unused — resolution is immediate on the first
-    # OK check. Kept in the enum for future symmetric N-of-M resolution support.
-    elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
-        if check.threshold_breached:
-            new_state = AlertState.FIRING
-        else:
-            # Always resolve after a single OK check — N-of-M only governs firing
-            new_state = AlertState.NOT_FIRING
-            notification = NotificationAction.RESOLVE
-
-    else:
-        new_state = AlertState.NOT_FIRING
-
-    update_last_notified_at = False
-    if notification != NotificationAction.NONE:
-        if _is_within_cooldown(snapshot.last_notified_at, snapshot.cooldown_minutes, now):
-            notification = NotificationAction.NONE
-        else:
-            update_last_notified_at = True
-
-    return AlertCheckOutcome(
-        new_state=new_state,
-        notification=notification,
-        consecutive_failures=consecutive_failures,
-        update_last_notified_at=update_last_notified_at,
-        error_message=None,
+            is_transient_error=check.is_transient_error,
+        ),
+        now,
+        policy=LOGS_ALERT_POLICY,
     )
 
 
-def _is_within_cooldown(
-    last_notified_at: datetime | None,
-    cooldown_minutes: int,
-    now: datetime,
-) -> bool:
-    if cooldown_minutes <= 0 or last_notified_at is None:
-        return False
-    return now < last_notified_at + timedelta(minutes=cooldown_minutes)
+def apply_outcome(
+    alert: LogsAlertConfiguration,
+    outcome: Outcome,
+    *,
+    kind: LogsAlertEvent.Kind | None = None,
+) -> list[str]:
+    """Mutates `alert.state` and `alert.consecutive_failures` from an outcome.
+    Returns modified field names for `save(update_fields=...)`.
+
+    If `kind` is provided, writes a `LogsAlertEvent` audit row — even when
+    state_before == state_after, because the caller has already decided the action
+    is audit-worthy (e.g. enabling an already-NOT_FIRING alert). Worker CHECK rows
+    are written by the temporal activity, not here.
+    """
+    state_before = alert.state
+    alert.state = outcome.new_state.value
+    alert.consecutive_failures = outcome.consecutive_failures
+
+    if kind is not None:
+        from products.logs.backend.models import LogsAlertEvent
+
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=kind,
+            threshold_breached=False,
+            state_before=state_before,
+            state_after=outcome.new_state.value,
+        )
+
+    return ["state", "consecutive_failures"]

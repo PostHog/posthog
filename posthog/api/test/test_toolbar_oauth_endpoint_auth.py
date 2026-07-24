@@ -13,22 +13,26 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
-def _make_oauth_app(organization, user):
+
+def _make_oauth_app(organization, user, name="Toolbar Test App"):
     return OAuthApplication.objects.create(
-        name="Toolbar Test App",
+        name=name,
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
         redirect_uris="https://example.com/callback",
@@ -49,7 +53,6 @@ def _make_token(user, app, token_str, scope="*", delta_hours=1):
     )
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarEndpointOAuthAuth(APIBaseTest):
     """
     Every toolbar-consumed endpoint should accept OAuth access tokens
@@ -187,7 +190,6 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
     """
     When an organization disables personal API keys for members,
@@ -242,7 +244,6 @@ class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
         assert response.status_code == 403, f"Personal API key should still be blocked, got {response.status_code}"
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestUploadedMediaOAuthAuth(APIBaseTest):
     """uploaded_media is tested separately — its only toolbar action is POST (upload)."""
 
@@ -289,7 +290,6 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestHedgehogConfigOAuthAuth(APIBaseTest):
     """hedgehog_config uses /api/users/@me/ path, not team-scoped, so tested separately."""
 
@@ -340,7 +340,6 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthScopesConfig(APIBaseTest):
     """Verify TOOLBAR_OAUTH_SCOPES covers every toolbar endpoint scope."""
 
@@ -365,6 +364,82 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
 
     def test_no_wildcard_scope(self):
         assert "*" not in settings.TOOLBAR_OAUTH_SCOPES, "Toolbar should use specific scopes, not wildcard"
+
+
+class TestToolbarAccessTokenRevocation(APIBaseTest):
+    """
+    A toolbar OAuth access token is only checked against the `toolbar` access level when
+    it's minted. Without a re-check on every request, a token minted before access was
+    revoked would keep authenticating until its natural expiry.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.toolbar_app = _make_oauth_app(self.organization, self.user, name=settings.TOOLBAR_OAUTH_APPLICATION_NAME)
+        self.token = _make_token(
+            self.user,
+            self.toolbar_app,
+            "pha_toolbar_revocation",
+            scope=" ".join(settings.TOOLBAR_OAUTH_SCOPES),
+        )
+        self.token.scoped_teams = [self.team.id]
+        self.token.save()
+
+    def _deny_toolbar_access(self):
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="toolbar",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+
+    def _get(self):
+        self.client.logout()
+        return self.client.get(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token.token}",
+        )
+
+    def test_token_authenticates_before_revocation(self):
+        assert self._get().status_code not in (401, 403)
+
+    def test_token_rejected_after_toolbar_access_revoked(self):
+        # AuthenticationFailed maps to 401 here, same as the expired/invalid token
+        # cases above - this authenticator declares an authenticate_header, so DRF
+        # treats a rejection as "not authenticated" rather than "forbidden".
+        self._deny_toolbar_access()
+        assert self._get().status_code == 401
+
+    def test_token_rejected_when_scoped_to_no_team(self):
+        self.token.scoped_teams = []
+        self.token.save()
+        assert self._get().status_code == 401
+
+    def test_token_rejected_when_scoped_to_multiple_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        self.token.scoped_teams = [self.team.id, other_team.id]
+        self.token.save()
+        assert self._get().status_code == 401
+
+    def test_non_toolbar_app_token_unaffected_by_toolbar_access_revocation(self):
+        """The revocation re-check is gated on the token's OAuth application being the
+        toolbar app - it must not affect tokens minted by any other OAuth client."""
+        self._deny_toolbar_access()
+        other_app = _make_oauth_app(self.organization, self.user, name="Some other app")
+        other_token = _make_token(self.user, other_app, "pha_other_app", scope="action:read")
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_AUTHORIZATION=f"Bearer {other_token.token}",
+        )
+        assert response.status_code not in (401, 403)
 
 
 class TestOAuthCorsPreflightMiddleware(APIBaseTest):

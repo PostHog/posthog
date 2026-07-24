@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
@@ -12,10 +14,15 @@ from posthog.async_migrations.setup import (
 from posthog.models.async_migration import AsyncMigration
 from posthog.version_requirement import ServiceVersionRequirement
 
-pytestmark = pytest.mark.async_migrations
+pytestmark = [
+    pytest.mark.async_migrations,
+    pytest.mark.skip(
+        reason="Async migrations are frozen for self-hosted backwards compat; only test_migrations_not_required still runs"
+    ),
+]
 
 
-class TestAsyncMigrationDefinition(BaseTest):
+class TestAsyncMigrationDefinition(SimpleTestCase):
     def test_get_async_migration_definition(self):
         from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 
@@ -36,6 +43,8 @@ class TestAsyncMigrationDefinition(BaseTest):
             )
         )
 
+
+class TestAsyncMigrationDefinitionModel(BaseTest):
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)
 

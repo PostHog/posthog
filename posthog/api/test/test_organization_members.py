@@ -1,12 +1,18 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest.mock import ANY, call, patch
+from unittest.mock import ANY, patch
 
+from django.test import override_settings
+
+from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
@@ -38,6 +44,98 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     #     assert len(response.json()["results"]) == 2
 
+    def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+        admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=project_mate.organization_memberships.get(organization=self.organization),
+            access_level="member",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        return project_mate, outsider, admin
+
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+
+        # Restricted members see themselves and their project mates — not org admins or other members
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, project_mate.email}
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_stale_access_control_rules_are_ignored_without_the_entitlement(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        # Plan downgrade: the private-project rows stay in the DB but must stop being enforced
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_open_project_keeps_all_members_visible_when_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
+        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
+        # An explicit "none" override can't lower access below an open default today (max-wins);
+        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=demoted.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other.email,
+            demoted.email,
+        }
+
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
         user = User.objects.create(email="another_user@posthog.com")
@@ -52,9 +150,10 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthoganalytics.capture")
-    @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_delete_organization_member(self, mock_update_billing_organization_users, mock_capture):
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_delete_organization_member(self, mock_sync_delay, mock_capture):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
@@ -65,7 +164,9 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertTrue(membership_queryset.exists())
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        mock_sync_delay.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(membership_queryset.exists(), False)
 
@@ -83,11 +184,28 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             },
             groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
         )
-        assert mock_update_billing_organization_users.call_count == 2
-        assert mock_update_billing_organization_users.call_args_list == [
-            call(self.organization),
-            call(self.organization),
-        ]
+        mock_sync_delay.assert_called_once_with(str(self.organization.id))
+
+    def test_github_login_endpoint(self):
+        # A different member than the requester — proves the lookup is org-scoped, not self-only
+        member = User.objects.create_and_join(self.organization, "gh@x.com", None, "X")
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": None})
+
+        UserSocialAuth.objects.create(user=member, provider="github", uid="123", extra_data={"login": "octocat"})
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "octocat"})
+
+        # `@me` resolves the requesting user via a separate branch in safely_get_object
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="456", extra_data={"login": "hedgehog"})
+
+        response = self.client.get("/api/organizations/@current/members/@me/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "hedgehog"})
 
     def test_scoped_api_keys_endpoint(self):
         # Create a user who is a member of the organization
@@ -224,12 +342,15 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["has_keys_active_last_week"], False)
         self.assertEqual(response_data["keys"], [])
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthoganalytics.capture")
-    @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_leave_organization(self, mock_update_billing_organization_users, mock_capture):
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_leave_organization(self, mock_sync_delay, mock_capture):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
-        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+        mock_sync_delay.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 
@@ -248,22 +369,22 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
-        assert mock_update_billing_organization_users.call_count == 1
-        assert mock_update_billing_organization_users.call_args_list == [
-            call(self.organization),
-        ]
+        mock_sync_delay.assert_called_once_with(str(self.organization.id))
 
-    @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_change_organization_member_level(self, mock_update_billing_organization_users):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_change_organization_member_level(self, mock_sync_delay):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
-        response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}",
-            {"level": OrganizationMembership.Level.ADMIN},
-        )
+        mock_sync_delay.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/organizations/@current/members/{user.uuid}",
+                {"level": OrganizationMembership.Level.ADMIN},
+            )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
@@ -291,40 +412,40 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
-        assert mock_update_billing_organization_users.call_count == 1
-        assert mock_update_billing_organization_users.call_args_list == [
-            call(self.organization),
-        ]
+        mock_sync_delay.assert_called_once_with(str(self.organization.id))
 
-    @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_admin_can_promote_to_admin(self, mock_update_billing_organization_users):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_admin_can_promote_to_admin(self, mock_sync_delay):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
-        response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}",
-            {"level": OrganizationMembership.Level.ADMIN},
-        )
+        mock_sync_delay.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/organizations/@current/members/{user.uuid}",
+                {"level": OrganizationMembership.Level.ADMIN},
+            )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
 
-        assert mock_update_billing_organization_users.call_count == 1
-        assert mock_update_billing_organization_users.call_args_list == [
-            call(self.organization),
-        ]
+        mock_sync_delay.assert_called_once_with(str(self.organization.id))
 
-    @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_change_organization_member_level_requires_admin(self, mock_update_billing_organization_users):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_change_organization_member_level_requires_admin(self, mock_sync_delay):
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
-        response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/",
-            {"level": OrganizationMembership.Level.ADMIN},
-        )
+        mock_sync_delay.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/organizations/@current/members/{user.uuid}/",
+                {"level": OrganizationMembership.Level.ADMIN},
+            )
 
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
@@ -339,7 +460,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 403)
 
-        assert mock_update_billing_organization_users.call_count == 0
+        mock_sync_delay.assert_not_called()
 
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -423,3 +544,184 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
         self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))
+
+    @parameterized.expand(
+        [
+            # No order param -> default -joined_at (newest first)
+            ("default", None, "alice@posthog.com"),
+            # Whitelisted orderings applied as-is
+            ("joined_at_desc", "-joined_at", "alice@posthog.com"),
+            ("joined_at_asc", "joined_at", "user1@posthog.com"),
+            # Previously allowed but unindexed -> falls back to default
+            ("disallowed_first_name", "user__first_name", "alice@posthog.com"),
+            # Attempt at exfiltration via ordering -> falls back to default
+            ("disallowed_password", "user__password", "alice@posthog.com"),
+        ]
+    )
+    def test_list_organization_members_order_param(self, _name, order, expected_first_email):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+
+        url = "/api/organizations/@current/members/"
+        if order is not None:
+            url += f"?order={order}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()["results"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["user"]["email"], expected_first_email)
+
+    @parameterized.expand(
+        [
+            ("first name match", "Marketing", "marketing@example.com"),
+            ("typo / transposition still matches", "marekting", "marketing@example.com"),
+            ("prefix-as-you-type on first name", "Marke", "marketing@example.com"),
+            ("case-insensitive", "MARKETING", "marketing@example.com"),
+            ("email match", "engineering", "engineering@example.com"),
+            ("last name match", "Smith", "smith@example.com"),
+        ]
+    )
+    def test_list_organization_members_filter_by_search(self, _name, search, expected_email):
+        User.objects.create_and_join(
+            self.organization, "marketing@example.com", None, first_name="Marketing", last_name="Director"
+        )
+        User.objects.create_and_join(
+            self.organization, "engineering@example.com", None, first_name="Engineering", last_name="Manager"
+        )
+        User.objects.create_and_join(self.organization, "smith@example.com", None, first_name="Bob", last_name="Smith")
+
+        response = self.client.get(f"/api/organizations/@current/members/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        emails = [r["user"]["email"] for r in response.json()["results"]]
+
+        assert emails, f"expected at least one match for {search!r}, got nothing"
+        assert expected_email in emails, f"expected {expected_email!r} in results, got {emails}"
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_organization_members_blank_search_returns_all(self, _name, search):
+        User.objects.create_and_join(self.organization, "extra@posthog.com", None)
+
+        response = self.client.get(f"/api/organizations/@current/members/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        emails = {r["user"]["email"] for r in response.json()["results"]}
+        # Self-user + the one we just added should both be present
+        assert "extra@posthog.com" in emails
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+            ("nul bytes", "\x00\x00\x00"),
+        ]
+    )
+    def test_list_organization_members_pathological_search_does_not_500(self, _name, search):
+        response = self.client.get("/api/organizations/@current/members/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_organization_members_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get("/api/organizations/@current/members/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email with plus tag", "alice+ops@example.com"),
+            ("dotted email local part", "jane.q.public@example.com"),
+        ]
+    )
+    def test_list_organization_members_search_matches_literal_substring_below_trigram_threshold(self, _name, email):
+        User.objects.create_and_join(self.organization, email, None, first_name="Real", last_name="Person")
+        User.objects.create_and_join(
+            self.organization, "nomatch@unrelated.test", None, first_name="Bob", last_name="Jones"
+        )
+
+        response = self.client.get("/api/organizations/@current/members/", {"search": email})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_email = {r["user"]["email"]: r["search_match_type"] for r in results}
+        assert match_type_by_email.get(email) == "exact", (
+            "a literal email substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert "nomatch@unrelated.test" not in match_type_by_email
+
+    def test_list_organization_members_search_hides_similar_matches_when_exact_matches_exist(self):
+        User.objects.create_and_join(
+            self.organization, "marketing@example.com", None, first_name="Marketing", last_name="Director"
+        )
+        User.objects.create_and_join(
+            self.organization, "promo@example.com", None, first_name="Marekting", last_name="Lead"
+        )
+        User.objects.create_and_join(
+            self.organization, "unrelated@example.com", None, first_name="Bob", last_name="Jones"
+        )
+
+        response = self.client.get("/api/organizations/@current/members/?search=marketing")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [r["user"]["email"] for r in results] == ["marketing@example.com"], (
+            "similar matches must be hidden when exact matches exist"
+        )
+        assert results[0]["search_match_type"] == "exact"
+
+    def test_list_organization_members_search_match_type_absent_without_search(self):
+        User.objects.create_and_join(self.organization, "extra@posthog.com", None)
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
+
+    @parameterized.expand(
+        [
+            # (name, has_totp, passkeys_enabled_for_2fa, passkey_verified, expected)
+            ("totp_only", True, False, False, True),
+            ("passkeys_enabled_and_verified", False, True, True, True),
+            ("both_totp_and_passkeys", True, True, True, True),
+            ("passkeys_not_enabled_for_2fa", False, False, True, False),
+            ("passkeys_unverified", False, True, False, False),
+            ("no_2fa", False, False, False, False),
+        ]
+    )
+    def test_is_2fa_enabled(self, _name, has_totp, passkeys_enabled_for_2fa, passkey_verified, expected):
+        user = User.objects.create_and_join(self.organization, f"{_name}@posthog.com", None)
+
+        if has_totp:
+            TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+
+        if passkeys_enabled_for_2fa or passkey_verified:
+            user.passkeys_enabled_for_2fa = passkeys_enabled_for_2fa
+            user.save()
+            WebauthnCredential.objects.create(
+                user=user,
+                credential_id=b"test_credential_id",
+                label="Test Passkey",
+                public_key=b"test_public_key",
+                algorithm=-7,
+                verified=passkey_verified,
+            )
+
+        response = self.client.get("/api/organizations/@current/members/")
+        results = response.json()["results"]
+        member = next(m for m in results if m["user"]["email"] == f"{_name}@posthog.com")
+
+        self.assertEqual(member["is_2fa_enabled"], expected)

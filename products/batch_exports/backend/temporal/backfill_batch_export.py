@@ -19,16 +19,21 @@ import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryTimeoutError,
+    ClickHouseTooManyBytesError,
+    get_client,
+)
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
@@ -40,8 +45,18 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
+from products.batch_exports.backend.temporal.workflow_metadata import (
+    WorkflowDetails,
+    build_logs_link,
+    build_team_admin_link,
+)
 
 LOGGER = get_write_only_logger(__name__)
+
+# Cap individual backfill estimation queries so a slow query cannot hold a
+# ClickHouse slot for hours. The estimate is advisory: when the timeout fires
+# we proceed with the backfill without a record-count estimate.
+BACKFILL_INFO_QUERY_TIMEOUT_SECONDS = 300
 
 
 class TemporalScheduleNotFoundError(Exception):
@@ -248,7 +263,7 @@ async def _get_backfill_info_for_events(
         {filters_str}
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     query_parameters = {
@@ -256,6 +271,7 @@ async def _get_backfill_info_for_events(
         "include_events": include_events,
         "exclude_events": exclude_events,
         "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
         **extra_query_parameters,
     }
 
@@ -309,7 +325,11 @@ async def _get_backfill_info_for_persons(
     lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
-    query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
+    query_parameters: dict[str, typing.Any] = {
+        "team_id": team_id,
+        "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    }
 
     if start_at is not None:
         lower_bound_condition = "AND _timestamp >= %(start_at)s "
@@ -336,7 +356,7 @@ async def _get_backfill_info_for_persons(
         AND _timestamp > '2000-01-01'
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     min_timestamp_query_id = str(uuid.uuid4())
@@ -404,7 +424,7 @@ async def _get_backfill_info_for_persons(
         SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
-        SETTINGS optimize_uniq_to_count = 0, log_comment=%(log_comment)s
+        SETTINGS optimize_uniq_to_count = 0, max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     count_query_id = str(uuid.uuid4())
@@ -440,7 +460,12 @@ async def _get_backfill_info_for_sessions(
     """
 
     model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
-    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at, log_comment=log_comment)
+    min_timestamp, record_count = await model.get_backfill_info(
+        start_at,
+        end_at,
+        log_comment=log_comment,
+        max_execution_time_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    )
 
     if min_timestamp is None:
         return None, 0
@@ -531,9 +556,30 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
+    except ClickHouseQueryTimeoutError:
+        logger.warning(
+            "Backfill estimation query timed out, proceeding without estimate",
+            model=model,
+            timeout_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
     except ClickHouseMemoryLimitExceededError:
         logger.warning(
             "Backfill estimation query exceeded memory limit, proceeding without estimate",
+            model=model,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseTooManyBytesError:
+        logger.warning(
+            "Backfill estimation query exceeded bytes-read limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(
@@ -727,6 +773,9 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                     task_timeout=schedule_action.task_timeout,
                     id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
+                    # casts required to satisfy type checking
+                    static_summary=typing.cast(str | None, schedule_action.static_summary),
+                    static_details=typing.cast(str | None, schedule_action.static_details),
                 )
             except temporalio.exceptions.WorkflowAlreadyStartedError:
                 workflow_handle = client.get_workflow_handle(f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z")
@@ -772,7 +821,7 @@ def backfill_range(
     end_at: dt.datetime | None,
     step: dt.timedelta,
     timezone: str | None = None,
-) -> typing.Generator[tuple[dt.datetime | None, dt.datetime], None, None]:
+) -> typing.Generator[tuple[dt.datetime | None, dt.datetime]]:
     """Generate range of dates between start_at and end_at.
 
     Args:
@@ -838,6 +887,12 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         )
         logger = LOGGER.bind()
 
+        base_details = WorkflowDetails(footer=build_logs_link(temporalio.workflow.info().workflow_id)).add(
+            "Team", build_team_admin_link(inputs.team_id)
+        )
+        backfill_range = f"`{inputs.start_at or 'earliest'}` → `{inputs.end_at or 'realtime'}`"
+        temporalio.workflow.set_current_details(base_details.text(f"Backfilling {backfill_range}").render())
+
         # Step 1: Create backfill model with STARTING status
         backfill_id = await temporalio.workflow.execute_activity(
             create_batch_export_backfill_model,
@@ -886,6 +941,15 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             update_inputs.estimated_records_count = backfill_info.total_records_count
             # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             should_complete_early = backfill_info.total_records_count == 0
+
+            if backfill_info.adjusted_start_at is not None and backfill_info.adjusted_start_at != inputs.start_at:
+                backfill_range = f"`{backfill_info.adjusted_start_at}` → `{inputs.end_at or 'realtime'}`"
+            if backfill_info.total_records_count is not None:
+                temporalio.workflow.set_current_details(
+                    base_details.text(f"Backfilling {backfill_range}")
+                    .add("Estimated records", backfill_info.total_records_count)
+                    .render()
+                )
 
             await temporalio.workflow.execute_activity(
                 update_batch_export_backfill_model,
@@ -973,6 +1037,13 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             raise
 
         finally:
+            temporalio.workflow.set_current_details(
+                base_details.add("Range", backfill_range)
+                .add("Status", update_inputs.status)
+                .code_block("Error", update_inputs.latest_error)
+                .render()
+            )
+
             if not completed_early:
                 await temporalio.workflow.execute_activity(
                     update_batch_export_backfill_model,

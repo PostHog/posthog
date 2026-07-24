@@ -10,7 +10,8 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
-        "use-debounce": "catalog:"
+        "use-debounce": "catalog:",
+        "zod": "^4.0.0"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
@@ -18,15 +19,15 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
         "elkjs": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
-        "rrule": "*",
-        "zod": "*"
+        "rrule": "*"
     }
 }

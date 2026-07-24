@@ -1,6 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -11,7 +14,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -26,7 +28,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
@@ -57,18 +58,24 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function Group({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupScene rendered with no tabId')
-    }
+export function Group(): JSX.Element {
     const mountedGroupLogic = useMountedLogic(groupLogic)
-    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(mountedGroupLogic)
+    const {
+        logicProps,
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupType,
+        groupTab,
+        groupEventsQuery,
+        groupEventsQueryIsDirty,
+        backTo,
+        backNavigation,
+    } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
+    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { aggregationLabel } = useValues(groupsModel)
     const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
     const isProfileEnabled = groupProfileVariant === 'test'
     const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
@@ -84,11 +91,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
             <SceneTitleSection
                 name={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 resourceType={{ type: 'group' }}
-                forceBackTo={{
-                    name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
-                    key: 'groups',
-                    path: urls.groups(groupTypeIndex),
-                }}
+                forceBackTo={backTo}
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-group-profile-feedback-button" />
@@ -111,20 +114,19 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
             <LemonTabs
                 sceneInset
                 activeKey={activeTab}
-                onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
+                onChange={(tab) =>
+                    router.actions.push(
+                        urls.group(String(groupTypeIndex), groupKey, true, tab),
+                        backNavigation ? { backUrl: backNavigation.url, backName: backNavigation.name } : undefined
+                    )
+                }
                 tabs={[
                     ...(showProfile
                         ? [
                               {
                                   key: GroupsTabType.PROFILE,
                                   label: <span data-attr="groups-profile-tab">Profile</span>,
-                                  content: (
-                                      <GroupProfileCanvas
-                                          group={groupData}
-                                          tabId={tabId}
-                                          attachTo={mountedGroupLogic}
-                                      />
-                                  ),
+                                  content: <GroupProfileCanvas group={groupData} attachTo={mountedGroupLogic} />,
                               },
                           ]
                         : []),
@@ -153,6 +155,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                 onEdit={editProperty}
                                 onDelete={deleteProperty}
                                 searchable
+                                collapsible
                             />
                         ),
                     },
@@ -163,7 +166,22 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: 'force_blocking' }}
+                                context={{
+                                    refresh: 'force_blocking',
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-group-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetGroupEventsQuery()}
+                                            disabledReason={groupEventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="group-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
                             />
                         ) : (
                             <Spinner />

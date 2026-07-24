@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconGraph, IconHeartPlus, IconLinear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -12,6 +11,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
+import { captureSignalSourceInterest } from './inboxAnalytics'
+import { PgAnalyzeIcon as IconPgAnalyze } from './PgAnalyzeIcon'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceConfigStatus } from './types'
 
@@ -50,7 +51,7 @@ function NotifyMeButton({ source }: { source: string }): JSX.Element {
             size="xsmall"
             disabledReason={notified ? "We'll let you know!" : undefined}
             onClick={() => {
-                posthog.capture('signals source interest', { source })
+                captureSignalSourceInterest(source)
                 setNotified(true)
             }}
             icon={<IconBell />}
@@ -95,7 +96,7 @@ function Source(props: SourceProps): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
+                <p className="text-xs text-secondary mt-0.25 mb-0 pr-8">{props.description}</p>
                 {!isComingSoon && props.checked && props.config !== undefined && (
                     <>
                         <div className="mt-2 border rounded">
@@ -126,12 +127,12 @@ function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
 }
 
-function ClusteringStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
+function SessionAnalysisStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
     if (status === SignalSourceConfigStatus.RUNNING) {
         return (
             <div className="mt-2 flex items-center gap-2 rounded bg-accent-light text-xs text-accent">
                 <Spinner className="size-3.5" />
-                <span>Session analysis run in progress now… (est. 30 min)</span>
+                <span>Summarizing sessions…</span>
             </div>
         )
     }
@@ -144,12 +145,18 @@ export function SourcesList(): JSX.Element {
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
+        pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
+        healthChecksConfig,
+        anomalyInvestigationConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
+        isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
+        isHealthChecksToggling,
+        isAnomalyInvestigationToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -157,6 +164,8 @@ export function SourcesList(): JSX.Element {
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
+        toggleHealthChecks,
+        toggleAnomalyInvestigation,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -188,7 +197,7 @@ export function SourcesList(): JSX.Element {
                     ),
                 }}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
+                statusSection={<SessionAnalysisStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
             />
 
             <Source
@@ -206,6 +215,26 @@ export function SourcesList(): JSX.Element {
             />
 
             <Source
+                icon={<IconHeartPlus className="size-5 text-danger" />}
+                title="PostHog Health checks"
+                description="Instrumentation issues – missing events, proxy gaps, outdated SDKs → Signals"
+                variant="available"
+                checked={!!healthChecksConfig?.enabled}
+                loading={isHealthChecksToggling}
+                onToggle={() => toggleHealthChecks()}
+            />
+
+            <Source
+                icon={<IconGraph className="size-5 text-accent" />}
+                title="PostHog Product Analytics"
+                description="Anomalies in your tracked metrics, investigated automatically → Signals"
+                variant="available"
+                checked={!!anomalyInvestigationConfig?.enabled}
+                loading={isAnomalyInvestigationToggling}
+                onToggle={() => toggleAnomalyInvestigation()}
+            />
+
+            <Source
                 icon={<img className="size-5" src={iconZendesk} />}
                 title="Zendesk"
                 description="Incoming support tickets → Signals"
@@ -213,7 +242,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!zendeskTicketsConfig?.enabled}
                 loading={isZendeskTicketsToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Zendesk')}
+                onToggle={() => initiateDataWarehouseSourceToggle('zendesk')}
             />
 
             <Source
@@ -224,7 +253,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!linearIssuesConfig?.enabled}
                 loading={isLinearIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Linear')}
+                onToggle={() => initiateDataWarehouseSourceToggle('linear')}
             />
 
             <Source
@@ -235,7 +264,18 @@ export function SourcesList(): JSX.Element {
                 checked={!!githubIssuesConfig?.enabled}
                 loading={isGithubIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Github')}
+                onToggle={() => initiateDataWarehouseSourceToggle('github')}
+            />
+
+            <Source
+                icon={<IconPgAnalyze className="size-5" />}
+                title="pganalyze"
+                description="Postgres performance findings, slow queries, and index recommendations → Signals"
+                variant="available"
+                checked={!!pgAnalyzeIssuesConfig?.enabled}
+                loading={isPgAnalyzeIssuesToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('pganalyze')}
             />
 
             <Source

@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { IconEndpoints, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconEndpoints, IconPlus } from '@posthog/icons'
 
+import { IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -39,18 +40,14 @@ function isInsightSupported(insight: QueryBasedInsightModel): boolean {
 }
 
 const QUICK_CREATE_TYPES = [
-    { type: InsightType.TRENDS, icon: IconTrends, label: 'Trend' },
-    { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
+    { type: InsightType.TRENDS, icon: IconInsightTrends, label: 'Trend' },
+    { type: InsightType.RETENTION, icon: IconInsightRetention, label: 'Retention' },
 ]
 
-interface InsightPickerEndpointModalProps {
-    tabId: string
-}
-
-export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModalProps): JSX.Element {
+export function InsightPickerEndpointModal(): JSX.Element {
     const { isOpen, selectedInsight, showMoreInsightTypes } = useValues(insightPickerEndpointModalLogic)
     const { closeModal, selectInsight, toggleShowMoreInsightTypes } = useActions(insightPickerEndpointModalLogic)
-    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId }))
+    const { openCreateFromInsightModal } = useActions(endpointLogic)
 
     // Safe cast: unsupported query types (FunnelsQuery, PathsQuery, StickinessQuery)
     // are filtered out via isInsightSupported on the SavedInsightsTable
@@ -151,11 +148,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
             </BindLogic>
 
             {insightQuery && (
-                <EndpointFromInsightModal
-                    tabId={tabId}
-                    insightQuery={insightQuery}
-                    insightShortId={selectedInsight?.short_id}
-                />
+                <EndpointFromInsightModal insightQuery={insightQuery} insightShortId={selectedInsight?.short_id} />
             )}
         </>
     )

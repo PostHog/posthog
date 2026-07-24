@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional
 
@@ -7,7 +8,6 @@ import dagster
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import DagsterTags
-from posthog.dags.common.owners import JobOwners  # noqa: F401
 
 
 def dagster_tags(
@@ -101,3 +101,19 @@ def skip_if_already_running(fn: Callable) -> Callable:
         return fn(context)
 
     return wrapper
+
+
+def chunk_ranges(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:
+    """Split [start, end) into <=chunk_days sub-windows, newest first.
+
+    Newest-first so recent data (which carries the shortest TTL and is requested
+    most) is refreshed before older history is backfilled.
+    """
+    chunks = []
+    cur_end = end
+    step = timedelta(days=max(chunk_days, 1))
+    while cur_end > start:
+        cur_start = max(start, cur_end - step)
+        chunks.append((cur_start, cur_end))
+        cur_end = cur_start
+    return chunks

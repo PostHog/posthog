@@ -1,19 +1,24 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
+use aws_sdk_s3::config::ProvideCredentials;
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use chrono::{DateTime, Utc};
 use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use uuid::Uuid;
+
 use crate::{
+    config::StagingBackendKind,
     context::AppContext,
     emit::{
         capture::CaptureEmitter, kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter,
         StdoutEmitter,
     },
+    error::{ToUserError, UserError},
     extractor::ExtractorType,
     parse::format::FormatConfig,
     source::{
@@ -22,8 +27,9 @@ use crate::{
         s3::S3Source,
         s3_gzip::GzipS3Source,
         url_list::UrlList,
-        DataSource,
+        DataSource, RemoteStaging,
     },
+    staging::{StagingBackend, TempBucketBackend},
 };
 
 use super::model::JobModel;
@@ -72,13 +78,36 @@ pub struct FolderSourceConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct S3SourceConfig {
-    access_key_id_key: String,
-    secret_access_key_key: String,
+    #[serde(default)]
+    access_key_id_key: Option<String>,
+    #[serde(default)]
+    secret_access_key_key: Option<String>,
+    // Cross-account IAM role auth: the customer's role assumed via STS, with the per-team
+    // external id their trust policy conditions on (confused-deputy guard). Mutually
+    // exclusive with the access-key fields above.
+    #[serde(default)]
+    role_arn: Option<String>,
+    #[serde(default)]
+    external_id: Option<String>,
     bucket: String,
     prefix: String,
     region: String,
     #[serde(default)]
     endpoint_url: Option<String>,
+    #[serde(default)]
+    allow_internal_ips: bool,
+}
+
+// The exactly-one auth method a valid S3SourceConfig resolves to; see S3SourceConfig::auth.
+enum S3Auth<'a> {
+    Role {
+        role_arn: &'a str,
+        external_id: &'a str,
+    },
+    Keys {
+        access_key_id_key: &'a str,
+        secret_access_key_key: &'a str,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -137,6 +166,16 @@ pub enum SinkConfig {
     Kafka(KafkaEmitterConfig),
     Capture(CaptureEmitterConfig),
     NoOp,
+    // Trial run: parse and transform only, writing browsable results to the
+    // worker-configured trial output bucket instead of emitting events. Jobs
+    // with this sink take the trial path in the main loop; the bucket and
+    // prefix come from worker env, never from job config.
+    #[serde(rename = "trial_s3")]
+    TrialS3 {
+        // Stop after this many source records; clamped to the worker's
+        // TRIAL_MAX_RECORD_LIMIT.
+        record_limit: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +197,13 @@ pub struct JobSecrets {
 
 // Jobsecrets is a json object, encrypted using fernet and then base64 urlsafe encoded.
 impl JobSecrets {
+    // Jobs using IAM role auth (rather than customer-provided keys) have no secrets at all.
+    pub fn empty() -> Self {
+        Self {
+            secrets: HashMap::new(),
+        }
+    }
+
     // Data is base64 url-safe encoded
     pub fn decrypt(data: &str, keys: &[String]) -> Result<Self, Error> {
         // Matching the plugin server, each key is 32 btyes of utf8 data, which we
@@ -183,15 +229,42 @@ impl JobSecrets {
         let encrypted = fernet.encrypt(&serialized);
         Ok(encrypted)
     }
+
+    fn get_str(&self, key: &str, what: &str) -> Result<&str, Error> {
+        self.secrets
+            .get(key)
+            .ok_or(Error::msg(format!("Missing {what} as secret {key}")))?
+            .as_str()
+            .ok_or(Error::msg(format!("{what} secret {key} is not a string")))
+    }
 }
 
 impl SourceConfig {
     pub async fn construct(
         &self,
         secrets: &JobSecrets,
-        _context: Arc<AppContext>,
+        context: Arc<AppContext>,
         is_restarting: bool,
+        job_id: Uuid,
     ) -> Result<Box<dyn DataSource>, Error> {
+        let staging_dir = context.config.staging_dir();
+        let staging_max_bytes = context.config.staging_dir_max_bytes;
+        // The effective ceiling is always non-zero in temp-bucket mode: it caps the
+        // decompressed part size just below the S3 multipart wall so an oversized
+        // part pauses with the actionable message instead of an opaque S3 error.
+        // Irrelevant in local mode (no RemoteStaging is constructed).
+        let staged_plaintext_max_bytes = context.config.effective_plaintext_ceiling();
+        // Fail fast on invalid staging config (e.g. temp_bucket without a bucket name)
+        // before any source work starts. Only the compressed sources stage plaintext,
+        // so only they receive the backend.
+        let staging_backend: Option<Arc<dyn StagingBackend>> =
+            match context.config.staging_backend()? {
+                StagingBackendKind::LocalDisk => None,
+                StagingBackendKind::TempBucket => Some(Arc::new(
+                    TempBucketBackend::from_config(&context.config, format!("job-{job_id}"))
+                        .await?,
+                )),
+            };
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
             SourceConfig::UrlList(config) => Ok(Box::new(
@@ -199,11 +272,37 @@ impl SourceConfig {
                 // may have been deleted, for example.
                 config.create_source(secrets, !is_restarting).await?,
             )),
-            SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
-            SourceConfig::S3Gzip(config) => Ok(Box::new(config.create_gzip_source(secrets).await?)),
-            SourceConfig::DateRangeExport(config) => {
-                Ok(Box::new(config.create_source(secrets).await?))
-            }
+            SourceConfig::S3(config) => Ok(Box::new(
+                config
+                    .create_source(
+                        secrets,
+                        context.config.managed_migrations_role_arn.as_deref(),
+                    )
+                    .await?,
+            )),
+            SourceConfig::S3Gzip(config) => Ok(Box::new(
+                config
+                    .create_gzip_source(
+                        secrets,
+                        context.config.managed_migrations_role_arn.as_deref(),
+                        staging_dir,
+                        staging_max_bytes,
+                        staging_backend,
+                        staged_plaintext_max_bytes,
+                    )
+                    .await?,
+            )),
+            SourceConfig::DateRangeExport(config) => Ok(Box::new(
+                config
+                    .create_source(
+                        secrets,
+                        staging_dir,
+                        staging_max_bytes,
+                        staging_backend,
+                        staged_plaintext_max_bytes,
+                    )
+                    .await?,
+            )),
         }
     }
 }
@@ -241,12 +340,23 @@ impl SinkConfig {
                     KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
                 ))
             }
+            SinkConfig::TrialS3 { .. } => {
+                // Trial jobs never construct an Emitter: the main loop dispatches
+                // them to TrialJob before Job::new runs. Reaching this arm means
+                // the dispatch check is broken.
+                anyhow::bail!(
+                    "trial_s3 is not an emitter sink; trial jobs must take the trial path"
+                )
+            }
             SinkConfig::Capture(capture_config) => {
                 let token = context.get_token_for_team_id(model.team_id).await?;
                 let options = posthog_rs::ClientOptionsBuilder::default()
                     .api_key(token)
                     .host(&context.config.capture_url)
-                    .request_timeout_seconds(30)
+                    .request_timeout_seconds(30u64)
+                    .max_capture_attempts(6u32)
+                    .retry_initial_backoff_ms(1000u64)
+                    .retry_max_backoff_ms(30000u64)
                     .build()
                     .map_err(|e| {
                         Error::msg(format!("Failed to build capture client options: {e}"))
@@ -300,55 +410,273 @@ impl UrlListConfig {
 }
 
 impl S3SourceConfig {
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
-        let access_key_id = secrets
-            .secrets
-            .get(&self.access_key_id_key)
-            .ok_or(Error::msg(format!(
-                "Missing access key id as key {}",
-                self.access_key_id_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Access key id as key {} is not a string",
-                self.access_key_id_key
-            )))?;
+    /// Reject endpoint URLs that point to private/internal IPs.
+    /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
+    fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
+        if allow_internal_ips {
+            return Ok(());
+        }
 
-        let secret_access_key = secrets
-            .secrets
-            .get(&self.secret_access_key_key)
-            .ok_or(Error::msg(format!(
-                "Missing secret access key as key {}",
-                self.secret_access_key_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Secret access key as key {} is not a string",
-                self.secret_access_key_key
-            )))?;
+        let parsed = url::Url::parse(url)
+            .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
 
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+        let host = parsed
+            .host()
+            .ok_or_else(|| Error::msg(format!("Endpoint URL '{}' has no host", url)))?;
+
+        let ip = match host {
+            url::Host::Ipv4(v4) => Some(IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(IpAddr::V6(v6)),
+            url::Host::Domain(_) => None,
+        };
+
+        if let Some(ip) = ip {
+            if !common_dns::is_global_ip(&ip) {
+                return Err(Error::msg(format!(
+                    "Endpoint URL '{}' resolves to non-public IP address",
+                    url
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// The single validated auth method resolved from the config's optional field pairs.
+    fn auth(&self) -> Result<S3Auth<'_>, Error> {
+        let has_key_fields =
+            self.access_key_id_key.is_some() || self.secret_access_key_key.is_some();
+
+        match (&self.role_arn, has_key_fields) {
+            (Some(_), true) => Err(Error::msg(
+                "S3 source config sets both role_arn and access keys, but exactly one auth method is required",
+            )),
+            (Some(role_arn), false) => {
+                let external_id = self
+                    .external_id
+                    .as_deref()
+                    .ok_or(Error::msg("Missing external_id in role-auth source config"))?;
+                Ok(S3Auth::Role {
+                    role_arn,
+                    external_id,
+                })
+            }
+            (None, true) => {
+                if self.external_id.is_some() {
+                    return Err(Error::msg(
+                        "S3 source config sets external_id, which is only valid with role_arn",
+                    ));
+                }
+                let access_key_id_key = self
+                    .access_key_id_key
+                    .as_deref()
+                    .ok_or(Error::msg("Missing access_key_id_key in source config"))?;
+                let secret_access_key_key = self
+                    .secret_access_key_key
+                    .as_deref()
+                    .ok_or(Error::msg("Missing secret_access_key_key in source config"))?;
+                Ok(S3Auth::Keys {
+                    access_key_id_key,
+                    secret_access_key_key,
+                })
+            }
+            (None, false) => Err(Error::from(UserError::new(
+                "S3 source has no authentication configured. Provide an IAM role or access keys",
+            ))),
+        }
+    }
+
+    fn static_key_credentials(
+        secrets: &JobSecrets,
+        access_key_id_key: &str,
+        secret_access_key_key: &str,
+    ) -> Result<aws_sdk_s3::config::Credentials, Error> {
+        let access_key_id = secrets.get_str(access_key_id_key, "access key id")?;
+        let secret_access_key = secrets.get_str(secret_access_key_key, "secret access key")?;
+
+        Ok(aws_sdk_s3::config::Credentials::new(
             access_key_id,
             secret_access_key,
             None,
             None,
             "job_config",
-        );
+        ))
+    }
 
+    // Session policy pinning every assumed-role session to read-only access on the configured
+    // bucket/prefix, regardless of how broad the customer's role permissions are.
+    fn session_policy(&self) -> String {
+        serde_json::json!({
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:ListBucket"],
+                    "Resource": format!("arn:aws:s3:::{}", self.bucket),
+                    // ListBucket is bucket-level, so the prefix restriction has to be a
+                    // condition on the request's prefix parameter, not part of the resource.
+                    "Condition": {
+                        "StringLike": {
+                            "s3:prefix": [format!("{}*", self.prefix)],
+                        },
+                    },
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject"],
+                    "Resource": format!("arn:aws:s3:::{}/{}*", self.bucket, self.prefix),
+                },
+            ],
+        })
+        .to_string()
+    }
+
+    async fn assume_role_credentials(
+        &self,
+        role_arn: &str,
+        external_id: &str,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<aws_config::sts::AssumeRoleProvider, Error> {
+        if self.endpoint_url.is_some() {
+            return Err(Error::from(UserError::new(
+                "IAM role authentication only works with AWS S3. S3-compatible stores must use access keys",
+            )));
+        }
+
+        let mut builder = aws_config::sts::AssumeRoleProvider::builder(role_arn)
+            .session_name("posthog-batch-import")
+            .external_id(external_id)
+            .region(Region::new(self.region.clone()))
+            .session_length(Duration::from_secs(3600))
+            .policy(self.session_policy());
+
+        // Customer trust policies reference the dedicated managed-migrations role, not the
+        // worker's own identity, so chain through it: ambient creds -> managed-migrations
+        // role -> customer role. Without that role configured the customer hop can never
+        // succeed, so fail the job up front rather than attempting a direct assume that
+        // would pause it with a message wrongly blaming the customer's trust policy.
+        let Some(intermediate_arn) = managed_migrations_role_arn else {
+            return Err(Error::from(UserError::new(
+                "The PostHog import service is missing its cross-account role configuration, \
+                 so it cannot use IAM role authentication. This is not a problem with your S3 \
+                 or IAM setup. Please contact PostHog support.",
+            )));
+        };
+
+        let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
+            .session_name("posthog-batch-import")
+            .region(Region::new(self.region.clone()))
+            .build()
+            .await;
+        // An unassumable intermediate role is a PostHog deployment problem, so surface the
+        // same contact-support message as the missing-ARN case above rather than the
+        // customer-facing trust-policy message below. The ARN and STS error stay in the
+        // inner error chain for logs and status_message.
+        intermediate.provide_credentials().await.map_err(|e| {
+            Error::from(e)
+                .context(format!(
+                    "Failed to assume managed-migrations role {intermediate_arn}"
+                ))
+                .context(UserError::new(
+                    "PostHog's import service could not authenticate with its own cross-account \
+                     role, so it cannot use IAM role authentication. This is not a problem with \
+                     your S3 or IAM setup. Please contact PostHog support.",
+                ))
+        })?;
+        let chain_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(intermediate)
+            .load()
+            .await;
+        builder = builder.configure(&chain_config);
+
+        let provider = builder.build().await;
+
+        // Fail fast so a misconfigured trust policy pauses the job with an actionable
+        // message instead of surfacing as an opaque S3 error mid-import.
+        provider.provide_credentials().await.user_error(format!(
+            "PostHog could not assume IAM role {role_arn}. Verify the role exists, its trust \
+             policy allows PostHog's import role, and the External ID matches the one shown in \
+             the migration setup."
+        ))?;
+
+        Ok(provider)
+    }
+
+    async fn build_s3_config(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<aws_sdk_s3::config::Builder, Error> {
         let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
-            .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
+            // S3-compatible stores (GCS) return whole-object checksums on ranged GETs, which the
+            // SDK then validates against the partial body and fails. Only validate when requested.
+            .response_checksum_validation(
+                aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
+            )
             .timeout_config(
                 TimeoutConfig::builder()
                     .operation_timeout(Duration::from_secs(30))
                     .build(),
             )
             .retry_config(RetryConfig::standard());
+
+        builder = match self.auth()? {
+            S3Auth::Role {
+                role_arn,
+                external_id,
+            } => builder.credentials_provider(
+                self.assume_role_credentials(role_arn, external_id, managed_migrations_role_arn)
+                    .await?,
+            ),
+            S3Auth::Keys {
+                access_key_id_key,
+                secret_access_key_key,
+            } => builder.credentials_provider(Self::static_key_credentials(
+                secrets,
+                access_key_id_key,
+                secret_access_key_key,
+            )?),
+        };
+
         if let Some(ref url) = self.endpoint_url {
+            Self::validate_endpoint_url(url, self.allow_internal_ips)?;
             builder = builder.endpoint_url(url).force_path_style(true);
+
+            if !self.allow_internal_ips {
+                let http_client = aws_smithy_http_client::Builder::new()
+                    .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
+                        aws_smithy_http_client::tls::rustls_provider::CryptoMode::AwsLc,
+                    ))
+                    .build_with_resolver(common_dns::PublicIPv4SmithyResolver);
+                builder = builder.http_client(http_client);
+            }
         }
-        let client = aws_sdk_s3::Client::from_conf(builder.build());
+
+        Ok(builder)
+    }
+
+    async fn build_client(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<aws_sdk_s3::Client, Error> {
+        let builder = self
+            .build_s3_config(secrets, managed_migrations_role_arn)
+            .await?;
+        Ok(aws_sdk_s3::Client::from_conf(builder.build()))
+    }
+
+    pub async fn create_source(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<S3Source, Error> {
+        let client = self
+            .build_client(secrets, managed_migrations_role_arn)
+            .await?;
 
         Ok(S3Source::new(
             client,
@@ -357,61 +685,33 @@ impl S3SourceConfig {
         ))
     }
 
-    pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
-        let access_key_id = secrets
-            .secrets
-            .get(&self.access_key_id_key)
-            .ok_or(Error::msg(format!(
-                "Missing access key id as key {}",
-                self.access_key_id_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Access key id as key {} is not a string",
-                self.access_key_id_key
-            )))?;
+    pub async fn create_gzip_source(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+        staging_dir: PathBuf,
+        staging_max_bytes: u64,
+        staging_backend: Option<Arc<dyn StagingBackend>>,
+        staged_plaintext_max_bytes: u64,
+    ) -> Result<GzipS3Source, Error> {
+        let client = self
+            .build_client(secrets, managed_migrations_role_arn)
+            .await?;
 
-        let secret_access_key = secrets
-            .secrets
-            .get(&self.secret_access_key_key)
-            .ok_or(Error::msg(format!(
-                "Missing secret access key as key {}",
-                self.secret_access_key_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Secret access key as key {} is not a string",
-                self.secret_access_key_key
-            )))?;
-
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
-            access_key_id,
-            secret_access_key,
-            None,
-            None,
-            "job_config",
-        );
-
-        let mut builder = aws_sdk_s3::config::Builder::new()
-            .region(Region::new(self.region.clone()))
-            .credentials_provider(aws_credentials)
-            .behavior_version(BehaviorVersion::latest())
-            .timeout_config(
-                TimeoutConfig::builder()
-                    .operation_timeout(Duration::from_secs(30))
-                    .build(),
-            )
-            .retry_config(RetryConfig::standard());
-        if let Some(ref url) = self.endpoint_url {
-            builder = builder.endpoint_url(url).force_path_style(true);
-        }
-        let client = aws_sdk_s3::Client::from_conf(builder.build());
+        let remote_staging = staging_backend.map(|backend| RemoteStaging {
+            backend,
+            extractor_type: ExtractorType::PlainGzip,
+            max_plaintext_bytes: staged_plaintext_max_bytes,
+        });
 
         Ok(GzipS3Source::new(
             client,
             self.bucket.clone(),
             self.prefix.clone(),
             ExtractorType::PlainGzip.create_extractor(),
+            staging_dir,
+            staging_max_bytes,
+            remote_staging,
         ))
     }
 }
@@ -419,90 +719,44 @@ impl DateRangeExportSourceConfig {
     pub async fn create_source(
         &self,
         secrets: &JobSecrets,
+        staging_dir: PathBuf,
+        staging_max_bytes: u64,
+        staging_backend: Option<Arc<dyn StagingBackend>>,
+        staged_plaintext_max_bytes: u64,
     ) -> Result<DateRangeExportSource, Error> {
         let auth_config = match &self.auth {
             AuthSourceConfig::None => AuthConfig::None,
             AuthSourceConfig::ApiKey {
                 header_name,
                 key_secret,
-            } => {
-                let key = secrets
-                    .secrets
-                    .get(key_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing API key as secret {key_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "API key secret {key_secret} is not a string"
-                    )))?;
-                AuthConfig::ApiKey {
-                    header_name: header_name.clone(),
-                    key: key.to_string(),
-                }
-            }
-            AuthSourceConfig::BearerToken { token_secret } => {
-                let token = secrets
-                    .secrets
-                    .get(token_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing bearer token as secret {token_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Bearer token secret {token_secret} is not a string"
-                    )))?;
-                AuthConfig::BearerToken {
-                    token: token.to_string(),
-                }
-            }
+            } => AuthConfig::ApiKey {
+                header_name: header_name.clone(),
+                key: secrets.get_str(key_secret, "API key")?.to_string(),
+            },
+            AuthSourceConfig::BearerToken { token_secret } => AuthConfig::BearerToken {
+                token: secrets.get_str(token_secret, "bearer token")?.to_string(),
+            },
             AuthSourceConfig::BasicAuth {
                 username_secret,
                 password_secret,
-            } => {
-                let username = secrets
-                    .secrets
-                    .get(username_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing username as secret {username_secret}",
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Username secret {username_secret} is not a string",
-                    )))?;
-                let password = secrets
-                    .secrets
-                    .get(password_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing password as secret {password_secret}",
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Password secret {password_secret} is not a string",
-                    )))?;
-                AuthConfig::BasicAuth {
-                    username: username.to_string(),
-                    password: password.to_string(),
-                }
-            }
-            AuthSourceConfig::MixpanelAuth { secret_key_secret } => {
-                let secret_key = secrets
-                    .secrets
-                    .get(secret_key_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing secret key as secret {secret_key_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Secret key secret {secret_key_secret} is not a string"
-                    )))?;
-                AuthConfig::MixpanelAuth {
-                    secret_key: secret_key.to_string(),
-                }
-            }
+            } => AuthConfig::BasicAuth {
+                username: secrets.get_str(username_secret, "username")?.to_string(),
+                password: secrets.get_str(password_secret, "password")?.to_string(),
+            },
+            AuthSourceConfig::MixpanelAuth { secret_key_secret } => AuthConfig::MixpanelAuth {
+                secret_key: secrets
+                    .get_str(secret_key_secret, "secret key")?
+                    .to_string(),
+            },
         };
 
         let extractor = self.extractor_type.create_extractor();
+
+        let remote_staging = staging_backend.map(|backend| RemoteStaging {
+            backend,
+            extractor_type: self.extractor_type.clone(),
+            max_plaintext_bytes: staged_plaintext_max_bytes,
+        });
 
         DateRangeExportSource::builder(
             self.base_url.clone(),
@@ -510,6 +764,7 @@ impl DateRangeExportSourceConfig {
             self.end,
             self.interval_duration,
             extractor,
+            staging_dir,
         )
         .with_query_params(self.start_qp.clone(), self.end_qp.clone())
         .with_timeout(Duration::from_secs(self.timeout_seconds))
@@ -517,6 +772,8 @@ impl DateRangeExportSourceConfig {
         .with_auth(auth_config)
         .with_date_format(self.date_format.clone())
         .with_headers(self.headers.clone())
+        .with_staging_max_bytes(staging_max_bytes)
+        .with_remote_staging(remote_staging)
         .build()
     }
 
@@ -793,6 +1050,280 @@ mod tests {
     }
 
     #[test]
+    fn test_s3_source_config_allow_internal_ips_defaults_false() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_s3_source_config_allow_internal_ips_explicit_true() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "allow_internal_ips": true
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_s3_source_config_legacy_key_auth_deserializes() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.access_key_id_key.as_deref(), Some("ak"));
+        assert_eq!(config.secret_access_key_key.as_deref(), Some("sk"));
+        assert!(config.role_arn.is_none());
+        assert!(config.external_id.is_none());
+    }
+
+    #[test]
+    fn test_s3_source_config_role_auth_deserializes() {
+        let json = r#"{
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/posthog-import",
+            "external_id": "posthog-us-some-team-uuid"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.role_arn.as_deref(),
+            Some("arn:aws:iam::123456789012:role/posthog-import")
+        );
+        assert_eq!(
+            config.external_id.as_deref(),
+            Some("posthog-us-some-team-uuid")
+        );
+        assert!(config.access_key_id_key.is_none());
+        assert!(config.secret_access_key_key.is_none());
+    }
+
+    fn role_auth_config(json_patch: Value) -> S3SourceConfig {
+        let mut base = serde_json::json!({
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/posthog-import",
+            "external_id": "posthog-us-some-team-uuid"
+        });
+        base.as_object_mut()
+            .unwrap()
+            .extend(json_patch.as_object().unwrap().clone());
+        serde_json::from_value(base).unwrap()
+    }
+
+    fn empty_secrets() -> JobSecrets {
+        JobSecrets {
+            secrets: HashMap::new(),
+        }
+    }
+
+    // These rejection paths all error before any credentials provider is built, so no
+    // network access happens.
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_with_endpoint_url() {
+        let config = role_auth_config(
+            serde_json::json!({"endpoint_url": "https://acct123.r2.cloudflarestorage.com"}),
+        );
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("IAM role authentication only works with AWS S3"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_auth_without_managed_migrations_role() {
+        let config = role_auth_config(serde_json::json!({}));
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("contact PostHog support"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_without_external_id() {
+        let mut config = role_auth_config(serde_json::json!({}));
+        config.external_id = None;
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("external_id"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_accepts_legacy_key_auth() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let mut secrets = HashMap::new();
+        secrets.insert("ak".to_string(), Value::String("key-id".to_string()));
+        secrets.insert("sk".to_string(), Value::String("key-secret".to_string()));
+        let secrets = JobSecrets { secrets };
+        assert!(config.build_s3_config(&secrets, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_errors_when_key_secret_missing() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Missing access key id as secret ak"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_mixed_auth_methods() {
+        let cases = [
+            // Full key pair alongside role_arn.
+            serde_json::json!({"access_key_id_key": "ak", "secret_access_key_key": "sk"}),
+            // A partial key pair must not silently win the role path either.
+            serde_json::json!({"access_key_id_key": "ak"}),
+            serde_json::json!({"secret_access_key_key": "sk"}),
+        ];
+        for patch in cases {
+            let config = role_auth_config(patch.clone());
+            let err = config
+                .build_s3_config(&empty_secrets(), None)
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("exactly one auth method"),
+                "patch {patch}: unexpected error {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_external_id_with_key_auth() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "external_id": "posthog-us-some-team-uuid"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("only valid with role_arn"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_missing_auth() {
+        let json = r#"{"bucket": "b", "prefix": "p", "region": "us-east-1"}"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no authentication configured"));
+    }
+
+    #[test]
+    fn test_session_policy_scopes_to_bucket_and_prefix() {
+        let config = role_auth_config(serde_json::json!({}));
+        let policy: Value = serde_json::from_str(&config.session_policy()).unwrap();
+        let statements = policy["Statement"].as_array().unwrap();
+        assert_eq!(statements[0]["Resource"], "arn:aws:s3:::b");
+        assert_eq!(
+            statements[0]["Condition"]["StringLike"]["s3:prefix"],
+            serde_json::json!(["p*"])
+        );
+        assert_eq!(statements[1]["Resource"], "arn:aws:s3:::b/p*");
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_metadata_service() {
+        let result = S3SourceConfig::validate_endpoint_url("http://169.254.169.254", false);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("non-public IP address"));
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_private_ip() {
+        let result = S3SourceConfig::validate_endpoint_url("http://10.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://127.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_ipv6_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://[::1]:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_public_hostname() {
+        let result = S3SourceConfig::validate_endpoint_url(
+            "https://acct123.r2.cloudflarestorage.com",
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_internal_when_allowed() {
+        let result = S3SourceConfig::validate_endpoint_url("http://localhost:9000", true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_invalid_url() {
+        let result = S3SourceConfig::validate_endpoint_url("not-a-url", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_sink_config_serialization() {
         // Test SinkConfig serialization with different variants
         let test_cases = vec![
@@ -835,5 +1366,99 @@ mod tests {
                 _ => panic!("SinkConfig variants don't match"),
             }
         }
+    }
+
+    // ---- ENCRYPTION_KEYS multi-key / two-step rotation ----
+    // The batch-import-worker shares the key material that Django/Node expose as ENCRYPTION_SALT_KEYS
+    // (here it's the ENCRYPTION_KEYS env var). It only decrypts BatchImport.secrets. These tests mirror
+    // the Python/Node coverage so all three implementations are verified against the same contract:
+    // the first key encrypts, every key is tried for decryption.
+
+    fn old_key() -> String {
+        "o".repeat(32)
+    }
+
+    fn new_key() -> String {
+        "n".repeat(32)
+    }
+
+    fn sample_secrets() -> JobSecrets {
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            "api_key".to_string(),
+            Value::String("super-secret-value".to_string()),
+        );
+        JobSecrets { secrets }
+    }
+
+    // Simulate a writer app (Django/Node) running with the given key list: the first key encrypts, and
+    // each raw 32-byte key is base64-urlsafe-encoded before Fernet — matching JobSecrets::decrypt.
+    fn encrypt_with(key_list: &[String], secrets: &JobSecrets) -> String {
+        let fernets: Vec<_> = key_list
+            .iter()
+            .map(|k| BASE64_URL_SAFE.encode(k.as_bytes()))
+            .filter_map(|k| fernet::Fernet::new(&k))
+            .collect();
+        let serialized = serde_json::to_vec(&secrets.secrets).unwrap();
+        MultiFernet::new(fernets).encrypt(&serialized)
+    }
+
+    #[test]
+    fn test_decrypt_tries_every_key_in_the_list() {
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key()], &secrets);
+
+        for reader in [vec![new_key(), old_key()], vec![old_key(), new_key()]] {
+            let decrypted = JobSecrets::decrypt(&token, &reader).unwrap();
+            assert_eq!(decrypted.secrets, secrets.secrets);
+        }
+    }
+
+    #[test]
+    fn test_two_step_rotation_coexisting_apps_decrypt_each_others_writes() {
+        // step 1: [old] -> [old, new]      new added for decryption; old still encrypts
+        // step 2: [old, new] -> [new, old] new now encrypts; old kept for decryption
+        let secrets = sample_secrets();
+        let steps = [
+            ("step 1", vec![vec![old_key()], vec![old_key(), new_key()]]),
+            (
+                "step 2",
+                vec![vec![old_key(), new_key()], vec![new_key(), old_key()]],
+            ),
+        ];
+
+        for (name, coexisting) in steps {
+            for writer in &coexisting {
+                let token = encrypt_with(writer, &secrets);
+                for reader in &coexisting {
+                    let decrypted = JobSecrets::decrypt(&token, reader).unwrap_or_else(|e| {
+                        panic!("{name}: reader {reader:?} could not decrypt writer {writer:?}: {e}")
+                    });
+                    assert_eq!(decrypted.secrets, secrets.secrets);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_step_1_apps_always_encrypt_with_the_old_key() {
+        // While [old] and [old, new] apps coexist, old is always first, so no app emits new-encrypted
+        // data that an un-upgraded [old]-only app could not read.
+        let secrets = sample_secrets();
+
+        for writer in [vec![old_key()], vec![old_key(), new_key()]] {
+            let token = encrypt_with(&writer, &secrets);
+            assert!(JobSecrets::decrypt(&token, &[old_key()]).is_ok());
+            assert!(JobSecrets::decrypt(&token, &[new_key()]).is_err());
+        }
+    }
+
+    #[test]
+    fn test_skipping_step_1_breaks_un_upgraded_worker() {
+        // A writer that jumped straight to [new, old] encrypts with new; a worker still on [old] cannot read it.
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key(), old_key()], &secrets);
+
+        assert!(JobSecrets::decrypt(&token, &[old_key()]).is_err());
     }
 }

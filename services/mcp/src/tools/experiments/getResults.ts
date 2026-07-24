@@ -24,7 +24,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.experiments({ projectId }).getMetricResults({
-        experimentId: params.experimentId,
+        experimentId: params.id,
         refresh: params.refresh,
     })
 
@@ -32,17 +32,26 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
         throw new Error(`Failed to get experiment results: ${result.error.message}`)
     }
 
-    const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
+    const {
+        experiment,
+        primaryMetricEntries,
+        secondaryMetricEntries,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        exposures,
+    } = result.data
 
     return withPostHogUrl(
         context,
         transformExperimentResults({
             experiment,
+            primaryMetricEntries,
+            secondaryMetricEntries,
             primaryMetricsResults,
             secondaryMetricsResults,
             exposures,
         }),
-        `/experiments/${params.experimentId}`
+        `/experiments/${params.id}`
     )
 }
 

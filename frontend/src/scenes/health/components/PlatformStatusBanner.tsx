@@ -1,24 +1,26 @@
 import { useValues } from 'kea'
 
+import * as drivingHogzillaPng from '@posthog/brand/hoggies/png/driving-hogzilla'
 import { LemonBanner } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
-import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HealthMenu/healthMenuLogic'
-import { HeartHog, SleepingHog, WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { HeartHog, WarningHog } from 'lib/components/hedgehogs'
+import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
+import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HelpMenu/posthogStatusLogic'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+const HedgehogDrivingHogzilla = pngHoggie(drivingHogzillaPng)
 
 const STATUS_CONFIG: Record<
     PostHogStatusBadgeStatus,
     {
         bannerType: LemonBannerProps['type']
-        Hog: (props: React.ImgHTMLAttributes<HTMLImageElement>) => JSX.Element
+        Hog: React.ComponentType<{ className?: string }>
     }
 > = {
     success: { bannerType: 'success', Hog: HeartHog },
     warning: { bannerType: 'warning', Hog: WarningHog },
-    danger: { bannerType: 'error', Hog: SleepingHog },
+    danger: { bannerType: 'error', Hog: HedgehogDrivingHogzilla },
 }
 
 const STATUS_LABELS: Record<PostHogStatusType, string> = {
@@ -29,7 +31,8 @@ const STATUS_LABELS: Record<PostHogStatusType, string> = {
 }
 
 export const PlatformStatusBanner = (): JSX.Element => {
-    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus } = useValues(healthMenuLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus, statusPageUrl } =
+        useValues(posthogStatusLogic)
     const { bannerType, Hog } = STATUS_CONFIG[postHogStatusBadgeStatus]
     const statusLabel = STATUS_LABELS[postHogStatus]
     const statusMessage = postHogStatusTooltip ?? 'Checking for active incidents...'
@@ -37,12 +40,11 @@ export const PlatformStatusBanner = (): JSX.Element => {
     return (
         <LemonBanner
             type={bannerType}
-            className="max-w-3xl"
             icon={<Hog className="size-10 shrink-0" />}
             hideIcon={false}
             action={{
                 children: 'View status page',
-                to: INCIDENT_IO_STATUS_PAGE_BASE,
+                to: statusPageUrl,
                 targetBlank: true,
             }}
         >

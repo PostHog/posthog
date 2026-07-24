@@ -9,13 +9,19 @@ from django.conf import settings
 
 import structlog
 import temporalio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, RetryPolicy
 
+from posthog.models import Team
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -25,6 +31,10 @@ logger = structlog.get_logger(__name__)
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
+
+# Guards the ingestion quota gate so runs that recorded history before it was added replay
+# deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
+_PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -42,6 +52,7 @@ class FlushBufferOutput:
 
 
 @activity.defn
+@scoped_temporal()
 async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOutput:
     batch_id = str(uuid.uuid4())
     object_key = f"{OBJECT_STORAGE_SIGNALS_PREFIX}/{batch_id}"
@@ -60,12 +71,27 @@ async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOu
 
 
 @dataclass
+class CheckSignalsQuotaInput:
+    team_id: int
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
+    """Whether the team is over its Signals credits quota."""
+    team = await Team.objects.only("api_token").aget(pk=input.team_id)
+    return await sync_to_async(is_team_signals_quota_limited)(team.api_token)
+
+
+@dataclass
 class SignalWithStartGroupingV2Input:
     team_id: int
     object_key: str
 
 
 @activity.defn
+@scoped_temporal()
 async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV2Input) -> None:
     """Signal-with-start the grouping v2 workflow, creating it if it doesn't exist."""
     client = await async_connect()
@@ -90,6 +116,7 @@ BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
 @activity.defn
+@scoped_temporal()
 async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> None:
     """Poll the buffer workflow's size via query, then send the signal once there's space."""
     client = await async_connect()
@@ -117,6 +144,7 @@ class BufferSignalsWorkflow:
 
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
+        self._signals_emitted_counters: dict[tuple[str, str], MetricCounter] = {}
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -126,12 +154,36 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _get_emitted_counter(self, team_id: int, source_product: str, source_type: str) -> MetricCounter:
+        key = (source_product, source_type)
+        if key not in self._signals_emitted_counters:
+            meter = workflow.metric_meter().with_additional_attributes(
+                {
+                    "team_id": str(team_id),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                }
+            )
+            self._signals_emitted_counters[key] = meter.create_counter(
+                "signals_emitted",
+                "Number of signals emitted",
+            )
+        return self._signals_emitted_counters[key]
+
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
+        metrics.increment_funnel(metrics.FUNNEL_STAGE_EMITTED, signal.source_product)
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: BufferSignalsInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
 
         while True:
@@ -152,12 +204,46 @@ class BufferSignalsWorkflow:
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
 
+            # Drop the batch when the team is over its Signals credits quota, before any downstream work.
+            if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
+                over_quota = await workflow.execute_activity(
+                    check_signals_quota_limited_activity,
+                    CheckSignalsQuotaInput(team_id=input.team_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if over_quota:
+                    logger.info(
+                        "signals_buffer.dropped_batch_quota_limited",
+                        team_id=input.team_id,
+                        signal_count=len(batch),
+                    )
+                    metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=len(batch))
+                    # Compact history like the empty-batch path so a sustained over-quota stream
+                    # doesn't grow Temporal history unboundedly.
+                    if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                        workflow.continue_as_new(
+                            BufferSignalsInput(
+                                team_id=input.team_id,
+                                pending_signals=list(self._signal_buffer),
+                            )
+                        )
+                    continue
+
             # Filter out malicious signals
             safety_results = await asyncio.gather(
                 *[
                     workflow.execute_activity(
                         safety_filter_activity,
-                        SafetyFilterInput(description=s.description),
+                        SafetyFilterInput(
+                            team_id=s.team_id,
+                            description=s.description,
+                            source_product=s.source_product,
+                            source_type=s.source_type,
+                            source_id=s.source_id,
+                            weight=s.weight,
+                            extra=s.extra,
+                        ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
@@ -169,8 +255,9 @@ class BufferSignalsWorkflow:
                 if result.safe:
                     safe_signals.append(signal)
                 else:
-                    workflow.logger.warning(
-                        f"Safety filter dropped signal: {result.threat_type}",
+                    logger.warning(
+                        "Safety filter dropped signal",
+                        threat_type=result.threat_type,
                         team_id=signal.team_id,
                         source_product=signal.source_product,
                         source_type=signal.source_type,

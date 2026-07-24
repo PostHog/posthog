@@ -5,12 +5,15 @@ from parameterized import parameterized
 from posthog.schema import DateRange, HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
-from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.test.test_web_stats_table import FloatAwareTestCase
+from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
+    WebAnalyticsPreAggregatedTestBase,
+)
 
 
 @snapshot_clickhouse_queries
@@ -270,7 +273,6 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert not comparison["raw_used"]
 
         finally:
-            Person.objects.filter(team=team).delete()
             team.delete()
 
     def test_timezone_boundary_behavior_explicit(self):
@@ -359,7 +361,6 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
                 )
 
         finally:
-            Person.objects.filter(team__in=[utc_team, pt_team, jst_team]).delete()
             utc_team.delete()
             pt_team.delete()
             jst_team.delete()
@@ -464,5 +465,4 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert chrome_raw[1][0] == 2.0
 
         finally:
-            Person.objects.filter(team=india_team).delete()
             india_team.delete()

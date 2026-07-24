@@ -3,6 +3,7 @@ import { MiniFilterKey, SharedListMiniFilter } from 'scenes/session-recordings/p
 import {
     IMAGE_WEB_EXTENSIONS,
     InspectorListItem,
+    InspectorListItemLog,
     InspectorListItemConsole,
     InspectorListItemDoctor,
     InspectorListItemEvent,
@@ -65,10 +66,20 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
     return item.type === 'doctor'
 }
 
+function isLogEvent(item: InspectorListItem): item is InspectorListItemLog {
+    return item.type === 'logs'
+}
+
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity', 'session-change'].includes(
-        item.type
-    )
+    return [
+        'browser-visibility',
+        'offline-status',
+        'inspector-summary',
+        'inactivity',
+        'session-change',
+        'experiment-variant',
+        'metric-event',
+    ].includes(item.type)
 }
 
 const eventsMatch = (
@@ -138,6 +149,23 @@ function networkMatch(
     return null
 }
 
+function logsMatch(
+    item: InspectorListItemLog,
+    miniFiltersByKey: {
+        [p: MiniFilterKey]: SharedListMiniFilter
+    }
+): SharedListMiniFilter | null {
+    const level = item.data.level
+    if (['trace', 'debug', 'info'].includes(level)) {
+        return miniFiltersByKey['logs-info']
+    } else if (level === 'warn') {
+        return miniFiltersByKey['logs-warn']
+    } else if (['error', 'fatal'].includes(level)) {
+        return miniFiltersByKey['logs-error']
+    }
+    return null
+}
+
 export function itemToMiniFilter(
     item: InspectorListItem,
     miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
@@ -156,6 +184,11 @@ export function itemToMiniFilter(
         case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']
+            }
+            break
+        case 'logs':
+            if (isLogEvent(item)) {
+                return logsMatch(item, miniFiltersByKey)
             }
             break
     }

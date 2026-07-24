@@ -12,6 +12,14 @@ export interface LogDetailsTabContentProps {
 export function LogDetailsTabContent({ log }: LogDetailsTabContentProps): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-muted">Log Message</h3>
+            <div className="p-3 bg-bg-light rounded border border-border">
+                {log.parsedBody && typeof log.parsedBody === 'object' ? (
+                    <JSONViewer src={log.parsedBody as object} collapsed={2} />
+                ) : (
+                    <span className="font-mono text-sm whitespace-pre-wrap break-all">{log.cleanBody}</span>
+                )}
+            </div>
             <LogAttributes
                 attributes={log.attributes}
                 type={PropertyFilterType.LogAttribute}
@@ -24,14 +32,6 @@ export function LogDetailsTabContent({ log }: LogDetailsTabContentProps): JSX.El
                 logUuid={log.uuid}
                 title="Resource attributes"
             />
-            <h3 className="text-sm font-semibold text-muted">Log Message</h3>
-            <div className="p-3 bg-bg-light rounded border border-border">
-                {log.parsedBody && typeof log.parsedBody === 'object' ? (
-                    <JSONViewer src={log.parsedBody as object} collapsed={2} />
-                ) : (
-                    <span className="font-mono text-sm whitespace-pre-wrap break-all">{log.cleanBody}</span>
-                )}
-            </div>
         </div>
     )
 }

@@ -51,32 +51,11 @@ describe('surveysLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('performs frontend search immediately', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [
-                        createTestSurvey('1', 'Test Survey 1'),
-                        createTestSurvey('2', 'Another Survey'),
-                        createTestSurvey('3', 'Test Survey 3'),
-                    ],
-                    surveysCount: 150,
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
-            }).toMatchValues({
-                searchedSurveys: expect.arrayContaining([
-                    expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '3' }),
-                ]),
-            })
-        })
-
-        it('triggers backend search after debounce for large datasets', async () => {
+        it('triggers backend search after debounce', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
                     surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 150, // > SURVEY_PAGE_SIZE
+                    surveysCount: 150,
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
@@ -84,24 +63,11 @@ describe('surveysLogic', () => {
             })
                 .delay(400)
                 .toDispatchActions(['loadSearchResults'])
+                // let the search request settle so its success action doesn't land after unmount
+                .toFinishAllListeners()
         })
 
-        it('performs only frontend search for small datasets', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 50, // < SURVEY_PAGE_SIZE
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
-            })
-                .delay(400)
-                .toNotHaveDispatchedActions(['loadSearchResults'])
-        })
-
-        it('merges and deduplicates frontend and backend results', async () => {
-            // Set initial state with frontend results and trigger search
+        it('searchedSurveys reflects backend results once loaded', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
                     surveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('2', 'Another Test')],
@@ -110,26 +76,14 @@ describe('surveysLogic', () => {
                     searchSurveysCount: 0,
                 })
                 logic.actions.setSearchTerm('Test')
-            }).toMatchValues({
-                // Verify frontend search results first
-                searchedSurveys: expect.arrayContaining([
-                    expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '2' }),
-                ]),
-            })
-
-            // Then simulate backend search completion
-            await expectLogic(logic, () => {
                 logic.actions.loadSearchResultsSuccess({
                     ...logic.values.data,
                     searchSurveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('3', 'New Test')],
                     searchSurveysCount: 2,
                 })
             }).toMatchValues({
-                // Verify merged results
                 searchedSurveys: expect.arrayContaining([
                     expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '2' }),
                     expect.objectContaining({ id: '3' }),
                 ]),
             })
@@ -182,6 +136,74 @@ describe('surveysLogic', () => {
         })
     })
 
+    describe('url syncing', () => {
+        let logic: ReturnType<typeof surveysLogic.build>
+
+        beforeEach(async () => {
+            initKeaTests()
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                },
+            })
+
+            logic = surveysLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('writes the search term to the search query param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('checkout')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.search).toEqual('checkout')
+        })
+
+        it('removes the search query param when the term is cleared', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('checkout')
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.search).toBeUndefined()
+        })
+
+        it('reads the search term from the search query param on navigation', async () => {
+            router.actions.push('/surveys', { search: 'onboarding' })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: 'onboarding',
+            })
+        })
+
+        it('coerces a numeric search query param to a string without crashing searchedSurveys', async () => {
+            router.actions.push('/surveys', { search: 3 })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: '3',
+            })
+
+            expect(logic.values.searchedSurveys).toEqual([])
+        })
+
+        it('clears a stale search term when navigating to surveys without a search param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('onboarding')
+            }).toFinishAllListeners()
+
+            router.actions.push('/surveys')
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: '',
+            })
+        })
+    })
+
     describe('product intent tracking', () => {
         let logic: ReturnType<typeof surveysLogic.build>
         let capturedIntentRequests: any[]
@@ -196,8 +218,8 @@ describe('surveysLogic', () => {
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
                 },
                 patch: {
-                    '/api/environments/:team_id/add_product_intent/': async (req) => {
-                        const data = await req.json()
+                    '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                        const data = await request.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]
                     },

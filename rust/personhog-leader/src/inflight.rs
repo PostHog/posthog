@@ -1,0 +1,230 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use dashmap::{DashMap, DashSet};
+
+/// Per-partition write-admission state used by the handoff protocol to
+/// prove that all writes this pod ever acked are durably in Kafka.
+///
+/// Two pieces work together:
+///
+/// * An inflight counter. Because `produce_person_changelog` awaits the
+///   Kafka delivery future before the handler returns success, "no
+///   inflight handlers for partition p" implies "every write for p that
+///   this pod ever acknowledged is in Kafka."
+/// * A write fence. Once a partition drains for handoff, no further write
+///   may be admitted: every router acked the freeze before the drain
+///   began, so a late write can only come from a router serving with a
+///   stale view — accepting it would advance the Kafka HWM past the point
+///   warming snapshots, silently losing the write from the new owner.
+///
+/// Callers obtain a guard via `begin(partition)` and drop it when the
+/// handler completes; the handoff protocol fences the partition, then
+/// calls `wait_until_empty(partition)` to block until all inflight
+/// handlers have returned.
+#[derive(Default)]
+pub struct InflightTracker {
+    partitions: DashMap<u32, Arc<AtomicUsize>>,
+    fenced: DashSet<u32>,
+}
+
+impl InflightTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn begin(self: &Arc<Self>, partition: u32) -> InflightGuard {
+        let counter = self
+            .partitions
+            .entry(partition)
+            .or_insert_with(|| Arc::new(AtomicUsize::new(0)))
+            .clone();
+        counter.fetch_add(1, Ordering::AcqRel);
+        InflightGuard { counter }
+    }
+
+    /// Admit a write for the partition unless it is fenced. The increment
+    /// happens *before* the fence check: at every interleaving with the
+    /// drain path (which fences, then waits for the count to reach zero),
+    /// either this write's increment is visible to the drain's wait, or
+    /// this write observes the fence and is refused. Checking the fence
+    /// before incrementing would leave a window where a write passes the
+    /// check, the drain fences and observes a zero count, and the write
+    /// then increments — producing past the HWM the new owner's warming
+    /// snapshots.
+    pub fn try_begin(self: &Arc<Self>, partition: u32) -> Option<InflightGuard> {
+        let guard = self.begin(partition);
+        if self.is_fenced(partition) {
+            // Dropping the guard decrements the transient count the
+            // drain's wait may have observed.
+            drop(guard);
+            return None;
+        }
+        Some(guard)
+    }
+
+    /// Block until no inflight handlers remain for the partition. Polls at
+    /// `poll_interval`; intended for handoff-time drain, not hot paths.
+    pub async fn wait_until_empty(&self, partition: u32, poll_interval: Duration) {
+        loop {
+            let count = self
+                .partitions
+                .get(&partition)
+                .map(|c| c.load(Ordering::Acquire))
+                .unwrap_or(0);
+            if count == 0 {
+                return;
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
+    /// Reject new writes for the partition. Must be set before the drain
+    /// starts waiting on the inflight count, so no write can slip in
+    /// between the count reaching zero and the drained ack being written.
+    pub fn fence(&self, partition: u32) {
+        self.fenced.insert(partition);
+    }
+
+    /// Re-admit writes for the partition: the handoff completed (the
+    /// partition was released), was cancelled, or this pod re-acquired
+    /// the partition through a fresh warm. Idempotent.
+    pub fn unfence(&self, partition: u32) {
+        self.fenced.remove(&partition);
+    }
+
+    /// Whether writes for the partition are currently rejected.
+    pub fn is_fenced(&self, partition: u32) -> bool {
+        self.fenced.contains(&partition)
+    }
+
+    #[cfg(test)]
+    pub fn count(&self, partition: u32) -> usize {
+        self.partitions
+            .get(&partition)
+            .map(|c| c.load(Ordering::Acquire))
+            .unwrap_or(0)
+    }
+}
+
+/// RAII guard returned by `InflightTracker::begin`. Decrements the counter on
+/// drop, including drops from panics or early returns.
+pub struct InflightGuard {
+    counter: Arc<AtomicUsize>,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn begin_and_drop_track_count() {
+        let tracker = Arc::new(InflightTracker::new());
+        assert_eq!(tracker.count(7), 0);
+
+        let g1 = tracker.begin(7);
+        let g2 = tracker.begin(7);
+        assert_eq!(tracker.count(7), 2);
+
+        drop(g1);
+        assert_eq!(tracker.count(7), 1);
+        drop(g2);
+        assert_eq!(tracker.count(7), 0);
+    }
+
+    #[tokio::test]
+    async fn wait_until_empty_returns_immediately_when_zero() {
+        let tracker = Arc::new(InflightTracker::new());
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            tracker.wait_until_empty(42, Duration::from_millis(10)),
+        )
+        .await
+        .expect("should return immediately");
+    }
+
+    #[tokio::test]
+    async fn wait_until_empty_blocks_then_wakes() {
+        let tracker = Arc::new(InflightTracker::new());
+        let guard = tracker.begin(3);
+
+        let t = Arc::clone(&tracker);
+        let handle = tokio::spawn(async move {
+            t.wait_until_empty(3, Duration::from_millis(10)).await;
+        });
+
+        // Give the task a moment to start and observe count > 0
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!handle.is_finished());
+
+        drop(guard);
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn partitions_are_independent() {
+        let tracker = Arc::new(InflightTracker::new());
+        let _g = tracker.begin(1);
+        tracker.wait_until_empty(2, Duration::from_millis(10)).await;
+        assert_eq!(tracker.count(1), 1);
+    }
+
+    /// A write admitted before the fence is visible to the drain's wait;
+    /// a write arriving after the fence is refused and leaves no residual
+    /// count. Together these are the two halves of the drain invariant.
+    #[tokio::test]
+    async fn try_begin_admits_before_fence_and_refuses_after() {
+        let tracker = Arc::new(InflightTracker::new());
+
+        let admitted = tracker.try_begin(9).expect("unfenced partition admits");
+        assert_eq!(tracker.count(9), 1, "admitted write counts as inflight");
+
+        tracker.fence(9);
+        assert!(
+            tracker.try_begin(9).is_none(),
+            "fenced partition refuses new writes"
+        );
+        assert_eq!(
+            tracker.count(9),
+            1,
+            "refused write must not leave a residual count"
+        );
+
+        // The drain's wait blocks on the pre-fence write until it completes.
+        let t = Arc::clone(&tracker);
+        let wait = tokio::spawn(async move {
+            t.wait_until_empty(9, Duration::from_millis(10)).await;
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!wait.is_finished(), "drain waits for the admitted write");
+        drop(admitted);
+        wait.await.unwrap();
+    }
+
+    /// Fences are per-partition, idempotent, and reversible — the exact
+    /// lifecycle the handoff handler drives (fence on drain, unfence on
+    /// release/cancel/re-warm).
+    #[test]
+    fn fence_lifecycle() {
+        let tracker = InflightTracker::new();
+        assert!(!tracker.is_fenced(5));
+
+        tracker.fence(5);
+        assert!(tracker.is_fenced(5));
+        assert!(!tracker.is_fenced(6), "fences are per-partition");
+
+        tracker.fence(5); // idempotent
+        tracker.unfence(5);
+        assert!(!tracker.is_fenced(5));
+
+        tracker.unfence(5); // idempotent on already-clear
+        assert!(!tracker.is_fenced(5));
+    }
+}

@@ -1,6 +1,10 @@
 import json
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
+
+import pytest
+
+from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
@@ -11,7 +15,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
 class TestBytecodeExecute:
@@ -78,12 +82,16 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'e.*')") is True
         assert self._run("match('test', '^e.*')") is False
         assert self._run("match('test', 'x.*')") is False
+        assert self._run("match('test', '')") is True
+        assert self._run("match('', '')") is True
+        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
         assert self._run("'test' !~ '^e.*'") is True
         assert self._run("'test' =~ 'x.*'") is False
         assert self._run("'test' !~ 'x.*'") is True
+        assert self._run("'' !~ 'x.*'") is False
         assert self._run("'test' ~* 'EST'") is True
         assert self._run("'test' =~* 'EST'") is True
         assert self._run("'test' !~* 'EST'") is False
@@ -100,6 +108,32 @@ class TestBytecodeExecute:
         assert self._run("1 == null") is False
         assert self._run("1 != null") is True
 
+    def test_ordering_comparison_type_error_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
+            self._run("properties.missing <= 1.0")
+
+    @parameterized.expand(
+        [
+            ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
+            ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
+            (
+                "operator_invalid_pattern",
+                "'tool_call' =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern: invalid escape sequence: \\u",
+            ),
+        ]
+    )
+    def test_regex_errors_raise_hogvm_exception(self, _name, expr, properties, expected_message):
+        globals_dict = {"properties": properties}
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+
+        with pytest.raises(HogVMException) as exc_info:
+            execute_bytecode(bytecode, globals_dict)
+
+        assert expected_message in str(exc_info.value)
+
     def test_nested_value(self):
         my_dict = {
             "properties": {
@@ -108,7 +142,7 @@ class TestBytecodeExecute:
                 "tuple": ("item1", "item2", "item3"),
             }
         }
-        chain: list[str] = ["properties", "bla"]
+        chain: list[Any] = ["properties", "bla"]
         assert get_nested_value(my_dict, chain) == "hello"
 
         chain = ["properties", "list", 2]
@@ -381,6 +415,46 @@ class TestBytecodeExecute:
             == 8
         )
 
+    @parameterized.expand(
+        [
+            (
+                "call_result_object",
+                "let store := {};\nfn ref() { return store; }\nref()['k'] := 'v';\nreturn store.k;",
+                "v",
+            ),
+            (
+                "call_result_array",
+                "let m := [[10, 20], [30, 40]];\nfn row(i) { return m[i]; }\nrow(1)[2] := 99;\nreturn m[1][2];",
+                99,
+            ),
+            (
+                "call_result_property",
+                "let cfg := {'items': [1, 2, 3]};\nfn getCfg() { return cfg; }\ngetCfg().items[2] := 88;\nreturn cfg.items[2];",
+                88,
+            ),
+            ("object_literal", "{'a': 1}['a'] := 2; return 1;", 1),
+            ("array_literal", "[1, 2, 3][1] := 99; return 1;", 1),
+        ]
+    )
+    def test_assignment_target_with_expression_base(self, _name, program, expected):
+        # The compiler visits a subscript/tuple-access base as a plain value, so a
+        # call result or literal base is a valid assignment target.
+        assert self._run_program(program) == expected
+
+    def test_assignment_to_non_lvalue_rejected_at_compile_time(self):
+        # A non-assignable target is rejected at compile time, after a successful parse.
+        with pytest.raises(Exception, match="Can not assign to this type of expression"):
+            self._run_program("fn f() { return 1; }\nf() := 1;\nreturn 1;")
+
+    def test_assignment_to_parenthesized_target(self):
+        # A parenthesised target collapses to the underlying place.
+        assert self._run_program("let x := 1; (x) := 5; return x;") == 5
+        assert self._run_program("let x := 1; ((x)) := 7; return x;") == 7
+        assert self._run_program("let o := {}; (o.a) := 3; return o.a;") == 3
+        assert self._run_program("let o := {}; (o).a := 4; return o.a;") == 4
+        # Adjacent assignments without separators parse as distinct statements.
+        assert self._run_program("let a := 0 let b := 0 (a) := 1 (b) := 2 return a + b") == 3
+
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program).bytecode
@@ -626,6 +700,16 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
+    def test_bytecode_length_null_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="Can not call length on null"):
+            self._run_program("return length(null);")
+
+    def test_random_float(self):
+        for _ in range(50):
+            value = self._run_program("return randomFloat();")
+            assert isinstance(value, float)
+            assert 0.0 <= value < 1.0
+
     def test_bytecode_empty_statements(self):
         assert self._run_program(";") is None
         assert self._run_program(";;") is None
@@ -674,6 +758,9 @@ class TestBytecodeExecute:
             assert str(e) == "Array access starts from 1"
         else:
             raise AssertionError("Expected Exception not raised")
+
+        with pytest.raises(HogVMException, match="Index 1 out of range for array of length 0"):
+            self._run_program("let calls := []; calls[1] := 'tool_call'; return true")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()
@@ -831,8 +918,9 @@ class TestBytecodeExecute:
         """,
             globals=globals,
         ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
-        assert globals["globalEvent"]["event"] == "$pageview"
-        assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
+        global_event = cast(dict[str, Any], globals["globalEvent"])
+        assert global_event["event"] == "$pageview"
+        assert cast(dict[str, str], global_event["properties"])["$browser"] == "Chrome"
 
     def test_bytecode_if_multiif_ternary(self):
         values = []

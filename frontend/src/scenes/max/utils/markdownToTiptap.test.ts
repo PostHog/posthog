@@ -303,6 +303,101 @@ code()
         })
     })
 
+    describe('tables', () => {
+        it('parses a simple markdown table', () => {
+            const markdown = `| Name | Value |
+|------|-------|
+| foo  | 1     |
+| bar  | 2     |`
+
+            const result = markdownToTiptap(markdown)
+            expect(result).toEqual([
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Name' }] }],
+                                },
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'foo' }] }],
+                                },
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '1' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'bar' }] }],
+                                },
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '2' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('parses a table with inline formatting', () => {
+            const markdown = `| Header |
+|--------|
+| **bold** |`
+
+            const result = markdownToTiptap(markdown)
+            expect(result).toEqual([
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Header' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ])
+        })
+    })
+
     describe('edge cases', () => {
         it('handles unclosed code block gracefully', () => {
             // Unclosed code block - content until EOF becomes the code

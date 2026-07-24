@@ -7,12 +7,15 @@ from rest_framework import viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 
 class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     def list(self, request: Request, **kw) -> Response:
         start_date = now() - timedelta(days=30)
@@ -45,14 +48,15 @@ class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             GROUP BY
                 type
         """
-        warning_events = sync_execute(
-            query,
-            {
-                "team_id": self.team_id,
-                "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
-                "search": request.GET.get("q", None),
-            },
-        )
+        with tags_context(product=Product.INGESTION, feature=Feature.INGESTION_WARNINGS, team_id=self.team_id):
+            warning_events = sync_execute(
+                query,
+                {
+                    "team_id": self.team_id,
+                    "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+                    "search": request.GET.get("q", None),
+                },
+            )
 
         return Response({"results": _calculate_summaries(warning_events)})
 

@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+#
+# End-to-end smoke test for ClickHouse migrations against a multi-node topology.
+#
+# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions + logs),
+# runs `manage.py migrate_clickhouse` with MULTINODE_CLICKHOUSE=1 (so migrations respect
+# their declared NodeRole instead of being collapsed to NodeRole.ALL), then runs the
+# verification script to assert each node ended up with the tables it should have.
+#
+# Env knobs:
+#   KEEP=1            Do not tear down the stack on success (useful for local debugging).
+#   SKIP_BOOT=1       Assume the stack is already running (useful when iterating on
+#                     migrations against an already-booted stack).
+#   KEEP_POSTGRES=1   Preserve the postgres + redis containers across runs (skips the
+#                     pre-boot teardown for those services and the `manage.py migrate`
+#                     step). Speeds up iteration on ClickHouse migrations by avoiding
+#                     a full Django schema rebuild every run.
+#
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+# Repo root is three levels up from tools/infra-scripts/clickhouse-multinode/.
+cd "$SCRIPT_DIR/../../.."
+
+COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
+INFRA_SERVICES=(zookeeper kafka db redis7)
+ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+
+# Tracks the failing step so the EXIT trap can print a precise banner.
+SMOKE_STAGE="boot"
+SMOKE_PASSED=0
+
+dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+report_result() {
+    # Caller must pass the original failing exit code as $1. We can't read $?
+    # ourselves because the log-dumping loops in dump_logs_on_failure end in
+    # `|| true`, which would clobber $? to 0 before we observed it.
+    local exit_code=$1
+    echo
+    echo "==========================================================================="
+    if [ "$SMOKE_PASSED" = "1" ] && [ "$exit_code" -eq 0 ]; then
+        echo "  ✅ MULTINODE SMOKE PASSED"
+    else
+        echo "  ❌ MULTINODE SMOKE FAILED (stage: ${SMOKE_STAGE}, exit code: ${exit_code})"
+    fi
+    echo "==========================================================================="
+    return "$exit_code"
+}
+
+dump_logs_on_failure() {
+    local exit_code=$?
+    # A gate-stage failure is a schema mismatch, not an infra problem — check-live
+    # already printed the drift diff, so skip the container-log dump and let that
+    # diff be the last thing before the result banner.
+    local gate_failure=""
+    case "$SMOKE_STAGE" in
+        dump_live_hcl | check_live_hcl) gate_failure=1 ;;
+    esac
+    if { [ "$exit_code" -ne 0 ] || [ "$SMOKE_PASSED" != "1" ]; } && [ -z "$gate_failure" ]; then
+        echo
+        echo "===================== FAILURE: dumping container logs ====================="
+        for svc in "${ALL_SERVICES[@]}"; do
+            echo
+            echo "----- $svc -----"
+            dc logs --tail=200 "$svc" || true
+        done
+        echo
+        echo "===================== ClickHouse system.errors per node ====================="
+        for svc in "${CH_SERVICES[@]}"; do
+            echo "----- $svc -----"
+            dc exec -T "$svc" clickhouse-client --query \
+                "SELECT name, value, last_error_message FROM system.errors WHERE value > 0 ORDER BY value DESC LIMIT 20" \
+                || true
+        done
+    fi
+    report_result "$exit_code"
+    # Explicit exit so the script's final status doesn't depend on the EXIT
+    # trap's return value semantics, which vary across bash versions.
+    exit "$exit_code"
+}
+trap dump_logs_on_failure EXIT
+
+check_hosts_mapping() {
+    # The cluster topology lookup returns docker-internal hostnames
+    # (clickhouse-data, clickhouse-aux, …). Migrations run from the host shell,
+    # so those hostnames must resolve locally. CI handles this via /etc/hosts;
+    # locally the user has to do the same. Bail out early with a precise hint
+    # rather than failing deep inside infi.clickhouse_orm with `Code: 210`.
+    local missing=()
+    for svc in "${CH_SERVICES[@]}"; do
+        if ! python3 -c "import socket; socket.gethostbyname('$svc')" >/dev/null 2>&1; then
+            missing+=("$svc")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "ERROR: these docker hostnames don't resolve from the host:" >&2
+        printf '  - %s\n' "${missing[@]}" >&2
+        echo >&2
+        echo "Add them to /etc/hosts, e.g.:" >&2
+        echo "  echo '127.0.0.1 ${CH_SERVICES[*]}' | sudo tee -a /etc/hosts" >&2
+        exit 1
+    fi
+}
+
+wait_for_healthy() {
+    local svc="$1"
+    local cid status
+    local deadline=$(( SECONDS + HEALTH_TIMEOUT ))
+
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        cid=$(dc ps -q "$svc" || true)
+        if [ -n "$cid" ]; then
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo "missing")
+            if [ "$status" = "healthy" ]; then
+                echo "  $svc -> healthy"
+                return 0
+            fi
+        fi
+        sleep 2
+    done
+    echo "  $svc -> NOT healthy after ${HEALTH_TIMEOUT}s" >&2
+    return 1
+}
+
+if [ "${SKIP_BOOT:-0}" != "1" ]; then
+    SMOKE_STAGE="boot"
+    if [ "${KEEP_POSTGRES:-0}" = "1" ]; then
+        echo "==> KEEP_POSTGRES=1: tearing down ClickHouse + Kafka + Zookeeper only..."
+        dc rm -fsv "${CH_SERVICES[@]}" zookeeper kafka >/dev/null 2>&1 || true
+    else
+        echo "==> Tearing down any previous multinode stack (clears Zookeeper state)..."
+        dc down -v --remove-orphans >/dev/null 2>&1 || true
+    fi
+
+    echo "==> Booting multinode ClickHouse stack..."
+    dc up -d "${ALL_SERVICES[@]}"
+
+    echo "==> Waiting for Postgres + Redis + ClickHouse nodes to become healthy..."
+    for svc in db redis7 "${CH_SERVICES[@]}"; do
+        wait_for_healthy "$svc"
+    done
+fi
+
+SMOKE_STAGE="hosts-resolution"
+echo "==> Verifying docker hostnames resolve from this shell..."
+check_hosts_mapping
+
+export MULTINODE_CLICKHOUSE=1
+export CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
+export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
+export CLICKHOUSE_CLUSTER="${CLICKHOUSE_CLUSTER:-posthog}"
+export CLICKHOUSE_MIGRATIONS_CLUSTER="${CLICKHOUSE_MIGRATIONS_CLUSTER:-posthog_migrations}"
+export CLICKHOUSE_SATELLITE_CLUSTERS="${CLICKHOUSE_SATELLITE_CLUSTERS:-ai_events,aux,ops,sessions}"
+export CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-posthog}"
+export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
+export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
+export CLICKHOUSE_SECURE="${CLICKHOUSE_SECURE:-false}"
+export CLICKHOUSE_VERIFY="${CLICKHOUSE_VERIFY:-false}"
+export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
+export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
+
+if [ -n "${PRIME_POSTGRES_FROM:-}" ] && [ -f "${PRIME_POSTGRES_FROM}" ]; then
+    # CI primes Postgres from a cached schema dump produced by the
+    # "Validate migrations" job in ci-backend.yml. Loading via psql is much
+    # faster than running every Django migration from scratch. Pair this with
+    # SKIP_ASYNC_MIGRATIONS_SETUP=1 because PostHogConfig.ready() otherwise
+    # calls setup_async_migrations() and reads posthog_asyncmigration /
+    # posthog_instancesetting on every Django management command.
+    #
+    # The dump is created with `pg_dump --schema-only --clean --if-exists`
+    # plus a data-only dump of django_migrations, so it's idempotent against
+    # an existing fresh database (drops then recreates each object).
+    SMOKE_STAGE="prime_postgres"
+    echo "==> Priming Postgres from ${PRIME_POSTGRES_FROM}..."
+    gunzip -c "${PRIME_POSTGRES_FROM}" | psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 >/dev/null
+elif [ "${KEEP_POSTGRES:-0}" = "1" ]; then
+    echo "==> KEEP_POSTGRES=1: skipping Django (Postgres) migrations"
+else
+    SMOKE_STAGE="migrate_postgres"
+    # migrate_clickhouse itself doesn't query Postgres, but every Django
+    # management command runs PostHogConfig.ready(), which calls
+    # setup_async_migrations() and reads posthog_asyncmigration /
+    # posthog_instancesetting. Set SKIP_ASYNC_MIGRATIONS_SETUP=1 to skip that
+    # read path; CI does that and points PRIME_POSTGRES_FROM at a cached
+    # schema dump so this branch is only taken on cache miss.
+    echo "==> Running Django (Postgres) migrations..."
+    python manage.py migrate --noinput
+fi
+
+SMOKE_STAGE="migrate_clickhouse"
+echo "==> Running ClickHouse migrations against the data node..."
+python manage.py migrate_clickhouse
+
+SMOKE_STAGE="verify"
+echo "==> Verifying per-node table layout..."
+python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+
+# Convergence gate: the migrations just applied must reproduce the declarative
+# HCL golden for the managed OPS/LOGS roles. Two steps — (1) introspect those
+# nodes into HCL dumps, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
+# Enforced by default (drift fails the smoke); export VERIFY_LIVE_WARN=1 to make
+# it informational (report drift but pass) while reconciling.
+SMOKE_STAGE="dump_live_hcl"
+echo "==> Dumping live OPS/LOGS schema..."
+LIVE_DUMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")"
+bash posthog/clickhouse/hcl/dump-live.sh "$LIVE_DUMP_DIR" >/dev/null
+
+SMOKE_STAGE="check_live_hcl"
+echo "==> Comparing dumped schema against the HCL golden..."
+VERIFY_LIVE_WARN="${VERIFY_LIVE_WARN:-0}" bash posthog/clickhouse/hcl/check-live.sh "$LIVE_DUMP_DIR"
+
+SMOKE_PASSED=1
+SMOKE_STAGE="teardown"
+
+if [ "${KEEP:-0}" = "1" ]; then
+    echo "KEEP=1 set: leaving stack running. Tear down with: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse down"
+else
+    echo "==> Tearing down stack..."
+    dc down -v
+fi

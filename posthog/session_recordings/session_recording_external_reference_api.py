@@ -4,6 +4,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -33,6 +34,7 @@ class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSe
         read_only_fields = ["id", "kind", "display_name"]
 
 
+@extend_schema_serializer(component_name="SessionRecordingExternalRef")
 class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     """
     Serializer for linking session recordings to external issue trackers.
@@ -154,9 +156,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         if integration.kind == Integration.IntegrationKind.LINEAR:
             title = config.get("title", "")
             config["description"] = f"{config.get('description', '')}\n\nPostHog recording: {recording_url}"
-            external_context = LinearIntegration(integration).create_issue(
-                team.pk, session_recording.session_id, config
-            )
+            external_context = LinearIntegration(integration).create_issue(recording_url, config)
             external_context["title"] = title
         elif integration.kind == Integration.IntegrationKind.GITHUB:
             title = config.get("title", "")

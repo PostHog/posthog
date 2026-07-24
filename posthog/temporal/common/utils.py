@@ -1,12 +1,16 @@
 import time
 import inspect
+import threading
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, cast
+
+import django.db
+from django.conf import settings
 
 from asgiref.sync import sync_to_async
-from temporalio import workflow
+from temporalio import activity, workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -62,9 +66,129 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        return await sync_to_async(fn)(*args, **kwargs)
+        submit_time = time.monotonic()
+
+        def instrumented() -> T:
+            start_time = time.monotonic()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                now = time.monotonic()
+                thread_wait = start_time - submit_time
+                execution_time = now - start_time
+                if activity.in_activity():
+                    activity.logger.warning(
+                        "asyncify_slow",
+                        extra={
+                            "function": fn.__name__,
+                            "thread_wait_seconds": round(thread_wait, 3),
+                            "execution_seconds": round(execution_time, 3),
+                            "thread_name": threading.current_thread().name,
+                            "activity_id": activity.info().activity_id,
+                        },
+                    )
+
+        return await sync_to_async(thread_sensitive=False)(close_db_connections(instrumented))()
 
     return wrapper
+
+
+def _close_initialized_connections() -> None:
+    for conn in django.db.connections.all(initialized_only=True):
+        conn.close()
+
+
+def _close_db_connections() -> None:
+    """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
+    if not settings.TEST:
+        _close_initialized_connections()
+
+
+def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
+    """Decorator that evicts stale Django DB connections around an activity.
+
+    Long-running Temporal workers don't go through Django's request cycle, so the
+    ``request_started`` / ``request_finished`` signals that normally call
+    ``close_old_connections()`` never fire. Connections that have exceeded
+    ``CONN_MAX_AGE`` or been killed by the database stay in the pool until the
+    next query fails. Apply this decorator to activities that touch the Django
+    ORM directly to mirror the request-cycle behaviour.
+
+    Skipped under ``settings.TEST`` to avoid tearing down the test DB connection
+    that ``transaction=True`` fixtures rely on.
+
+    Stack below ``@activity.defn``. Asyncified activities should use the ``@asyncify`` decorator instead,
+    which preserves type hints for Temporal's serialization while allowing sync Django ORM code.
+        @activity.defn
+        @close_db_connections
+        async def my_activity(...): ...
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @wraps(fn)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            await sync_to_async(_close_db_connections)()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                await sync_to_async(_close_db_connections)()
+
+        return cast(Callable[P, T], async_wrapper)
+
+    @wraps(fn)
+    def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        _close_db_connections()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _close_db_connections()
+
+    return sync_wrapper
+
+
+async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
+    """Run an async DB read, retrying once on a transient connection drop.
+
+    Long-lived Temporal workers pool their connections through pgbouncer, so a pool
+    recycle, failover, or deploy can leave a stale pooled connection that raises
+    ``OperationalError`` / ``InterfaceError`` the first time it's used. Evict the dead
+    connection and retry once, so a transient blip at an activity's early connect-time
+    reads succeeds on a fresh connection instead of escaping as error-tracking noise.
+    A second failure propagates — that's a genuinely degraded DB, left to the caller's
+    retry posture.
+
+    Pass a zero-arg callable that *produces* the awaitable (not the awaitable itself),
+    so the retry can issue a fresh query:
+
+        team = await aretry_on_db_connection_drop(lambda: Team.objects.aget(pk=team_id))
+    """
+    try:
+        return await operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        await sync_to_async(_close_db_connections)()
+        return await operation()
+
+
+def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
+    """Run a sync DB read, retrying once on a transient connection drop.
+
+    The sync sibling of ``aretry_on_db_connection_drop``, for activities that run sync
+    Django ORM code (e.g. under ``@asyncify``). See that function for the full rationale:
+    a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
+    / deploy can leave a stale pooled connection that raises ``OperationalError`` /
+    ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
+    failure propagates, left to the caller's retry posture.
+
+    Pass a zero-arg callable that *produces* the result, so the retry can issue a fresh
+    query:
+
+        task = retry_on_db_connection_drop(lambda: Task.objects.get(id=task_id))
+    """
+    try:
+        return operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        _close_db_connections()
+        return operation()
 
 
 def get_scheduled_start_time():

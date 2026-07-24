@@ -3,6 +3,7 @@ from datetime import datetime
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -24,6 +25,7 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
             )
+        invalidate_group_types_cache(self.team.project_id)
 
         # Create property definitions for organization (group_type_index=0)
         PropertyDefinition.objects.create(
@@ -66,7 +68,6 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
             group_key="acme-corp",
             properties={"name": "Acme Corp", "industry": "tech"},
             created_at=datetime.now(),
-            sync=True,  # Force sync to ClickHouse
         )
         raw_create_group_ch(
             team_id=self.team.id,
@@ -74,7 +75,6 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
             group_key="acme-project",
             properties={"name": "Acme Project", "size": 100},
             created_at=datetime.now(),
-            sync=True,  # Force sync to ClickHouse
         )
 
         self.toolkit = DummyToolkit(self.team, self.user)
@@ -112,10 +112,11 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_retrieve_entity_properties_group(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["organization"])
 
-        assert (
-            "<properties><String><prop><name>name</name></prop><prop><name>industry</name></prop><prop><name>name_group</name></prop></String></properties>"
-            == result["organization"]
-        )
+        for name in ("name", "industry", "name_group"):
+            assert f"<prop><name>{name}</name></prop>" in result["organization"]
+        # Virtual group properties are surfaced even though they have no stored definitions.
+        assert "<name>$virt_revenue</name>" in result["organization"]
+        assert "<name>$virt_mrr</name>" in result["organization"]
 
     async def test_retrieve_entity_properties_group_not_found(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["test"])
@@ -128,13 +129,21 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_retrieve_entity_properties_group_nothing_found(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["no_properties"])
 
-        assert "Properties do not exist in the taxonomy for the entity no_properties." == result["no_properties"]
+        # A group without stored definitions still lists virtual group properties.
+        assert "<name>$virt_revenue</name>" in result["no_properties"]
+        assert "<name>$virt_mrr</name>" in result["no_properties"]
 
     async def test_retrieve_entity_properties_group_mixed(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["organization", "no_properties", "project"])
 
         assert "organization" in result
         assert "<properties>" in result["organization"]
-        assert "Properties do not exist in the taxonomy for the entity no_properties." == result["no_properties"]
+        assert "<name>$virt_revenue</name>" in result["no_properties"]
         assert "project" in result
         assert "<properties>" in result["project"]
+
+    async def test_retrieve_entity_property_values_virtual_group_property(self):
+        property_vals = await self.toolkit.retrieve_entity_property_values({"organization": ["$virt_mrr"]})
+
+        # Virtual group properties are computed by the actors taxonomy query, so real values come back.
+        assert property_vals["organization"] == ["property: $virt_mrr\nvalues:\n- '0'\n"]

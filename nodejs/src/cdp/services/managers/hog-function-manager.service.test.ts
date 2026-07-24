@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { HogFunctionType } from '~/cdp/types'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertHogFunction } from '../../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
@@ -256,6 +256,23 @@ describe('HogFunctionManager', () => {
         items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toEqual([])
+    })
+
+    it('does not return deleted functions when fetched by id', async () => {
+        expect(await manager.getHogFunction(hogFunctions[0].id)).toMatchObject({ id: hogFunctions[0].id })
+
+        // Soft-delete without disabling, as deletion via the django API leaves `enabled` untouched
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET deleted=true, updated_at = NOW() WHERE id = $1`,
+            [hogFunctions[0].id],
+            'testKey'
+        )
+
+        // This is normally dispatched by django
+        manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
+
+        expect(await manager.getHogFunction(hogFunctions[0].id)).toEqual(null)
     })
 })
 

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "group_type_index": {
+            "description": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "id": {
+            "description": "A UUID string identifying this group usage metric.",
+            "type": "string"
+        }
+    },
+    "required": ["group_type_index", "id"],
+    "type": "object"
+}

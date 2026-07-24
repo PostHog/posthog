@@ -1,0 +1,51 @@
+name: PostHog Private Sync
+
+on:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: private-sync
+    cancel-in-progress: false
+
+jobs:
+    repo-sync:
+        name: Sync posthog-private with posthog
+        # Set the `PRIVATE_SYNC_PAUSED` repo variable to `true` to pause the mirror
+        # (e.g. during a coordinated change that must land on private first).
+        if: github.repository == 'PostHog/posthog' && vars.PRIVATE_SYNC_PAUSED != 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: posthog-private
+
+            # blob:none avoids a full-history clone; full commit graph keeps pushes connected.
+            # persist-credentials:false so checkout's default-token auth header doesn't shadow
+            # the app token we push with (posthog is public, so lazy blob fetches still work).
+            - name: Checkout posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-tags: true
+                  persist-credentials: false
+
+            # 1:1 mirror: replays posthog's existing signed commits — no new commit, so
+            # signing enforcement on posthog-private is unaffected.
+            - name: Mirror master and tags to posthog-private
+              env:
+                  PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
+                  git push private "HEAD:refs/heads/master" --force
+                  git push private "refs/tags/*:refs/tags/*" --force

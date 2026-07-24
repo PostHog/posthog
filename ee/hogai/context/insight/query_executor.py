@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 from asgiref.sync import async_to_sync
 from posthoganalytics import capture_exception
+from pydantic import BaseModel
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -22,17 +23,13 @@ from posthog.schema import (
     AssistantStickinessQuery,
     AssistantTrendsQuery,
     ChartDisplayType,
-    CurrencyCode,
+    DataVisualizationNode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 )
@@ -45,8 +42,9 @@ from posthog.hogql.errors import (
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -59,13 +57,13 @@ from ee.hogai.context.insight.format import (
     LifecycleResultsFormatter,
     PathsResultsFormatter,
     RetentionResultsFormatter,
-    RevenueAnalyticsGrossRevenueResultsFormatter,
-    RevenueAnalyticsMetricsResultsFormatter,
-    RevenueAnalyticsMRRResultsFormatter,
-    RevenueAnalyticsTopCustomersResultsFormatter,
     SQLResultsFormatter,
     StickinessResultsFormatter,
     TrendsResultsFormatter,
+    format_access_control_warnings,
+    format_warehouse_sync_warnings,
+    get_boxplot_results,
+    is_boxplot_query,
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -85,10 +83,6 @@ from .prompts import (
     PATHS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT,
     SQL_EXAMPLE_PROMPT,
     STICKINESS_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
@@ -117,10 +111,7 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | RetentionQuery
         | AssistantHogQLQuery
         | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery,
+        | DataVisualizationNode,
     )
 
 
@@ -144,7 +135,7 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime, user: Optional["User"] = None):
+    def __init__(self, team: Team, utc_now_datetime: datetime, user: "User"):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
@@ -180,7 +171,13 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} Starting arun_and_format_query for {query_type}")
 
         try:
-            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            active_tags = get_query_tags()
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=active_tags.feature or Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
                 if insight_id:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
@@ -313,17 +310,31 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.warning(f"{TIMING_LOG_PREFIX} Calling process_query_dict")
 
+            # Snapshot the caller's query tags from the async context so we can replay them inside
+            # the threaded sync function — `database_sync_to_async` crosses a thread boundary and
+            # downstream code (e.g. `enqueue_process_query_task`) reads `get_query_tags()` from the
+            # executing thread to forward to Celery, where contextvars do not propagate.
+            parent_tag_kwargs = get_query_tags().model_dump(exclude_none=True)
+            team = self._team
+            user = self._user
+            query_dict = query.model_dump(mode="json")
+
+            def process_query_dict_with_tags() -> dict | BaseModel:
+                with tags_context(**parent_tag_kwargs):
+                    return process_query_dict(
+                        team,
+                        query_dict,
+                        execution_mode=execution_mode,
+                        limit_context=LimitContext.POSTHOG_AI,
+                        user=user,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    )
+
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
             # as it only does lightweight ORM retrievals and Redis calls. If we run in tests, do not spawn another thread.
             results_response = await database_sync_to_async(
-                process_query_dict, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
-            )(
-                self._team,
-                query.model_dump(mode="json"),
-                execution_mode=execution_mode,
-                limit_context=LimitContext.POSTHOG_AI,
-                user=self._user,
-            )
+                process_query_dict_with_tags, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
+            )()
 
             process_elapsed = time.time() - process_start
             if debug_timing:
@@ -419,12 +430,27 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
             raise MaxToolRetryableError(err_message)
-        except:
+        except Exception as err:
             elapsed = time.time() - start_time
-            # Catch-all for unexpected errors during query execution
+            # Catch-all for unexpected errors during query execution. Surface the underlying error
+            # text (truncated) so callers can diagnose the failure instead of an opaque message —
+            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8().
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
-            raise Exception("There was an unknown error running this query.")
+            err_message = str(err).strip() or repr(err)
+            max_len = 500
+            if len(err_message) > max_len:
+                err_message = err_message[:max_len] + "… (truncated)"
+            raise Exception(f"There was an unknown error running this query: {err_message}")
+
+        # A failed query can come back as a structurally-valid response that carries an `error`
+        # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
+        # timeout (`_execute_direct_sql_query` stores `result.error`), or a ClickHouse error
+        # captured in debug mode. Without this guard that response is formatted as a header-only
+        # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
+        # `query_status.error` check the async-polling branch above already does.
+        if isinstance(response_dict, dict) and (error := response_dict.get("error")):
+            raise MaxToolRetryableError(str(error))
 
         total_elapsed = time.time() - start_time
         if debug_timing:
@@ -461,13 +487,14 @@ class AssistantQueryExecutor:
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-                boxplot_data = response.get("boxplot_data")
-                if boxplot_data is not None:
+                if is_boxplot_query(query):
                     formatter_name = "BoxPlotResultsFormatter"
-                    result = BoxPlotResultsFormatter(boxplot_data).format()
+                    result = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
                 else:
                     formatter_name = "TrendsResultsFormatter"
-                    result = TrendsResultsFormatter(query, response["results"]).format()
+                    result = TrendsResultsFormatter(
+                        query, response["results"], self._team, self._utc_now_datetime
+                    ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
@@ -485,24 +512,18 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, DataVisualizationNode):
+                formatter_name = "SQLResultsFormatter"
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query.source, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
                 result = SQLResultsFormatter(
                     query, response["results"], response["columns"], max_cell_length=max_cell_length
                 ).format()
-            elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-                formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
-                result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsMetricsQuery):
-                formatter_name = "RevenueAnalyticsMetricsResultsFormatter"
-                result = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsMRRQuery):
-                formatter_name = "RevenueAnalyticsMRRResultsFormatter"
-                result = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
-                formatter_name = "RevenueAnalyticsTopCustomersResultsFormatter"
-                result = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
             else:
                 raise NotImplementedError(f"Unsupported query type: {query_type}")
 
@@ -511,22 +532,16 @@ class AssistantQueryExecutor:
                 logger.warning(
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
+
+            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+            if warning_prefix:
+                result = warning_prefix + result
             return result
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} _compress_results failed after {elapsed:.3f}s for {query_type}")
             raise
-
-
-def is_revenue_analytics_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
-    return isinstance(
-        query,
-        RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery,
-    )
 
 
 def _is_boxplot_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
@@ -561,26 +576,20 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return STICKINESS_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
-    if isinstance(query, AssistantHogQLQuery | HogQLQuery):
+    if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
         return SQL_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-        return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsMetricsQuery):
-        return REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsMRRQuery):
-        return REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsTopCustomersQuery):
-        return REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT
     raise NotImplementedError(f"Unsupported query type: {type(query)}")
 
 
 async def execute_and_format_query(
     team: Team,
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+    *,
+    user: "User",
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
-    user: Optional["User"] = None,
+    include_prompt_framing: bool = True,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -596,6 +605,9 @@ async def execute_and_format_query(
         query: The query to execute.
         execution_mode: The execution mode to use.
         insight_id: The insight ID to use.
+        include_prompt_framing: When False, return only the formatted results table without the
+            example-format description and the surrounding `QUERY_RESULTS_PROMPT` system reminder.
+            Used by the MCP `execute_sql` tool, which returns data straight to an external agent.
     Returns:
         The formatted query results.
     """
@@ -606,16 +618,17 @@ async def execute_and_format_query(
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results
     )
+    if not include_prompt_framing:
+        return results
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
-    currency = team.base_currency or CurrencyCode.USD.value
 
     insight_schema = ""
     if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
         insight_schema = query.model_dump_json(exclude_none=True)
 
     # Check if SQL results contain truncated values
-    has_truncated_values = (
-        isinstance(query, AssistantHogQLQuery | HogQLQuery) and TRUNCATED_MARKER in results and not used_fallback
+    has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        TRUNCATED_MARKER in results and not used_fallback
     )
 
     query_result = format_prompt_string(
@@ -626,9 +639,8 @@ async def execute_and_format_query(
         utc_datetime_display=utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S"),
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
-        currency=currency if is_revenue_analytics_query(query) else None,
         has_truncated_values=has_truncated_values,
-        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery) else None,
+        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 
     return f"{example_prompt}\n\n{query_result}"

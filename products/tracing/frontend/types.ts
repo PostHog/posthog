@@ -12,6 +12,10 @@ export interface Span {
     duration_nano: number
     is_root_span: boolean
     matched_filter: boolean
+    // OTel span attributes the user set, as a key-value map.
+    attributes: Record<string, string>
+    // OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
+    resource_attributes: Record<string, string>
 }
 
 export const SPAN_KIND_LABELS: Record<number, string> = {
@@ -23,9 +27,11 @@ export const SPAN_KIND_LABELS: Record<number, string> = {
     5: 'Consumer',
 }
 
+// In the Otel standard, "unset" is treated as "OK".
+// It's stored separately in the backend but should be treated identically to the user
 export const STATUS_CODE_LABELS: Record<number, { label: string; type: 'success' | 'warning' | 'danger' | 'default' }> =
     {
-        0: { label: 'Unset', type: 'default' },
+        0: { label: 'OK', type: 'success' },
         1: { label: 'OK', type: 'success' },
         2: { label: 'Error', type: 'danger' },
     }

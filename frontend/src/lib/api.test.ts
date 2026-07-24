@@ -1,9 +1,13 @@
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiRequest } from 'lib/api'
+import type { ApiError } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+
+// Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
+const OAUTH_SESSION_KEY = 'ph_oauth_session'
 
 describe('API helper', () => {
     let fakeFetch: jest.Mock<any, any>
@@ -145,6 +149,57 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
+        })
+    })
+
+    it('uses response message as the ApiError message when no detail or error is present', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.resolve({ message: 'Could not fetch schemas from source.' }),
+        })
+
+        await expect(
+            api.create('/api/projects/2/external_data_sources/source-1/refresh_schemas/')
+        ).rejects.toMatchObject({
+            message: 'Could not fetch schemas from source.',
+            status: 400,
+            data: { message: 'Could not fetch schemas from source.' },
+        } satisfies Partial<ApiError>)
+    })
+
+    describe('OAuth mode auth headers', () => {
+        beforeEach(() => {
+            window.localStorage.setItem(
+                OAUTH_SESSION_KEY,
+                JSON.stringify({
+                    backendHost: 'https://us.posthog.com',
+                    clientId: 'client',
+                    accessToken: 'oauth-token',
+                    refreshToken: 'refresh',
+                    expiresAt: 9999999999999,
+                })
+            )
+        })
+
+        afterEach(() => {
+            window.localStorage.removeItem(OAUTH_SESSION_KEY)
+        })
+
+        it('attaches the bearer token to requests routed to the OAuth backend host', async () => {
+            await api.get('/api/projects/2/insights/')
+            const [url, options] = fakeFetch.mock.calls[0]
+            expect(url).toEqual('https://us.posthog.com/api/projects/2/insights/')
+            expect(options.headers.Authorization).toEqual('Bearer oauth-token')
+        })
+
+        it('does not attach the bearer token to same-origin requests left on the local instance', async () => {
+            await api.get('/some/local/path')
+            const [url, options] = fakeFetch.mock.calls[0]
+            expect(url).toEqual('/some/local/path/')
+            expect(options.headers.Authorization).toBeUndefined()
         })
     })
 

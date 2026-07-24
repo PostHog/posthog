@@ -450,6 +450,48 @@ describe('customerAnalyticsConfigurationDescriber', () => {
         })
     })
 
+    describe('account group type index', () => {
+        it('describes setting account_group_type_index from unset', () => {
+            const result = customerAnalyticsConfigurationDescriber(
+                createChange(createEmptyConfig(), createConfig({ account_group_type_index: 0 }))
+            )
+            expect(result?.description).toHaveLength(1)
+            expect(getTextContent(result)).toBe('set Account group type to group 0')
+        })
+
+        it('describes clearing account_group_type_index', () => {
+            const result = customerAnalyticsConfigurationDescriber(
+                createChange(
+                    createConfig({ account_group_type_index: 1 }),
+                    createConfig({ account_group_type_index: null })
+                )
+            )
+            expect(result?.description).toHaveLength(1)
+            expect(getTextContent(result)).toBe('cleared Account group type')
+        })
+
+        it('describes changing account_group_type_index', () => {
+            const result = customerAnalyticsConfigurationDescriber(
+                createChange(
+                    createConfig({ account_group_type_index: 0 }),
+                    createConfig({ account_group_type_index: 2 })
+                )
+            )
+            expect(result?.description).toHaveLength(1)
+            expect(getTextContent(result)).toBe('changed Account group type from group 0 to group 2')
+        })
+
+        it('returns no description when account_group_type_index is unchanged', () => {
+            const result = customerAnalyticsConfigurationDescriber(
+                createChange(
+                    createConfig({ account_group_type_index: 1 }),
+                    createConfig({ account_group_type_index: 1 })
+                )
+            )
+            expect(result?.description).toEqual([])
+        })
+    })
+
     describe('edge cases', () => {
         it('handles missing before/after properties', () => {
             const result = customerAnalyticsConfigurationDescriber({} as any)

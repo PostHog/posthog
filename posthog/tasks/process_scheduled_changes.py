@@ -1,7 +1,8 @@
 import os
 import json
 import socket
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
@@ -9,12 +10,16 @@ from django.utils import timezone
 
 import structlog
 from celery import current_task
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, ScheduledChange
+
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.scheduled_changes import apply_gated_scheduled_change, regate_recurring_scheduled_change
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 logger = structlog.get_logger(__name__)
 
@@ -112,25 +117,59 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
-def compute_next_run_cron(cron_expr: str, current: datetime) -> datetime:
+UTC_ZONE_INFO = ZoneInfo("UTC")
+
+
+def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
+    """
+    Resolve a stored timezone name to a ZoneInfo, falling back to UTC for NULL or invalid values.
+
+    Pre-resolving once per scheduled change keeps the catch-up loop off the exception path when
+    a row carries a malformed timezone string.
+    """
+    if not tz_name:
+        return UTC_ZONE_INFO
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return UTC_ZONE_INFO
+
+
+def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC_ZONE_INFO) -> datetime:
     """
     Compute the next scheduled run time from a cron expression.
 
+    croniter resolves cron fields in the tzinfo of the datetime argument. Wall-clock fields
+    like "0 9 * * 1-5" are meaningful in a local timezone, not UTC — so when a row records
+    the timezone it was authored in, we localize before evaluating and convert the result
+    back to UTC for storage. Rows predating the timezone column resolve to UTC and keep
+    their historical UTC interpretation unchanged.
+
     Args:
         cron_expr: A standard 5-field cron expression (e.g., "0 9 * * 1-5" for weekdays at 9am).
-        current: The reference datetime to compute the next run from.
+        current: The reference datetime to compute the next run from. Must be tz-aware.
+        tz: Timezone in which to interpret the cron's wall-clock fields. Defaults to UTC.
 
     Returns:
-        The next datetime matching the cron expression after `current`.
+        The next datetime matching the cron expression after `current`, in UTC.
     """
-    return croniter(cron_expr, current).get_next(datetime)
+    reference = current.astimezone(tz)
+    next_run = croniter(cron_expr, reference).get_next(datetime)
+    return next_run.astimezone(UTC)
 
 
 def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
             scheduled_changes = (
-                ScheduledChange.objects.select_for_update(nowait=True)
+                # Scope the row lock to the ScheduledChange rows only (of=("self",)) — a bare
+                # select_related would widen select_for_update's lock to the joined change_request /
+                # created_by rows, adding contention with the approve flow that mutates ChangeRequest.
+                ScheduledChange.objects.select_for_update(nowait=True, of=("self",))
+                # No select_related("change_request"): apply_gated_scheduled_change always re-fetches
+                # the bound CR under select_for_update (the prefetched copy can be stale), and the
+                # rest of the loop only reads change_request_id — a local column needing no join.
+                .select_related("created_by")
                 .filter(
                     executed_at__isnull=True,
                     scheduled_at__lte=timezone.now(),
@@ -155,13 +194,27 @@ def process_scheduled_changes() -> None:
                     scheduled_change.save()
                     continue
 
+                orphaned_target = False
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
-                    instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
-                    instance.scheduled_changes_dispatcher(
-                        scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
-                    )
+                    try:
+                        instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
+                    except ObjectDoesNotExist:
+                        orphaned_target = True
+                        raise
+
+                    # Approval-aware dispatch: a scheduled change whose payload flips a policy-gated
+                    # field carries a bound ChangeRequest created at scheduling time. We only apply
+                    # it through the approved path once that CR is approved; if it is still pending
+                    # when the fire window closes, the CR is expired and the change is skipped. An
+                    # unbound (ungated) change dispatches through the serializer as before.
+                    if apply_gated_scheduled_change(scheduled_change, instance):
+                        instance.scheduled_changes_dispatcher(
+                            scheduled_change.payload,
+                            scheduled_change.created_by,
+                            scheduled_change_id=scheduled_change.id,
+                        )
 
                     # Handle recurring vs one-time schedules.
                     # A recurring schedule uses either a cron expression or a fixed recurrence interval.
@@ -172,9 +225,10 @@ def process_scheduled_changes() -> None:
                         # Compute next run time, handling delayed execution
                         cron_expr = scheduled_change.cron_expression
                         interval = scheduled_change.recurrence_interval
+                        tz = resolve_schedule_timezone(scheduled_change.timezone)
 
                         if cron_expr:
-                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at)
+                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at, tz)
                             interval_label = "cron"
                         else:
                             assert interval is not None
@@ -187,7 +241,7 @@ def process_scheduled_changes() -> None:
                         skipped_count = 0
                         while next_run <= now and skipped_count < MAX_CATCHUP_ITERATIONS:
                             if cron_expr:
-                                next_run = compute_next_run_cron(cron_expr, next_run)
+                                next_run = compute_next_run_cron(cron_expr, next_run, tz)
                             else:
                                 assert interval is not None
                                 next_run = compute_next_run(next_run, interval)
@@ -203,7 +257,7 @@ def process_scheduled_changes() -> None:
                                 interval=interval_label,
                             )
                             if cron_expr:
-                                next_run = compute_next_run_cron(cron_expr, now)
+                                next_run = compute_next_run_cron(cron_expr, now, tz)
                             else:
                                 assert interval is not None
                                 next_run = compute_next_run(now, interval)
@@ -227,6 +281,39 @@ def process_scheduled_changes() -> None:
                             scheduled_change.last_executed_at = now
                             scheduled_change.save()
                         else:
+                            # A bound ChangeRequest is single-use; the next occurrence needs its own
+                            # approval. Always re-gate against the flag's current state and rebind
+                            # (None when no policy now applies, so the next fire dispatches ungated).
+                            # Re-gating must run *before* scheduled_at/last_executed_at are written:
+                            #   1. A row born ungated (change_request_id is None, no policy matched at
+                            #      creation) must still be re-evaluated — a policy enabled since then
+                            #      has to gate every future occurrence, so we can't skip re-gating on a
+                            #      null binding.
+                            #   2. Re-gating can raise PolicyConflict; running it first lets that
+                            #      exception propagate before the advanced scheduled_at is persisted, so
+                            #      the failure handler stops advancing the schedule rather than silently
+                            #      skipping the conflicting occurrence.
+                            try:
+                                new_change_request = regate_recurring_scheduled_change(scheduled_change, instance)
+                            except ApprovalRequired:
+                                # A pending/approved CR for the same flag+action already exists (a
+                                # second schedule, or an immediate edit awaiting approval), so this
+                                # occurrence can't be given its own gate yet. Defer instead of
+                                # advancing: advancing would require either a fresh CR (which the
+                                # conflict forbids) or a null binding, and a null binding dispatches
+                                # the next fire ungated — the exact bypass this gating closes. Leave
+                                # the row untouched (scheduled_at unchanged) so the next sweep
+                                # re-gates it, and don't route through the failure handler, so a
+                                # transient duplicate doesn't retry the schedule to exhaustion and
+                                # mark it permanently failed. It self-heals once the conflicting CR
+                                # resolves. PolicyConflict is deliberately not caught — that's a
+                                # genuine, non-transient conflict the failure handler should record.
+                                logger.info(
+                                    "Deferring recurring scheduled change; a conflicting change request is awaiting approval",
+                                    scheduled_change_id=scheduled_change.id,
+                                )
+                                continue
+                            scheduled_change.change_request = new_change_request
                             scheduled_change.scheduled_at = next_run
                             scheduled_change.last_executed_at = now
                             scheduled_change.save()
@@ -290,7 +377,27 @@ def process_scheduled_changes() -> None:
                     # For recoverable errors under retry limit, leave executed_at=NULL to allow retries
 
                     scheduled_change.save()
-                    capture_exception(e)
+
+                    # orphaned_target covers any target row missing for this record_id/team_id —
+                    # most commonly deleted after the change was scheduled, but also a record_id
+                    # that never existed for this team. Either way it's expected drift, already
+                    # handled via the row's failure_reason above, so reporting it to error tracking
+                    # is pure noise. Other unrecoverable errors — invalid payload, unsupported
+                    # operation, mismatched variant data, or a missing bound ChangeRequest —
+                    # indicate either a broken payload or a data integrity issue, and should stay
+                    # visible in error tracking.
+                    if orphaned_target:
+                        logger.info(
+                            "Scheduled change skipped: target record not found",
+                            scheduled_change_id=scheduled_change.id,
+                            model_name=scheduled_change.model_name,
+                            record_id=scheduled_change.record_id,
+                            team_id=scheduled_change.team_id,
+                            error=str(e),
+                            error_type=e.__class__.__name__,
+                        )
+                    else:
+                        capture_exception(e)
     except OperationalError:
         # Failed to obtain the lock
         pass

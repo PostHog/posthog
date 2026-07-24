@@ -1,19 +1,14 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any, Optional, Union, overload
 from zoneinfo import ZoneInfo
 
-from django.utils import timezone
-
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import PersonsOnEventsMode
-
-from posthog.cache_utils import cache_for
-from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.interval_specs import UnsupportedIntervalError, get_interval_func, get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
-from posthog.queries.insight import insight_sync_execute
+from posthog.schema_enums import PersonsOnEventsMode
 
 
 class PersonPropertiesMode(Enum):
@@ -53,31 +48,11 @@ def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None
     return persons_on_events_mode
 
 
-EARLIEST_TIMESTAMP = "2015-01-01"
-
-GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
-"""
-
 TIME_IN_SECONDS: dict[str, Any] = {
     "hour": 3600,
     "day": 3600 * 24,
     "week": 3600 * 24 * 7,
     "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
-}
-
-PERIOD_TO_TRUNC_FUNC: dict[str, str] = {
-    "hour": "toStartOfHour",
-    "week": "toStartOfWeek",
-    "day": "toStartOfDay",
-    "month": "toStartOfMonth",
-}
-
-PERIOD_TO_INTERVAL_FUNC: dict[str, str] = {
-    "hour": "toIntervalHour",
-    "week": "toIntervalWeek",
-    "day": "toIntervalDay",
-    "month": "toIntervalMonth",
 }
 
 
@@ -91,21 +66,6 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
             raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
         timestamp = timestamp.replace(tzinfo=ZoneInfo(convert_to_timezone)).astimezone(ZoneInfo("UTC"))
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-
-@cache_for(timedelta(seconds=2))
-def get_earliest_timestamp(team_id: int) -> datetime:
-    results = insight_sync_execute(
-        GET_EARLIEST_TIMESTAMP_SQL,
-        {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
-        query_type="get_earliest_timestamp",
-        team_id=team_id,
-    )
-
-    if len(results) > 0:
-        return results[0][0]
-    else:
-        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_start_of_interval_sql(
@@ -129,21 +89,17 @@ def get_start_of_interval_sql(
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
-    if period is None:
-        period = "day"
-    ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
-    if ch_function is None:
+    try:
+        return get_trunc_func(period)
+    except UnsupportedIntervalError:
         raise ValidationError(f"Period {period} is unsupported.")
-    return ch_function
 
 
 def get_interval_func_ch(period: Optional[str]) -> str:
-    if period is None:
-        period = "day"
-    ch_function = PERIOD_TO_INTERVAL_FUNC.get(period.lower())
-    if ch_function is None:
+    try:
+        return get_interval_func(period)
+    except UnsupportedIntervalError:
         raise ValidationError(f"Interval {period} is unsupported.")
-    return ch_function
 
 
 def get_time_in_seconds_for_period(period: Optional[str]) -> str:

@@ -1,7 +1,7 @@
 {
     "compilerOptions": {
         "target": "ES2020",
-        "module": "ESNext",
+        "module": "esnext",
         "moduleResolution": "bundler",
         "esModuleInterop": true,
         "strict": true,

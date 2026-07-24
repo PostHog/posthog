@@ -6,6 +6,10 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    POSTHOG_AI_DEV_APP_ID,
+    POSTHOG_AI_EU_APP_ID,
+    POSTHOG_AI_US_APP_ID,
+    POSTHOG_CODE_DEV_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
@@ -14,6 +18,7 @@ from llm_gateway.products.config import (
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
+    check_free_tier_model_access,
     check_product_access,
     get_product_config,
     resolve_product_alias,
@@ -36,10 +41,13 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "product,auth_method,application_id,model,expected_allowed,expected_error_contains",
         [
-            # llm_gateway allows everything
+            # llm_gateway allows API keys but rejects OAuth (no app IDs configured)
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
-            ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", True, None),
+            ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
+            ("ci", "personal_api_key", None, "claude-3-opus", True, None),
+            ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             # posthog_code requires OAuth with valid app ID
             ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -50,14 +58,47 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
-            # django allows API keys with any model
+            # django allows API keys with any model; OAuth rejected (no app IDs configured)
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
-            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
-            # llma_translation allows API keys but only gpt-4.1-mini
+            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # Custom image scans accept only server-minted OAuth credentials.
+            ("custom_image_scans", "personal_api_key", None, "@cf/zai-org/glm-5.2", False, "requires OAuth"),
+            (
+                "custom_image_scans",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "@cf/zai-org/glm-5.2",
+                False,
+                "server-minted",
+            ),
+            # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
-            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # signals allows API keys (shared gateway key) with any model, and OAuth from the
+            # array/twig (posthog_code) app for coding-agent tasks
+            ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
+            ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
+            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
+            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
+            ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-opus-4-8", False, "not allowed"),
+            ("conversations", "oauth_access_token", "any-app-id", "claude-sonnet-5", False, "not authorized"),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", True, None),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-6", True, None),
+            # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
+            ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", "any-app-id", "claude-sonnet-4-5", False, "not authorized"),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_US_APP_ID, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_EU_APP_ID, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_DEV_APP_ID, "claude-3-opus", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -80,11 +121,20 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
+            "claude-fable-5",
             "claude-opus-4-5",
             "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-5.5",
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
@@ -114,11 +164,17 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
+            "claude-fable-5",
             "claude-opus-4-5",
             "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
+            "gpt-5.5",
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
@@ -182,12 +238,34 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
+    @patch(
+        "llm_gateway.products.config.get_settings",
+        return_value=MagicMock(debug=False, bedrock_region_name="us-east-1", posthog_code_model_gate_enabled=False),
+    )
+    def test_posthog_code_rejects_unallowed_model_via_bedrock_provider(self, mock_get_settings: MagicMock):
+        # A model outside the allowlist with no Bedrock mapping must stay rejected on the bedrock
+        # provider path — the BEDROCK_MODELS entries in the allowlist union must not resurrect it.
+        allowed, error = check_product_access(
+            "posthog_code",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-3-opus",
+            provider="bedrock",
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
     @pytest.mark.parametrize(
         "model",
         [
             "claude-opus-4-5",
             "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -214,7 +292,8 @@ class TestCheckProductAccess:
         assert "not allowed" in error
 
     @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+        "llm_gateway.products.config.get_settings",
+        return_value=MagicMock(debug=False, bedrock_region_name="us-east-1", posthog_code_model_gate_enabled=False),
     )
     def test_background_agents_allows_claude_sonnet_4_6_via_bedrock_provider(self, mock_get_settings: MagicMock):
         allowed, error = check_product_access(
@@ -244,6 +323,74 @@ class TestCheckProductAccess:
         assert error is not None
         assert "not allowed" in error
 
+    def test_slack_app_routing_allows_claude_haiku_via_api_key(self):
+        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, "claude-haiku-4-5")
+        assert allowed is True
+        assert error is None
+
+    def test_slack_app_routing_rejects_non_haiku_models(self):
+        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, "claude-sonnet-4-5")
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
+    def test_slack_posthog_code_alias_still_resolves(self):
+        # Legacy alias kept for backward compat (old URL paths, Django integration kind).
+        allowed, error = check_product_access("slack-posthog-code", "personal_api_key", None, "claude-haiku-4-5")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+            "gpt-5.3-codex",
+        ],
+    )
+    def test_slack_app_allows_agent_models(self, model: str):
+        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert allowed is True
+        assert error is None
+
+    def test_slack_app_rejects_api_keys(self):
+        allowed, error = check_product_access("slack_app", "personal_api_key", None, "claude-sonnet-4-6")
+        assert allowed is False
+        assert error is not None
+        assert "requires OAuth" in error
+
+    def test_slack_app_rejects_unauthorized_oauth_app(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
+    @pytest.mark.parametrize(
+        "application_id",
+        [
+            POSTHOG_AI_US_APP_ID,
+            POSTHOG_AI_EU_APP_ID,
+            POSTHOG_AI_DEV_APP_ID,
+        ],
+    )
+    def test_posthog_ai_allows_oauth_apps(self, application_id: str):
+        allowed, error = check_product_access("posthog_ai", "oauth_access_token", application_id, "claude-sonnet-4-5")
+        assert allowed is True
+        assert error is None
+
+    def test_posthog_ai_rejects_posthog_code_oauth_app(self):
+        allowed, error = check_product_access(
+            "posthog_ai", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-5"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
 
 class TestBackwardsCompatibility:
     def test_twig_app_id_constants_are_aliases(self):
@@ -255,10 +402,11 @@ class TestBackwardsCompatibility:
         [
             ("twig", "posthog_code"),
             ("array", "posthog_code"),
-            ("slack-twig", "slack-posthog-code"),
+            ("slack-twig", "slack_app_routing"),
+            ("slack-posthog-code", "slack_app_routing"),
         ],
     )
-    def test_aliases_resolve_to_posthog_code(self, alias: str, target: str):
+    def test_aliases_resolve_to_canonical_product(self, alias: str, target: str):
         assert resolve_product_alias(alias) == target
 
     def test_twig_alias_returns_same_config_as_posthog_code(self):
@@ -273,9 +421,11 @@ class TestBackwardsCompatibility:
     def test_array_alias_validates_to_posthog_code(self):
         assert validate_product("array") == "posthog_code"
 
-    def test_slack_twig_alias_resolves_to_slack_posthog_code(self):
-        assert get_product_config("slack-twig") is get_product_config("slack-posthog-code")
-        assert validate_product("slack-twig") == "slack-posthog-code"
+    def test_slack_aliases_resolve_to_slack_app_routing(self):
+        assert get_product_config("slack-twig") is get_product_config("slack_app_routing")
+        assert get_product_config("slack-posthog-code") is get_product_config("slack_app_routing")
+        assert validate_product("slack-twig") == "slack_app_routing"
+        assert validate_product("slack-posthog-code") == "slack_app_routing"
 
 
 class TestValidateProduct:
@@ -299,7 +449,191 @@ class TestValidateProduct:
     def test_resolve_product_alias_returns_alias_target(self):
         assert resolve_product_alias("array") == "posthog_code"
         assert resolve_product_alias("twig") == "posthog_code"
-        assert resolve_product_alias("slack-twig") == "slack-posthog-code"
+        assert resolve_product_alias("slack-twig") == "slack_app_routing"
+        assert resolve_product_alias("slack-posthog-code") == "slack_app_routing"
 
     def test_resolve_product_alias_returns_input_if_not_aliased(self):
         assert resolve_product_alias("wizard") == "wizard"
+
+
+class TestCheckFreeTierModelAccess:
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_gate_disabled_by_default_allows_premium_models(self, monkeypatch: pytest.MonkeyPatch):
+        # the PR deploys inert: behavior changes only when the env flag flips
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_free_tier_model_access(
+            product="posthog_code",
+            model="claude-fable-5",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "product,model,code_usage_billed,usage_unlimited,expected_allowed",
+        [
+            # Unbilled org on the Code surface: premium blocked, open model allowed
+            ("posthog_code", "claude-fable-5", False, False, False),
+            ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
+            # The alias routes are the same surface - a URL spelling must not bypass
+            ("array", "claude-fable-5", False, False, False),
+            ("twig", "gpt-5.5", False, False, False),
+            # Org pays for Code usage: everything stays open
+            ("posthog_code", "claude-fable-5", True, False, True),
+            # Staff bypass mirrors the cost-throttle exemption
+            ("posthog_code", "claude-fable-5", False, True, True),
+            # Other products keep their own allowlists; the gate is Code-only
+            ("llm_gateway", "claude-fable-5", False, False, True),
+            # No model in the body: nothing to gate (product allowlist still applies)
+            ("posthog_code", None, False, False, True),
+        ],
+    )
+    def test_gate_matrix(
+        self,
+        product: str,
+        model: str | None,
+        code_usage_billed: bool,
+        usage_unlimited: bool,
+        expected_allowed: bool,
+    ):
+        allowed, error = check_free_tier_model_access(
+            product=product,
+            model=model,
+            provider=None,
+            code_usage_billed=code_usage_billed,
+            usage_unlimited=usage_unlimited,
+        )
+        assert allowed is expected_allowed
+        if expected_allowed:
+            assert error is None
+        else:
+            assert model is not None and error is not None
+            assert model in error
+            assert "@cf/zai-org/glm-5.2" in error
+
+    def test_denied_model_alias_variant_is_also_denied(self):
+        # The old gate's hole: an exact-match list let date-suffixed aliases
+        # through. Prefix matching must not - but a free-listed model's own
+        # variants stay allowed.
+        allowed, _ = check_free_tier_model_access(
+            product="posthog_code",
+            model="claude-fable-5-20260301",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is False
+        allowed, _ = check_free_tier_model_access(
+            product="posthog_code",
+            model="@cf/zai-org/glm-5.2-fp8",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is True
+
+
+class TestServerCredentialRequirement:
+    """The internal products that share the PostHog Code OAuth app (background_agents, signals,
+    slack_app, conversations) must accept only server-minted tokens — those carrying the internal
+    `internal_run:read` marker. Otherwise a user's own Code OAuth token could route around the
+    posthog_code free-tier gate through these products to premium models."""
+
+    _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
+
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    def test_oauth_without_marker_is_rejected(self, product: str):
+        # a desktop Code token (wildcard scope, no internal marker); claude-sonnet-5 is in every
+        # sibling's model list, so the rejection is unambiguously the missing server credential
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is False
+        assert error is not None and "server-minted" in error
+
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    def test_oauth_with_marker_is_allowed(self, product: str):
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=self._MARKER_SCOPES
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_posthog_code_does_not_require_the_marker(self):
+        # desktop users reach posthog_code with a marker-less token — must keep working
+        allowed, error = check_product_access(
+            "posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_personal_api_key_is_not_subject_to_the_marker(self):
+        # the shared server-side gateway key reaches signals as a PAK; the check is OAuth-only
+        allowed, error = check_product_access(
+            "signals", "personal_api_key", None, "claude-sonnet-5", scopes=["llm_gateway:read"]
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_gate_disabled_leaves_sibling_access_unchanged(self, monkeypatch: pytest.MonkeyPatch):
+        # deploys inert: with the flag off, a marker-less token still reaches the siblings
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(
+            "signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is True
+        assert error is None
+
+
+_CODE_APP_IDS = frozenset({POSTHOG_CODE_DEV_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_US_APP_ID})
+_CODE_APP_PRODUCTS = [
+    name
+    for name, config in PRODUCTS.items()
+    if config.allowed_application_ids and config.allowed_application_ids & _CODE_APP_IDS
+]
+
+
+class TestServerCredentialConfigInvariant:
+    # Derived from PRODUCTS rather than hand-enumerated: requires_server_credential
+    # defaults to False, so a future product added to the Code OAuth app without it
+    # would silently reopen the premium-model escape the marker closes. It must fail
+    # here instead.
+    @pytest.mark.parametrize("product", [p for p in _CODE_APP_PRODUCTS if p != "posthog_code"])
+    def test_internal_code_app_products_require_a_server_credential(self, product: str):
+        assert PRODUCTS[product].requires_server_credential, (
+            f"'{product}' accepts the PostHog Code OAuth app but doesn't require a server-minted "
+            "credential, so a user's own Code OAuth token could reach it and route around the "
+            "posthog_code free-tier model gate"
+        )
+
+    def test_posthog_code_is_the_only_code_app_product_open_to_user_tokens(self):
+        # desktop users hold marker-less Code tokens; requiring the marker on the
+        # user-facing product would lock them all out. Membership is asserted so a
+        # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
+        assert "posthog_code" in _CODE_APP_PRODUCTS
+        assert PRODUCTS["posthog_code"].requires_server_credential is False

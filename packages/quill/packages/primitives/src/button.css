@@ -1,0 +1,444 @@
+@layer components {
+    /* =========================================================================
+       Base
+       ========================================================================= */
+    .quill-button {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        cursor: pointer;
+        user-select: none;
+        background-clip: padding-box;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        outline: none;
+    }
+
+    /*
+     * When a quill button is rendered as an <a> (e.g. `render={<LinkPrimitive />}`),
+     * the consumer's global `a { color: … }` reset would otherwise paint the label.
+     * `:where(a)` neutralizes that with zero added specificity — being in the
+     * `components` layer is enough to beat a `base`-layer `a {}` rule, while the
+     * (0,1,0) specificity still lets colored variants (link, primary, …) win.
+     */
+    :where(a).quill-button {
+        color: var(--foreground);
+        text-decoration: none;
+    }
+
+    .quill-button:focus-visible {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* Disabled covers both paths: native :disabled (focusableWhenDisabled=false)
+       and the focusable aria-disabled="true" path (the default). Loading is
+       excluded — it's busy, not unavailable, so it keeps full-strength visuals
+       under the spinner. cursor: not-allowed signals the button is unavailable;
+       native :disabled set it for free, but aria-disabled does not. */
+    .quill-button:disabled,
+    .quill-button[aria-disabled='true']:not([data-loading]) {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .quill-button[aria-invalid='true'] {
+        border-color: var(--destructive);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 20%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-button[aria-invalid='true'] {
+        border-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 40%, transparent);
+    }
+
+    .quill-button svg {
+        flex-shrink: 0;
+        pointer-events: none;
+    }
+
+    .quill-button svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-button kbd {
+        margin-right: -0.25rem;
+    }
+
+    .quill-button:has([data-slot='dot']) {
+        padding-inline-start: 0.375rem;
+    }
+
+    /* =========================================================================
+       Variant: default (menu-style — used in popovers/dropdowns/comboboxes)
+       ========================================================================= */
+    .quill-button--variant-default {
+        border: none;
+        transition: border-radius 0.1s;
+    }
+
+    .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover {
+        color: var(--foreground);
+        background-color: var(--fill-hover);
+    }
+
+    .quill-button--variant-default[aria-expanded='true'] {
+        color: var(--foreground);
+        background-color: var(--fill-expanded);
+    }
+
+    .quill-button--variant-default[data-popup-open] {
+        background-color: var(--fill-selected);
+    }
+
+    .quill-button--variant-default:not(:hover, [data-highlighted])[aria-selected='true'],
+    .quill-button--variant-default:not(:hover, [data-highlighted])[aria-checked='true'] {
+        background-color: var(--fill-selected);
+    }
+
+    .quill-button--variant-default[data-highlighted] {
+        background-color: var(--fill-hover);
+    }
+
+    .quill-button--variant-default[data-highlighted]:not(:hover) {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* Consecutive selected items collapse corners for a seamless stack */
+    .quill-button--variant-default:is([aria-selected='true'], [aria-checked='true']):has(
+            + :is([aria-selected='true'], [aria-checked='true'])
+        ) {
+        border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    :is([aria-selected='true'], [aria-checked='true'])
+        + .quill-button--variant-default:is([aria-selected='true'], [aria-checked='true']) {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+    }
+
+    /* =========================================================================
+       Variant: primary
+       ========================================================================= */
+    .quill-button--variant-primary {
+        position: relative;
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        box-shadow: 0 2px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
+        translate: 0 -1px;
+    }
+
+    .quill-button--variant-primary::after {
+        position: absolute;
+        top: 3px;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        content: '';
+    }
+
+    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--primary) 98%, black 5%);
+    }
+
+    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
+        box-shadow: 0 1px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
+        translate: 0 0;
+    }
+
+    /* Disabled sits flat — no raised lift/shadow that reads as pressable. */
+    .quill-button--variant-primary:disabled,
+    .quill-button--variant-primary[aria-disabled='true']:not([data-loading]) {
+        box-shadow: none;
+        translate: 0 0;
+    }
+
+    /* =========================================================================
+       Variant: outline
+       ========================================================================= */
+    .quill-button--variant-outline {
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
+        border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-button--variant-outline {
+        border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
+    }
+
+    .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover {
+        color: var(--foreground);
+        background-color: var(--fill-hover);
+    }
+
+    .quill-button--variant-outline[aria-expanded='true'] {
+        color: var(--foreground);
+        background-color: var(--fill-expanded);
+    }
+
+    .quill-button--variant-outline[data-popup-open] {
+        background-color: color-mix(in oklab, var(--input) 50%, transparent);
+    }
+
+    /* =========================================================================
+       Variant: destructive
+       ========================================================================= */
+    .quill-button--variant-destructive {
+        color: var(--destructive-foreground);
+        background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+    }
+
+    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+        background-color: var(--destructive);
+    }
+
+    .quill-button--variant-destructive:focus-visible {
+        border-color: color-mix(in oklab, var(--destructive) 40%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
+    }
+
+    .quill-button--variant-destructive[data-popup-open] {
+        background-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+    }
+
+    /* =========================================================================
+       Variant: link / link-muted
+       ========================================================================= */
+    .quill-button--variant-link {
+        color: var(--primary);
+        text-underline-offset: 4px;
+    }
+
+    .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link[data-popup-open] {
+        text-decoration: underline;
+    }
+
+    .quill-button--variant-link-muted {
+        color: var(--muted-foreground);
+        text-underline-offset: 4px;
+    }
+
+    .quill-button--variant-link-muted:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link-muted[data-popup-open] {
+        text-decoration: underline;
+    }
+
+    /* =========================================================================
+       Sizes — height/width/padding/gap/font-size + icon-child size
+       ========================================================================= */
+    .quill-button--size-default {
+        gap: 0.5rem;
+        height: 1.75rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+    }
+
+    .quill-button--size-default:has([data-icon='inline-end']) {
+        padding-inline-end: 0.375rem;
+    }
+
+    .quill-button--size-default:has([data-icon='inline-start']) {
+        padding-inline-start: 0.375rem;
+    }
+
+    .quill-button--size-default svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    .quill-button--size-xs {
+        gap: 0.25rem;
+        height: 1.25rem;
+        padding-inline: 0.5rem;
+        font-size: 0.625rem;
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-button--size-xs:has([data-icon='inline-end']) {
+        padding-inline-end: 0.375rem;
+    }
+
+    .quill-button--size-xs:has([data-icon='inline-start']) {
+        padding-inline-start: 0.375rem;
+    }
+
+    .quill-button--size-xs svg:not([class*='size-']) {
+        width: 0.625rem;
+        height: 0.625rem;
+    }
+
+    .quill-button--size-sm {
+        gap: 0.25rem;
+        height: 1.5rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+    }
+
+    .quill-button--size-sm:has([data-icon='inline-end']) {
+        padding-inline-end: 0.375rem;
+    }
+
+    .quill-button--size-sm:has([data-icon='inline-start']) {
+        padding-inline-start: 0.375rem;
+    }
+
+    .quill-button--size-sm svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    .quill-button--size-lg {
+        gap: 0.5rem;
+        height: 2rem;
+        padding-inline: 0.625rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+    }
+
+    .quill-button--size-lg:has([data-icon='inline-end']) {
+        padding-inline-end: 0.5rem;
+    }
+
+    .quill-button--size-lg:has([data-icon='inline-start']) {
+        padding-inline-start: 0.5rem;
+    }
+
+    .quill-button--size-lg svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    /* Icon sizes — square */
+    .quill-button--size-icon {
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+
+    .quill-button--size-icon svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    .quill-button--size-icon-xs {
+        width: 1.25rem;
+        height: 1.25rem;
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-button--size-icon-xs svg:not([class*='size-']) {
+        width: 0.625rem;
+        height: 0.625rem;
+    }
+
+    .quill-button--size-icon-sm {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+
+    .quill-button--size-icon-sm svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    .quill-button--size-icon-lg {
+        width: 2rem;
+        height: 2rem;
+    }
+
+    .quill-button--size-icon-lg svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    /* =========================================================================
+       Modifiers
+       ========================================================================= */
+    .quill-button--not-focusable-when-disabled:disabled {
+        pointer-events: none;
+    }
+
+    .quill-button--inert {
+        cursor: default;
+    }
+
+    .quill-button--inert:not(:disabled, [aria-disabled='true']):hover {
+        background-color: transparent;
+    }
+
+    /* =========================================================================
+       Loading
+       ========================================================================= */
+
+    /* The label stays in the DOM at full width — text fades to transparent and
+       element children (icons, kbd) fade out — so the button never resizes.
+       The spinner overlays the center. */
+    .quill-button[data-loading] {
+        position: relative;
+        color: transparent;
+        transition: color 150ms ease;
+    }
+
+    /* Loading is busy, not unavailable: the button is focusable-while-disabled
+       (aria-disabled, no native disabled attribute), so the dimmed :disabled
+       look never applies — full-strength visuals under the spinner. */
+    .quill-button[data-loading] > :not(.quill-spinner) {
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    .quill-button[data-loading] > .quill-spinner {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        color: var(--foreground);
+        animation:
+            var(--animate-spin, spin 1s linear infinite),
+            quill-button__spinner-in 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    .quill-button--variant-primary[data-loading] > .quill-spinner {
+        color: var(--primary-foreground);
+    }
+
+    .quill-button--variant-destructive[data-loading] > .quill-spinner {
+        color: var(--destructive-foreground);
+    }
+
+    .quill-button--variant-link[data-loading] > .quill-spinner {
+        color: var(--primary);
+    }
+
+    .quill-button--variant-link-muted[data-loading] > .quill-spinner {
+        color: var(--muted-foreground);
+    }
+
+    @keyframes quill-button__spinner-in {
+        from {
+            opacity: 0;
+            scale: 0.9;
+        }
+
+        to {
+            opacity: 1;
+            scale: 1;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-button[data-loading],
+        .quill-button[data-loading] > :not(.quill-spinner) {
+            transition: none;
+        }
+
+        /* Keep the rotation — it is the status indicator — but drop the entrance. */
+        .quill-button[data-loading] > .quill-spinner {
+            animation: var(--animate-spin, spin 1s linear infinite);
+        }
+    }
+}

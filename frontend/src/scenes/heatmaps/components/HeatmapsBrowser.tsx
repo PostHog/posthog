@@ -1,34 +1,33 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonSkeleton,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { heatmapDataLogic, MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function ExportButton({
     iframeRef,
@@ -40,18 +39,24 @@ function ExportButton({
     const { dataUrl } = useValues(logic)
     const { startHeatmapExport } = useActions(exportsLogic)
 
-    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
+    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters, heightOverride } = useValues(
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const handleExport = (): void => {
         if (dataUrl) {
             startHeatmapExport({
                 heatmap_url: dataUrl,
                 width: iframeWidth,
-                height: iframeHeight,
+                height: heightOverride,
                 heatmap_color_palette: heatmapColorPalette,
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
@@ -70,14 +75,13 @@ function ExportButton({
                 icon={<IconDownload />}
                 tooltip="Export heatmap as PNG"
                 data-attr="export-heatmap"
-                disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
+                disabledReason={
+                    (!dataUrl ? 'We can export only the URL with heatmaps' : undefined) ??
+                    exportAccessControlDisabledReason ??
+                    undefined
+                }
             >
-                <div className="flex w-full gap-x-2 justify-between items-center">
-                    Export{' '}
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
+                Export
             </LemonButton>
         </div>
     )
@@ -97,6 +101,11 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
         useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
+
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <>
@@ -164,7 +173,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             disabledReason={
                                                 !displayUrl && !dataUrl && !hasValidReplayIframeData
                                                     ? 'Select a URL first'
-                                                    : undefined
+                                                    : toolbarAccessDisabledReason
                                             }
                                             size="small"
                                             data-attr="heatmaps-open-in-toolbar"
@@ -248,7 +257,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
             <div className="max-w-[50rem] py-6 px-3 h-full w-full">
                 <div className="flex items-center flex-wrap gap-6">
                     <div className="w-50">
-                        <DetectiveHog className="w-full h-full" />
+                        <HedgehogMagnifyingGlass className="w-full h-full" />
                     </div>
 
                     <div className="flex-1">
@@ -324,15 +333,13 @@ function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
 
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
     return !heatmapsEnabled ? (
         <LemonBanner
             type="warning"
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
+                to: urls.settings('environment-heatmaps', 'heatmaps'),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"
@@ -348,8 +355,11 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
-    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid, isHeightCapped } =
+        useValues(logic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -358,9 +368,21 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapSettings={
+                            hasValidReplayIframeData && clickmapAvailable ? (
+                                <ClickmapSettings iframeRef={iframeRef} />
+                            ) : undefined
+                        }
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
+                        {isHeightCapped && (
+                            <LemonBanner type="info">
+                                This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering
+                                fast, so data below that point isn't shown.
+                            </LemonBanner>
+                        )}
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

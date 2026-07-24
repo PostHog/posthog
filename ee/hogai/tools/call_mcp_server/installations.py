@@ -1,25 +1,89 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 from posthog.models import Team, User
 
-from products.mcp_store.backend.models import MCPServerInstallation
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
 
+def _is_row_ready(row: dict) -> bool:
+    if row["auth_type"] != "oauth":
+        return True
+    sensitive = row.get("sensitive_configuration") or {}
+    return bool(sensitive.get("access_token")) and not sensitive.get("needs_reauth")
+
+
 def _get_installations(team: Team, user: User) -> list[dict]:
-    return list(
-        MCPServerInstallation.objects.filter(team=team, user=user, is_enabled=True)  # type: ignore[arg-type]
-        .select_related("server")
+    """Return the MCP installations available to this user's agent: their
+    personal installations plus team-shared ones.
+
+    Per-URL resolution matches the sandbox facade and PostHog Code: a ready
+    personal installation wins over a shared one (the agent acts as the user
+    rather than through a teammate's shared credential), but a dead personal
+    row doesn't shadow a working shared one. Unready shared rows are hidden
+    entirely — a teammate can't fix someone else's credential, while an
+    unready personal row still surfaces so Max can walk the user through
+    reauth."""
+    rows = [
+        dict(row)
+        for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
+        .filter(Q(scope="shared") | Q(user=user))
         .values(
             "id",
             "display_name",
             "url",
             "auth_type",
-            "server__oauth_metadata",
-            "server__oauth_client_id",
             "sensitive_configuration",
+            "scope",
         )
+    ]
+    ready_shared_by_url = {row["url"]: row for row in rows if row["scope"] == "shared" and _is_row_ready(row)}
+    results: list[dict] = []
+    for row in rows:
+        if row["scope"] == "shared":
+            continue
+        if _is_row_ready(row) or row["url"] not in ready_shared_by_url:
+            results.append(row)
+            ready_shared_by_url.pop(row["url"], None)
+    results.extend(ready_shared_by_url.values())
+    return results
+
+
+def _get_cached_tools(installation_id: str) -> list[dict]:
+    """Return the installation's cached tool list (rows where `removed_at IS NULL`).
+
+    Each row is shaped to match the `tools/list` payload the MCP client would
+    return, so the agent code can format it identically whether the data came
+    from Postgres or from a fresh upstream call. `approval_state` rides along
+    so callers don't need a second query to filter/annotate."""
+    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id, removed_at__isnull=True).values(
+        "tool_name", "description", "input_schema", "approval_state"
     )
+    return [
+        {
+            "name": row["tool_name"],
+            "description": row["description"] or "No description",
+            "inputSchema": row["input_schema"] or {},
+            "approval_state": row["approval_state"],
+        }
+        for row in rows
+    ]
+
+
+def _get_tool_approval_states(installation_id: str) -> dict[str, str]:
+    """Return a {tool_name: approval_state} map for an installation.
+
+    Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
+    call them even if the cached approval state was previously `approved` —
+    if the tool is gone upstream, it's gone. Anything not in the map is
+    treated as `needs_approval` by the caller (explicit opt-in for freshly
+    discovered tools)."""
+    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
+        "tool_name", "approval_state", "removed_at"
+    )
+    return {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:
@@ -34,7 +98,9 @@ def _mark_needs_reauth_sync(installation_id: str) -> None:
 
 
 def _refresh_token_sync(installation: dict) -> dict:
-    inst_obj = MCPServerInstallation.objects.select_related("server").get(id=installation["id"])
+    # refresh_installation_token resolves template-or-installation OAuth creds itself,
+    # so we don't need to pre-join anything here.
+    inst_obj = MCPServerInstallation.objects.get(id=installation["id"])
     return refresh_installation_token(inst_obj)
 
 

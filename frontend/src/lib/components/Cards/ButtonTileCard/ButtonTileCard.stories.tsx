@@ -1,8 +1,13 @@
+import '~/scenes/dashboard/DashboardItems.scss'
+
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { DashboardPlacement, DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { ButtonTileCard } from './ButtonTileCard'
+
+const gridItemStoryClassName =
+    'relative react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]'
 
 const meta: Meta = {
     title: 'Components/Cards/Button Tile Card',
@@ -61,9 +66,10 @@ export const Template: Story = {
                         placement={DashboardPlacement.Dashboard}
                     />
                 </div>
-                <div className="relative w-fit">
+                <div>
                     <h5>With resize handles</h5>
                     <ButtonTileCard
+                        className={gridItemStoryClassName}
                         showResizeHandles={true}
                         buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog')}
                         placement={DashboardPlacement.Dashboard}
@@ -87,9 +93,10 @@ export const TransparentBackground: Story = {
                         placement={DashboardPlacement.Dashboard}
                     />
                 </div>
-                <div className="relative w-fit">
+                <div>
                     <h5>Transparent background (edit mode — dashed border)</h5>
                     <ButtonTileCard
+                        className={gridItemStoryClassName}
                         showResizeHandles={true}
                         buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog', {
                             transparentBackground: true,

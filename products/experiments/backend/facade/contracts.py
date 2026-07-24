@@ -11,45 +11,69 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class FeatureFlagVariant:
-    """Feature flag variant configuration."""
-
-    key: str
-    rollout_percentage: int
-    name: str | None = None
-
-
-@dataclass(frozen=True)
-class CreateFeatureFlagInput:
-    """Input for creating a feature flag (new format)."""
-
-    key: str
-    variants: tuple[FeatureFlagVariant, ...]
-    name: str | None = None
-    rollout_percentage: int | None = None
-    aggregation_group_type_index: int | None = None
-    ensure_experience_continuity: bool | None = None
-
-
-@dataclass(frozen=True)
 class CreateExperimentInput:
     """
     Input for creating an experiment.
 
-    Supports both old format (parameters.feature_flag_variants)
-    and new format (feature_flag_filters).
-
-    Note: This class is NOT hashable when parameters is non-None due to the
-    dict type. Use only feature_flag_filters (new format) if hashability is
-    required for Turbo caching. The parameters field exists only for backwards
-    compatibility during migration.
+    Note: This class is NOT hashable when dict/list fields are non-None due to
+    mutable types. Use only immutable fields if hashability is required.
     """
 
+    # Required fields
     name: str
     feature_flag_key: str
+
+    # Optional basic fields
     description: str = ""
-    feature_flag_filters: CreateFeatureFlagInput | None = None
+    type: str = "product"
+
+    # Experiment-own parameters (variant_notes, custom_exposure_filter, prompt_metadata, ...).
+    # Flag config is NOT accepted here — it goes through feature_flag_config below.
     parameters: dict[str, Any] | None = None
+
+    # Feature flag configuration in the flag's own write shape:
+    # {filters: {multivariate, groups, aggregation_group_type_index, payloads}, ensure_experience_continuity}
+    feature_flag_config: dict[str, Any] | None = None
+
+    # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config)
+    running_time_calculation: dict[str, Any] | None = None
+
+    # Variant keys dropped from statistical analysis
+    excluded_variants: list[str] | None = None
+
+    # Metrics configuration
+    metrics: list[dict] | None = None
+    metrics_secondary: list[dict] | None = None
+    secondary_metrics: list[dict] | None = None
+    metrics_ordering: tuple[str, ...] | None = None  # primary_metrics_ordered_uuids
+    secondary_metrics_ordering: tuple[str, ...] | None = None  # secondary_metrics_ordered_uuids
+    saved_metrics_ids: list[dict] | None = None
+
+    # Statistics and exposure configuration
+    stats_config: dict | None = None
+    exposure_criteria: dict | None = None
+    only_count_matured_users: bool | None = None
+
+    # Experiment lifecycle
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    archived: bool = False
+    deleted: bool = False
+    conclusion: str | None = None
+    conclusion_comment: str | None = None
+    # GitHub repo (`org/repo`) targeted by the flag-cleanup PR on experiment end
+    repository: str | None = None
+
+    # Advanced configuration
+    holdout_id: int | None = None  # We'll pass ID, facade will load the model
+    filters: dict | None = None
+    scheduling_config: dict | None = None
+    create_in_folder: str | None = None
+
+    # Internal flags
+    allow_unknown_events: bool = False
+    serializer_context: dict | None = None
 
 
 @dataclass(frozen=True)

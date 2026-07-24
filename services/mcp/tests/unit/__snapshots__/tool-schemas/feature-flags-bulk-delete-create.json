@@ -1,0 +1,69 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "filters": {
+            "description": "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs.",
+            "properties": {
+                "active": {
+                    "description": "Filter by active state.\n\n* `true` - true\n* `false` - false\n* `STALE` - STALE",
+                    "enum": ["true", "false", "STALE"],
+                    "type": "string"
+                },
+                "archived": {
+                    "description": "Filter by archived state. When omitted, archived flags are excluded.",
+                    "type": "boolean"
+                },
+                "created_by_id": {
+                    "description": "Filter to flags created by a specific user ID.",
+                    "type": "number"
+                },
+                "evaluation_runtime": {
+                    "description": "Filter by evaluation runtime.\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "enum": ["server", "client", "all"],
+                    "type": "string"
+                },
+                "excluded_properties": {
+                    "description": "JSON-encoded property filter to exclude. Same shape as the list endpoint.",
+                    "type": "string"
+                },
+                "excluded_tags": {
+                    "description": "Tag names to exclude. Flags carrying any of these tags are filtered out.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "has_evaluation_contexts": {
+                    "description": "When true, only matches flags with at least one evaluation context.",
+                    "type": "boolean"
+                },
+                "search": {
+                    "description": "Search by feature flag key or name (case-insensitive).",
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "Tag names to filter by. Flags carrying at least one of these tags match.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "description": "Filter by flag type.\n\n* `boolean` - boolean\n* `multivariant` - multivariant\n* `experiment` - experiment\n* `remote_config` - remote_config",
+                    "enum": ["boolean", "multivariant", "experiment", "remote_config"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ids": {
+            "description": "Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.",
+            "items": {
+                "minimum": 1,
+                "type": "number"
+            },
+            "type": "array"
+        }
+    },
+    "type": "object"
+}

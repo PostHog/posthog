@@ -9,8 +9,10 @@ import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -41,14 +43,16 @@ function UrlSearchHeader(): JSX.Element {
     )
 }
 
-export function HeatmapRecording(): JSX.Element {
+export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     if (!hasValidReplayIframeData) {
         return (
@@ -61,20 +65,26 @@ export function HeatmapRecording(): JSX.Element {
         )
     }
 
+    const content = (
+        <>
+            <HeatmapsWarnings />
+            <div className="overflow-hidden w-full min-h-screen">
+                <UrlSearchHeader />
+                <LemonDivider className="my-4" />
+                <FilterPanel
+                    clickmapSettings={clickmapAvailable ? <ClickmapSettings iframeRef={iframeRef} /> : undefined}
+                />
+                <LemonDivider className="my-4" />
+                <div className="relative flex flex-1 overflow-hidden min-h-screen">
+                    <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
+                </div>
+            </div>
+        </>
+    )
+
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <SceneContent>
-                <HeatmapsWarnings />
-                <div className="overflow-hidden w-full min-h-screen">
-                    <UrlSearchHeader />
-                    <LemonDivider className="my-4" />
-                    <FilterPanel />
-                    <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden min-h-screen">
-                        <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
-                    </div>
-                </div>
-            </SceneContent>
+            {embedded ? content : <SceneContent>{content}</SceneContent>}
         </BindLogic>
     )
 }

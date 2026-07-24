@@ -17,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
@@ -24,7 +25,14 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
-import { ExporterFormat, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ExporterFormat,
+    InsightLogicProps,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
@@ -43,13 +51,23 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
+    const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
+
+    // Creating an endpoint from an insight is a create operation, so it's gated on resource-level access.
+    const createEndpointAccessReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
+        AccessControlLevel.Editor
+    )
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
     const canExport = exportContext != null && insight.short_id != null
     const showCohort =
         hogQL != null &&
@@ -125,11 +143,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     onClick: () => push(urls.insightSharing(insight.short_id!)),
                 }}
                 dataAttrKey={RESOURCE_TYPE}
-                disabledReasons={
-                    !isSavedInsight
-                        ? { 'You must save the insight first before sharing it as a template': true }
-                        : undefined
-                }
+                disabledReasons={{
+                    'You must save the insight first before sharing it as a template': !isSavedInsight,
+                    ...(sharingDisabledReason ? { [sharingDisabledReason]: true } : {}),
+                }}
             />
 
             {canExport ? (
@@ -164,11 +181,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 <ButtonPrimitive
                     onClick={openCreateFromInsightModal}
                     menuItem
-                    disabledReasons={
-                        !isSavedInsight
-                            ? { 'You must save the insight first before creating an endpoint from it': true }
-                            : undefined
-                    }
+                    disabledReasons={{
+                        'You must save the insight first before creating an endpoint from it': !isSavedInsight,
+                        ...(createEndpointAccessReason ? { [createEndpointAccessReason]: true } : {}),
+                    }}
                 >
                     <IconEndpoints />
                     Create endpoint

@@ -1,5 +1,4 @@
-import random
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -7,25 +6,88 @@ from django.db.models import Count
 from django.db.models.expressions import F
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-
-from posthog.schema import ProductIntentContext, ProductKey
+from django.utils import timezone
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
+from posthog.schema_enums import ProductIntentContext, ProductItemCategory, ProductKey
+
+from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
     from posthog.models.product_intent.product_intent import ProductIntent
     from posthog.models.team import Team
     from posthog.models.user import User
+
+# The baseline sidebar: every user gets these whenever they gain access to a project.
+# Paths must match `path` values in frontend/src/products.json.
+DEFAULT_PRODUCT_PATHS = [
+    "Product analytics",
+    "Dashboards",
+    "Web analytics",
+    "Error tracking",
+    "Session replay",
+]
+
+
+def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProductList]":
+    """
+    Add the default set of products to a user's sidebar for a team.
+
+    Called whenever a user/project connection is created (project creation, invite
+    acceptance, access grants). Rows the user already has - enabled or intentionally
+    disabled - are left untouched.
+    """
+    existing_paths = set(
+        UserProductList.objects.filter(user=user, team=team, product_path__in=DEFAULT_PRODUCT_PATHS).values_list(
+            "product_path", flat=True
+        )
+    )
+    missing_paths = [path for path in DEFAULT_PRODUCT_PATHS if path not in existing_paths]
+    if not missing_paths:
+        return []
+
+    # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
+    # idempotent under concurrent seeding.
+    return UserProductList.objects.bulk_create(
+        [
+            UserProductList(
+                user=user, team=team, product_path=path, enabled=True, reason=UserProductList.Reason.DEFAULT
+            )
+            for path in missing_paths
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
+    """
+    Add the default products to the user's sidebar for every team in the organization
+    they have access to. Called when a user/organization connection is created (invite
+    acceptance, domain/SSO auto-join).
+    """
+    from posthog.rbac.user_access_control import UserAccessControl
+
+    uac = UserAccessControl(user=user, organization_id=str(organization.id))
+    accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+
+    for team in accessible_teams:
+        add_default_products_for_user(user, team)
 
 
 def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
     """
     Get product counts for all items in a team, ranked by popularity.
     Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
+
+    Excludes rows seeded by onboarding-delegation: those are an "explore everything" default
+    for the delegator only and shouldn't drive what subsequent teammates see in their sidebar.
+    The actual setup person's choices (ONBOARDING / PRODUCT_INTENT) remain the colleague signal.
     """
     return list[dict[str, Any]](
         UserProductList.objects.filter(team=team, enabled=True)
+        .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
         .values("product_path")
         .annotate(colleague_count=Count("user", distinct=True))
         .order_by("-colleague_count")
@@ -36,6 +98,10 @@ def backfill_user_product_list_for_new_user(user: "User", team: "Team") -> None:
     """
     Backfill UserProductList entries for a new user in a new team based on what
     they have enabled in other teams they belong to.
+
+    Not called from any active flow - connection-time seeding uses
+    `add_default_products_for_user` instead - but kept alongside the colleague-sync
+    Dagster job in case we bring inheritance-based suggestions back.
     """
     UserProductList.backfill_from_other_teams(user, team)
     UserProductList.sync_from_team_colleagues(user, team, count=3)
@@ -47,6 +113,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     Products are identified by their path from the static products list.
     """
 
+    # django-stubs normally injects the default `objects` manager during mypy's semantic pass,
+    # but this module sits in an import cycle (it imports `user_access_control`/`organization`,
+    # which loop back through `posthog.models`). When the plugin analyzes the model mid-cycle it
+    # skips the injection, so every `UserProductList.objects` use trips `attr-defined`. Declaring
+    # the manager explicitly is order-independent and keeps the type stable regardless of the cycle.
+    objects: ClassVar[models.Manager["UserProductList"]]
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     user = models.ForeignKey("User", on_delete=models.CASCADE)
@@ -56,6 +129,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
+        # Part of the default product set added whenever a user gains access to a project
+        DEFAULT = "default", "Default"
+
         # User chose this product during onboarding
         ONBOARDING = "onboarding", "Onboarding"
 
@@ -65,7 +141,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # Colleagues on the same team have the product in their sidebar
         USED_BY_COLLEAGUES = "used_by_colleagues", "Used by Colleagues"
 
-        # User has a similar product in their sidebar
+        # User has a similar product in their sidebar, DEPRECATED
         USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
 
         # User has this product on another team they belong to
@@ -77,9 +153,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # Sales team can go in and automatically add a product to someone's sidebar
         SALES_LED = "sales_led", "Sales Led"
 
+        # User delegated onboarding setup to a teammate; we pre-populate their sidebar so
+        # the post-delegation home page isn't empty.
+        ONBOARDING_DELEGATED = "onboarding_delegated", "Onboarding Delegated"
+
     # When the system suggests a product to the user, we store the reason why we suggested it in here
     # And and optional freeform text field to be displayed to the user on hover
-    reason: models.CharField = models.CharField(max_length=32, choices=Reason.choices, null=True)
+    reason: models.CharField = models.CharField(max_length=32, choices=Reason, null=True)
     reason_text: models.TextField = models.TextField(null=True)
 
     # There's a difference between the `UserProductList` not existing and it being disabled
@@ -98,6 +178,40 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         ]
         verbose_name = "User Product List"
         verbose_name_plural = "User Product Lists"
+
+    @staticmethod
+    def enable_all_for_user(
+        user: "User",
+        team: "Team",
+        reason: "UserProductList.Reason",
+    ) -> "list[UserProductList]":
+        """Enable every released product in the sidebar for a user on a given team.
+
+        Skips Unreleased/alpha products — those are intentionally opt-in (mirroring the
+        EditCustomProductsModal "Unreleased" group, which the user must enable one-by-one).
+        Re-enables rows the user previously disabled.
+        """
+        target_paths = [
+            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
+        ]
+        if not target_paths:
+            return []
+
+        # Bulk-create rows that don't yet exist (~one query) instead of N sequential
+        # `get_or_create` round-trips, then bulk-flip any rows the user had previously
+        # disabled. `unique_together` on (team, user, product_path) makes this idempotent.
+        # `auto_now` doesn't fire on bulk update, so set updated_at explicitly.
+        UserProductList.objects.bulk_create(
+            [
+                UserProductList(user=user, team=team, product_path=path, enabled=True, reason=reason)
+                for path in target_paths
+            ],
+            ignore_conflicts=True,
+        )
+        UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths, enabled=False).update(
+            enabled=True, reason=reason, updated_at=timezone.now()
+        )
+        return list(UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths))
 
     @staticmethod
     def create_from_product_intent(product_intent: "ProductIntent", user: "User") -> "list[UserProductList]":
@@ -206,11 +320,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
         other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)
 
-        # Get all product paths the user has enabled in other teams
+        # Get all product paths the user has enabled in other teams. Skip rows seeded by
+        # onboarding-delegation - those represent a one-off "explore everything" state for
+        # the delegator and shouldn't propagate when they later join another team.
         user_product_paths = set(
-            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True).values_list(
-                "product_path", flat=True
-            )
+            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True)
+            .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
+            .values_list("product_path", flat=True)
         )
 
         # Create UserProductList entries for the missing products
@@ -236,68 +352,32 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         user: "User",
         team: "Team",
         max_products: int = 1,
-        ignored_categories: list[str] | None = None,
+        ignored_categories: list[ProductItemCategory] | None = None,
     ) -> "list[UserProductList]":
         """
         Sync cross-sell products for a user based on products they already have enabled.
-        For each enabled product, finds other products from the same category.
-        Randomly selects up to max_products from all cross-sell candidates across all categories.
-
-        Args:
-            user: The user to sync products for
-            team: The team to sync products in
-            max_products: Maximum number of cross-sell products to suggest (across all categories)
-            ignored_categories: List of category names to ignore when suggesting cross-sell products.
-                               Defaults to ["Tools", "Unreleased"]
-
-        Returns:
-            List of newly created UserProductList entries
+        Delegates candidate selection to CrossSellCandidateSelector, see that for more
+        information on how the selection process works.
         """
         if user.allow_sidebar_suggestions is False:
             return []
 
-        # By default we don't want to add new items from the Tools and Unreleased categories since:
-        # - Tools aren't relevant to cross-sell
-        # - Unreleased products are not yet ready for cross-sell and aren't correlated one to another
-        if ignored_categories is None:
-            ignored_categories = ["Tools", "Unreleased"]
-
-        ignored_categories_set = set(ignored_categories)
-
-        user_enabled_products = UserProductList.objects.filter(user=user, team=team, enabled=True).values_list(
-            "product_path", flat=True
+        ignored_categories_set = (
+            set(ignored_categories) if ignored_categories is not None else DEFAULT_IGNORED_CATEGORIES
         )
 
-        user_existing_products = set(
-            UserProductList.objects.filter(user=user, team=team).values_list("product_path", flat=True)
+        user_rows = UserProductList.objects.filter(user=user, team=team).values_list("product_path", "enabled")
+        user_enabled_products = {path for path, enabled in user_rows if enabled}
+        user_excluded_products = {path for path, _ in user_rows}
+
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=user_enabled_products,
+            ignored_categories=ignored_categories_set,
+            user_excluded_products=user_excluded_products,
         )
-
-        products_by_category = Products.get_products_by_category()
-        product_to_category: dict[str, str] = {}
-        for product in Products.products():
-            if product.category:
-                product_to_category[product.path] = product.category
-
-        all_cross_sell_candidates: set[str] = set()
-        for product_path in user_enabled_products:
-            category = product_to_category.get(product_path)
-            if not category or category in ignored_categories_set:
-                continue
-
-            category_products = set(products_by_category.get(category, []))
-            cross_sell_options = category_products - user_existing_products - {product_path}
-
-            filtered_options = {
-                opt for opt in cross_sell_options if product_to_category.get(opt) not in ignored_categories_set
-            }
-            all_cross_sell_candidates.update(filtered_options)
-
-        if not all_cross_sell_candidates:
+        selected = selector.pick(k=max_products)
+        if not selected:
             return []
-
-        candidates_list = list(all_cross_sell_candidates)
-        random.shuffle(candidates_list)
-        selected = candidates_list[:max_products]
 
         created_items = []
         for product_path in selected:
@@ -320,16 +400,16 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 @receiver(post_save, sender="ee.AccessControl")
 def access_control_created(sender, instance, created, **kwargs):
     """
-    Handle AccessControl creation to backfill UserProductList for users gaining access to a team.
+    Handle AccessControl creation to seed UserProductList for users gaining access to a team.
 
-    When a user is granted access to a team via AccessControl, we backfill their UserProductList
-    based on what they have enabled in other teams they belong to.
+    When a user is granted access to a team via AccessControl, we add the default set of
+    products to their sidebar for that team.
     """
     if created and instance.organization_member and instance.resource == "project":
         user = instance.organization_member.user
         team = instance.team
 
         if settings.TEST:
-            backfill_user_product_list_for_new_user(user, team)
+            add_default_products_for_user(user, team)
         else:
-            transaction.on_commit(lambda: backfill_user_product_list_for_new_user(user, team))
+            transaction.on_commit(lambda: add_default_products_for_user(user, team))

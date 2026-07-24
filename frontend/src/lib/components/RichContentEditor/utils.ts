@@ -29,6 +29,7 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         chain: () => editor.chain().focus(),
         destroy: () => editor.destroy(),
         getMarks: (type: string) => getMarks(editor, type),
+        getAttributes: (typeOrName: string) => editor.getAttributes(typeOrName),
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
         isSelectionFullyWithinSingleMark: (markName: string) => {
@@ -76,8 +77,11 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
             }
         },
         pasteContent: (position: number, text: string) => {
-            editor?.chain().focus().setTextSelection(position).run()
-            editor?.view.pasteText(text)
+            if (editor.isDestroyed) {
+                return
+            }
+            editor.chain().focus().setTextSelection(position).run()
+            editor.view.pasteText(text)
         },
         findNode: (position: number) => findNode(editor, position),
         findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
@@ -90,6 +94,9 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         },
         scrollToPosition(position) {
             queueMicrotask(() => {
+                if (editor.isDestroyed) {
+                    return
+                }
                 const { node } = editor.view.domAtPos(position)
                 const element =
                     node.nodeType === Node.TEXT_NODE

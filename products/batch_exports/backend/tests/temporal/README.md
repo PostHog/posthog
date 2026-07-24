@@ -71,9 +71,9 @@ DEBUG=1 AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" AWS_REGION="region
 
 ## Testing S3 batch exports
 
-S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`) and a Google Cloud Storage (GCS) bucket.
+S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`), tests that target a Google Cloud Storage (GCS) bucket, and tests that run against a playground AWS account.
 
-If no environment variables are defined, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
+If no environment variables are defined and no AWS credentials are present, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
 
 ### Using an S3 bucket
 
@@ -115,6 +115,17 @@ DEBUG=1 GCS_TEST_BUCKET='your-test-bucket' AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_A
 ```
 
 Replace the environment variables with the values obtained from the setup steps.
+
+### Using an AWS playground account
+
+Tests in `test_activity_with_role_assumption` require an AWS playground account to run. The good news is that once we are logged in to the AWS playground account, no additional setup is required. The test suite is configured to setup every AWS resource required.
+
+Any AWS account can be a playground account, but the account used must allow chained role assumption (or rather, not block it).
+
+> [!NOTE]
+> For PostHog employees, an AWS playground account is available for you.
+
+After acquiring an AWS account, simply log in to it and run the tests like normal. No special environment variables are required. Tests clean-up after themselves once done.
 
 ## Testing Snowflake batch exports
 
@@ -193,3 +204,34 @@ DEBUG=1 AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;AccountN
     AZURE_TEST_CONTAINER='<CONTAINER_NAME>' \
     pytest products/batch_exports/backend/tests/temporal/destinations/azure_blob/test_workflow_with_azure_account.py -v
 ```
+
+## Testing File Download batch exports
+
+File download batch exports are tested against a real AWS account. A real account is required as the batch export is essentially a wrapper around an S3 batch export, and we already have tests for S3 batch exports to ensure they work with and without an AWS account. The only parts that are left outside of the S3 batch export interact with AWS directly: Generating temporary credentials and checking S3 bucket status.
+
+PostHog has AWS playground accounts that we can leverage for our tests:
+
+1. Obtain an AWS playground account by following [this runbook](https://runbooks.posthog.com/aws/aws-playground)
+2. Configure your environment with the AWS playground's admin credentials. I recommend setting up SSO in your `~/.aws/config` so that credentials are automatically refreshed, logging in with SSO using `aws sso login --profile {profile_name}`, and then setting `AWS_PROFILE={profile_name}` in your environment before running the tests. Here is an example on how to configure this using `playground` as the `{profile_name}`), replace the variables with the details in the playground login page:
+
+   ```ini
+   [sso-session sso-playground]
+   sso_start_url = {SSO URL from playground account}
+   sso_region = {SSO region from playground account}
+   sso_registration_scopes = sso:account:access
+
+   [profile playground]
+   sso_session = sso-playground
+   sso_account_id = {Playground account ID}
+   sso_role_name = {PostHog Admin role}
+   region = us-east-1
+   ```
+
+3. Verify you did everything correctly by calling `aws sts get-caller-identity --profile {profile_name}`
+4. Run the tests:
+
+   ```bash
+   AWS_PROFILE={profile_name} DEBUG=1 pytest products/batch_exports/backend/tests/temporal/destinations/file_download/ -v
+   ```
+
+The tests fixtures will setup the necessary role and bucket for the tests to run, and also clean it up after the test is done.

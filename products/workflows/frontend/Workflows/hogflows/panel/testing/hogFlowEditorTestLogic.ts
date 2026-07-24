@@ -1,30 +1,36 @@
-import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { deepEqual as equal } from 'fast-equals'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { uuid } from 'lib/utils/dom'
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
-import { performQuery } from '~/queries/query'
+import { groupsModel } from '~/models/groupsModel'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,
     FilterLogicalOperator,
+    GroupType,
+    GroupTypeIndex,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
 } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
+import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
-import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
+import type { HogFlow } from '../../types'
 
 // Time range constants for event search
 const STANDARD_SEARCH_DAYS = 7
@@ -42,74 +48,537 @@ export const createExampleEvent = (
     workflowName?: string | null,
     eventName: string = '$pageview',
     email: string = 'example@posthog.com'
-): CyclotronJobInvocationGlobals => ({
-    event: {
-        uuid: uuid(),
-        distinct_id: uuid(),
-        timestamp: dayjs().toISOString(),
-        elements_chain: '',
-        url: `${window.location.origin}/project/${teamId || 1}/events/`,
-        event: eventName,
-        properties: {
-            $current_url: window.location.href.split('#')[0],
-            $browser: 'Chrome',
-            this_is_an_example_event: true,
+): CyclotronJobInvocationGlobals => {
+    const resolvedTeamId = teamId || 1
+    const projectUrl = `${window.location.origin}/project/${resolvedTeamId}`
+    const eventUuid = uuid()
+    const eventTimestamp = dayjs().toISOString()
+    return {
+        event: {
+            uuid: eventUuid,
+            distinct_id: uuid(),
+            timestamp: eventTimestamp,
+            elements_chain: '',
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(eventTimestamp)}`,
+            event: eventName,
+            properties: {
+                $current_url: window.location.href.split('#')[0],
+                $browser: 'Chrome',
+                this_is_an_example_event: true,
+            },
         },
-    },
-    person: {
-        id: uuid(),
-        properties: {
-            email,
+        person: {
+            id: uuid(),
+            properties: {
+                email,
+            },
+            name: 'Example person',
+            url: `${window.location.origin}/person/${uuid()}`,
         },
-        name: 'Example person',
-        url: `${window.location.origin}/person/${uuid()}`,
-    },
-    groups: {},
-    project: {
-        id: teamId || 1,
-        name: 'Default project',
-        url: `${window.location.origin}/project/${teamId || 1}`,
-    },
-    source: {
-        name: workflowName ?? 'Unnamed',
-        url: window.location.href.split('#')[0],
-    },
-})
+        groups: {},
+        project: {
+            id: resolvedTeamId,
+            name: 'Default project',
+            url: projectUrl,
+        },
+        source: {
+            name: workflowName ?? 'Unnamed',
+            url: window.location.href.split('#')[0],
+        },
+    }
+}
+
+// HogQL tuple columns appended to the events query so we can resolve each group type's
+// key + properties for the sample, mirroring real execution which resolves them from $groups.
+export const groupSelectColumns = (groupTypes: Map<GroupTypeIndex, GroupType>): string[] => {
+    const columns: string[] = []
+    groupTypes.forEach((groupType) => {
+        const name = escapePropertyAsHogQLIdentifier(groupType.group_type)
+        columns.push(`tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`)
+    })
+    return columns
+}
+
+// Parse the group tuples appended by groupSelectColumns (offsets start after event + person).
+export const parseGroupsFromResult = (
+    result: any[],
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): NonNullable<CyclotronJobInvocationGlobals['groups']> => {
+    const groups: NonNullable<CyclotronJobInvocationGlobals['groups']> = {}
+    // Use a positional counter, not the Map key: groupSelectColumns appends columns in iteration
+    // order, so column n sits at result[2 + n] regardless of each type's group_type_index.
+    let position = 0
+    groupTypes.forEach((groupType) => {
+        const tuple = result?.[2 + position++]
+        if (tuple && Array.isArray(tuple) && tuple[2]) {
+            let properties = {}
+            try {
+                properties = JSON.parse(tuple[3])
+            } catch {
+                // Ignore malformed properties
+            }
+            groups[groupType.group_type] = {
+                type: groupType.group_type,
+                index: tuple[1],
+                id: tuple[2],
+                url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                properties,
+            }
+        }
+    })
+    return groups
+}
 
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
-    workflowName?: string | null
-): CyclotronJobInvocationGlobals => ({
-    event: {
-        uuid: event.uuid,
-        distinct_id: event.distinct_id,
-        timestamp: event.timestamp,
-        elements_chain: event.elements_chain || '',
-        url: event.url || '',
-        event: event.event,
-        properties: event.properties,
-    },
-    person: person
-        ? {
-              id: person.id,
-              properties: person.properties,
-              name: person.name || 'Unknown person',
-              url: `${window.location.origin}/person/${person.id}`,
-          }
-        : undefined,
-    groups: {},
-    project: {
-        id: teamId,
-        name: 'Default project',
-        url: `${window.location.origin}/project/${teamId}`,
-    },
-    source: {
-        name: workflowName ?? 'Unnamed',
-        url: window.location.href.split('#')[0],
-    },
-})
+    workflowName?: string | null,
+    groups: CyclotronJobInvocationGlobals['groups'] = {}
+): CyclotronJobInvocationGlobals => {
+    const projectUrl = `${window.location.origin}/project/${teamId}`
+    return {
+        event: {
+            uuid: event.uuid,
+            distinct_id: event.distinct_id,
+            timestamp: event.timestamp,
+            elements_chain: event.elements_chain || '',
+            url:
+                event.url ||
+                `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(event.timestamp)}`,
+            event: event.event,
+            properties: event.properties,
+        },
+        person: person
+            ? {
+                  id: person.id,
+                  properties: person.properties,
+                  name: person.name || 'Unknown person',
+                  url: `${window.location.origin}/person/${person.id}`,
+              }
+            : undefined,
+        groups,
+        project: {
+            id: teamId,
+            name: 'Default project',
+            url: projectUrl,
+        },
+        source: {
+            name: workflowName ?? 'Unnamed',
+            url: window.location.href.split('#')[0],
+        },
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface hogFlowEditorTestLogicValues {
+    groupsEnabled: boolean // groupsAccessLogic
+    groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    selectedNodeId: string | null // hogFlowEditorLogic
+    triggerAction: TriggerAction | null // workflowLogic
+    workflow: HogFlow // workflowLogic
+    workflowSanitized: HogFlow // workflowLogic
+    accumulatedVariables: Record<string, any>
+    canTryExtendedSearch: boolean
+    eventPanelOpen: string[]
+    eventSelectorOpen: boolean
+    fetchCancelled: boolean
+    groupTypesForTest: Map<GroupTypeIndex, GroupType>
+    isTestInvocationSubmitting: boolean
+    isTestInvocationValid: boolean
+    lastSearchedEventName: string | null
+    matchingFilters: PropertyGroupFilter
+    nextActionId: string | null
+    noMatchingEvents: boolean
+    sampleGlobals: CyclotronJobInvocationGlobals | null
+    sampleGlobalsError: string | null
+    sampleGlobalsLoading: boolean
+    shouldLoadSampleGlobals: boolean
+    showTestInvocationErrors: boolean
+    testInvocation: HogflowTestInvocation
+    testInvocationAllErrors: Record<string, any>
+    testInvocationChanged: boolean
+    testInvocationErrors: DeepPartialMap<HogflowTestInvocation, ValidationErrorType>
+    testInvocationHasErrors: boolean
+    testInvocationManualErrors: Record<string, any>
+    testInvocationTouched: boolean
+    testInvocationTouches: Record<string, boolean>
+    testInvocationValidationErrors: DeepPartialMap<HogflowTestInvocation, ValidationErrorType>
+    testResult: HogflowTestResult | null
+    testResultMode: 'diff' | 'raw'
+    workflowVariableDefaults: Record<string, any>
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface hogFlowEditorTestLogicActions {
+    setAnimatingEdgePair: (
+        from: string,
+        to: string
+    ) => {
+        from: string
+        to: string
+    } // hogFlowEditorLogic
+    setSelectedNodeId: (selectedNodeId: string | null) => {
+        selectedNodeId: string | null
+    } // hogFlowEditorLogic
+    cancelSampleGlobalsLoading: () => {
+        value: true
+    }
+    loadSampleEventByName: (payload: { eventName: string; extendedSearch?: boolean }) => {
+        eventName: string
+        extendedSearch: boolean | undefined
+    }
+    loadSampleEventByNameFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSampleEventByNameSuccess: (
+        sampleGlobals: CyclotronJobInvocationGlobals | null,
+        payload?: {
+            eventName: string
+            extendedSearch: boolean | undefined
+        }
+    ) => {
+        sampleGlobals: CyclotronJobInvocationGlobals | null
+        payload?: {
+            eventName: string
+            extendedSearch: boolean | undefined
+        }
+    }
+    loadSampleGlobals: (payload?: { eventId?: string; extendedSearch?: boolean }) => {
+        eventId: string | undefined
+        extendedSearch: boolean | undefined
+    }
+    loadSampleGlobalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSampleGlobalsSuccess: (
+        sampleGlobals: CyclotronJobInvocationGlobals | null,
+        payload?: {
+            eventId: string | undefined
+            extendedSearch: boolean | undefined
+        }
+    ) => {
+        sampleGlobals: CyclotronJobInvocationGlobals | null
+        payload?: {
+            eventId: string | undefined
+            extendedSearch: boolean | undefined
+        }
+    }
+    receiveExampleGlobals: (globals: object | null) => {
+        globals: object | null
+    }
+    resetAccumulatedVariables: () => {
+        value: true
+    }
+    resetTestInvocation: (values?: HogflowTestInvocation) => {
+        values?: HogflowTestInvocation
+    }
+    setCanTryExtendedSearch: (canTryExtendedSearch: boolean) => {
+        canTryExtendedSearch: boolean
+    }
+    setEventPanelOpen: (eventPanelOpen: string[]) => {
+        eventPanelOpen: string[]
+    }
+    setEventSelectorOpen: (eventSelectorOpen: boolean) => {
+        eventSelectorOpen: boolean
+    }
+    setLastSearchedEventName: (eventName: string | null) => {
+        eventName: string | null
+    }
+    setNextActionId: (nextActionId: string | null) => {
+        nextActionId: string | null
+    }
+    setNoMatchingEvents: (noMatchingEvents: boolean) => {
+        noMatchingEvents: boolean
+    }
+    setSampleGlobals: (globals?: string | null) => {
+        globals: string | null | undefined
+    }
+    setSampleGlobalsError: (error: string | null) => {
+        error: string | null
+    }
+    setTestInvocationManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setTestInvocationValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setTestInvocationValues: (values: DeepPartial<HogflowTestInvocation>) => {
+        values: DeepPartial<HogflowTestInvocation>
+    }
+    setTestResult: (testResult: HogflowTestResult | null) => {
+        testResult: HogflowTestResult | null
+    }
+    setTestResultMode: (mode: 'diff' | 'raw') => {
+        mode: 'diff' | 'raw'
+    }
+    submitTestInvocation: () => {
+        value: boolean
+    }
+    submitTestInvocationFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitTestInvocationRequest: (testInvocation: HogflowTestInvocation) => {
+        testInvocation: HogflowTestInvocation
+    }
+    submitTestInvocationSuccess: (testInvocation: HogflowTestInvocation) => {
+        testInvocation: HogflowTestInvocation
+    }
+    touchTestInvocationField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface hogFlowEditorTestLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        shouldLoadSampleGlobals: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    properties: any[]
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null
+        ) => boolean
+        groupTypesForTest: (
+            groupsEnabled: boolean,
+            groupTypes: Map<GroupTypeIndex, GroupType>
+        ) => Map<GroupTypeIndex, GroupType>
+        matchingFilters: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    properties: any[]
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null
+        ) => PropertyGroupFilter
+        workflowVariableDefaults: (workflow: HogFlow) => Record<string, any>
+    }
+}
+
+export type hogFlowEditorTestLogicType = MakeLogicType<
+    hogFlowEditorTestLogicValues,
+    hogFlowEditorTestLogicActions,
+    WorkflowLogicProps,
+    hogFlowEditorTestLogicMeta
+>
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
@@ -121,6 +590,10 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             ['workflow', 'workflowSanitized', 'triggerAction'],
             hogFlowEditorLogic,
             ['selectedNodeId'],
+            groupsModel,
+            ['groupTypes'],
+            groupsAccessLogic,
+            ['groupsEnabled'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
@@ -257,7 +730,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
-                            select: ['*', 'person'],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypesForTest)],
                             after: timeRange,
                             limit: 10,
                             orderBy: ['timestamp DESC'],
@@ -267,7 +740,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found
@@ -310,8 +783,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[resultIndex][0]
                         const person = response.results[resultIndex][1]
+                        const groups = parseGroupsFromResult(response.results[resultIndex], values.groupTypesForTest)
 
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
                             actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
@@ -340,7 +820,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                     ],
                                 },
                             ],
-                            select: ['*', 'person'],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypesForTest)],
                             after: timeRange,
                             limit: 1,
                             orderBy: ['timestamp DESC'],
@@ -349,7 +829,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found, use standard example event
@@ -374,10 +854,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[0][0]
                         const person = response.results[0][1]
+                        const groups = parseGroupsFromResult(response.results[0], values.groupTypesForTest)
 
                         actions.setSampleGlobalsError(null)
                         actions.setCanTryExtendedSearch(false)
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch {
                         actions.setSampleGlobalsError('Failed to load event. Please try again.')
                         return null
@@ -389,15 +876,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     selectors(() => ({
         shouldLoadSampleGlobals: [
             (s) => [s.triggerAction],
-            (triggerAction): boolean => {
+            (triggerAction: null | import('../../../workflowLogic').TriggerAction): boolean => {
                 // Only load samples if the trigger is event
                 return !!(triggerAction && triggerAction.config.type === 'event')
             },
         ],
+        // Mirror real execution: the worker's getGroupsForEvent gates on group_analytics, so without
+        // the addon the test run must also resolve no groups (otherwise a group condition could match
+        // here but never in production).
+        groupTypesForTest: [
+            (s) => [s.groupsEnabled, s.groupTypes],
+            (groupsEnabled: boolean, groupTypes: Map<GroupTypeIndex, GroupType>): Map<GroupTypeIndex, GroupType> =>
+                groupsEnabled ? groupTypes : new Map(),
+        ],
         // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
             (s) => [s.triggerAction],
-            (triggerAction): PropertyGroupFilter => {
+            (triggerAction: null | import('../../../workflowLogic').TriggerAction): PropertyGroupFilter => {
                 if (!triggerAction || triggerAction.config.type !== 'event') {
                     return {
                         type: FilterLogicalOperator.And,
@@ -466,7 +961,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         ],
         workflowVariableDefaults: [
             (s) => [s.workflow],
-            (workflow): Record<string, any> =>
+            (workflow: import('../../types').HogFlow): Record<string, any> =>
                 workflow.variables?.reduce(
                     (acc, variable) => {
                         acc[variable.key] = variable.default

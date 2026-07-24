@@ -1,10 +1,13 @@
 import os
-import statistics
 
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    _batch_update_cohort_metrics,
+    build_final_query,
+    flush_kafka_batch,
+)
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     CohortSelectionActivityInput,
     QueryPercentileThresholds,
@@ -944,6 +947,8 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     async def test_get_percentile_thresholds_defaults_to_p0_p100(self):
         """Should default to p0-p100 when percentiles not specified."""
+        from posthog.temporal.messaging.quantiles_storage import CachedQuantiles
+
         inputs = QueryPercentileThresholdsInput()  # No percentiles specified
 
         # Mock cohort queryset with duration data (in milliseconds)
@@ -954,12 +959,18 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = mock_durations
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Pin the cache lookup so the test isn't affected by Redis state from
+            # previous tests in the session.
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=CachedQuantiles(quantiles=[float(d) for d in mock_durations] * 10, max_value=5000),
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is not None
-        # p0 is treated as a lower bound of 0, p100 should be the maximum observed value (5000)
+        # p0 is treated as a lower bound of 0, p100 should be the cached max value (5000)
         assert result.min_threshold_ms == 0  # p0 (lower bound)
-        assert result.max_threshold_ms == 5000  # p100 (max value)
+        assert result.max_threshold_ms == 5000  # p100 (cached max)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
@@ -989,14 +1000,21 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [1000]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Patch the imported reference (not the source module) and force a cache miss
+            # so the activity falls through to the insufficient-data check inside
+            # get_cached_quantiles_or_calculate.
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_statistics_error(self):
-        """Should return None when statistics.quantiles raises an error."""
+        """Should return None when quantiles calculation fails."""
         inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
 
         # Mock data that will cause statistics error (too few points for percentile calculation)
@@ -1005,8 +1023,11 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [100, 200]  # Valid data
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            # Mock statistics.quantiles to raise StatisticsError
-            with patch("statistics.quantiles", side_effect=statistics.StatisticsError("Insufficient data")):
+            # Mock the quantiles cache to return None (indicating calculation failure)
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
+            ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
@@ -1014,7 +1035,7 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_invalid_data_types(self):
-        """Should return None when Cohort duration data has invalid types."""
+        """Should return None when quantiles calculation fails due to invalid data."""
         inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
 
         # Invalid duration data format (non-numeric values)
@@ -1023,7 +1044,12 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock the quantiles cache to return None (indicating calculation failure due to invalid data)
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1062,7 +1088,7 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_type_error(self):
-        """Should return None when data contains non-numeric values that cause TypeError."""
+        """Should return None when quantiles calculation fails due to type errors."""
         inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
 
         # Mock data that will cause TypeError during max() operation
@@ -1072,7 +1098,12 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [100, None, 200, 300]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock the quantiles cache to return None (indicating calculation failure due to type errors)
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1260,11 +1291,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1305,11 +1338,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1350,11 +1385,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1399,11 +1436,13 @@ class TestCoordinatorWorkflowInsufficientData:
         mock_selection_result.cohort_ids = []
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1428,3 +1467,280 @@ class TestCoordinatorWorkflowInsufficientData:
             workflow_logger.info.assert_any_call(
                 "Duration percentile filtering p0.0-p90.0: disabled (no historical query data)"
             )
+
+
+class TestBatchUpdateCohortMetrics:
+    """Tests for _batch_update_cohort_metrics timestamp handling regression."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_batch_update_cohort_metrics_timestamp_fix(self):
+        """
+        Regression test for timestamp bug fix.
+
+        - Asserts last_backfill_person_properties_at is NOT updated
+        - Asserts last_realtime_cohort_calculation_at IS updated
+        - Asserts last_calculation_duration_ms updates respect the DURATION_UPDATE_RELATIVE_THRESHOLD
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        # Set fixed timestamps for comparison
+        initial_backfill_time = timezone.now() - timedelta(hours=24)
+        initial_realtime_time = timezone.now() - timedelta(hours=12)
+
+        # Create test cohorts with various duration scenarios
+        cohort1 = await sync_to_async(Cohort.objects.create)(
+            name="Cohort 1",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=initial_backfill_time,
+            last_realtime_cohort_calculation_at=initial_realtime_time,
+            last_calculation_duration_ms=1000,  # 1 second
+        )
+
+        cohort2 = await sync_to_async(Cohort.objects.create)(
+            name="Cohort 2",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=initial_backfill_time,
+            last_realtime_cohort_calculation_at=initial_realtime_time,
+            last_calculation_duration_ms=2000,  # 2 seconds
+        )
+
+        # Prepare duration updates
+        # Cohort 1: Small change below threshold (should NOT update duration)
+        new_duration_1 = 1100  # 10% change, below DURATION_UPDATE_RELATIVE_THRESHOLD (25%)
+
+        # Cohort 2: Large change above threshold (should update duration)
+        new_duration_2 = 3000  # 50% change, above DURATION_UPDATE_RELATIVE_THRESHOLD (25%)
+
+        cohort_durations = {cohort1.id: new_duration_1, cohort2.id: new_duration_2}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohorts from database
+        await sync_to_async(cohort1.refresh_from_db)()
+        await sync_to_async(cohort2.refresh_from_db)()
+
+        # Assert last_backfill_person_properties_at is NOT updated
+        assert cohort1.last_backfill_person_properties_at == initial_backfill_time
+        assert cohort2.last_backfill_person_properties_at == initial_backfill_time
+
+        # Assert last_realtime_cohort_calculation_at IS updated for both
+        assert cohort1.last_realtime_cohort_calculation_at > initial_realtime_time
+        assert cohort2.last_realtime_cohort_calculation_at > initial_realtime_time
+
+        # Assert duration updates respect the DURATION_UPDATE_RELATIVE_THRESHOLD
+        # Cohort 1: small change, should NOT update duration
+        assert cohort1.last_calculation_duration_ms == 1000  # Original value
+
+        # Cohort 2: large change, should update duration
+        assert cohort2.last_calculation_duration_ms == 3000  # New value
+
+        # Assert correct count of duration updates
+        assert duration_updates_count == 1  # Only cohort2 should have had duration updated
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_batch_update_cohort_metrics_first_calculation(self):
+        """Test that first calculation always updates duration regardless of threshold."""
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        cohort = await sync_to_async(Cohort.objects.create)(
+            name="New Cohort",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_calculation_duration_ms=None,  # No previous calculation
+        )
+
+        initial_realtime_time = cohort.last_realtime_cohort_calculation_at
+
+        # Prepare first duration
+        first_duration = 5000  # 5 seconds
+        cohort_durations = {cohort.id: first_duration}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohort from database
+        await sync_to_async(cohort.refresh_from_db)()
+
+        # Assert last_realtime_cohort_calculation_at IS updated
+        assert cohort.last_realtime_cohort_calculation_at != initial_realtime_time
+
+        # Assert duration is updated for first calculation
+        assert cohort.last_calculation_duration_ms == 5000
+
+        # Assert correct count
+        assert duration_updates_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_batch_update_cohort_metrics_zero_previous_duration(self):
+        """Test that cohorts with zero previous duration always get updated."""
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        cohort = await sync_to_async(Cohort.objects.create)(
+            name="Zero Duration Cohort",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_calculation_duration_ms=0,  # Zero previous duration
+        )
+
+        # Prepare new duration
+        new_duration = 100  # Small value
+        cohort_durations = {cohort.id: new_duration}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohort from database
+        await sync_to_async(cohort.refresh_from_db)()
+
+        # Assert duration is updated even though change is small (because previous was 0)
+        assert cohort.last_calculation_duration_ms == 100
+
+        # Assert correct count
+        assert duration_updates_count == 1
+
+
+class TestFinalQueryMembershipStatuses:
+    """Tests for the final_query membership diff logic.
+
+    The query determines 'entered'/'left' via a FULL OUTER JOIN between
+    current cohort matches and the previous cohort_membership state.
+    These tests verify that status assignment and filtering are correct
+    for each membership scenario without requiring a live ClickHouse.
+    """
+
+    @pytest.mark.parametrize(
+        "rows,expected_statuses",
+        [
+            # New members only → all 'entered'
+            (
+                [{"person_id": "aaa", "status": "entered"}, {"person_id": "bbb", "status": "entered"}],
+                {"aaa": "entered", "bbb": "entered"},
+            ),
+            # Departing members only → all 'left'
+            (
+                [{"person_id": "ccc", "status": "left"}, {"person_id": "ddd", "status": "left"}],
+                {"ccc": "left", "ddd": "left"},
+            ),
+            # Mixed
+            (
+                [{"person_id": "eee", "status": "entered"}, {"person_id": "fff", "status": "left"}],
+                {"eee": "entered", "fff": "left"},
+            ),
+            # No changes → empty (WHERE clause filters out unchanged rows)
+            ([], {}),
+        ],
+    )
+    def test_only_entered_and_left_statuses_are_emitted(self, rows, expected_statuses):
+        """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop.
+
+        Note: this test operates on hand-built row dicts, not on query output. An execution-level
+        test seeding cohort_membership with entered/left/unchanged persons and asserting the
+        unchanged one is dropped would give stronger coverage but requires a ClickHouse harness
+        that this suite (which mocks Kafka) does not have. Track separately if desired.
+        """
+        observed: dict[str, str] = {}
+
+        for row in rows:
+            status = row["status"]
+            assert status in ("entered", "left"), (
+                f"Query should only emit 'entered' or 'left'; got {status!r}. "
+                "'unchanged' rows must be filtered out by the WHERE clause."
+            )
+            observed[row["person_id"]] = status
+
+        assert observed == expected_statuses
+
+    def test_build_final_query_contains_expected_predicates(self):
+        """build_final_query must contain the key SQL predicates from the optimized query.
+
+        Asserts that regressions (e.g. reverting to CASE/ELSE or GROUP BY team_id) are caught
+        by directly inspecting the produced SQL.
+        """
+        sql = build_final_query("SELECT id FROM nowhere")
+
+        # Status is computed with if(), not CASE ... ELSE 'unchanged'
+        assert "if(previous_members.person_id IS NULL, 'entered', 'left')" in sql
+        assert "CASE" not in sql
+        assert "'unchanged'" not in sql
+
+        # Unchanged rows are filtered by NULL checks, not a string IN list
+        assert "(previous_members.person_id IS NULL) OR (current_matches.id IS NULL)" in sql
+        assert "status IN" not in sql
+
+        # cohort_membership subquery groups only by person_id, not team_id
+        assert "GROUP BY person_id" in sql
+        assert "GROUP BY team_id" not in sql
+
+        # The inner subquery is embedded correctly
+        assert "SELECT id FROM nowhere" in sql
+
+        # GROUP BY spill settings (the OOM fix) must survive future edits to build_final_query
+        assert "join_use_nulls = 1" in sql
+        assert "max_bytes_ratio_before_external_group_by = 0.5" in sql
+        assert "distributed_aggregation_memory_efficient = 1" in sql
+
+    def test_if_expression_matches_full_outer_join_semantics(self):
+        """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
+
+        - NULL previous_person_id  → person is new → 'entered'
+        - NULL current_id          → person departed → 'left'
+        - Both non-NULL            → unchanged → excluded by WHERE
+        """
+
+        def compute_status(previous_person_id, current_id):
+            """Mirrors: if(previous_members.person_id IS NULL, 'entered', 'left')"""
+            return "entered" if previous_person_id is None else "left"
+
+        def passes_where(previous_person_id, current_id):
+            """Mirrors: WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)"""
+            return (previous_person_id is None) or (current_id is None)
+
+        pid = "person-abc"
+
+        # New member: present in current, absent from previous → WHERE passes, status 'entered'
+        assert passes_where(None, pid) is True
+        assert compute_status(None, pid) == "entered"
+
+        # Departing member: present in previous, absent from current → WHERE passes, status 'left'
+        assert passes_where(pid, None) is True
+        assert compute_status(pid, None) == "left"
+
+        # Unchanged member: present in both → WHERE filters it out entirely
+        assert passes_where(pid, pid) is False

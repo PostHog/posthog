@@ -24,6 +24,7 @@ interface WellKnownOAuthAuthorizationServerMetadata {
     response_types_supported: string[]
     response_modes_supported: string[]
     grant_types_supported: string[]
+    authorization_grant_profiles_supported: string[]
     token_endpoint_auth_methods_supported: string[]
     code_challenge_methods_supported: string[]
     service_documentation: string
@@ -45,8 +46,19 @@ async function fetchAuthoritativeMetadata(): Promise<WellKnownOAuthAuthorization
 
 export async function handleMetadata(request: Request): Promise<Response> {
     if (!authoritativeMetadataCache || !cachedUntil || cachedUntil < new Date()) {
-        authoritativeMetadataCache = await fetchAuthoritativeMetadata()
-        cachedUntil = new Date(Date.now() + 600 * 1000) // cache for 10 minutes (600 seconds)
+        try {
+            authoritativeMetadataCache = await fetchAuthoritativeMetadata()
+            cachedUntil = new Date(Date.now() + 600 * 1000) // cache for 10 minutes (600 seconds)
+        } catch (error) {
+            console.error('Failed to fetch metadata:', error)
+            return new Response(
+                JSON.stringify({
+                    error: 'server_error',
+                    error_description: 'Unable to fetch authorization server metadata',
+                }),
+                { status: 502, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            )
+        }
     }
 
     const url = new URL(request.url)

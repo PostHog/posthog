@@ -30,7 +30,7 @@ export const forSnapshot = (
         try {
             // eslint-disable-next-line no-restricted-syntax
             jsonObj = JSON.parse(obj)
-        } catch (e) {}
+        } catch {}
 
         if (jsonObj != null) {
             // String was JSON, so parse it and replace UUIDs

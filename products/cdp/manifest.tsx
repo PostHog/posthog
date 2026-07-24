@@ -1,7 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -14,15 +13,23 @@ export const manifest: ProductManifest = {
             description:
                 'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
             activityScope: 'HogFunction',
-            defaultDocsPath: '/docs/cdp/transformations',
+            iconType: 'data_pipeline',
+        },
+        EventFiltering: {
+            import: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
+            projectBased: true,
+            name: 'Event ingestion filtering',
+            description: 'Drop events at ingestion time based on event metadata.',
             iconType: 'data_pipeline',
         },
     },
     routes: {
         '/transformations': ['Transformations', 'transformations'],
+        '/event-filtering': ['EventFiltering', 'eventFiltering'],
     },
     urls: {
         transformations: (): string => '/transformations',
+        eventFiltering: (): string => '/event-filtering',
     },
     treeItemsNew: [
         {
@@ -58,27 +65,13 @@ export const manifest: ProductManifest = {
         {
             path: 'Web scripts',
             intents: [ProductKey.SITE_APPS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
             href: urls.webScripts(),
             sceneKey: 'WebScripts',
             sceneKeys: ['WebScripts'],
-        },
-        {
-            path: `Data pipelines`,
-            intents: [
-                ProductKey.PIPELINE_BATCH_EXPORTS,
-                ProductKey.PIPELINE_DESTINATIONS,
-                ProductKey.PIPELINE_TRANSFORMATIONS,
-                ProductKey.SITE_APPS,
-            ],
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-pipeline-light)'],
-            flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
         },
     ],
     treeItemsMetadata: [
@@ -90,6 +83,15 @@ export const manifest: ProductManifest = {
             href: urls.transformations(),
             sceneKey: 'Transformations',
             sceneKeys: ['Transformations'],
+        },
+        {
+            path: 'Event ingestion filtering',
+            category: 'Pipeline',
+            type: 'event_filter',
+            iconType: 'data_pipeline_metadata',
+            href: urls.eventFiltering(),
+            sceneKey: 'EventFiltering',
+            sceneKeys: ['EventFiltering'],
         },
         {
             path: `Destinations`,

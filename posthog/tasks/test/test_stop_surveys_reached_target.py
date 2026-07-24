@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
@@ -9,9 +10,11 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.models import FeatureFlag, Organization, Team, User
+from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 
@@ -54,8 +57,11 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
     @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     def test_stop_surveys_with_enough_responses(self) -> None:
+        # Fixed ids: the survey id list is inlined into the snapshotted ClickHouse SQL,
+        # so random ids would make the snapshot depend on test execution order.
         surveys = [
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000001"),
                 name="1",
                 team=self.team1,
                 created_by=self.user,
@@ -63,6 +69,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 responses_limit=1,
             ),
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
                 name="2",
                 team=self.team1,
                 created_by=self.user,
@@ -70,6 +77,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 responses_limit=1,
             ),
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000003"),
                 name="3",
                 team=self.team2,
                 created_by=self.user,
@@ -94,6 +102,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
 
         for survey in surveys:
             survey.refresh_from_db()
+            assert survey.end_date is not None
             assert now() - survey.end_date < timedelta(seconds=1)
             assert not survey.responses_limit
 
@@ -184,6 +193,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         stop_surveys_reached_target()
 
         survey.refresh_from_db()
+        assert survey.end_date is not None
         assert now() - relativedelta(hours=1) - survey.end_date < timedelta(seconds=1)
         assert survey.responses_limit == 1
 
@@ -242,3 +252,28 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         survey.refresh_from_db()
         assert survey.end_date is not None
         assert survey.responses_limit is None
+
+    def test_stop_survey_on_responses_limit_is_logged_as_system_activity(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=1,
+            created_at=now(),
+        )
+        self._create_event_for_survey(survey)
+        flush_persons_and_events()
+
+        stop_surveys_reached_target()
+
+        log = ActivityLog.objects.get(scope="Survey", item_id=str(survey.id), activity="updated")
+        # No user: the scheduler closed it, so the activity log shows it as a system action.
+        assert log.is_system
+        assert log.user is None
+        # end_date going None -> value is what the frontend renders as "stopped".
+        assert log.detail is not None
+        change = log.detail["changes"][0]
+        assert change["field"] == "end_date"
+        assert change["action"] == "created"
+        assert change["after"] is not None

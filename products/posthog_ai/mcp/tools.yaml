@@ -1,0 +1,17 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: PostHog AI
+feature: posthog_ai
+url_prefix: /
+ui_apps: {}
+tools:
+    docs-search:
+        operation: docs_search
+        enabled: false
+    mcp-tools-create:
+        operation: mcp_tools_create
+        enabled: false

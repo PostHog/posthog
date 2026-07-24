@@ -9,12 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
-    EventDefinitionApi,
+    EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
+    EventDefinitionsPrimaryPropertiesRetrieveParams,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
+    PrimaryPropertiesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -39,7 +43,7 @@ export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -118,7 +122,7 @@ export const getEventDefinitionsPartialUpdateUrl = (projectId: string, id: strin
 export const eventDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEnterpriseEventDefinitionApi: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
+    patchedEnterpriseEventDefinitionApi?: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsPartialUpdateUrl(projectId, id), {
@@ -155,9 +159,33 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
+}
+
 /**
- * Get event definition by exact name
+ * Add, remove, or replace tags across multiple event definitions in one request.
+ *
+ * Overrides ``TaggedItemViewSetMixin.bulk_update_tags``, which assumes integer PKs and runs
+ * object-level access-control filtering. Event definitions use UUID PKs and are not an
+ * object-level access-controlled resource — project membership (enforced by the viewset) is
+ * the only boundary, matching the single-object update path — so this scopes by project and
+ * skips the per-object editor check. Tags live on the base ``EventDefinition`` row, so it
+ * operates there regardless of the enterprise extension.
  */
+export const eventDefinitionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
+    })
+}
+
 export const getEventDefinitionsByNameRetrieveUrl = (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams
@@ -166,7 +194,7 @@ export const getEventDefinitionsByNameRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -177,12 +205,15 @@ export const getEventDefinitionsByNameRetrieveUrl = (
         : `/api/projects/${projectId}/event_definitions/by_name/`
 }
 
+/**
+ * Get event definition by exact name
+ */
 export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
     options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -197,6 +228,46 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
         ...options,
         method: 'GET',
     })
+}
+
+export const getEventDefinitionsPrimaryPropertiesRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/primary_properties/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/primary_properties/`
+}
+
+/**
+ * Resolve team-configured primary properties for event definitions.
+ *
+ * The response only contains entries where a non-null primary_property is set on the
+ * EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+ * for names not present in the response.
+ */
+export const eventDefinitionsPrimaryPropertiesRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams,
+    options?: RequestInit
+): Promise<PrimaryPropertiesResponseApi> => {
+    return apiMutator<PrimaryPropertiesResponseApi>(
+        getEventDefinitionsPrimaryPropertiesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {

@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from posthog.models import FeatureFlag
 from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 
@@ -42,7 +42,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
         self.assertEqual(internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"], 20)
-        mock_get_count.assert_called_once_with(self.survey.id)
+        mock_get_count.assert_called_once_with(self.survey)
 
     @freeze_time("2024-12-21T12:00:00Z")
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
@@ -51,8 +51,9 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         update_survey_adaptive_sampling()
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
         self.assertEqual(internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"], 100)
-        mock_get_count.assert_called_once_with(self.survey.id)
+        mock_get_count.assert_called_once_with(self.survey)
         survey = Survey.objects.get(id=self.survey.id)
+        assert survey.response_sampling_daily_limits is not None
         response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
         self.assertEqual(response_sampling_daily_limits[0].get("date"), "2024-12-22")
 
@@ -64,7 +65,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
         self.assertEqual(internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"], 100)
-        mock_get_count.assert_called_once_with(self.survey.id)
+        mock_get_count.assert_called_once_with(self.survey)
 
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_ignores_ended_surveys(self, mock_get_count: MagicMock) -> None:

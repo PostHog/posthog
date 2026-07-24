@@ -23,8 +23,29 @@ pub enum S3Error {
 
 impl From<aws_sdk_s3::Error> for S3Error {
     fn from(err: aws_sdk_s3::Error) -> Self {
-        S3Error::OperationFailed(err.to_string())
+        S3Error::OperationFailed(format_with_source_chain(&err))
     }
+}
+
+/// Walk an error's source chain and join each layer with ": ".
+///
+/// AWS SDK errors implement `Display` tersely (e.g. `SdkError`'s top-level message is
+/// "service error" / "dispatch failure"). The actionable detail — HTTP status, error code,
+/// signature/permission failure — only lives in the `source()` chain. Without walking
+/// it, every `OperationFailed` collapses to the same uninformative string.
+fn format_with_source_chain(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut src = err.source();
+    while let Some(e) = src {
+        msg.push_str(": ");
+        msg.push_str(&e.to_string());
+        src = e.source();
+    }
+    msg
+}
+
+fn op_failed(prefix: &str, err: &dyn std::error::Error) -> S3Error {
+    S3Error::OperationFailed(format!("{prefix}: {}", format_with_source_chain(err)))
 }
 
 impl From<std::string::FromUtf8Error> for S3Error {
@@ -70,20 +91,22 @@ impl S3Client for S3Impl {
             .send()
             .await
             .map_err(|e| {
-                let error_message = format!("Failed to get object from S3: {e}");
-                if let aws_sdk_s3::operation::get_object::GetObjectError::NoSuchKey(_) =
-                    e.into_service_error()
-                {
+                let svc_err = e.into_service_error();
+                if matches!(
+                    svc_err,
+                    aws_sdk_s3::operation::get_object::GetObjectError::NoSuchKey(_)
+                ) {
                     S3Error::NotFound(key.to_string())
                 } else {
-                    S3Error::OperationFailed(error_message)
+                    op_failed("Failed to get object from S3", &svc_err)
                 }
             })?;
 
-        let body_bytes =
-            get_object_output.body.collect().await.map_err(|e| {
-                S3Error::OperationFailed(format!("Failed to read S3 object body: {e}"))
-            })?;
+        let body_bytes = get_object_output
+            .body
+            .collect()
+            .await
+            .map_err(|e| op_failed("Failed to read S3 object body", &e))?;
 
         let body_str = String::from_utf8(body_bytes.to_vec())
             .map_err(|e| S3Error::ParseError(format!("S3 object body is not valid UTF-8: {e}")))?;
@@ -98,7 +121,7 @@ impl S3Client for S3Impl {
             .body(ByteStream::from(value.to_owned().into_bytes()))
             .send()
             .await
-            .map_err(|e| S3Error::OperationFailed(format!("Failed to put object to S3: {e}")))?;
+            .map_err(|e| op_failed("Failed to put object to S3", &e))?;
         Ok(())
     }
 
@@ -109,9 +132,7 @@ impl S3Client for S3Impl {
             .key(key)
             .send()
             .await
-            .map_err(|e| {
-                S3Error::OperationFailed(format!("Failed to delete object from S3: {e}"))
-            })?;
+            .map_err(|e| op_failed("Failed to delete object from S3", &e))?;
         Ok(())
     }
 }
@@ -128,5 +149,24 @@ mod tests {
         let utf8_error = String::from_utf8(vec![0, 159, 146, 150]).unwrap_err();
         let s3_error = S3Error::from(utf8_error);
         assert!(matches!(s3_error, S3Error::ParseError(_)));
+    }
+
+    #[test]
+    fn test_format_with_source_chain_single_layer() {
+        let err = anyhow::anyhow!("top");
+        assert_eq!(format_with_source_chain(err.as_ref()), "top");
+    }
+
+    #[test]
+    fn test_format_with_source_chain_walks_full_chain() {
+        // anyhow's `.context()` wraps the previous error as `source`, so the outermost
+        // context becomes the head of the chain — the same shape AWS SDK errors produce.
+        let err = anyhow::anyhow!("AccessDenied: User is not authorized")
+            .context("PutObjectError")
+            .context("service error");
+        assert_eq!(
+            format_with_source_chain(err.as_ref()),
+            "service error: PutObjectError: AccessDenied: User is not authorized"
+        );
     }
 }

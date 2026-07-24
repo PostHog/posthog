@@ -4,8 +4,8 @@
  * This provides clean test fixtures for creating PostHog workspaces
  * (organizations, projects, teams) before running tests.
  *
- * Unlike the legacy playwright-test-base, this does NOT auto-login,
- * giving you full control over authentication with workspace-specific users.
+ * This does NOT auto-login — you get full control over authentication with
+ * workspace-specific users by calling playwrightSetup.login() explicitly.
  */
 /* eslint-disable react-hooks/rules-of-hooks */
 import { PlaywrightSetup, PlaywrightWorkspaceSetupResult, createPlaywrightSetup } from './playwright-setup'
@@ -16,9 +16,10 @@ import { test as coreTest } from './playwright-test-core'
  * Use this for most tests where you want to manually create workspaces
  */
 export const test = coreTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
-    playwrightSetup: async ({ request, baseURL }, use) => {
-        const playwrightSetup = createPlaywrightSetup(request, baseURL)
+    playwrightSetup: async ({ baseURL }, use) => {
+        const playwrightSetup = createPlaywrightSetup(baseURL)
         await use(playwrightSetup)
+        await playwrightSetup.dispose()
     },
 })
 

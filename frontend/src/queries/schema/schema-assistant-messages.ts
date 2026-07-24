@@ -15,16 +15,13 @@ import type {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
     LifecycleQuery,
     PathsQuery,
     QuerySchema,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 } from './schema-general'
@@ -157,7 +154,7 @@ export interface MultiQuestionFormQuestion {
     type?: MultiQuestionFormQuestionType
     /** Available answer options (required for select and multi_select) */
     options?: MultiQuestionFormQuestionOption[]
-    /** Whether to show a "Type your answer" option (default: true). Only used for select type. */
+    /** Whether to show a "Type your answer" option (default: true). Used for select and multi_select types. */
     allow_custom_answer?: boolean
     /** Fields for multi_field type questions, grouped with a shared submit button */
     fields?: MultiQuestionFormField[]
@@ -188,12 +185,22 @@ export interface FormDismissPayload {
     action: 'dismiss_form'
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
+export interface ClientToolResultPayload {
+    action: 'client_tool_result'
+    /** Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently */
+    tool_call_id?: string
+    /** Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it */
+    result: Record<string, unknown>
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
     /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
+    /** Provenance for non-LLM-authored messages. Format: `slash_command:<name>`. */
+    source?: string
 }
 
 export interface AssistantToolCall {
@@ -240,6 +247,7 @@ export interface ContextMessage extends BaseAssistantMessage {
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
 export type AnyAssistantGeneratedQuery =
+    | DataVisualizationNode
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
@@ -261,10 +269,6 @@ export interface VisualizationItem {
         | PathsQuery
         | LifecycleQuery
         | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -448,8 +452,10 @@ export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejec
 
 export type AssistantTool =
     | 'search_session_recordings'
+    | 'create_ai_trace_parser'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
+    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -466,7 +472,6 @@ export type AssistantTool =
     | 'search'
     | 'read_data'
     | 'todo_write'
-    | 'filter_revenue_analytics'
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
@@ -489,11 +494,35 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'list_feature_flags'
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
+    | 'diagnose_proxy'
+    | 'web_analytics_doctor'
+    | 'assess_heatmap'
+    | 'summarize_website_interactions'
+    | 'marketing_diagnose_setup'
+    | 'marketing_explain_conversion_goal'
+    | 'marketing_list_conversion_goals'
+    | 'marketing_list_data_sources'
+    | 'marketing_audit_utm'
+    | 'marketing_suggest_conversion_goals'
+    | 'marketing_suggest_utm_mappings'
+    | 'summarize_replay_vision_summaries'
+    | 'draft_replay_vision_scanner_prompt'
+    | 'search_replay_vision_observations'
+    | 'upsert_account'
+    | 'upsert_account_notebook'
+    | 'open_account'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -505,8 +534,10 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
+    CustomerAnalytics = 'customer_analytics',
 }
 
 export enum SlashCommandName {
@@ -552,7 +583,6 @@ export enum AssistantNavigateUrl {
     Notebooks = 'notebooks',
     Replay = 'replay',
     ReplaySettings = 'replaySettings',
-    RevenueAnalytics = 'revenueAnalytics',
     SavedInsights = 'savedInsights',
     Settings = 'settings',
     SqlEditor = 'sqlEditor',

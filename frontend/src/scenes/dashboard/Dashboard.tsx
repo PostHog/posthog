@@ -2,9 +2,6 @@ import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -20,15 +17,25 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
+function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
+    useMountedLogic(dashboardSubscribeNudgeLogic({ dashboardId }))
+    return null
+}
 
 interface DashboardProps {
     id?: string
@@ -37,7 +44,10 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
 }
+
+const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
@@ -48,41 +58,52 @@ function DashboardSceneWrapper(): JSX.Element {
 export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardSceneWrapper,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }) => ({
-        id: parseInt(id as string),
-        placement,
-    }),
+    paramsToProps: ({ params: { id, placement } }) => ({ id: parseDashboardId(id), placement }),
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
+export function Dashboard({
+    id,
+    dashboard,
+    placement,
+    themes,
+    backTo,
+    showCreateAnomalyAlertButton,
+}: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
-            <DashboardScene backTo={backTo} />
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
+            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
         </BindLogic>
     )
 }
 
-function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }): JSX.Element {
+function DashboardScene({
+    backTo,
+    showCreateAnomalyAlertButton,
+}: {
+    backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
+}): JSX.Element {
     const {
         placement,
         dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,
-        dashboardMode,
+        layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        refreshAnalysisResult,
-        analysisRating,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+
+    useAttachedContext(
+        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+    )
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -108,7 +129,11 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
+            )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -122,40 +147,9 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                 >
                     <DashboardOverridesBanner />
 
-                    {refreshAnalysisResult && (
-                        <LemonBanner
-                            type="info"
-                            onClose={() => setRefreshAnalysisResult(null)}
-                            className="mb-4 [&>.flex]:items-start"
-                            hideIcon
-                        >
-                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
-                            <div className="flex items-center gap-0.5 mt-2">
-                                {analysisRating ? (
-                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsUp />}
-                                            tooltip="Helpful"
-                                            onClick={() => setAnalysisRating('up')}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsDown />}
-                                            tooltip="Not helpful"
-                                            onClick={() => setAnalysisRating('down')}
-                                        />
-                                    </>
-                                )}
-                            </div>
-                        </LemonBanner>
-                    )}
-
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
-                        {dashboardMode === DashboardMode.Edit &&
+                        {layoutEditMode &&
                             canEditDashboard &&
                             [
                                 DashboardPlacement.Dashboard,
@@ -166,7 +160,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                             )}
                     </SceneStickyBar>
 
-                    <DashboardItems />
+                    <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}
         </SceneContent>

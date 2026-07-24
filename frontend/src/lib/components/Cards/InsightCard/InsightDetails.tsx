@@ -1,8 +1,21 @@
+import './InsightDetails.scss'
+
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import {
+    IconCalculator,
+    IconCalendar,
+    IconClock,
+    IconCode2,
+    IconFilter,
+    IconPencil,
+    IconPeople,
+    IconSort,
+    IconUser,
+    IconWarning,
+} from '@posthog/icons'
+import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
@@ -13,9 +26,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { humanizePathsEventTypes } from 'scenes/insights/utils'
+import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -36,9 +50,13 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     AnyDataWarehouseNode,
+    DashboardFilter,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
+    getInterval,
     isActionsNode,
+    isAnyDataWarehouseNode,
     isDataTableNodeWithHogQLQuery,
     isDataVisualizationNode,
     isEventsNode,
@@ -51,13 +69,29 @@ import {
     isPathsQuery,
     isRetentionQuery,
     isTrendsQuery,
-    isValidBreakdown,
+    hasBreakdownFilter,
 } from '~/queries/utils'
-import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    FilterLogicalOperator,
+    InsightFilterOverrideContext,
+    IntervalType,
+    UserBasicType,
+} from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
 import { CompactUniversalFiltersDisplay } from './CompactUniversalFiltersDisplay'
+import {
+    dropDuplicatesOfOverrides,
+    EffectiveDateOverride,
+    getDateRangeOverrideDisplay,
+    getEffectiveFilterOverrides,
+    OverrideSource,
+    PropertiesInput,
+    splitOutOverrideProperties,
+} from './insightDetailsFilterOverrides'
 
 export function InsightDetailSectionDisplay({
     icon,
@@ -79,25 +113,87 @@ export function InsightDetailSectionDisplay({
     )
 }
 
+function assertNever(value: never): never {
+    throw new Error(`Unexpected entity node: ${(value as { kind?: string } | undefined)?.kind ?? 'unknown'}`)
+}
+
+const LAYER_LABELS: Record<OverrideSource | 'insight', string> = {
+    insight: 'Insight',
+    dashboard: 'Dashboard',
+    tile: 'Tile',
+}
+
+// Distinct colors per layer so the precedence stack reads at a glance: insight (base, grey) →
+// dashboard (purple) → tile (accent, highest priority). Not primary/highlight for two of them — those
+// share --color-accent and would look identical.
+const LAYER_TAG_TYPE: Record<OverrideSource | 'insight', 'muted' | 'completion' | 'primary'> = {
+    insight: 'muted',
+    dashboard: 'completion',
+    tile: 'primary',
+}
+
+function LayerTag({ source }: { source: OverrideSource | 'insight' }): JSX.Element {
+    return (
+        <LemonTag type={LAYER_TAG_TYPE[source]} size="small">
+            {LAYER_LABELS[source]}
+        </LemonTag>
+    )
+}
+
+function OverrideNote({
+    source,
+    children,
+}: {
+    source: OverrideSource | 'insight'
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <div className="mt-1.5 flex items-center gap-1">
+            <LayerTag source={source} />
+            <span className="text-muted-alt">{children}</span>
+        </div>
+    )
+}
+
 function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
+    let content: JSX.Element
+
+    if (isActionsNode(entity)) {
+        content = (
+            <Link
+                to={urls.action(entity.id)}
+                className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                title="Action series"
+            >
+                {entity.name}
+            </Link>
+        )
+    } else if (isEventsNode(entity)) {
+        content = (
+            <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                <PropertyKeyInfo value={entity.event || 'All events'} type={TaxonomicFilterGroupType.Events} />
+            </span>
+        )
+    } else if (isAnyDataWarehouseNode(entity)) {
+        content = (
+            <span
+                className="SeriesDisplay__raw-name SeriesDisplay__raw-name--data-warehouse"
+                title="Data warehouse series"
+            >
+                <PropertyKeyInfo
+                    value={entity.name || entity.table_name}
+                    type={TaxonomicFilterGroupType.DataWarehouse}
+                />
+            </span>
+        )
+    } else {
+        return assertNever(entity)
+    }
+
     return (
         <>
             {entity.custom_name && <b> "{entity.custom_name}"</b>}
-            {isActionsNode(entity) ? (
-                <Link
-                    to={urls.action(entity.id)}
-                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                    title="Action series"
-                >
-                    {entity.name}
-                </Link>
-            ) : isEventsNode(entity) ? (
-                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={entity.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
-                </span>
-            ) : (
-                <i>{entity.kind /* TODO: Support DataWarehouseNode */}</i>
-            )}
+            {content}
         </>
     )
 }
@@ -112,7 +208,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
-    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && hasBreakdownFilter(query.breakdownFilter)
 
     const mathKey = isLifecycleQuery(query)
         ? BaseMathType.UniqueUsers
@@ -328,12 +424,74 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
 export function PropertiesSummary({
     properties,
+    overrides,
+    overriddenByTile,
 }: {
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
+    properties: PropertiesInput
+    overrides?: { properties: AnyPropertyFilter[]; source: OverrideSource }[] | null
+    overriddenByTile?: AnyPropertyFilter[] | null
 }): JSX.Element {
+    const overrideGroups = overrides ?? []
+    const overriddenProperties = overriddenByTile ?? []
+    const allOverrideProperties = overrideGroups.flatMap((group) => group.properties)
+    const { base, overrideFound } = splitOutOverrideProperties(properties, allOverrideProperties)
+    const dedupedBase = overrideFound ? dropDuplicatesOfOverrides(base, allOverrideProperties) : base
+    const label = overrideFound ? 'Active filters' : 'Filters'
+    return (
+        <InsightDetailSectionDisplay icon={<IconFilter />} label={label}>
+            {overrideFound && <OverrideNote source="insight">base filters:</OverrideNote>}
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(dedupedBase)} />
+            {overrideFound &&
+                overrideGroups.map((group) => (
+                    <React.Fragment key={group.source}>
+                        <OverrideNote source={group.source}>filters added on top:</OverrideNote>
+                        <CompactUniversalFiltersDisplay
+                            groupFilter={convertPropertiesToPropertyGroup(group.properties)}
+                        />
+                    </React.Fragment>
+                ))}
+            {/* Dashboard filters the tile shadowed — shown struck-through so precedence is visible. */}
+            {overrideFound && overriddenProperties.length > 0 && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <div className="text-muted-alt">
+                        <div className="mt-1.5 flex items-center gap-1">
+                            <LayerTag source="dashboard" />
+                            <span>filter replaced by</span>
+                            <LayerTag source="tile" />
+                        </div>
+                        <div className="line-through opacity-60">
+                            <CompactUniversalFiltersDisplay
+                                groupFilter={convertPropertiesToPropertyGroup(overriddenProperties)}
+                            />
+                        </div>
+                    </div>
+                </>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
+export function PropertiesIgnoredWarning(): JSX.Element {
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            <Tooltip title="Filter overrides are not applied. Insights with a data warehouse series do not support filters.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Filter overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
+        </InsightDetailSectionDisplay>
+    )
+}
+
+export function BreakdownIgnoredWarning(): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
+            <Tooltip title="Breakdown overrides are not applied. Insights with a data warehouse series only support data warehouse property and HogQL breakdowns.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Breakdown overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
         </InsightDetailSectionDisplay>
     )
 }
@@ -373,7 +531,7 @@ export function VariablesSummary({
 }
 
 export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
-    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
+    if (!isInsightQueryWithBreakdown(query) || !hasBreakdownFilter(query.breakdownFilter)) {
         return null
     }
 
@@ -382,10 +540,12 @@ export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | H
 
 export function BreakdownSummary({
     breakdownFilter,
+    override,
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
+    override?: { source: OverrideSource } | null
 }): JSX.Element | null {
-    if (!isValidBreakdown(breakdownFilter)) {
+    if (!hasBreakdownFilter(breakdownFilter)) {
         return null
     }
 
@@ -416,7 +576,8 @@ export function BreakdownSummary({
 
     return (
         <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
-            {content}
+            {override && <OverrideNote source={override.source}>breakdown replaced with:</OverrideNote>}
+            <div className="flex items-center gap-1 flex-wrap">{content}</div>
         </InsightDetailSectionDisplay>
     )
 }
@@ -424,17 +585,95 @@ export function BreakdownSummary({
 export function DateRangeSummary({
     dateFrom,
     dateTo,
+    override,
 }: {
     dateFrom: string | null | undefined
     dateTo: string | null | undefined
+    override?: EffectiveDateOverride | null
 }): JSX.Element | null {
     const dateFilterText = dateFilterToText(dateFrom, dateTo, null)
     if (!dateFilterText) {
         return null
     }
+    const replaced = override?.replaced
+    const replacedText = replaced ? dateFilterToText(replaced.dateFrom, replaced.dateTo, null) : null
     return (
         <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
-            <div className="font-medium">{dateFilterText}</div>
+            {/* Tag the value with its source layer rather than repeating "date range" in a note. */}
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{dateFilterText}</span>
+                {override && <LayerTag source={override.source} />}
+            </div>
+            {replaced && replacedText && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{replacedText}</span> from
+                    </span>
+                    <LayerTag source={replaced.source} />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
+export function IntervalSummary({
+    interval,
+    override,
+    insightInterval,
+}: {
+    interval: IntervalType
+    override: { source: OverrideSource }
+    insightInterval?: IntervalType | null
+}): JSX.Element {
+    const replaced = insightInterval != null && insightInterval !== interval ? insightInterval : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconClock />} label="Grouped by">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{capitalizeFirstLetter(interval)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{capitalizeFirstLetter(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
+const testAccountsLabel = (excluded: boolean): string => (excluded ? 'Excluded' : 'Included')
+
+export function TestAccountFilterSummary({
+    filterTestAccounts,
+    override,
+    insightFilterTestAccounts,
+}: {
+    filterTestAccounts: boolean
+    override: { source: OverrideSource }
+    insightFilterTestAccounts?: boolean | null
+}): JSX.Element {
+    // Show what the insight itself had only when it explicitly set the toggle to the other state.
+    const replaced =
+        insightFilterTestAccounts != null && insightFilterTestAccounts !== filterTestAccounts
+            ? insightFilterTestAccounts
+            : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconPeople />} label="Internal and test users">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{testAccountsLabel(filterTestAccounts)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced != null && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{testAccountsLabel(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
         </InsightDetailSectionDisplay>
     )
 }
@@ -449,13 +688,49 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
+    filtersOverride?: DashboardFilter
+    tileFiltersOverride?: TileFilters | null
+    filterOverrideContext?: InsightFilterOverrideContext | null
+    hasDataWarehouseSeries?: boolean
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride },
+        {
+            query,
+            footerInfo,
+            variablesOverride,
+            filtersOverride,
+            tileFiltersOverride,
+            filterOverrideContext,
+            hasDataWarehouseSeries,
+        },
         ref
     ): JSX.Element {
+        const {
+            propertyGroups,
+            overriddenByTile,
+            breakdown: overrideBreakdown,
+            interval: overrideInterval,
+            filterTestAccounts: overrideFilterTestAccounts,
+            ignoresDashboardFilters,
+        } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
+        const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
+        const dateOverride = getDateRangeOverrideDisplay(
+            insightDateRange,
+            filterOverrideContext,
+            filtersOverride,
+            tileFiltersOverride
+        )
+        const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
+        const hasPropertyOverrides = propertyGroups.length > 0
+        const hasIgnoredBreakdownOverrides =
+            isInsightVizNode(query) &&
+            isTrendsQuery(query.source) &&
+            hasUnsupportedBreakdownForDataWarehouseTrends(
+                overrideBreakdownFilter ? { breakdown_filter: overrideBreakdownFilter } : null
+            )
+
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
                 {(isInsightVizNode(query) ||
@@ -467,12 +742,59 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
-                        <PropertiesSummary
-                            properties={
-                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
-                            }
-                        />
-                        <InsightBreakdownSummary query={query.source} />
+                        {ignoresDashboardFilters && (
+                            <InsightDetailSectionDisplay icon={<IconFilter />} label="Dashboard filters">
+                                <span>Ignored for this insight</span>
+                            </InsightDetailSectionDisplay>
+                        )}
+                        {dateOverride && (
+                            <DateRangeSummary
+                                dateFrom={dateOverride.dateFrom}
+                                dateTo={dateOverride.dateTo}
+                                override={dateOverride}
+                            />
+                        )}
+                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                            <PropertiesIgnoredWarning />
+                        ) : (
+                            <PropertiesSummary
+                                properties={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.properties
+                                        : query.source.properties
+                                }
+                                overrides={hasPropertyOverrides ? propertyGroups : null}
+                                overriddenByTile={hasPropertyOverrides ? overriddenByTile : null}
+                            />
+                        )}
+                        {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
+                            <BreakdownIgnoredWarning />
+                        ) : overrideBreakdown && hasBreakdownFilter(overrideBreakdownFilter) ? (
+                            <BreakdownSummary
+                                breakdownFilter={overrideBreakdownFilter}
+                                override={{ source: overrideBreakdown.source }}
+                            />
+                        ) : (
+                            <InsightBreakdownSummary query={query.source} />
+                        )}
+                        {overrideInterval && (
+                            <IntervalSummary
+                                interval={overrideInterval.value}
+                                override={{ source: overrideInterval.source }}
+                                insightInterval={isInsightVizNode(query) ? getInterval(query.source) : null}
+                            />
+                        )}
+                        {overrideFilterTestAccounts && (
+                            <TestAccountFilterSummary
+                                filterTestAccounts={overrideFilterTestAccounts.value}
+                                override={{ source: overrideFilterTestAccounts.source }}
+                                insightFilterTestAccounts={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.filterTestAccounts
+                                        : query.source.filterTestAccounts
+                                }
+                            />
+                        )}
                     </>
                 )}
                 {footerInfo && (

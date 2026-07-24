@@ -1,8 +1,9 @@
 import os
+import json
 import random
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
@@ -14,7 +15,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.test import Client
 
 import psycopg2
@@ -22,10 +23,8 @@ import requests
 import kombu.connection
 import kombu.exceptions
 import django_redis.exceptions
-from kafka.errors import KafkaError
 
-from posthog.health import logger
-from posthog.kafka_client.client import KafkaProducerForTests
+from posthog.health import is_kafka_connected, logger
 
 
 @pytest.mark.django_db
@@ -76,7 +75,6 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
 
     with (
         simulate_postgres_error(),
-        simulate_kafka_cannot_connect(),
         simulate_clickhouse_cannot_connect(),
         simulate_celery_cannot_connect(),
         simulate_cache_cannot_connect(),
@@ -100,11 +98,6 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="events")
-
-    assert resp.status_code == 503, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="events")
 
@@ -128,11 +121,6 @@ def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Cli
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="web")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="web")
 
@@ -160,11 +148,6 @@ def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="worker")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="worker")
 
@@ -187,16 +170,33 @@ def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Cli
 
 
 @pytest.mark.django_db
+def test_readyz_accepts_role_streaming_and_stays_ready_without_postgres(client: Client):
+    # The streaming tier serves Redis-backed SSE only; coupling its readiness to
+    # Postgres would pull healthy stream-serving pods out of the load balancer
+    # exactly when the database is saturated.
+    with simulate_postgres_error():
+        resp = get_readyz(client=client, role="streaming")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect():
+        resp = get_readyz(client=client, role="streaming")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="streaming")
+
+    # Redis is the one hard dependency: streams are fed from it.
+    assert resp.status_code == 503, resp.content
+
+
+@pytest.mark.django_db
 def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
     """
     If we don't specify any role, we assume we want all dependencies to be
     checked.
     """
-
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client)
-
-    assert resp.status_code == 503, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client)
@@ -226,11 +226,6 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_decide_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="decide")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="decide")
 
@@ -273,11 +268,11 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> Any:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 
-def get_livez(client: Client) -> HttpResponse:
+def get_livez(client: Client) -> Any:
     return client.get("/_livez")
 
 
@@ -312,22 +307,6 @@ def simulate_postgres_psycopg2_error():
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
         cursor_mock.side_effect = return_given_error_or_random(psycopg2.OperationalError)
-        yield
-
-
-@contextmanager
-def simulate_kafka_cannot_connect():
-    """
-    Causes instantiation of a kafka producer to raise a `KafkaError`.
-
-    IMPORTANT: this is mocking the `KafkaProducerForTests`, itself a mock. I'm
-    hoping that the real producer raises similarly, and that that behaviour
-    doesn't change with version of the library. I have tested this manually
-    however locally with real Kafka connection, and it seems to function as
-    expected :fingerscrossed:
-    """
-    with patch.object(KafkaProducerForTests, "__init__") as init_mock:
-        init_mock.side_effect = return_given_error_or_random(KafkaError("failed to connect"))
         yield
 
 
@@ -392,7 +371,7 @@ def test_readyz_returns_503_when_prestop_marker_exists(client: Client):
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
+    assert json.loads(resp.content) == {"shutting_down": True}
 
 
 @pytest.mark.django_db
@@ -402,7 +381,7 @@ def test_readyz_returns_503_when_prestop_marker_exists_with_role(client: Client)
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
+    assert json.loads(resp.content) == {"shutting_down": True}
 
 
 @pytest.mark.django_db
@@ -413,6 +392,50 @@ def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 200
+
+
+@pytest.mark.parametrize("debug,test", [(False, True), (True, False)])
+def test_is_kafka_connected_short_circuits_under_debug_or_test(debug, test):
+    # Either DEBUG or TEST avoids the live probe — keeps local dev and the test
+    # suite from needing a real broker.
+    with patch("posthog.health.settings.DEBUG", debug), patch("posthog.health.settings.TEST", test):
+        assert is_kafka_connected() is True
+
+
+@pytest.mark.parametrize(
+    "break_producer",
+    [
+        pytest.param(
+            lambda m: setattr(m, "side_effect", Exception("producer build failed")),
+            id="producer_build_raises",
+        ),
+        pytest.param(
+            lambda m: setattr(m.return_value.producer.list_topics, "side_effect", Exception("broker unreachable")),
+            id="list_topics_raises",
+        ),
+    ],
+)
+def test_is_kafka_connected_returns_false_when_probe_fails(break_producer):
+    # Either step failing — building the producer or the metadata round-trip — is
+    # treated as the broker being unreachable.
+    with (
+        patch("posthog.health.settings.DEBUG", False),
+        patch("posthog.health.settings.TEST", False),
+        patch("posthog.health.get_producer") as get_producer_mock,
+    ):
+        break_producer(get_producer_mock)
+        assert is_kafka_connected() is False
+
+
+def test_is_kafka_connected_returns_true_when_metadata_succeeds():
+    with (
+        patch("posthog.health.settings.DEBUG", False),
+        patch("posthog.health.settings.TEST", False),
+        patch("posthog.health.get_producer") as get_producer_mock,
+    ):
+        get_producer_mock.return_value.producer.list_topics.return_value = mock.Mock()
+        assert is_kafka_connected() is True
+        get_producer_mock.return_value.producer.list_topics.assert_called_once_with(timeout=3)
 
 
 @pytest.fixture(autouse=True)

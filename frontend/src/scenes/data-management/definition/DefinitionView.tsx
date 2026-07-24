@@ -9,6 +9,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -17,7 +18,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import {
+    DefinitionLogicProps,
+    decodeDefinitionId,
+    definitionLogic,
+} from 'scenes/data-management/definition/definitionLogic'
+import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
@@ -32,7 +39,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { getFilterLabel } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
 import {
     EventDefinition,
     FilterLogicalOperator,
@@ -45,7 +52,7 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/Def
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id: decodeDefinitionId(id) }),
 }
 
 type StatusProps = {
@@ -82,7 +89,46 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
     },
 })
 
-export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
+function PrimaryPropertyDetail({ definition }: { definition: EventDefinition }): JSX.Element {
+    const taxonomyPrimary = getPrimaryPropertyForEvent(definition.name)
+    const teamOverride = definition.primary_property
+    const effective = taxonomyPrimary ?? teamOverride
+    const isBuiltIn = !!taxonomyPrimary
+
+    return (
+        <div className="flex flex-col flex-1 basis-48 min-w-48">
+            <h5>Primary property</h5>
+            <b>
+                {effective ? (
+                    <span className="flex items-center gap-1">
+                        <PropertyKeyInfo
+                            value={effective}
+                            type={TaxonomicFilterGroupType.EventProperties}
+                            disableIcon
+                        />
+                        {isBuiltIn && (
+                            <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in primary property.">
+                                <LemonTag type="muted" size="small">
+                                    Built-in
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </span>
+                ) : (
+                    '-'
+                )}
+            </b>
+            <p className="italic text-secondary text-xs mt-1 mb-0">
+                If set, this property's value is shown alongside the event name in surfaces like the session replay
+                inspector.
+            </p>
+        </div>
+    )
+}
+
+export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
+    // The app renders scene components with raw route params, so decode the id like paramsToProps does
+    const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
         useValues(logic)
@@ -116,17 +162,30 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     }
 
     if (definitionMissing) {
-        return <NotFound object="event" />
+        return <NotFound object={singular} />
     }
 
     const definitionStatus = definition.verified ? 'verified' : definition.hidden ? 'hidden' : 'visible'
 
     const statusProps = getStatusProps(isProperty)
 
+    const isVirtual = 'virtual' in definition && !!definition.virtual
+    // Resolve label and description from the same taxonomy group the definition came from, so they can't disagree
+    const virtualProperty = isVirtual ? getVirtualPropertyDefinition(definition.id) : null
+    const propertyLabelGroup = virtualProperty?.group ?? TaxonomicFilterGroupType.EventProperties
+    const formattedName = getFilterLabel(
+        definition.name,
+        isEvent ? TaxonomicFilterGroupType.Events : propertyLabelGroup
+    )
+    // Taxonomy descriptions can be rich (links, code), so render them directly for virtual definitions
+    const description = virtualProperty
+        ? getCoreFilterDefinition(definition.name, virtualProperty.group)?.description
+        : definition.description
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={definition.name}
+                name={formattedName}
                 resourceType={
                     isEvent
                         ? {
@@ -165,63 +224,67 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 data-attr="event-definition-view-recordings"
                             />
                         )}
-                        <LemonButton
-                            data-attr="delete-definition"
-                            type="secondary"
-                            status="danger"
-                            size="small"
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: `Delete this ${singular} definition?`,
-                                    description: (
-                                        <>
-                                            <p>
-                                                <strong>
-                                                    {getFilterLabel(
-                                                        definition.name,
-                                                        isEvent
-                                                            ? TaxonomicFilterGroupType.Events
-                                                            : TaxonomicFilterGroupType.EventProperties
-                                                    )}
-                                                </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain in the
-                                                database.
-                                            </p>
-                                            <p>
-                                                This definition will be recreated if the ${singular} is ever seen again
-                                                in the event stream.
-                                            </p>
-                                        </>
-                                    ),
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Delete definition',
-                                        onClick: () => deleteDefinition(),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                    width: 448,
-                                })
-                            }
-                            tooltip="Delete this definition. Associated data will remain."
-                        >
-                            Delete
-                        </LemonButton>
-                        <LemonButton
-                            data-attr="edit-definition"
-                            type="secondary"
-                            size="small"
-                            onClick={() => {
-                                if (isProperty) {
-                                    router.actions.push(urls.propertyDefinitionEdit(definition.id))
-                                } else {
-                                    router.actions.push(urls.eventDefinitionEdit(definition.id))
-                                }
-                            }}
-                        >
-                            Edit
-                        </LemonButton>
+                        {!isVirtual && (
+                            <>
+                                <LemonButton
+                                    data-attr="delete-definition"
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete this ${singular} definition?`,
+                                            description: (
+                                                <>
+                                                    <p>
+                                                        <strong>
+                                                            {getFilterLabel(
+                                                                definition.name,
+                                                                isEvent
+                                                                    ? TaxonomicFilterGroupType.Events
+                                                                    : TaxonomicFilterGroupType.EventProperties
+                                                            )}
+                                                        </strong>{' '}
+                                                        will no longer appear in selectors. Associated data will remain
+                                                        in the database.
+                                                    </p>
+                                                    <p>
+                                                        This definition will be recreated if the {singular} is ever seen
+                                                        again in the event stream.
+                                                    </p>
+                                                </>
+                                            ),
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete definition',
+                                                onClick: () => deleteDefinition(),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                            width: 448,
+                                        })
+                                    }
+                                    tooltip="Delete this definition. Associated data will remain."
+                                >
+                                    Delete
+                                </LemonButton>
+                                <LemonButton
+                                    data-attr="edit-definition"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => {
+                                        if (isProperty) {
+                                            router.actions.push(urls.propertyDefinitionEdit(definition.id))
+                                        } else {
+                                            router.actions.push(urls.eventDefinitionEdit(definition.id))
+                                        }
+                                    }}
+                                >
+                                    Edit
+                                </LemonButton>
+                            </>
+                        )}
                     </>
                 }
                 forceBackTo={
@@ -240,11 +303,20 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
+                {formattedName !== definition.name && (
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{definition.name}</LemonTag>
+                    </div>
+                )}
                 <h5>Description</h5>
                 <div className="definition-description my-2" data-attr="definition-description-view">
-                    {definition.description || (
-                        <span className="text-muted italic">Add a description for this {singular}</span>
-                    )}
+                    {description ||
+                        (isVirtual ? (
+                            <span className="text-muted italic">No description</span>
+                        ) : (
+                            <span className="text-muted italic">Add a description for this {singular}</span>
+                        ))}
                 </div>
                 {definition.tags && definition.tags.length > 0 && (
                     <ObjectTags
@@ -271,9 +343,9 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
-            <div className="flex flex-wrap">
+            <div className="flex flex-wrap gap-4">
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             First seen{' '}
                             <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
@@ -284,7 +356,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             Last seen{' '}
                             <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
@@ -295,7 +367,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
@@ -313,24 +385,44 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 {definitionStatus && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Verification status</h5>
                         <div>
-                            <Tooltip title={statusProps[definitionStatus].tooltip}>
-                                <LemonTag type={statusProps[definitionStatus].tagType}>
-                                    {statusProps[definitionStatus].icon}
-                                    {statusProps[definitionStatus].label}
-                                </LemonTag>
-                            </Tooltip>
+                            <LemonTag type={statusProps[definitionStatus].tagType}>
+                                {statusProps[definitionStatus].icon}
+                                {statusProps[definitionStatus].label}
+                            </LemonTag>
                         </div>
+                        <p className="italic text-secondary text-xs mt-1 mb-0">
+                            {statusProps[definitionStatus].tooltip}
+                        </p>
+                    </div>
+                )}
+
+                {isVirtual && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>Source</h5>
+                        <div>
+                            <LemonTag type="highlight">Virtual</LemonTag>
+                        </div>
+                        <p className="italic text-secondary text-xs mt-1 mb-0">
+                            This property is computed at query time rather than stored, so it can't be edited or
+                            deleted.
+                        </p>
                     </div>
                 )}
 
                 {isProperty && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Property type</h5>
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
+                )}
+
+                {isEvent && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                        <PrimaryPropertyDetail definition={definition as EventDefinition} />
+                    </FlaggedFeature>
                 )}
             </div>
 
@@ -345,6 +437,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
                     <EventDefinitionInsights definition={definition} />
+                    <SceneDivider />
+                    <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />
                     <SceneSection
                         title="Connected destinations"

@@ -5,8 +5,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
-
 from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionBatchEventsQueryResponse, SessionEventsItem
 
 from posthog.models import Team, User
@@ -454,26 +452,6 @@ def mock_intermediate_llm_json_response() -> dict[str, Any]:
             "success": True,
         },
     }
-
-
-@pytest.fixture
-def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
-    return ChatCompletion(
-        id="test_id",
-        model="test_model",
-        object="chat.completion",
-        created=int(datetime.now().timestamp()),
-        choices=[
-            Choice(
-                finish_reason="stop",
-                index=0,
-                message=ChatCompletionMessage(
-                    content=mock_valid_llm_yaml_response,
-                    role="assistant",
-                ),
-            )
-        ],
-    )
 
 
 @pytest.fixture

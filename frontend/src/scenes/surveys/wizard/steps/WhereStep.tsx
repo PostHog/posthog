@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
@@ -7,16 +8,34 @@ import { LemonButton, LemonInputSelect, LemonSegmentedButton } from '@posthog/le
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { formatRE2Error } from 'lib/utils/regexp'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
+import { SurveyUrlAudienceEstimate } from '../../components/SurveyUrlAudienceEstimate'
 import { surveyLogic } from '../../surveyLogic'
 import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
 import { WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEVICE_OPTIONS = ['Desktop', 'Mobile', 'Tablet']
+
+type UrlMatchMode = SurveyMatchType.Contains | SurveyMatchType.Exact | SurveyMatchType.Regex
+
+function getRegexValidationError(pattern: string, matchType: UrlMatchMode): string | null {
+    if (matchType !== SurveyMatchType.Regex || !pattern) {
+        return null
+    }
+
+    try {
+        RE2JS.compile(pattern)
+    } catch (error) {
+        return error instanceof Error ? formatRE2Error(error, pattern) : 'Invalid RE2 regex'
+    }
+
+    return null
+}
 
 export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void }): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -30,16 +49,25 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const targetingMode = conditions.urlMatchType ? 'specific' : 'all'
     const urlPattern = conditions.url || ''
-    const urlMatchMode =
-        conditions.urlMatchType === SurveyMatchType.Exact ? SurveyMatchType.Exact : SurveyMatchType.Contains
+    const urlMatchMode: UrlMatchMode =
+        conditions.urlMatchType === SurveyMatchType.Exact || conditions.urlMatchType === SurveyMatchType.Regex
+            ? conditions.urlMatchType
+            : SurveyMatchType.Contains
     const isPathInputInExactMode = urlMatchMode === SurveyMatchType.Exact && urlPattern.trim().startsWith('/')
+    const regexValidationError = getRegexValidationError(urlPattern, urlMatchMode)
     const selectedDevices = conditions.deviceTypes || []
     const resolvedLinkedFlag = survey.linked_flag || (survey.linked_flag_id ? featureFlag : null)
     const urlInputPlaceholder =
         urlMatchMode === SurveyMatchType.Exact
             ? 'Select a page or type the full URL'
-            : 'Select a page or type a path like /pricing'
+            : urlMatchMode === SurveyMatchType.Regex
+              ? 'Type a regex like ^https://example.com/docs/.*'
+              : 'Select a page or type a path like /pricing'
     const urlSuggestions = (() => {
+        if (urlMatchMode === SurveyMatchType.Regex) {
+            return []
+        }
+
         const seen = new Set<string>()
 
         return (urlOptions?.values || [])
@@ -72,7 +100,12 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     })()
 
     useEffect(() => {
-        if (targetingMode === 'specific' && urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
+        if (
+            targetingMode === 'specific' &&
+            urlMatchMode !== SurveyMatchType.Regex &&
+            urlOptions?.status !== 'loading' &&
+            urlOptions?.status !== 'loaded'
+        ) {
             loadPropertyValues({
                 endpoint: undefined,
                 type: PropertyDefinitionType.Event,
@@ -82,7 +115,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                 properties: [],
             })
         }
-    }, [targetingMode, urlOptions?.status, loadPropertyValues])
+    }, [targetingMode, urlMatchMode, urlOptions?.status, loadPropertyValues])
 
     const setTargetingMode = (mode: 'all' | 'specific'): void => {
         if (mode === 'all') {
@@ -96,7 +129,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
         setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: urlMatchMode })
     }
 
-    const setUrlMatchMode = (matchType: SurveyMatchType.Exact | SurveyMatchType.Contains): void => {
+    const setUrlMatchMode = (matchType: UrlMatchMode): void => {
         setSurveyValue('conditions', {
             ...conditions,
             urlMatchType: matchType,
@@ -147,12 +180,11 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                         <div className="mb-2">
                             <LemonSegmentedButton
                                 value={urlMatchMode}
-                                onChange={(value) =>
-                                    setUrlMatchMode(value as SurveyMatchType.Exact | SurveyMatchType.Contains)
-                                }
+                                onChange={(value) => setUrlMatchMode(value as UrlMatchMode)}
                                 options={[
                                     { value: SurveyMatchType.Contains, label: 'Contains path' },
                                     { value: SurveyMatchType.Exact, label: 'Exact URL' },
+                                    { value: SurveyMatchType.Regex, label: 'Regex' },
                                 ]}
                                 size="small"
                             />
@@ -162,6 +194,10 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             value={urlPattern ? [urlPattern] : []}
                             onChange={(val) => setUrlPattern(val[0] || '')}
                             onInputChange={(newInput) => {
+                                if (urlMatchMode === SurveyMatchType.Regex) {
+                                    return
+                                }
+
                                 loadPropertyValues({
                                     type: PropertyDefinitionType.Event,
                                     endpoint: undefined,
@@ -173,11 +209,13 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             }}
                             placeholder={urlInputPlaceholder}
                             allowCustomValues
-                            status={isPathInputInExactMode ? 'danger' : undefined}
-                            loading={urlOptions?.status === 'loading'}
+                            status={isPathInputInExactMode || regexValidationError ? 'danger' : undefined}
+                            loading={urlMatchMode !== SurveyMatchType.Regex && urlOptions?.status === 'loading'}
                             options={urlSuggestions}
                         />
-                        {isPathInputInExactMode ? (
+                        {regexValidationError ? (
+                            <p className="text-xs text-danger mt-1.5">{regexValidationError}</p>
+                        ) : isPathInputInExactMode ? (
                             <p className="text-xs text-danger mt-1.5">
                                 Exact URL requires the full URL, including protocol and host. Use Contains path for
                                 entries like /pricing.
@@ -186,8 +224,13 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             <p className="text-xs text-muted mt-1.5">
                                 {urlMatchMode === SurveyMatchType.Exact
                                     ? 'Select from your most visited pages or type the full URL, including protocol and host.'
-                                    : 'Select from your most visited pages or type a path like /pricing.'}
+                                    : urlMatchMode === SurveyMatchType.Regex
+                                      ? 'Match against the full current URL using a regular expression.'
+                                      : 'Select from your most visited pages or type a path like /pricing.'}
                             </p>
+                        )}
+                        {!isPathInputInExactMode && !regexValidationError && (
+                            <SurveyUrlAudienceEstimate className="mt-1.5" />
                         )}
                     </div>
                 )}

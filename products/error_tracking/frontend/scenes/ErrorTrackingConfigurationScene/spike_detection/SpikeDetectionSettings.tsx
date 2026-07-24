@@ -9,7 +9,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
-import { ERROR_TRACKING_LOGIC_KEY } from '../../../utils'
+import { ERROR_TRACKING_LOGIC_KEY, errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { RecentSpikes } from './RecentSpikes'
 import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 
@@ -64,7 +64,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                 </p>
 
                 <div className="grid grid-cols-3 gap-4">
-                    <LemonField name="snooze_duration_minutes" label="Snooze duration (minutes)">
+                    <LemonField
+                        name="snooze_duration_minutes"
+                        label="Snooze duration (minutes)"
+                        info="Time to wait before alerting again for the same issue after a spike is detected."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
@@ -74,7 +78,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="multiplier" label="Multiplier">
+                    <LemonField
+                        name="multiplier"
+                        label="Multiplier"
+                        info="The factor by which the current exception count must exceed the baseline to be considered a spike."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
@@ -84,7 +92,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="threshold" label="Minimum threshold">
+                    <LemonField
+                        name="threshold"
+                        label="Minimum threshold"
+                        info="The minimum number of exceptions required in a 5-minute window before a spike can be detected."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
@@ -99,7 +111,10 @@ export function SpikeDetectionSettings(): JSX.Element {
                     <LemonButton
                         type="primary"
                         htmlType="submit"
-                        disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                        disabledReason={
+                            errorTrackingEditAccessDisabledReason() ??
+                            (!configFormChanged ? 'No changes to save' : undefined)
+                        }
                         loading={isConfigFormSubmitting}
                     >
                         Save

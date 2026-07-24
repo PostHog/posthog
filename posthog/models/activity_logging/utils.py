@@ -8,9 +8,12 @@ import structlog
 from asgiref.local import Local
 
 if TYPE_CHECKING:
-    from posthog.models.activity_logging.activity_log import ActivityLog
+    from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 
 logger = structlog.get_logger(__name__)
+
+ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
 
 
 class ActivityLoggingStorage:
@@ -20,6 +23,20 @@ class ActivityLoggingStorage:
 
     def __init__(self):
         self._local = Local()
+
+    # ActivityLoggingMiddleware marks the storage as request-scoped and guarantees cleanup in a
+    # finally block. Code without its own cleanup path (e.g. DRF authentication classes) must only
+    # write here when the middleware owns the lifecycle, otherwise the thread-local leaks past the
+    # request and later activity gets attributed to a stale user.
+    def mark_request_scoped(self) -> None:
+        self._local.request_scoped = True
+
+    def is_request_scoped(self) -> bool:
+        return getattr(self._local, "request_scoped", False)
+
+    def clear_request_scoped(self) -> None:
+        if hasattr(self._local, "request_scoped"):
+            delattr(self._local, "request_scoped")
 
     def set_user(self, user: Any) -> None:
         self._local.user = user
@@ -41,9 +58,43 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "was_impersonated"):
             delattr(self._local, "was_impersonated")
 
+    def set_client(self, client: Optional[str]) -> None:
+        self._local.client = client
+
+    def get_client(self) -> Optional[str]:
+        return getattr(self._local, "client", None)
+
+    def clear_client(self) -> None:
+        if hasattr(self._local, "client"):
+            delattr(self._local, "client")
+
+    def set_ip_address(self, ip_address: Optional[str]) -> None:
+        self._local.ip_address = ip_address
+
+    def get_ip_address(self) -> Optional[str]:
+        return getattr(self._local, "ip_address", None)
+
+    def clear_ip_address(self) -> None:
+        if hasattr(self._local, "ip_address"):
+            delattr(self._local, "ip_address")
+
+    def set_trigger(self, trigger: Optional["Trigger"]) -> None:
+        self._local.trigger = trigger
+
+    def get_trigger(self) -> Optional["Trigger"]:
+        return getattr(self._local, "trigger", None)
+
+    def clear_trigger(self) -> None:
+        if hasattr(self._local, "trigger"):
+            delattr(self._local, "trigger")
+
     def clear_all(self) -> None:
+        self.clear_request_scoped()
         self.clear_user()
         self.clear_was_impersonated()
+        self.clear_client()
+        self.clear_ip_address()
+        self.clear_trigger()
 
 
 activity_storage = ActivityLoggingStorage()

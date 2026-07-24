@@ -6,8 +6,6 @@ import pytest
 
 from asgiref.sync import sync_to_async
 
-from posthog.models.person import Person, PersonDistinctId
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.temporal.sync_person_distinct_ids.activities import (
     FindOrphanedPersonsInputs,
     FindOrphanedPersonsResult,
@@ -31,9 +29,12 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     insert_distinct_id_to_ch,
     insert_person_to_ch,
 )
+from posthog.test.persons import add_distinct_id, create_person
+
+pytestmark = pytest.mark.persons_db_direct
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestFindOrphanedPersons:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -46,12 +47,6 @@ class TestFindOrphanedPersons:
         yield
 
         cleanup_ch_test_data(self.team.id, self.created_person_uuids, self.created_distinct_ids)
-        PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, distinct_id__startswith=self.prefix
-        ).delete()
-        Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, uuid__in=self.created_person_uuids
-        ).delete()
 
     @pytest.mark.asyncio
     async def test_finds_orphaned_persons_without_distinct_ids(self):
@@ -121,7 +116,7 @@ class TestFindOrphanedPersons:
         assert len(result.orphaned_persons) == 2
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestLookupPgDistinctIds:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -134,12 +129,6 @@ class TestLookupPgDistinctIds:
         yield
 
         cleanup_ch_test_data(self.team.id, self.created_person_uuids, self.created_distinct_ids)
-        PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, distinct_id__startswith=self.prefix
-        ).delete()
-        Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, uuid__in=self.created_person_uuids
-        ).delete()
 
     @pytest.mark.asyncio
     async def test_finds_distinct_ids_for_fixable_orphans(self):
@@ -150,10 +139,8 @@ class TestLookupPgDistinctIds:
 
         @sync_to_async
         def create_person_with_did():
-            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(team=self.team, uuid=person_uuid)
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
-                team=self.team, person=person, distinct_id=distinct_id, version=0
-            )
+            person = create_person(team=self.team, uuid=person_uuid)
+            add_distinct_id(person=person, distinct_id=distinct_id, version=0)
 
         await create_person_with_did()
 
@@ -189,10 +176,10 @@ class TestLookupPgDistinctIds:
         self.created_person_uuids.extend([truly_orphaned_uuid, ch_only_uuid])
 
         @sync_to_async
-        def create_person():
-            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(team=self.team, uuid=truly_orphaned_uuid)
+        def _seed():
+            create_person(team=self.team, uuid=truly_orphaned_uuid)
 
-        await create_person()
+        await _seed()
 
         result: LookupPgDistinctIdsResult = await self.activity_environment.run(
             lookup_pg_distinct_ids,
@@ -222,11 +209,9 @@ class TestLookupPgDistinctIds:
 
         @sync_to_async
         def create_person_with_dids():
-            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(team=self.team, uuid=person_uuid)
+            person = create_person(team=self.team, uuid=person_uuid)
             for i, distinct_id in enumerate(distinct_ids):
-                PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
-                    team=self.team, person=person, distinct_id=distinct_id, version=i
-                )
+                add_distinct_id(person=person, distinct_id=distinct_id, version=i)
 
         await create_person_with_dids()
 
@@ -245,7 +230,7 @@ class TestLookupPgDistinctIds:
         assert len(result.persons_not_found) == 0
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestSyncDistinctIdsToCh:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -357,7 +342,7 @@ class TestSyncDistinctIdsToCh:
         assert str(ch_did2["person_id"]) == person_uuid
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestMarkChOnlyOrphansDeleted:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -449,7 +434,7 @@ class TestMarkChOnlyOrphansDeleted:
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEndToEndOrphanCategories:
     """Test the complete flow of finding and categorizing all orphan types."""
 
@@ -464,12 +449,6 @@ class TestEndToEndOrphanCategories:
         yield
 
         cleanup_ch_test_data(self.team.id, self.created_person_uuids, self.created_distinct_ids)
-        PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, distinct_id__startswith=self.prefix
-        ).delete()
-        Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, uuid__in=self.created_person_uuids
-        ).delete()
 
     @pytest.mark.asyncio
     async def test_categorizes_all_three_orphan_types(self):
@@ -486,12 +465,10 @@ class TestEndToEndOrphanCategories:
         @sync_to_async
         def create_pg_data():
             # Fixable: Person in PG with DID
-            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(team=self.team, uuid=fixable_uuid)
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(
-                team=self.team, person=person, distinct_id=fixable_did, version=0
-            )
+            person = create_person(team=self.team, uuid=fixable_uuid)
+            add_distinct_id(person=person, distinct_id=fixable_did, version=0)
             # Truly orphaned: Person in PG, no DID
-            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(team=self.team, uuid=truly_orphaned_uuid)
+            create_person(team=self.team, uuid=truly_orphaned_uuid)
             # CH-only: No PG data
 
         await create_pg_data()

@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
@@ -17,7 +18,9 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Action
+from posthog.models.event.new_events_schema import use_new_events_schema
+
+from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
 
@@ -35,6 +38,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
+        self._use_new_events_schema = use_new_events_schema(self.team.pk)
         self.paginator = HogQLHasMorePaginator(
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
@@ -49,9 +53,15 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 query_type="EventTaxonomyQuery",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    use_new_events_schema=self._use_new_events_schema,
+                ),
             )
 
         results: list[EventTaxonomyItem] = []
@@ -75,32 +85,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         count_expr = ast.Constant(value=self.query.maxPropertyValues or 5)
 
-        if not self.query.properties:
-            return parse_select(
-                """
-                SELECT
-                    key,
-                    -- Pick five latest distinct sample values.
-                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
-                    count(distinct value) AS total_count
-                FROM {from_query}
-                ARRAY JOIN kv.1 AS key, kv.2 AS value
-                WHERE {filter}
-                GROUP BY key
-                ORDER BY total_count DESC
-            """,
-                placeholders={
-                    "from_query": self._get_subquery(),
-                    "filter": self._get_omit_filter(),
-                    "count": count_expr,
-                },
-            )
-
         return parse_select(
             """
                 SELECT
                     key,
-                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
+                    arrayMap(item -> item.3, arraySlice(reverse(arraySort(item -> (item.1, item.2, item.3), groupArray((value_count, latest_seen, value)))), 1, {count})) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
@@ -156,6 +145,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             )
         )
 
+    def _properties_document_expr(self) -> ast.Expr:
+        if self._use_new_events_schema:
+            return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+        return ast.Field(chain=["properties"])
+
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
         filter_expr: list[ast.Expr] = [date_filter]
@@ -199,18 +193,19 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     SELECT
                         key,
                         value,
-                        count() as count
+                        count() as value_count,
+                        max(timestamp) as latest_seen
                     FROM (
                         SELECT
-                            {props} as kv
+                            {props} as kv,
+                            timestamp
                         FROM
                             events
                         WHERE {filter}
                     )
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
-                    WHERE value != ''
+                    WHERE value IS NOT NULL AND value != ''
                     GROUP BY key, value
-                    ORDER BY count DESC
                 """,
                 placeholders={
                     "props": ast.Array(
@@ -233,15 +228,30 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         else:
             query = parse_select(
                 """
-                SELECT
-                    JSONExtractKeysAndValues(properties, 'String') as kv
-                FROM
-                    events
-                WHERE {filter}
-                ORDER BY timestamp desc
-                LIMIT 100
-            """,
-                placeholders={"filter": self._get_subquery_filter()},
+                        SELECT
+                            key,
+                            value,
+                            count() as value_count,
+                            max(timestamp) as latest_seen
+                        FROM (
+                            SELECT
+                                JSONExtractKeysAndValues({properties_doc}, 'String') as kv,
+                                timestamp
+                            FROM
+                                events
+                            WHERE {subquery_filter}
+                            ORDER BY timestamp desc
+                            LIMIT 100
+                        )
+                        ARRAY JOIN kv.1 AS key, kv.2 AS value
+                        WHERE {omit_filter} AND value IS NOT NULL AND value != ''
+                        GROUP BY key, value
+                    """,
+                placeholders={
+                    "properties_doc": self._properties_document_expr(),
+                    "subquery_filter": self._get_subquery_filter(),
+                    "omit_filter": self._get_omit_filter(),
+                },
             )
 
         return cast(ast.SelectQuery, query)

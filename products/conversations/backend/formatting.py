@@ -2,6 +2,7 @@
 
 import re
 import html as html_mod
+import unicodedata
 from collections.abc import Iterable
 from typing import Any
 
@@ -26,6 +27,103 @@ _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
+_RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
+
+
+def _slack_unicode_to_char(unicode_hex: str) -> str | None:
+    """Convert Slack's unicode hex field (e.g. '1f44d' or '1f1fa-1f1f8') to a Unicode string."""
+    if not unicode_hex:
+        return None
+    try:
+        return "".join(chr(int(cp, 16)) for cp in unicode_hex.split("-"))
+    except (ValueError, OverflowError):
+        return None
+
+
+_SLACK_EMOJI_NAME_TO_UNICODE: dict[str, str | None] = {
+    "THUMBSUP": "THUMBS UP SIGN",
+    "+1": "THUMBS UP SIGN",
+    "-1": "THUMBS DOWN SIGN",
+    "THUMBSDOWN": "THUMBS DOWN SIGN",
+    "HEART": "HEAVY BLACK HEART",
+    "HANKEY": "PILE OF POO",
+    "POOP": "PILE OF POO",
+    "SHIPIT": None,
+    "SIMPLE SMILE": "SLIGHTLY SMILING FACE",
+    "SMILE": "SMILING FACE WITH OPEN MOUTH AND SMILING EYES",
+    "LAUGHING": "SMILING FACE WITH OPEN MOUTH AND TIGHTLY-CLOSED EYES",
+    "WINK": "WINKING FACE",
+    "BLUSH": "SMILING FACE WITH SMILING EYES",
+    "GRINNING": "GRINNING FACE",
+    "RELAXED": "WHITE SMILING FACE",
+    "STUCK OUT TONGUE": "FACE WITH STUCK-OUT TONGUE",
+    "STUCK OUT TONGUE WINKING EYE": "FACE WITH STUCK-OUT TONGUE AND WINKING EYE",
+    "STUCK OUT TONGUE CLOSED EYES": "FACE WITH STUCK-OUT TONGUE AND TIGHTLY-CLOSED EYES",
+    "DISAPPOINTED": "DISAPPOINTED FACE",
+    "RAGE": "POUTING FACE",
+    "CRY": "CRYING FACE",
+    "SOB": "LOUDLY CRYING FACE",
+    "FEARFUL": "FEARFUL FACE",
+    "SCREAM": "FACE SCREAMING IN FEAR",
+    "SWEAT": "FACE WITH COLD SWEAT",
+    "SWEAT SMILE": "SMILING FACE WITH OPEN MOUTH AND COLD SWEAT",
+    "SUNGLASSES": "SMILING FACE WITH SUNGLASSES",
+    "TRIUMPH": "FACE WITH LOOK OF TRIUMPH",
+    "FLUSHED": "FLUSHED FACE",
+    "SLEEPING": "SLEEPING FACE",
+    "CONFUSED": "CONFUSED FACE",
+    "MASK": "FACE WITH MEDICAL MASK",
+    "SMIRK": "SMIRKING FACE",
+    "HUSHED": "HUSHED FACE",
+    "NO MOUTH": "FACE WITHOUT MOUTH",
+    "INNOCENT": "SMILING FACE WITH HALO",
+    "ALIEN": "EXTRATERRESTRIAL ALIEN",
+    "TADA": "PARTY POPPER",
+    "RAISED HANDS": "PERSON RAISING BOTH HANDS IN CELEBRATION",
+    "PRAY": "PERSON WITH FOLDED HANDS",
+    "CLAP": "CLAPPING HANDS SIGN",
+    "WAVE": "WAVING HAND SIGN",
+    "OK HAND": "OK HAND SIGN",
+    "POINT UP": "WHITE UP POINTING INDEX",
+    "POINT DOWN": "WHITE DOWN POINTING INDEX",
+    "POINT LEFT": "WHITE LEFT POINTING BACKHAND INDEX",
+    "POINT RIGHT": "WHITE RIGHT POINTING BACKHAND INDEX",
+    "MUSCLE": "FLEXED BICEPS",
+    "100": "HUNDRED POINTS SYMBOL",
+    "WHITE CHECK MARK": "WHITE HEAVY CHECK MARK",
+    "X": "CROSS MARK",
+    "WARNING": "WARNING SIGN",
+    "ZAP": "HIGH VOLTAGE SIGN",
+    "STAR": "WHITE MEDIUM STAR",
+    "STAR2": "GLOWING STAR",
+    "BOOM": "COLLISION SYMBOL",
+    "EXCLAMATION": "HEAVY EXCLAMATION MARK SYMBOL",
+    "QUESTION": "BLACK QUESTION MARK ORNAMENT",
+    "GREY EXCLAMATION": "WHITE EXCLAMATION MARK ORNAMENT",
+    "GREY QUESTION": "WHITE QUESTION MARK ORNAMENT",
+    "BULB": "ELECTRIC LIGHT BULB",
+    "LINK": "LINK SYMBOL",
+    "MEGA": "CHEERING MEGAPHONE",
+    "MAG": "LEFT-POINTING MAGNIFYING GLASS",
+    "MAG RIGHT": "RIGHT-POINTING MAGNIFYING GLASS",
+}
+
+
+def _slack_emoji_name_to_char(name: str) -> str | None:
+    """Best-effort conversion of a Slack emoji shortcode name to a Unicode character.
+
+    Uses Python's unicodedata reverse lookup. Covers standard emoji but not
+    custom workspace emoji (those stay as :name:).
+    """
+    unicode_name = name.replace("_", " ").upper()
+    resolved_name = _SLACK_EMOJI_NAME_TO_UNICODE.get(unicode_name, unicode_name)
+    if resolved_name is None:
+        return None
+
+    try:
+        return unicodedata.lookup(resolved_name)
+    except KeyError:
+        return None
 
 
 def _collect_user_ids(elements: list[JSON], ids: set[str]) -> None:
@@ -53,6 +151,11 @@ def extract_slack_user_ids(text: str, blocks: list[JSON] | None = None) -> set[s
             _collect_user_ids(block.get("elements", []), ids)
 
     return ids
+
+
+def strip_slack_user_mentions(text: str) -> str:
+    """Remove ``<@USERID>`` mention tokens, leaving only the message's own text."""
+    return _RE_SLACK_USER_MENTION.sub("", text)
 
 
 def content_to_slack_mrkdwn(content: str) -> str:
@@ -106,6 +209,8 @@ def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None)
         return ""
 
     text = _RE_SLACK_USER_MENTION.sub(_replace_user_mention, text)
+    # Convert emoji shortcodes before formatting (prevents italic regex mangling underscored names)
+    text = _RE_SLACK_EMOJI.sub(lambda m: _slack_emoji_name_to_char(m.group(1)) or m.group(0), text)
     # Convert labeled links <url|label> to [label](url)
     text = _RE_SLACK_LINK_WITH_LABEL.sub(r"[\2](\1)", text)
     # Convert bare links <url> to just url
@@ -198,7 +303,10 @@ def _parse_rich_text_inline_elements(elements: list[JSON], user_names: dict[str,
             continue
 
         if element_type == "emoji":
-            nodes.append({"type": "text", "text": f":{element.get('name', '')}:"})
+            char = _slack_unicode_to_char(element.get("unicode", ""))
+            if not char:
+                char = _slack_emoji_name_to_char(element.get("name", ""))
+            nodes.append({"type": "text", "text": char or f":{element.get('name', '')}:"})
             continue
 
         if element_type == "user":
@@ -221,6 +329,32 @@ def _parse_rich_text_inline_elements(elements: list[JSON], user_names: dict[str,
             _append_text_with_breaks(nodes, element.get("text", ""), _style_to_marks(element.get("style")))
 
     return nodes
+
+
+def _preformatted_elements_to_text(elements: list[JSON], user_names: dict[str, str] | None = None) -> str:
+    """Flatten a Slack preformatted block's inline elements to literal text.
+
+    Code blocks hold plain text (no marks/links), so each element is reduced to its
+    textual value rather than dropped: link -> label or url, emoji -> char or :name:,
+    user -> resolved name or raw mention, channel -> #name.
+    """
+    parts: list[str] = []
+    for el in elements:
+        el_type = el.get("type")
+        if el_type == "link":
+            parts.append(el.get("text") or el.get("url", ""))
+        elif el_type == "emoji":
+            char = _slack_unicode_to_char(el.get("unicode", "")) or _slack_emoji_name_to_char(el.get("name", ""))
+            parts.append(char or f":{el.get('name', '')}:")
+        elif el_type == "user":
+            uid = el.get("user_id", "")
+            name = user_names.get(uid) if user_names else None
+            parts.append(f"@{name}" if name else f"<@{uid}>")
+        elif el_type == "channel":
+            parts.append(f"#{el.get('name') or el.get('channel_id', '')}")
+        else:
+            parts.append(el.get("text", ""))
+    return "".join(parts)
 
 
 def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str, str] | None = None) -> JSON | None:
@@ -257,9 +391,13 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
                 continue
 
             if element_type == "rich_text_preformatted":
-                inline_nodes = _parse_rich_text_inline_elements(element.get("elements", []), user_names)
-                if inline_nodes:
-                    doc_nodes.append({"type": "paragraph", "content": inline_nodes})
+                code_text = _preformatted_elements_to_text(element.get("elements", []), user_names)
+                doc_nodes.append(
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": code_text}] if code_text else [],
+                    }
+                )
                 continue
 
             if element_type == "rich_text_quote":
@@ -332,6 +470,12 @@ def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = T
 
         if node_type == "paragraph":
             blocks.append(_serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images))
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            language = node.get("attrs", {}).get("language") or ""
+            blocks.append(f"```{language}\n{code_text}\n```")
             continue
 
         if node_type == "image" and include_images:
@@ -408,7 +552,19 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         section_elements.append({"type": "link", "url": src, "text": alt})
 
             if section_elements:
+                if rich_text_elements:
+                    rich_text_elements.append(
+                        {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
+                    )
                 rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            if code_text:
+                rich_text_elements.append(
+                    {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
+                )
             continue
 
         if node_type == "image" and include_images:

@@ -35,7 +35,9 @@ from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_g
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, Team
+from posthog.models import Team
+
+from products.actions.backend.models.action import Action
 
 
 class TrendsActorsQueryBuilder:
@@ -309,6 +311,7 @@ class TrendsActorsQueryBuilder:
             *self._entity_where_expr(),
             *self._prop_where_expr(),
             *(self._date_where_expr() if with_date_range_expr else []),
+            *self._day_of_week_where_expr(),
             *(self._breakdown_where_expr() if with_breakdown_expr else []),
             *self._filter_empty_actors_expr(),
         ]
@@ -318,6 +321,12 @@ class TrendsActorsQueryBuilder:
         if exprs:
             return ast.And(exprs=exprs)
         return None
+
+    def _day_of_week_where_expr(self) -> list[ast.Expr]:
+        # Applied unconditionally (like in TrendsQueryBuilder) so the actors list matches the
+        # chart's counts even for multi-day buckets and total-value/active-user aggregations
+        day_of_week_filter = self.trends_date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        return [day_of_week_filter] if day_of_week_filter is not None else []
 
     def _ratio_expr(self) -> ast.RatioExpr | None:
         if self.trends_query.samplingFactor is None:

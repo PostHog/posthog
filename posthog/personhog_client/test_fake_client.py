@@ -60,6 +60,22 @@ class TestFakePersonHogClientPersons:
         assert resp.person_distinct_ids[0].person_id == 10
         assert len(resp.person_distinct_ids[0].distinct_ids) == 2
 
+    def test_limited_fetch_orders_identified_first(self):
+        # Mirrors personhog-replica: the anonymous-shaped id is seeded first, but a limited
+        # fetch must order identified ids first so they survive the limit.
+        anon = "0190f8e1-1234-7abc-89de-f0123456789a"
+        self.client.add_person(team_id=1, person_id=30, uuid="ghi-789", distinct_ids=[anon, "id@example.com"])
+
+        single = self.client.get_distinct_ids_for_person(
+            person_pb2.GetDistinctIdsForPersonRequest(team_id=1, person_id=30, limit=1)
+        )
+        bulk = self.client.get_distinct_ids_for_persons(
+            person_pb2.GetDistinctIdsForPersonsRequest(team_id=1, person_ids=[30], limit_per_person=1)
+        )
+
+        assert [d.distinct_id for d in single.distinct_ids] == ["id@example.com"]
+        assert [d.distinct_id for d in bulk.person_distinct_ids[0].distinct_ids] == ["id@example.com"]
+
     def test_get_persons_by_distinct_ids_in_team(self):
         resp = self.client.get_persons_by_distinct_ids_in_team(
             person_pb2.GetPersonsByDistinctIdsInTeamRequest(
@@ -211,6 +227,239 @@ class TestCallTracking:
             client.assert_not_called("get_person")
 
 
+class TestFakePersonHogClientGroupWrites:
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_group(team_id=1, group_type_index=0, group_key="org:1", group_properties={"name": "Acme"})
+
+    def test_create_group(self):
+        resp = self.client.create_group(
+            group_pb2.CreateGroupRequest(
+                team_id=1,
+                group_type_index=0,
+                group_key="org:new",
+                group_properties=b'{"foo": "bar"}',
+                created_at=1000,
+            )
+        )
+        assert resp.group.id > 0
+        assert resp.group.group_key == "org:new"
+        assert resp.group.team_id == 1
+        assert resp.group.created_at == 1000
+        assert resp.group.version == 0
+        fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:new"))
+        assert fetched.group.id == resp.group.id
+
+    def test_create_group_auto_increment_id(self):
+        resp1 = self.client.create_group(group_pb2.CreateGroupRequest(team_id=1, group_type_index=1, group_key="k1"))
+        resp2 = self.client.create_group(group_pb2.CreateGroupRequest(team_id=1, group_type_index=2, group_key="k2"))
+        assert resp2.group.id > resp1.group.id
+
+    def test_update_group_properties(self):
+        self.client.update_group(
+            group_pb2.UpdateGroupRequest(
+                team_id=1,
+                group_type_index=0,
+                group_key="org:1",
+                update_mask=["group_properties"],
+                group_properties=b'{"name": "Updated"}',
+            )
+        )
+        fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+        assert json.loads(fetched.group.group_properties) == {"name": "Updated"}
+        assert fetched.group.version == 1
+
+    def test_update_group_not_found_raises(self):
+        import grpc
+
+        with pytest.raises(grpc.RpcError):
+            self.client.update_group(
+                group_pb2.UpdateGroupRequest(
+                    team_id=1,
+                    group_type_index=0,
+                    group_key="nonexistent",
+                    update_mask=["group_properties"],
+                )
+            )
+
+    def test_update_group_increments_version(self):
+        self.client.update_group(
+            group_pb2.UpdateGroupRequest(
+                team_id=1,
+                group_type_index=0,
+                group_key="org:1",
+                update_mask=["group_properties"],
+                group_properties=b"{}",
+            )
+        )
+        self.client.update_group(
+            group_pb2.UpdateGroupRequest(
+                team_id=1,
+                group_type_index=0,
+                group_key="org:1",
+                update_mask=["group_properties"],
+                group_properties=b"{}",
+            )
+        )
+        fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+        assert fetched.group.version == 2
+
+    def test_delete_groups_batch_for_team(self):
+        self.client.add_group(team_id=1, group_type_index=0, group_key="org:2")
+        resp = self.client.delete_groups_batch_for_team(
+            group_pb2.DeleteGroupsBatchForTeamRequest(team_id=1, batch_size=10)
+        )
+        assert resp.deleted_count == 2
+        fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+        assert not fetched.HasField("group")
+
+    def test_delete_groups_batch_respects_batch_size(self):
+        self.client.add_group(team_id=1, group_type_index=0, group_key="org:2")
+        self.client.add_group(team_id=1, group_type_index=0, group_key="org:3")
+        resp = self.client.delete_groups_batch_for_team(
+            group_pb2.DeleteGroupsBatchForTeamRequest(team_id=1, batch_size=2)
+        )
+        assert resp.deleted_count == 2
+        remaining = self.client.get_groups(
+            group_pb2.GetGroupsRequest(
+                team_id=1,
+                group_identifiers=[
+                    common_pb2.GroupIdentifier(group_type_index=0, group_key="org:1"),
+                    common_pb2.GroupIdentifier(group_type_index=0, group_key="org:2"),
+                    common_pb2.GroupIdentifier(group_type_index=0, group_key="org:3"),
+                ],
+            )
+        )
+        assert len(remaining.groups) == 1
+
+    def test_delete_groups_batch_wrong_team(self):
+        resp = self.client.delete_groups_batch_for_team(
+            group_pb2.DeleteGroupsBatchForTeamRequest(team_id=999, batch_size=10)
+        )
+        assert resp.deleted_count == 0
+        fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+        assert fetched.group.group_key == "org:1"
+
+
+class TestFakePersonHogClientGroupTypeMappingWrites:
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_group_type_mapping(
+            project_id=100,
+            team_id=1,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            detail_dashboard_id=42,
+        )
+        self.client.add_group_type_mapping(project_id=100, team_id=1, group_type="company", group_type_index=1)
+
+    def test_get_group_type_mapping_by_dashboard_id_found(self):
+        resp = self.client.get_group_type_mapping_by_dashboard_id(
+            group_pb2.GetGroupTypeMappingByDashboardIdRequest(team_id=1, dashboard_id=42)
+        )
+        assert resp.mapping.group_type == "organization"
+
+    def test_get_group_type_mapping_by_dashboard_id_not_found(self):
+        resp = self.client.get_group_type_mapping_by_dashboard_id(
+            group_pb2.GetGroupTypeMappingByDashboardIdRequest(team_id=1, dashboard_id=999)
+        )
+        assert not resp.HasField("mapping")
+
+    def test_get_group_type_mapping_by_dashboard_id_wrong_team(self):
+        resp = self.client.get_group_type_mapping_by_dashboard_id(
+            group_pb2.GetGroupTypeMappingByDashboardIdRequest(team_id=99, dashboard_id=42)
+        )
+        assert not resp.HasField("mapping")
+
+    def test_update_group_type_mapping_name(self):
+        self.client.update_group_type_mapping(
+            group_pb2.UpdateGroupTypeMappingRequest(
+                project_id=100,
+                group_type_index=0,
+                update_mask=["name_singular", "name_plural"],
+                name_singular="Org",
+                name_plural="Orgs",
+            )
+        )
+        resp = self.client.get_group_type_mappings_by_project_id(
+            group_pb2.GetGroupTypeMappingsByProjectIdRequest(project_id=100)
+        )
+        org_mapping = next(m for m in resp.mappings if m.group_type_index == 0)
+        assert org_mapping.name_singular == "Org"
+        assert org_mapping.name_plural == "Orgs"
+
+    def test_update_group_type_mapping_dashboard_id(self):
+        self.client.update_group_type_mapping(
+            group_pb2.UpdateGroupTypeMappingRequest(
+                project_id=100,
+                group_type_index=0,
+                update_mask=["detail_dashboard_id"],
+                detail_dashboard_id=99,
+            )
+        )
+        resp = self.client.get_group_type_mapping_by_dashboard_id(
+            group_pb2.GetGroupTypeMappingByDashboardIdRequest(team_id=1, dashboard_id=99)
+        )
+        assert resp.mapping.group_type == "organization"
+
+    def test_update_group_type_mapping_not_found_raises(self):
+        import grpc
+
+        with pytest.raises(grpc.RpcError):
+            self.client.update_group_type_mapping(
+                group_pb2.UpdateGroupTypeMappingRequest(
+                    project_id=100,
+                    group_type_index=99,
+                    update_mask=["name_singular"],
+                    name_singular="X",
+                )
+            )
+
+    def test_delete_group_type_mapping(self):
+        resp = self.client.delete_group_type_mapping(
+            group_pb2.DeleteGroupTypeMappingRequest(project_id=100, group_type_index=0)
+        )
+        assert resp.deleted is True
+        remaining = self.client.get_group_type_mappings_by_project_id(
+            group_pb2.GetGroupTypeMappingsByProjectIdRequest(project_id=100)
+        )
+        assert len(remaining.mappings) == 1
+        assert remaining.mappings[0].group_type == "company"
+
+    def test_delete_group_type_mapping_not_found(self):
+        resp = self.client.delete_group_type_mapping(
+            group_pb2.DeleteGroupTypeMappingRequest(project_id=100, group_type_index=99)
+        )
+        assert resp.deleted is False
+
+    def test_delete_group_type_mapping_removes_from_team_index(self):
+        self.client.delete_group_type_mapping(
+            group_pb2.DeleteGroupTypeMappingRequest(project_id=100, group_type_index=0)
+        )
+        by_team = self.client.get_group_type_mappings_by_team_id(
+            group_pb2.GetGroupTypeMappingsByTeamIdRequest(team_id=1)
+        )
+        assert len(by_team.mappings) == 1
+        assert by_team.mappings[0].group_type == "company"
+
+    def test_delete_group_type_mappings_batch_for_team(self):
+        resp = self.client.delete_group_type_mappings_batch_for_team(
+            group_pb2.DeleteGroupTypeMappingsBatchForTeamRequest(team_id=1, batch_size=10)
+        )
+        assert resp.deleted_count == 2
+        remaining = self.client.get_group_type_mappings_by_project_id(
+            group_pb2.GetGroupTypeMappingsByProjectIdRequest(project_id=100)
+        )
+        assert len(remaining.mappings) == 0
+
+    def test_delete_group_type_mappings_batch_wrong_team(self):
+        resp = self.client.delete_group_type_mappings_batch_for_team(
+            group_pb2.DeleteGroupTypeMappingsBatchForTeamRequest(team_id=999, batch_size=10)
+        )
+        assert resp.deleted_count == 0
+
+
 class TestFakePersonhogClientContextManager:
     def test_patches_get_personhog_client(self):
         with fake_personhog_client() as fake:
@@ -220,14 +469,3 @@ class TestFakePersonhogClientContextManager:
 
             client = get_personhog_client()
             assert client is fake
-
-    def test_patches_gate(self):
-        with fake_personhog_client(gate_enabled=True):
-            from posthog.personhog_client.gate import use_personhog
-
-            assert use_personhog() is True
-
-        with fake_personhog_client(gate_enabled=False):
-            from posthog.personhog_client.gate import use_personhog
-
-            assert use_personhog() is False

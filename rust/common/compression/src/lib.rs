@@ -13,6 +13,15 @@ use std::io::{Read, Write};
 use thiserror::Error;
 use zstd::{Decoder, Encoder};
 
+/// Gzip streams start with the two-byte magic `1f 8b` (ID1, ID2), followed by
+/// compression method `08` (deflate). All three bytes are checked together so
+/// streams with an unrecognized compression method are not misidentified as gzip.
+pub const GZIP_MAGIC_HEADER: [u8; 3] = [0x1f, 0x8b, 0x08];
+
+pub fn has_gzip_magic_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(&GZIP_MAGIC_HEADER)
+}
+
 #[derive(Error, Debug)]
 pub enum CompressionError {
     #[error("IO error: {0}")]
@@ -20,14 +29,42 @@ pub enum CompressionError {
 
     #[error("Base64 decoding error: {0}")]
     Base64(#[from] base64::DecodeError),
+
+    #[error("decompressed output exceeded limit ({decompressed} > {limit} bytes)")]
+    OutputTooLarge { decompressed: usize, limit: usize },
 }
 
-/// Gzip decompression
+/// Gzip decompression with **no output cap**.
+///
+/// Safe only when the *compressed bytes* come from a trusted writer (rules
+/// out gzip-bomb ratios) AND the uncompressed size is bounded somewhere
+/// upstream. Cyclotron's VM-state path qualifies: bytes are produced by
+/// `compress_vm_state` in this crate.
+///
+/// For HTTP request bodies, third-party blobs, or anything where an adversary
+/// controls the compressed bytes or the uncompressed size, use
+/// [`decompress_gzip_capped`] — gzip's worst-case ratio on adversarial input
+/// is ~1000:1, so unbounded reads on untrusted bytes are a DoS vector.
 pub fn decompress_gzip(bytes: &[u8]) -> Result<Vec<u8>, CompressionError> {
-    let mut decoder = GzDecoder::new(bytes);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
-    Ok(decompressed)
+    decompress_gzip_capped(bytes, usize::MAX)
+}
+
+/// Gzip decompression with a hard output cap; see [`decompress_gzip`] for the
+/// threat model. Returns [`CompressionError::OutputTooLarge`] when the
+/// decompressed output would exceed `limit`.
+pub fn decompress_gzip_capped(bytes: &[u8], limit: usize) -> Result<Vec<u8>, CompressionError> {
+    let mut buf = Vec::new();
+    GzDecoder::new(bytes)
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut buf)?;
+
+    if buf.len() > limit {
+        return Err(CompressionError::OutputTooLarge {
+            decompressed: buf.len(),
+            limit,
+        });
+    }
+    Ok(buf)
 }
 
 /// Gzip compression
@@ -106,6 +143,13 @@ pub fn decompress_data(input: &[u8]) -> Result<String, CompressionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_has_gzip_magic_header() {
+        assert!(has_gzip_magic_header(&[0x1f, 0x8b, 0x08, 0x00]));
+        assert!(!has_gzip_magic_header(&[0x1f, 0x8b]));
+        assert!(!has_gzip_magic_header(b"{}"));
+    }
 
     #[test]
     fn test_gzip_compression_decompression() {
@@ -211,5 +255,61 @@ mod tests {
         let corrupted_zstd = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00]; // Incomplete zstd header
         let result = decompress_zstd(&corrupted_zstd);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_gzip_capped_under_limit() {
+        let original = b"hello world";
+        let compressed = compress_gzip(original).unwrap();
+        let decompressed = decompress_gzip_capped(&compressed, 1024).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_decompress_gzip_capped_at_limit() {
+        let original = vec![b'A'; 1024];
+        let compressed = compress_gzip(&original).unwrap();
+        let decompressed = decompress_gzip_capped(&compressed, 1024).unwrap();
+        assert_eq!(decompressed.len(), 1024);
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_decompress_gzip_capped_over_limit() {
+        let original = vec![b'A'; 1025];
+        let compressed = compress_gzip(&original).unwrap();
+        let result = decompress_gzip_capped(&compressed, 1024);
+        assert!(matches!(
+            result,
+            Err(CompressionError::OutputTooLarge { decompressed, limit })
+                if decompressed > 1024 && limit == 1024
+        ));
+    }
+
+    #[test]
+    fn test_decompress_gzip_capped_bomb_rejected() {
+        // 64 KiB of zeros compresses to roughly 80 bytes — a small "bomb" that
+        // would balloon to 64 KiB if decompressed unbounded.
+        let bomb_decompressed = vec![0u8; 64 * 1024];
+        let compressed = compress_gzip(&bomb_decompressed).unwrap();
+        assert!(compressed.len() < 1024, "bomb should compress small");
+
+        let result = decompress_gzip_capped(&compressed, 1024);
+        match result {
+            Err(CompressionError::OutputTooLarge {
+                decompressed,
+                limit,
+            }) => {
+                assert!(decompressed > 1024);
+                assert_eq!(limit, 1024);
+            }
+            other => panic!("expected OutputTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decompress_gzip_capped_invalid_input() {
+        let result = decompress_gzip_capped(b"not gzip data", 1024);
+        assert!(matches!(result, Err(CompressionError::Io(_))));
     }
 }

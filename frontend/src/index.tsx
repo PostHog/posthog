@@ -2,56 +2,61 @@ import '~/styles'
 
 import './buffer-polyfill'
 
-import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
-import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
-import { getContext } from 'kea'
-import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
-import { createRoot } from 'react-dom/client'
+import { Suspense, lazy } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 
-import { App } from 'scenes/App'
+import { retryBootImport } from 'lib/utils/retryImport'
 
-import { initKea } from './initKea'
-import { ErrorBoundary } from './layout/ErrorBoundary'
-import { loadPostHogJS } from './loadPostHogJS'
-import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
+import { RootErrorBoundary } from './RootErrorBoundary'
+import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
-loadPostHogJS()
-initKea()
-preWarmDecompression()
+// Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
+// graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
+// bootApp() runs the one-time boot side effects (posthog-js, kea) after the chunks
+// load and before <App /> first renders. It lives in its own module so scenes/App
+// keeps component-only exports and stays a React Fast Refresh boundary.
+const App = lazy(() =>
+    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
+        ([appModule, bootModule]) => {
+            bootModule.bootApp()
+            return { default: appModule.App }
+        }
+    )
+)
 
-// On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
-// It won't be applied on other platforms.
-//
-// NOTE: The first argument is the name of the polyfill to use. This is used to set the font family in our CSS.
-// Make sure to update the font family in the CSS if you change this.
-polyfillCountryFlagEmojis('Emoji Flags Polyfill')
-
-// Expose `window.getReduxState()` to make snapshots to storybook easy
-if (typeof window !== 'undefined') {
-    // Disabled in production to prevent leaking secret data, personal API keys, etc
-    if (process.env.NODE_ENV === 'development') {
-        ;(window as any).getReduxState = () => getContext().store.getState()
-    } else {
-        ;(window as any).getReduxState = () => 'Disabled outside development!'
+declare global {
+    interface Window {
+        __posthogAppRoot?: Root
     }
 }
 
 function renderApp(): void {
-    const root = document.getElementById('root')
-    if (root) {
-        createRoot(root).render(
-            <ErrorBoundary>
-                <PostHogProvider client={posthog}>
-                    <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
-                        <App />
-                    </BaseTooltip.Provider>
-                </PostHogProvider>
-            </ErrorBoundary>
-        )
-    } else {
+    const rootElement = document.getElementById('root')
+    if (!rootElement) {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+        return
     }
+    // Vite 8 can serve this entry module twice after an HMR invalidation reaches it (the script
+    // tag's bare URL plus a timestamped copy), and a second createRoot on an already-rooted
+    // container crashes React. Reuse one root so a repeat execution re-renders instead.
+    const root = (window.__posthogAppRoot ??= createRoot(rootElement))
+    root.render(
+        <RootErrorBoundary>
+            {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
+                errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}
+            <ChunkLoadErrorBoundary>
+                <Suspense
+                    fallback={
+                        <div className="Preloader" role="status" aria-label="Loading PostHog">
+                            <div className="Preloader__inner" />
+                        </div>
+                    }
+                >
+                    <App />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
+        </RootErrorBoundary>
+    )
 }
 
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.

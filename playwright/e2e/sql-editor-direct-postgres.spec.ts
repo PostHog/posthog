@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process'
 
-import { mockFeatureFlags } from '../utils/mockApi'
 import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-core'
 
 test.describe('SQL Editor direct Postgres queries', () => {
@@ -23,11 +22,6 @@ test.describe('SQL Editor direct Postgres queries', () => {
                     INSERT INTO ${tableName} (id, label) VALUES (1, 'alpha'), (2, 'beta');
                 `,
             ])
-
-            await mockFeatureFlags(page, {
-                'dwh-postgres-direct-query': true,
-            })
-
             await page.goto('/login')
             await page.evaluate(
                 async ({ email, password }) => {
@@ -51,7 +45,8 @@ test.describe('SQL Editor direct Postgres queries', () => {
 
                 const connectionSelector = page.getByRole('button', { name: /PostHog \(ClickHouse\)/ })
                 await connectionSelector.click()
-                await page.getByRole('menuitem', { name: '+ Add postgres direct connection' }).click()
+                await page.getByRole('menuitem', { name: 'Add direct connection' }).click()
+                await page.getByRole('menuitem', { name: 'Postgres', exact: true }).click()
 
                 await expect(page).toHaveURL(/.*\/data-warehouse\/new-source/)
                 await expect(page).toHaveURL(/kind=Postgres/)
@@ -139,6 +134,12 @@ test.describe('SQL Editor direct Postgres queries', () => {
                 await page.getByTestId('sql-editor-settings-toggle').click()
                 await page.getByTestId('sql-editor-send-raw-query-toggle').click()
 
+                // CodeEditor lazy-loads monaco, so the container renders before the editor
+                // mounts — clicking too early focuses nothing and the keystrokes are lost.
+                await page
+                    .locator('[data-attr=hogql-query-editor] [data-editor-ready="true"]')
+                    .first()
+                    .waitFor({ state: 'visible' })
                 await page.locator('[data-attr=hogql-query-editor]').click()
                 await page
                     .locator('[data-attr=hogql-query-editor]')

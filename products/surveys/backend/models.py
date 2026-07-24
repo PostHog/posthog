@@ -12,11 +12,13 @@ from django.dispatch import receiver
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
-from posthog.models import Action
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
+
+from products.actions.backend.models.action import Action
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -57,7 +59,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     linked_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -65,7 +67,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_linked_flag",
     )
     targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -73,7 +75,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_targeting_flag",
     )
     linked_insight = models.ForeignKey(
-        "posthog.Insight",
+        "product_analytics.Insight",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -83,7 +85,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -91,14 +93,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_internal_targeting_flag",
     )
     internal_response_sampling_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
         related_name="surveys_internal_response_sampling_flag",
         related_query_name="surveys_internal_response_sampling_flag",
     )
-    type = models.CharField(max_length=40, choices=SurveyType.choices)
+    type = models.CharField(max_length=40, choices=SurveyType)
     conditions = models.JSONField(blank=True, null=True)
     questions = models.JSONField(
         blank=True,
@@ -191,7 +193,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
         Translations: Each question can include inline translations.
         - `translations`: Object mapping language codes to translated fields.
-        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
         - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
         Example with translations:
@@ -237,7 +239,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         null=True,
         blank=True,
         max_length=6,
-        choices=SurveySamplingIntervalType.choices,
+        choices=SurveySamplingIntervalType,
         default=SurveySamplingIntervalType.WEEK,
     )
     response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
@@ -259,7 +261,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     current_iteration_start_date = models.DateTimeField(null=True)
     schedule = models.CharField(
         max_length=40,
-        choices=Schedule.choices,
+        choices=Schedule,
         default=Schedule.ONCE,
         null=True,
         blank=True,
@@ -279,9 +281,13 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     # TipTap editor layout for form-builder surveys
     form_content = models.JSONField(blank=True, null=True)
+    # Language the top-level survey/question text is written in.
+    # Used as the "original" label in the editor and as the source language for AI-generated translations.
+    # The SDK does not read this field — base text is always the rendering fallback when no translation matches.
+    base_language = models.CharField(max_length=20, default="en")
     # Translations for multi-language support
     # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
-    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+    # Language codes must be canonical BCP-47-ish strings (e.g. "es", "es-MX"). Aliases like "english" or "default" are rejected by the API.
     translations = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
@@ -296,9 +302,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     actions = models.ManyToManyField(Action)
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id", surface=surface)
 
     @classmethod
     def get_internal_flag_ids(
@@ -477,8 +483,9 @@ surveys_hypercache = HyperCache(
 @receiver(post_save, sender=Survey)
 @receiver(post_delete, sender=Survey)
 def survey_changed(sender, instance: "Survey", **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
     from posthog.tasks.surveys import update_team_surveys_cache
+
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     # Defer task execution until after the transaction commits
     # Update both survey cache and flag cache since survey-linked flags are

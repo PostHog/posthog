@@ -1,13 +1,15 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db.utils import IntegrityError
 
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
-from posthog.models.activity_logging.utils import activity_visibility_manager
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
+from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
 from posthog.models.utils import UUIDT
 
 
@@ -38,6 +40,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.item_id, "6")
         self.assertEqual(log.scope, "FeatureFlag")
         self.assertEqual(log.activity, "updated")
+        assert log.detail is not None
         self.assertEqual(log.detail["changes"], [change.__dict__])
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
@@ -53,6 +56,112 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    def test_client_is_populated_from_activity_storage(self) -> None:
+        activity_storage.set_client("posthog-js/1.234.0")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=7,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_client()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.client, "posthog-js/1.234.0")
+
+    def test_explicit_client_overrides_storage(self) -> None:
+        activity_storage.set_client("storage-client")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=8,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+                client="explicit-client",
+            )
+        finally:
+            activity_storage.clear_client()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.client, "explicit-client")
+
+    def test_client_defaults_to_none_when_unset(self) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=9,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(),
+        )
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertIsNone(log.client)
+
+    def test_ip_address_is_populated_from_activity_storage(self) -> None:
+        activity_storage.set_ip_address("203.0.113.42")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=10,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_ip_address()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.ip_address, "203.0.113.42")
+
+    def test_explicit_ip_address_overrides_storage(self) -> None:
+        activity_storage.set_ip_address("10.0.0.1")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=11,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+                ip_address="198.51.100.7",
+            )
+        finally:
+            activity_storage.clear_ip_address()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.ip_address, "198.51.100.7")
+
+    def test_ip_address_defaults_to_none_when_unset(self) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=12,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(),
+        )
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertIsNone(log.ip_address)
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
@@ -82,7 +191,10 @@ class TestActivityLogModel(BaseTest):
         )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
-        with self.assertLogs(level="WARN") as log:
+        # Assert on the module logger directly instead of assertLogs: the root logger sits at
+        # ERROR under test settings, so whether the warning reaches a root handler depends on
+        # global logging state other tests may have touched
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
             with self.settings(TEST=False):  # Enable production-level silencing
                 try:
                     log_activity(
@@ -100,16 +212,13 @@ class TestActivityLogModel(BaseTest):
                 except Exception as e:
                     raise pytest.fail(f"Should not have raised exception: {e}")
 
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(
-                logged_warning["msg"]["event"],
-                "activity_log.failed_to_write_to_activity_log",
-            )
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+            warning = mock_logger.warn.call_args
+            self.assertIsNotNone(warning)
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertEqual(warning.kwargs["scope"], "testing throwing exceptions on create")
+            self.assertEqual(warning.kwargs["team"], 1)
+            self.assertEqual(warning.kwargs["activity"], "does not explode")
+            self.assertIsInstance(warning.kwargs["exception"], ValueError)
 
 
 class TestActivityLogVisibilityManager(BaseTest):
@@ -126,6 +235,10 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created", "User", "created", False, True),
             # User activities not in the restricted list are not restricted
             ("user_changed_password", "User", "changed_password", False, False),
+            # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
+            ("instance_setting_updated", "InstanceSetting", "updated", False, True),
+            # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
+            ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -153,6 +266,10 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("normal_login_staff_bypass", "User", "logged_in", False, False),
             ("user_updated_staff_bypass", "User", "updated", False, False),
             ("user_created_staff_bypass", "User", "created", False, False),
+            # Staff can also see InstanceSetting updates (allow_staff=True)
+            ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
+            # Staff can also see AI-gateway top-ups (allow_staff=True)
+            ("ai_gateway_credit_added_staff_bypass", "AIGatewayCredit", "credit_added", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
@@ -189,6 +306,20 @@ class TestActivityLogVisibilityManager(BaseTest):
         self.assertFalse(filtered.filter(scope="User", activity="updated").exists())
         self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
 
+    def test_queryset_excludes_ai_gateway_credit_for_non_staff(self) -> None:
+        # Pin the actual API-facing exclusion path (apply_to_queryset), not just is_restricted:
+        # the staff email, credit reason, and balance must stay out of org-scoped endpoints.
+        ActivityLog.objects.create(team_id=self.team.id, scope="AIGatewayCredit", activity="credit_added")
+        ActivityLog.objects.create(team_id=self.team.id, scope="FeatureFlag", activity="created")
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+
+        non_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
+        assert not non_staff.filter(scope="AIGatewayCredit").exists()
+        assert non_staff.filter(scope="FeatureFlag").exists()
+
+        staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
+        assert staff.filter(scope="AIGatewayCredit").exists()
+
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_out", was_impersonated=True)
@@ -201,3 +332,26 @@ class TestActivityLogVisibilityManager(BaseTest):
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
         self.assertEqual(filtered.count(), 4)
+
+
+class TestActivityTriggerContext(BaseTest):
+    def tearDown(self):
+        activity_storage.clear_trigger()
+        super().tearDown()
+
+    def test_nested_contexts_restore_the_outer_trigger(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        inner = Trigger(job_type="hog_flow", job_id="inner", payload={})
+
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(inner):
+                self.assertEqual(activity_storage.get_trigger(), inner)
+            self.assertEqual(activity_storage.get_trigger(), outer)
+        self.assertIsNone(activity_storage.get_trigger())
+
+    def test_none_trigger_is_a_noop(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(None):
+                self.assertEqual(activity_storage.get_trigger(), outer)
+            self.assertEqual(activity_storage.get_trigger(), outer)

@@ -2,7 +2,7 @@
 import './icons.scss'
 
 import clsx from 'clsx'
-import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+import { CSSProperties, forwardRef, PropsWithChildren, SVGAttributes } from 'react'
 
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 
@@ -17,6 +17,7 @@ interface IconWithCountProps {
     count: number
     showZero?: boolean
     status?: LemonBadgeProps['status']
+    size?: LemonBadgeProps['size']
     className?: string
 }
 
@@ -25,12 +26,13 @@ export function IconWithCount({
     children,
     showZero,
     status = 'primary',
+    size = 'small',
     className,
 }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span className={clsx('relative inline-flex', className)}>
             {children}
-            <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
+            <LemonBadge.Number count={count} size={size} position="top-right" showZero={showZero} status={status} />
         </span>
     )
 }
@@ -81,19 +83,25 @@ export interface LemonIconProps {
     className?: string
 }
 
-const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }) => (
-    <svg
-        className={clsx('LemonIcon', className)}
-        width="1em"
-        height="1em"
-        fill="none"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-        focusable="false"
-        aria-hidden="true"
-        {...props}
-    />
-)
+const LemonIconBase = forwardRef<SVGSVGElement, SVGAttributes<SVGSVGElement>>(function LemonIconBase(
+    { className, ...props },
+    ref
+) {
+    return (
+        <svg
+            ref={ref}
+            className={clsx('LemonIcon', className)}
+            width="1em"
+            height="1em"
+            fill="none"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            focusable="false"
+            aria-hidden="true"
+            {...props}
+        />
+    )
+})
 
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
@@ -109,6 +117,21 @@ export function IconBranch(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase fill="currentColor" {...props}>
             <path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z" />
+        </LemonIconBase>
+    )
+}
+
+// Stamphog product glyph: a robot head peeking out from behind a check-circle badge
+export function IconStamphog(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M13.5 7.7 V7.5 A2.5 2.5 0 0 0 11 5 H5.5 A2.5 2.5 0 0 0 3 7.5 V11.5 A2.5 2.5 0 0 0 5.5 14 H8.39" />
+            <path d="M8.25 5V3.6" />
+            <circle cx="8.25" cy="2.55" r="1.05" />
+            <path d="M6.1 8.4v1.5" />
+            <path d="M9.9 8.4v1.5" />
+            <circle cx="15.75" cy="14.75" r="6" />
+            <path d="M13 14.9l1.9 1.9 3.6-4.2" />
         </LemonIconBase>
     )
 }
@@ -404,6 +427,190 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+/*
+ * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
+ * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several
+ * series step through the first data colors (blue, purple, green), and Lifecycle keeps its
+ * chart's real status colors. The palette lives in `--insight-icon-*` variables (icons.scss):
+ * the charts' real hexes in light mode, brightened equivalents in dark mode, where the chart
+ * hexes are too dark to read at icon size. The vars must be applied via `style` (SVG
+ * presentation attributes can't resolve `var()`). Structural parts (SQL brackets,
+ * lifecycle axis) follow `currentColor` like regular icons.
+ */
+const INSIGHT_BLUE = 'var(--insight-icon-blue)'
+const INSIGHT_PURPLE = 'var(--insight-icon-purple)'
+const INSIGHT_GREEN = 'var(--insight-icon-green)'
+const LIFECYCLE_RETURNING = 'var(--insight-icon-lifecycle-returning)'
+const LIFECYCLE_DORMANT = 'var(--insight-icon-lifecycle-dormant)'
+const LIFECYCLE_RESURRECTING = 'var(--insight-icon-lifecycle-resurrecting)'
+
+/** SQL insights: curly brackets (matching `IconBrackets` from `@posthog/icons`) wrapping a bar chart. */
+export function IconBracketsChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"
+                fill="currentColor"
+            />
+            <rect x="6.75" y="13.5" width="3" height="4" rx="0.5" style={{ fill: INSIGHT_GREEN }} />
+            <rect x="10.5" y="10.5" width="3" height="7" rx="0.5" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="14.25" y="7.5" width="3" height="10" rx="0.5" style={{ fill: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
+/** Trends insights: a rising series line. */
+export function IconInsightTrends(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M3.75 17 8.75 10.75l4.25 3 7.25-7.75" style={{ stroke: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
+/** Funnel insights: steps narrowing as users drop off. */
+export function IconInsightFunnels(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.25" width="16.5" height="4.25" rx="0.75" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="3.75" y="9.9" width="11" height="4.25" rx="0.75" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="3.75" y="15.55" width="5.75" height="4.25" rx="0.75" style={{ fill: INSIGHT_GREEN }} />
+        </LemonIconBase>
+    )
+}
+
+/** Retention insights: the cohort triangle, the first cohort row purple over blue return rows. */
+export function IconInsightRetention(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="3.75" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="9.3" y="3.75" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="14.85" y="3.75" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="3.75" y="9.3" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="9.3" y="9.3" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="3.75" y="14.85" width="4.4" height="4.4" rx="1" style={{ fill: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
+/** User paths insights: a sankey — a source node splitting into two flows. */
+export function IconInsightUserPaths(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M6.6 8.25 C10.5 8.25 12 7.6 17.4 7.6"
+                strokeWidth="4.5"
+                opacity="0.4"
+                style={{ stroke: INSIGHT_BLUE }}
+            />
+            <path
+                d="M6.6 15 C10.5 15 12.5 16.4 17.4 16.4"
+                strokeWidth="3.25"
+                opacity="0.25"
+                style={{ stroke: INSIGHT_BLUE }}
+            />
+            <rect x="3.75" y="4.5" width="2.9" height="15" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="17.35" y="4.5" width="2.9" height="6.25" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="17.35" y="13.25" width="2.9" height="6.25" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
+/** Stickiness insights: the "n days or more" histogram tailing off. */
+export function IconInsightStickiness(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.5" width="2.9" height="15" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="8.4" y="9" width="2.9" height="10.5" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="13.05" y="12.5" width="2.9" height="7" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="17.7" y="15.5" width="2.9" height="4" rx="0.7" style={{ fill: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
+/** Lifecycle insights: new/returning/resurrecting above the axis, dormant below, in the chart's real status colors. */
+export function IconInsightLifecycle(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="M3.75 12.1h16.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <rect x="3.9" y="5" width="2.6" height="6.25" rx="0.65" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="8.3" y="6.75" width="2.6" height="4.5" rx="0.65" style={{ fill: LIFECYCLE_RETURNING }} />
+            <rect x="12.7" y="13" width="2.6" height="4.5" rx="0.65" style={{ fill: LIFECYCLE_DORMANT }} />
+            <rect x="17.1" y="5.75" width="2.6" height="5.5" rx="0.65" style={{ fill: LIFECYCLE_RESURRECTING }} />
+        </LemonIconBase>
+    )
+}
+
+/** Calendar heatmap insights: a day-by-hour matrix, intensity stepping through the first data colors (blue hottest). */
+export function IconInsightCalendarHeatmap(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.55" y="5.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_GREEN }} />
+            <rect x="8.05" y="5.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="12.55" y="5.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="17.05" y="5.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="3.55" y="9.85" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="8.05" y="9.85" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="12.55" y="9.85" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="17.05" y="9.85" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_GREEN }} />
+            <rect x="3.55" y="14.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="8.05" y="14.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="12.55" y="14.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_GREEN }} />
+            <rect x="17.05" y="14.35" width="3.4" height="3.4" rx="0.9" style={{ fill: INSIGHT_PURPLE }} />
+        </LemonIconBase>
+    )
+}
+
+/** Number (bold number) insights: the 123 glyph in series blue. */
+export function IconInsightNumber(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M7,15H5.5v-4.5H4V9h3V15z M13.5,13.5h-3v-1h2c0.55,0,1-0.45,1-1V10c0-0.55-0.45-1-1-1H9v1.5h3v1h-2c-0.55,0-1,0.45-1,1V15 h4.5V13.5z M19.5,14v-4c0-0.55-0.45-1-1-1H15v1.5h3v1h-2v1h2v1h-3V15h3.5C19.05,15,19.5,14.55,19.5,14z"
+                transform="translate(12 12) scale(1.3) translate(-12 -12)"
+                style={{ fill: INSIGHT_BLUE }}
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Table insights: a solid header row above label/value rows stepping through the first data colors. */
+export function IconInsightTable(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.5" width="16.5" height="3.6" rx="0.75" style={{ fill: INSIGHT_BLUE }} />
+            <rect x="3.75" y="10" width="5" height="3.6" rx="0.75" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="10.25" y="10" width="10" height="3.6" rx="0.75" style={{ fill: INSIGHT_PURPLE }} />
+            <rect x="3.75" y="15.5" width="5" height="3.6" rx="0.75" style={{ fill: INSIGHT_GREEN }} />
+            <rect x="10.25" y="15.5" width="10" height="3.6" rx="0.75" style={{ fill: INSIGHT_GREEN }} />
+        </LemonIconBase>
+    )
+}
+
+/** Pie insights: breakdown slices in the first series colors, largest slice blue. */
+export function IconInsightPie(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="M12 12 L12 3.75 A8.25 8.25 0 0 1 12 20.25 Z" style={{ fill: INSIGHT_BLUE }} />
+            <path d="M12 12 L12 20.25 A8.25 8.25 0 0 1 4.16 9.44 Z" style={{ fill: INSIGHT_PURPLE }} />
+            <path d="M12 12 L4.16 9.44 A8.25 8.25 0 0 1 12 3.75 Z" style={{ fill: INSIGHT_GREEN }} />
+        </LemonIconBase>
+    )
+}
+
+/** World map insights: a globe stroked in series blue at the nav-icon line weight. */
+export function IconInsightWorldMap(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase strokeWidth="1.5" strokeLinecap="round" {...props}>
+            <circle cx="12" cy="12" r="8.25" strokeWidth="1.75" style={{ stroke: INSIGHT_BLUE }} />
+            <ellipse cx="12" cy="12" rx="3.9" ry="8.25" style={{ stroke: INSIGHT_BLUE }} />
+            <path d="M3.75 12h16.5" style={{ stroke: INSIGHT_BLUE }} />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design 123 icon. */
 export function Icon123(props: LemonIconProps): JSX.Element {
     return (
@@ -662,16 +869,17 @@ export function IconHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconUnverifiedEvent(props: LemonIconProps): JSX.Element {
+// forwardRef so wrappers like Tooltip can anchor to the rendered svg
+export const IconUnverifiedEvent = forwardRef<SVGSVGElement, LemonIconProps>(function IconUnverifiedEvent(props, ref) {
     return (
-        <LemonIconBase {...props}>
+        <LemonIconBase ref={ref} {...props}>
             <path
                 d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
                 fill="currentColor"
             />
         </LemonIconBase>
     )
-}
+})
 
 export function IconVerifiedEvent(props: LemonIconProps): JSX.Element {
     return (
@@ -745,6 +953,18 @@ export function IconSlackExternal(props: LemonIconProps): JSX.Element {
                 <path d="M13 4.75 18.25 10 13 15.25 7.75 10 13 4.75Z" />
                 <path d="M8.01 5.76 7 4.75 1.75 10 7 15.25l1.01-1.01-2.872-3.037a1.75 1.75 0 0 1 0-2.406L8.01 5.76Z" />
             </g>
+        </LemonIconBase>
+    )
+}
+
+export function IconMicrosoftTeams(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19.5 4.5h-3V3a1.5 1.5 0 0 0-1.5-1.5H9A1.5 1.5 0 0 0 7.5 3v1.5h-3A1.5 1.5 0 0 0 3 6v12a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18V6a1.5 1.5 0 0 0-1.5-1.5zM9 3h6v1.5H9V3zm3 15a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"
+                fill="#5059C9"
+            />
+            <circle cx="12" cy="13.5" r="3" fill="#7B83EB" />
         </LemonIconBase>
     )
 }

@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils'
+import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -36,21 +36,22 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS.feature_flag.id}/`]: {},
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS.feature_flag.id}/status/`]:
                     {},
+                [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return res(ctx.json(EXPOSURE_QUERY_RESULT))
+                        return [200, EXPOSURE_QUERY_RESULT]
                     }
 
                     if (isExperimentFunnelMetric(body.query.metric)) {
-                        return res(ctx.json(FUNNEL_METRIC_RESULT))
+                        return [200, FUNNEL_METRIC_RESULT]
                     } else if (isExperimentMeanMetric(body.query.metric)) {
-                        return res(ctx.json(MEAN_METRIC_RESULT))
+                        return [200, MEAN_METRIC_RESULT]
                     } else if (isExperimentRatioMetric(body.query.metric)) {
-                        return res(ctx.json(RATIO_METRIC_RESULT))
+                        return [200, RATIO_METRIC_RESULT]
                     }
                 },
             },

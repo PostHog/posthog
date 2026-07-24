@@ -53,14 +53,29 @@ interface ServiceFilterProps {
     onChange: (serviceNames: LogsQuery['serviceNames']) => void
     /** When omitted, the backend's default date range is used */
     dateRange?: DateRange
+    /** Single-select replaces the selection on each pick; omit for multi-select (logs viewer). */
+    selectionMode?: 'multi' | 'single'
+    /** Button label when nothing is selected (single mode only). */
+    emptyButtonLabel?: string
 }
 
-export const ServiceFilter = ({ value, onChange, dateRange }: ServiceFilterProps): JSX.Element => {
+export const ServiceFilter = ({
+    value,
+    onChange,
+    dateRange,
+    selectionMode = 'multi',
+    emptyButtonLabel = 'Pick service',
+}: ServiceFilterProps): JSX.Element => {
     const logicProps: ServiceFilterLogicProps = { dateRange }
 
     return (
         <BindLogic logic={serviceFilterLogic} props={logicProps}>
-            <ServiceFilterInner value={value} onChange={onChange} />
+            <ServiceFilterInner
+                value={value}
+                onChange={onChange}
+                selectionMode={selectionMode}
+                emptyButtonLabel={emptyButtonLabel}
+            />
         </BindLogic>
     )
 }
@@ -68,9 +83,13 @@ export const ServiceFilter = ({ value, onChange, dateRange }: ServiceFilterProps
 function ServiceFilterInner({
     value,
     onChange,
+    selectionMode,
+    emptyButtonLabel,
 }: {
     value: LogsQuery['serviceNames']
     onChange: (serviceNames: LogsQuery['serviceNames']) => void
+    selectionMode: 'multi' | 'single'
+    emptyButtonLabel: string
 }): JSX.Element {
     const { serviceNames, allServiceNames, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
     const { setSearch } = useActions(serviceFilterLogic)
@@ -79,11 +98,16 @@ function ServiceFilterInner({
 
     const onToggle = useCallback(
         (name: string) => {
+            if (selectionMode === 'single') {
+                const isSelected = selected.includes(name)
+                onChange(isSelected ? [] : [name])
+                return
+            }
             const isSelected = selected.includes(name)
             const newNames = isSelected ? selected.filter((n) => n !== name) : [...selected, name]
             onChange(newNames)
         },
-        [selected, onChange]
+        [selected, onChange, selectionMode]
     )
 
     const rowProps = useMemo<ServiceOptionRowProps>(
@@ -98,7 +122,7 @@ function ServiceFilterInner({
 
     return (
         <LemonDropdown
-            closeOnClickInside={false}
+            closeOnClickInside={selectionMode === 'single'}
             overlay={
                 <div className="space-y-px p-1">
                     <div className="px-1 pb-1">
@@ -121,7 +145,7 @@ function ServiceFilterInner({
                             </div>
                         ) : (
                             <>
-                                {selected.length > 0 && (
+                                {selected.length > 0 && selectionMode === 'multi' && (
                                     <>
                                         <div className="flex flex-wrap gap-1 px-1 pb-1 max-w-[300px]">
                                             {selected.map((name: string) => (
@@ -163,7 +187,9 @@ function ServiceFilterInner({
                 loading={allServiceNamesLoading && selected.length === 0}
             >
                 {selected.length === 0
-                    ? 'All services'
+                    ? selectionMode === 'single'
+                        ? emptyButtonLabel
+                        : 'All services'
                     : selected.length === 1
                       ? selected[0]
                       : `${selected.length} services`}

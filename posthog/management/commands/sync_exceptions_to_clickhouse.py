@@ -1,16 +1,20 @@
 import logging
+from typing import TYPE_CHECKING
 
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
 import structlog
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssueFingerprintV2,
-    override_error_tracking_issue_fingerprint,
-)
+from products.error_tracking.backend.facade import override_error_tracking_issue_fingerprint
+
+if TYPE_CHECKING:
+    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+else:
+    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -112,4 +116,4 @@ class Command(BaseCommand):
 
         logger.info(f"fingerprint overriden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
-        KafkaProducer().flush(5 * 60)
+        flush_all_producers(5 * 60)

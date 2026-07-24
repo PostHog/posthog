@@ -1,9 +1,11 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -11,24 +13,29 @@
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
-        "@posthog/icons": "*",
-        "@storybook/addon-actions": "*",
-        "@storybook/react": "*",
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/d3": "*",
         "@types/react": "*",
-        "@types/react-transition-group": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "cva": "1.0.0-beta.3",
         "d3": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
-        "react-transition-group": "*",
+        "react-dom": "*",
         "ts-pattern": "*",
         "use-debounce": "*",
         "use-resize-observer": "*"

@@ -1,5 +1,11 @@
 pub mod cache;
 pub mod config;
 pub mod coordination;
+pub mod inflight;
+pub mod kafka;
 pub mod person_update;
+pub mod pg;
+pub mod recovery;
 pub mod service;
+pub mod warming;
+pub mod warnings;

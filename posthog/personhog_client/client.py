@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 import threading
-from typing import Optional
+from collections.abc import Callable
+from typing import Optional, TypeVar
 
 from django.conf import settings
 
@@ -10,10 +11,35 @@ import grpc
 import structlog
 from prometheus_client import Counter, Enum, Histogram
 
-from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsInterceptor
+from posthog.personhog_client.interceptor import (
+    ClientNameInterceptor,
+    ConsistencyHeaderInterceptor,
+    MetricsInterceptor,
+    RetryInterceptor,
+)
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
+    CountCohortMembersRequest,
+    CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest,
+    CountGroupTypeMappingsResponse,
+    CreateGroupRequest,
+    CreateGroupResponse,
+    DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest,
+    DeleteCohortMembersBulkResponse,
+    DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse,
+    DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -27,6 +53,8 @@ from posthog.personhog_client.proto import (
     GetGroupsBatchRequest,
     GetGroupsBatchResponse,
     GetGroupsRequest,
+    GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest,
@@ -41,9 +69,25 @@ from posthog.personhog_client.proto import (
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
+    InsertCohortMembersRequest,
+    InsertCohortMembersResponse,
+    ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse,
+    ListGroupsRequest,
+    ListGroupsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse,
+    SplitPersonRequest,
+    SplitPersonResponse,
+    UpdateGroupRequest,
+    UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -127,6 +171,9 @@ class PersonHogClient:
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
         client_idle_timeout_ms: int = 0,
+        max_retries: int = 1,
+        initial_backoff_ms: int = 50,
+        max_backoff_ms: int = 1000,
     ):
         options = [
             ("grpc.keepalive_time_ms", keepalive_time_ms),
@@ -142,7 +189,16 @@ class PersonHogClient:
         ]
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
-            channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
+            channel,
+            ClientNameInterceptor(client_name),
+            ConsistencyHeaderInterceptor(),
+            RetryInterceptor(
+                client_name,
+                max_retries=max_retries,
+                initial_backoff_ms=initial_backoff_ms,
+                max_backoff_ms=max_backoff_ms,
+            ),
+            MetricsInterceptor(client_name),
         )
         self._state_monitor = _ChannelStateMonitor(channel, client_name)
         self._stub = PersonHogServiceStub(self._channel)
@@ -161,6 +217,28 @@ class PersonHogClient:
         self, request: DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeletePersonlessDistinctIdsBatchForTeamResponse:
+        return self._stub.DeletePersonlessDistinctIdsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    # -- Person split --
+
+    def split_person(self, request: SplitPersonRequest, timeout: float | None = None) -> SplitPersonResponse:
+        return self._stub.SplitPerson(request, timeout=timeout or self._timeout)
+
+    # -- Undelete repair --
+
+    def set_person_distinct_id_version_floor(
+        self, request: SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonDistinctIdVersionFloorResponse:
+        return self._stub.SetPersonDistinctIdVersionFloor(request, timeout=timeout or self._timeout)
+
+    def set_person_version_floor(
+        self, request: SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonVersionFloorResponse:
+        return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 
@@ -201,6 +279,27 @@ class PersonHogClient:
     def check_cohort_membership(self, request: CheckCohortMembershipRequest) -> CohortMembershipResponse:
         return self._stub.CheckCohortMembership(request, timeout=self._timeout)
 
+    def count_cohort_members(self, request: CountCohortMembersRequest) -> CountCohortMembersResponse:
+        return self._stub.CountCohortMembers(request, timeout=self._timeout)
+
+    def delete_cohort_member(
+        self, request: DeleteCohortMemberRequest, timeout: float | None = None
+    ) -> DeleteCohortMemberResponse:
+        return self._stub.DeleteCohortMember(request, timeout=timeout or self._timeout)
+
+    def delete_cohort_members_bulk(
+        self, request: DeleteCohortMembersBulkRequest, timeout: float | None = None
+    ) -> DeleteCohortMembersBulkResponse:
+        return self._stub.DeleteCohortMembersBulk(request, timeout=timeout or self._timeout)
+
+    def insert_cohort_members(
+        self, request: InsertCohortMembersRequest, timeout: float | None = None
+    ) -> InsertCohortMembersResponse:
+        return self._stub.InsertCohortMembers(request, timeout=timeout or self._timeout)
+
+    def list_cohort_member_ids(self, request: ListCohortMemberIdsRequest) -> ListCohortMemberIdsResponse:
+        return self._stub.ListCohortMemberIds(request, timeout=self._timeout)
+
     # -- Groups --
 
     def get_group(self, request: GetGroupRequest) -> GetGroupResponse:
@@ -211,6 +310,20 @@ class PersonHogClient:
 
     def get_groups_batch(self, request: GetGroupsBatchRequest) -> GetGroupsBatchResponse:
         return self._stub.GetGroupsBatch(request, timeout=self._timeout)
+
+    def list_groups(self, request: ListGroupsRequest) -> ListGroupsResponse:
+        return self._stub.ListGroups(request, timeout=self._timeout)
+
+    def create_group(self, request: CreateGroupRequest) -> CreateGroupResponse:
+        return self._stub.CreateGroup(request, timeout=self._timeout)
+
+    def update_group(self, request: UpdateGroupRequest) -> UpdateGroupResponse:
+        return self._stub.UpdateGroup(request, timeout=self._timeout)
+
+    def delete_groups_batch_for_team(
+        self, request: DeleteGroupsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeleteGroupsBatchForTeamResponse:
+        return self._stub.DeleteGroupsBatchForTeam(request, timeout=timeout or self._timeout)
 
     # -- Group type mappings --
 
@@ -234,6 +347,34 @@ class PersonHogClient:
     ) -> GroupTypeMappingsBatchResponse:
         return self._stub.GetGroupTypeMappingsByProjectIds(request, timeout=self._timeout)
 
+    def get_group_type_mapping_by_dashboard_id(
+        self, request: GetGroupTypeMappingByDashboardIdRequest
+    ) -> GetGroupTypeMappingByDashboardIdResponse:
+        return self._stub.GetGroupTypeMappingByDashboardId(request, timeout=self._timeout)
+
+    def count_group_type_mappings(self, request: CountGroupTypeMappingsRequest) -> CountGroupTypeMappingsResponse:
+        return self._stub.CountGroupTypeMappings(request, timeout=self._timeout)
+
+    def update_group_type_mapping(self, request: UpdateGroupTypeMappingRequest) -> UpdateGroupTypeMappingResponse:
+        return self._stub.UpdateGroupTypeMapping(request, timeout=self._timeout)
+
+    def delete_group_type_mapping(self, request: DeleteGroupTypeMappingRequest) -> DeleteGroupTypeMappingResponse:
+        return self._stub.DeleteGroupTypeMapping(request, timeout=self._timeout)
+
+    def delete_group_type_mappings_batch_for_team(
+        self, request: DeleteGroupTypeMappingsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeleteGroupTypeMappingsBatchForTeamResponse:
+        return self._stub.DeleteGroupTypeMappingsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    # -- Feature flag hash key overrides --
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> DeleteHashKeyOverridesByTeamsResponse:
+        return self._stub.DeleteHashKeyOverridesByTeams(request, timeout=timeout or self._timeout)
+
+
+_T = TypeVar("_T")
 
 _client: Optional[PersonHogClient] = None
 _lock = threading.Lock()
@@ -263,7 +404,59 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
                     max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
                     client_idle_timeout_ms=getattr(settings, "PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0),
+                    max_retries=getattr(settings, "PERSONHOG_MAX_RETRIES", 1),
+                    initial_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_BACKOFF_MS", 50),
+                    max_backoff_ms=getattr(settings, "PERSONHOG_MAX_BACKOFF_MS", 1000),
                 )
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 
     return _client
+
+
+def require_personhog_client() -> PersonHogClient:
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+    return client
+
+
+def personhog_call(
+    operation: str,
+    fn: Callable[[], _T],
+    *,
+    caller_tag: str | None = None,
+    reraise_as: type[Exception] | None = None,
+) -> _T:
+    """Execute a personhog operation with metrics and optional error wrapping.
+
+    ``caller_tag`` sets the personhog caller-tag context for observability.
+    ``reraise_as`` wraps the exception in the given type before re-raising.
+    Error metrics and a warning log are always recorded on failure regardless
+    of ``reraise_as``.
+    """
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
+    from posthog.personhog_client.metrics import (
+        PERSONHOG_ROUTING_ERRORS_TOTAL,
+        PERSONHOG_ROUTING_TOTAL,
+        get_client_name,
+    )
+
+    tag_ctx = personhog_caller_tag(caller_tag) if caller_tag else None
+
+    try:
+        if tag_ctx:
+            with tag_ctx:
+                result = fn()
+        else:
+            result = fn()
+    except Exception as exc:
+        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+            operation=operation, source="personhog", error_type="grpc_error", client_name=get_client_name()
+        ).inc()
+        logger.warning("personhog_%s_failure", operation, exc_info=True)
+        if reraise_as is not None:
+            raise reraise_as(f"personhog {operation} failed") from exc
+        raise
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
+    return result

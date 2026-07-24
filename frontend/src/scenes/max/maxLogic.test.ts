@@ -1,16 +1,26 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { SidePanelTab } from '~/types'
+import { ConversationDetail, SidePanelTab } from '~/types'
 
-import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
+import {
+    PENDING_MAX_CONTEXT_KEY,
+    QUESTION_SUGGESTIONS_DATA,
+    SIDE_PANEL_PANEL_ID,
+    maxLogic,
+    mergeConversationHistory,
+    mergeConversations,
+} from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 
@@ -20,6 +30,7 @@ describe('maxLogic', () => {
 
     beforeEach(() => {
         localStorage.clear()
+        sessionStorage.clear()
         useMocks(maxMocks)
         initKeaTests()
     })
@@ -35,6 +46,16 @@ describe('maxLogic', () => {
         logic?.unmount()
     })
 
+    it('passes panelId through thread logic props', () => {
+        logic = maxLogic({ panelId: 'notebook-inline-inline-chat-id', initialFrontendConversationId: 'chat-id' })
+        logic.mount()
+
+        expect(logic.values.threadLogicProps).toMatchObject({
+            panelId: 'notebook-inline-inline-chat-id',
+            conversationId: 'chat-id',
+        })
+    })
+
     it('sets the question when URL has hash param #panel=max:Foo', async () => {
         // Set up sidePanelStateLogic with the options before mounting maxLogic
         sidePanelStateLogic.mount()
@@ -43,7 +64,7 @@ describe('maxLogic', () => {
         }).toDispatchActions(['openSidePanel'])
 
         // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic({ tabId: 'sidepanel' })
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
         logic.mount()
 
         // Check that the question has been set to "Foo"
@@ -60,13 +81,90 @@ describe('maxLogic', () => {
         }).toDispatchActions(['openSidePanel'])
 
         // Must create the logic first to spy on its actions
-        logic = maxLogic({ tabId: 'sidepanel' })
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
         logic.mount()
 
         // Only mount maxLogic after setting up the router and sidePanelStateLogic
         await expectLogic(logic).toMatchValues({
             autoRun: true,
             question: 'Foo',
+        })
+    })
+
+    it('does not set autoRun for #panel=max:!Foo when the new panel view is active', async () => {
+        // In the new view the prompt is consumed by phaiSidePanelComposerSeedLogic; autoRun here too
+        // would make the hidden legacy thread fire askMax on top of the new composer's submit.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+
+        featureFlagLogic.unmount()
+    })
+
+    // The /ai?ask= deep link (e.g. "Start with AI") must not silently vanish when the org hasn't
+    // granted AI data-processing consent: askMax no-ops in that case, so the handler has to fall back
+    // to prefilling the composer. With consent it auto-sends via askMax instead.
+    describe('ask URL parameter', () => {
+        it('prefills the composer without auto-sending when AI consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+        })
+
+        it('clears any pending deep-link context even when consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            sessionStorage.setItem(
+                PENDING_MAX_CONTEXT_KEY,
+                JSON.stringify({ context: { dashboards: [] }, timestamp: Date.now() })
+            )
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+            expect(sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)).toBeNull()
+        })
+
+        it('auto-sends via askMax without prefilling when AI consent is granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.askMax('Explore my traces', true, undefined),
+            ])
+            expect(logic.values.question).toBe('')
         })
     })
 
@@ -88,7 +186,7 @@ describe('maxLogic', () => {
             },
         })
 
-        logic = maxLogic({ tabId: 'test' })
+        logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         // Wait for initial conversationHistory load to complete
@@ -120,7 +218,7 @@ describe('maxLogic', () => {
     })
 
     it('manages suggestion group selection correctly', async () => {
-        logic = maxLogic({ tabId: 'test' })
+        logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
@@ -155,7 +253,7 @@ describe('maxLogic', () => {
     })
 
     it('generates and uses frontendConversationId correctly', async () => {
-        logic = maxLogic({ tabId: 'test' })
+        logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         const initialFrontendId = logic.values.frontendConversationId
@@ -180,8 +278,63 @@ describe('maxLogic', () => {
         expect(logic.values.frontendConversationId).toMatch(uuidRegex)
     })
 
+    // The side panel chat floats over whatever scene you're on (e.g. an insight or survey). The
+    // rendered scene is chosen by the route, so if the side panel pushes /ai it replaces the main
+    // content — which is the regression. Only the scene instance, which owns /ai, may navigate.
+    // These are every route-affecting action; the side panel must stay silent on all of them,
+    // including setConversationId, which fires a replace nav when a brand-new conversation is minted.
+    // The harness prefixes the project id (/project/<id>/…), so match the path suffix.
+    const PAGES = ['/insights/abc123', '/surveys/xyz789']
+    const routeActions = [
+        { name: 'startNewConversation', act: () => logic.actions.startNewConversation() },
+        { name: 'openConversation', act: () => logic.actions.openConversation(MOCK_CONVERSATION_ID) },
+        { name: 'setConversationId', act: () => logic.actions.setConversationId(logic.values.frontendConversationId) },
+        { name: 'toggleConversationHistory', act: () => logic.actions.toggleConversationHistory() },
+    ]
+    const sidePanelCases = PAGES.flatMap((page) => routeActions.map((action) => ({ page, ...action })))
+
+    it.each(sidePanelCases)('side panel chat keeps the main content on $page on $name', async ({ page, act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push(page)
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic, () => act()).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith(page)).toBe(true)
+    })
+
+    it.each(routeActions)('embedded chat keeps the current route on $name', async ({ act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push('/notebooks/notebook-short-id')
+
+        logic = maxLogic({
+            panelId: 'notebook-inline-inline-chat-id',
+            initialFrontendConversationId: 'chat-id',
+            syncUrl: false,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => act()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/notebooks/notebook-short-id')
+    })
+
+    it.each(routeActions)('scene chat navigates to /ai on $name', async ({ act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push('/insights/abc123')
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic, () => act()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain(urls.ai())
+    })
+
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
-        logic = maxLogic({ tabId: 'test' })
+        logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         // When no conversation ID is set, should use frontendConversationId
@@ -217,7 +370,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=research:!Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -226,7 +379,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -243,7 +396,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=product_analytics:Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -252,7 +405,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -269,7 +422,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=sql:!Write a query')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -278,7 +431,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -291,7 +444,7 @@ describe('maxLogic', () => {
 
         it('parses mode=auto:!Question correctly (null mode)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -307,7 +460,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -320,7 +473,7 @@ describe('maxLogic', () => {
 
         it('parses mode=research correctly (mode only, no question)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -336,7 +489,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -353,7 +506,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=invalid_mode:!Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -362,7 +515,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -375,7 +528,7 @@ describe('maxLogic', () => {
 
         it('parses !My question correctly (backwards compatibility)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -391,7 +544,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                panelId: SIDE_PANEL_PANEL_ID,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -413,7 +566,7 @@ describe('maxLogic', () => {
                 },
             })
 
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             // Wait for conversation history to load, then set conversationId
@@ -427,7 +580,7 @@ describe('maxLogic', () => {
         })
 
         it('returns "New chat" when there is a conversationId but no matching conversation in history', async () => {
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -438,7 +591,7 @@ describe('maxLogic', () => {
         })
 
         it('returns "Chat history" when conversation history is visible', async () => {
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -449,7 +602,7 @@ describe('maxLogic', () => {
         })
 
         it('returns null when there is no conversationId and history is not visible', async () => {
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -462,7 +615,7 @@ describe('maxLogic', () => {
 
     describe('breadcrumbs', () => {
         it('shows "New chat" as the first breadcrumb name when no conversationId is set', async () => {
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -482,7 +635,7 @@ describe('maxLogic', () => {
                 },
             })
 
-            logic = maxLogic({ tabId: 'test' })
+            logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
             // Wait for conversation history to load, then set conversationId
@@ -493,6 +646,81 @@ describe('maxLogic', () => {
             const breadcrumbs = logic.values.breadcrumbs
             expect(breadcrumbs[0].name).toBe('AI')
             expect(breadcrumbs[1].name).toBe(MOCK_CONVERSATION.title)
+        })
+    })
+
+    describe('conversation merging', () => {
+        const detailedConversation: ConversationDetail = {
+            ...MOCK_CONVERSATION,
+            messages: [],
+            has_unsupported_content: true,
+            agent_mode: AgentMode.Research,
+            is_sandbox: true,
+            pending_approvals: [
+                {
+                    proposal_id: 'approval-1',
+                    decision_status: 'pending',
+                    tool_name: 'dangerous_tool',
+                    preview: 'Preview',
+                    payload: {},
+                },
+            ],
+        }
+
+        it('preserves detail-only fields when a summary conversation refreshes an existing full conversation', () => {
+            const merged = mergeConversations(
+                {
+                    ...MOCK_CONVERSATION,
+                    title: 'Updated title',
+                    updated_at: '2026-04-01T12:00:00Z',
+                },
+                detailedConversation
+            )
+
+            expect(merged).toEqual({
+                ...detailedConversation,
+                title: 'Updated title',
+                updated_at: '2026-04-01T12:00:00Z',
+            })
+        })
+
+        it('preserves detail-only fields when conversation history is refreshed from list results', () => {
+            const mergedHistory = mergeConversationHistory([detailedConversation], {
+                ...MOCK_CONVERSATION,
+                title: 'Updated title',
+                updated_at: '2026-04-01T12:00:00Z',
+            })
+
+            expect(mergedHistory).toEqual([
+                {
+                    ...detailedConversation,
+                    title: 'Updated title',
+                    updated_at: '2026-04-01T12:00:00Z',
+                },
+            ])
+        })
+
+        it('replaces cached detail fields when a full conversation response is loaded', () => {
+            const merged = mergeConversations(
+                {
+                    ...MOCK_CONVERSATION,
+                    messages: [],
+                    has_unsupported_content: false,
+                    agent_mode: AgentMode.ProductAnalytics,
+                    is_sandbox: false,
+                    pending_approvals: [],
+                },
+                detailedConversation
+            )
+
+            expect(merged).toEqual({
+                ...MOCK_CONVERSATION,
+                messages: [],
+                has_unsupported_content: false,
+                agent_mode: AgentMode.ProductAnalytics,
+                is_sandbox: false,
+                pending_approvals: [],
+            })
         })
     })
 })

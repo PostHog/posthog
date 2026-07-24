@@ -1,49 +1,61 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconAI, IconChevronDown } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
-import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
+import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
-export const scene: SceneExport<{ ticketId: string }> = {
+export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
-    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
 }
+
+// The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
+const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
+    { value: 'pending', statusLabel: 'pending' },
+    { value: 'on_hold', statusLabel: 'on hold' },
+    { value: 'resolved', statusLabel: 'resolved' },
+]
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -60,35 +72,62 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
+        unsavedTicketChanges,
+        ticketUpdating,
         draftContent,
         draftIsPrivate,
-        suggesting,
+        draftModeEnabled,
+        replyRecipientDescription,
+        snoozedUntil,
+        knowledgeGaps,
+        knowledgeGapsLoading,
+        emailReplyBlockedReason,
+        latestAiMessage,
+        feedbackByMessageId,
     } = useValues(logic)
     const {
         setStatus,
         setPriority,
         setAssignee,
         setTags,
+        setSnoozedUntil,
         sendMessage,
         updateTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
-        suggestReply,
+        setDraftModeEnabled,
+        dismissKnowledgeGap,
+        submitAiReplyFeedback,
     } = useActions(logic)
 
-    const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { preflight } = useValues(preflightLogic)
-    const aiAvailable = preflight?.openai_available
+    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const aiDisabledReason = !aiAvailable
-        ? 'AI features are not available on this instance'
-        : !dataProcessingAccepted
-          ? dataProcessingApprovalDisabledReason || 'AI data processing must be approved for your organization'
-          : suggesting
-            ? 'Generating suggestion...'
-            : null
+    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
+    const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
+        ? {
+              email_disabled: (
+                  <>
+                      Replies can't be emailed because this project has no connected email channel.{' '}
+                      <Link to={conversationsSettingsUrl}>Connect an email address</Link> to reply to this customer.
+                  </>
+              ),
+              no_recipient: (
+                  <>
+                      This ticket has no customer email address, so a reply can't be delivered. You can still attach a
+                      private note.
+                  </>
+              ),
+              no_channel: (
+                  <>
+                      This ticket isn't linked to any of your email channels, so replies can't be sent.{' '}
+                      <Link to={conversationsSettingsUrl}>Manage email channels</Link>
+                  </>
+              ),
+          }[emailReplyBlockedReason]
+        : undefined
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -129,9 +168,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="lg:min-h-0 lg:flex-1">
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
+                nameSuffix={
+                    ticket && ticket.identity_verified !== true ? (
+                        <IdentityBadge verified={ticket.identity_verified} />
+                    ) : undefined
+                }
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
@@ -141,7 +185,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="flex flex-col lg:flex-row items-start">
+            <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
                     className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
@@ -156,6 +200,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        channel={ticket?.channel_source}
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
@@ -163,24 +208,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
-                        minHeight="min(400px, calc(100svh - 320px))"
-                        maxHeight="min(600px, calc(100svh - 320px))"
-                        extraActions={
-                            aiSuggestionEnabled ? (
-                                <AIConsentPopoverWrapper>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconAI />}
-                                        onClick={suggestReply}
-                                        loading={suggesting}
-                                        disabledReason={aiDisabledReason}
-                                    >
-                                        Suggest reply
-                                    </LemonButton>
-                                </AIConsentPopoverWrapper>
-                            ) : undefined
-                        }
+                        draftMode={draftModeEnabled}
+                        onDraftModeChange={setDraftModeEnabled}
+                        sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
+                        sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        unsavedTicketChanges={unsavedTicketChanges}
+                        replyDisabledReason={replyDisabledReason}
+                        minHeight="min(400px, calc(100svh - 20rem))"
+                        maxHeight="calc(100svh - 20rem)"
+                        latestAiMessageId={latestAiMessage?.id ?? null}
+                        feedbackByMessageId={feedbackByMessageId}
+                        showAiReplyFeedback={aiSuggestionsEnabled}
+                        onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -188,7 +227,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4 flex-1 min-w-[300px] pl-2">
+                <div className="space-y-4 flex-1 min-w-[300px] pl-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-4">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -206,26 +245,31 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay
-                                    person={
-                                        ticket.person
-                                            ? {
-                                                  id: ticket.person.id,
-                                                  distinct_id: ticket.distinct_id,
-                                                  distinct_ids: ticket.person.distinct_ids,
-                                                  // Merge anonymous_traits as fallback for missing person properties
-                                                  properties: {
-                                                      ...ticket.anonymous_traits,
-                                                      ...ticket.person.properties,
-                                                  },
-                                              }
-                                            : {
-                                                  distinct_id: ticket.distinct_id,
-                                                  properties: ticket.anonymous_traits || {},
-                                              }
-                                    }
-                                    withIcon
-                                />
+                                <div className="flex items-center flex-wrap gap-2">
+                                    <PersonDisplay
+                                        person={
+                                            ticket.person
+                                                ? {
+                                                      id: ticket.person.id,
+                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_ids: ticket.person.distinct_ids,
+                                                      // Merge anonymous_traits as fallback for missing person properties
+                                                      properties: {
+                                                          ...ticket.anonymous_traits,
+                                                          ...ticket.person.properties,
+                                                      },
+                                                  }
+                                                : {
+                                                      distinct_id: ticket.distinct_id,
+                                                      properties: ticket.anonymous_traits || {},
+                                                  }
+                                        }
+                                        withIcon
+                                        withCopyEmailButton
+                                        withComposeTicketButton
+                                    />
+                                    <IdentityBadge verified={ticket.identity_verified} />
+                                </div>
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -253,25 +297,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                                        <ChannelsTag
+                                            channel={ticket.channel_source}
+                                            detail={ticket.channel_detail}
+                                            to={getChannelThreadUrl(ticket)}
+                                        />
                                     </span>
                                 </div>
                             )}
-                            {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_team_id &&
-                                ticket?.slack_channel_id &&
-                                ticket?.slack_thread_ts && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-muted-alt">Slack thread</span>
-                                        <Link
-                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            <LemonTag type="highlight">Open in Slack</LemonTag>
-                                        </Link>
-                                    </div>
-                                )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Subject</span>
@@ -288,12 +321,47 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'email' &&
+                                ticket?.cc_participants &&
+                                ticket.cc_participants.length > 0 && (
+                                    <div className="flex justify-between items-start gap-2">
+                                        <span className="text-muted-alt shrink-0">CC</span>
+                                        <span
+                                            className="text-xs truncate text-right"
+                                            title={ticket.cc_participants.join(', ')}
+                                        >
+                                            {ticket.cc_participants.join(', ')}
+                                        </span>
+                                    </div>
+                                )}
                             {ticket?.channel_source === 'email' && ticket?.email_to && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">To</span>
                                     <span className="text-xs truncate text-right" title={ticket.email_to}>
                                         {ticket.email_to}
                                     </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'github' &&
+                                ticket?.github_repo &&
+                                ticket?.github_issue_number && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted-alt">GitHub issue</span>
+                                        <Link
+                                            to={`https://github.com/${ticket.github_repo}/issues/${ticket.github_issue_number}`}
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            <LemonTag type="highlight">
+                                                {ticket.github_repo}#{ticket.github_issue_number}
+                                            </LemonTag>
+                                        </Link>
+                                    </div>
+                                )}
+                            {ticket?.zendesk_ticket_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Zendesk ID</span>
+                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
                                 </div>
                             )}
                             {ticket?.session_context?.current_url && (
@@ -329,23 +397,35 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     dropdownMatchSelectWidth={false}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-start">
                                 <span className="text-muted-alt">Assignee</span>
-                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
-                                    {(resolvedAssignee, isOpen) => (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            active={isOpen}
-                                            sideIcon={<IconChevronDown />}
-                                        >
-                                            <span className="flex items-center gap-1">
-                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
-                                            </span>
-                                        </LemonButton>
-                                    )}
-                                </AssigneeSelect>
+                                <div className="flex flex-col items-end gap-1">
+                                    {user?.id != null &&
+                                        !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
+                                            <LemonButton
+                                                size="xxsmall"
+                                                type="tertiary"
+                                                onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                            >
+                                                <span className="text-accent">Assign to me</span>
+                                            </LemonButton>
+                                        )}
+                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                        {(resolvedAssignee, isOpen) => (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                active={isOpen}
+                                                sideIcon={<IconChevronDown />}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                                </span>
+                                            </LemonButton>
+                                        )}
+                                    </AssigneeSelect>
+                                </div>
                             </div>
                             {ticket?.sla_due_at && (
                                 <div className="flex justify-between items-center">
@@ -353,6 +433,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <SlaDisplay slaDueAt={ticket.sla_due_at} />
                                 </div>
                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Snooze</span>
+                                <LemonCalendarSelectInput
+                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
+                                    onChange={(date) =>
+                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
+                                    }
+                                    granularity="minute"
+                                    selectionPeriod="upcoming"
+                                    clearable
+                                    placeholder="Not snoozed"
+                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                />
+                            </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
                                 <TicketTags tags={tags} onChange={setTags} saving={false} />
@@ -363,6 +457,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 type="primary"
                                 size="small"
                                 onClick={() => updateTicket()}
+                                loading={ticketUpdating}
                                 disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
                             >
                                 Save changes
@@ -370,8 +465,27 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    {/* Related Groups Panel */}
+                    {(person?.uuid || ticket?.organization_id) && (
+                        <RelatedGroupsPanel
+                            personUuid={person?.uuid}
+                            organizationId={ticket?.organization_id}
+                            organizationIdSource={ticket?.organization_id_source}
+                        />
+                    )}
+
+                    {/* Staff Actions Panel */}
+                    {user?.is_staff && ticket && <StaffActionsPanel />}
+
+                    {/* AI Triage Panel */}
+                    {aiSuggestionsEnabled && ticket && (
+                        <AIPanel
+                            aiTriage={ticket.ai_triage}
+                            knowledgeGaps={knowledgeGaps}
+                            knowledgeGapsLoading={knowledgeGapsLoading}
+                            onDismissGap={dismissKnowledgeGap}
+                        />
+                    )}
 
                     {ticket?.channel_source === 'widget' && (
                         <>
@@ -399,9 +513,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                personDistinctIds={person?.distinct_ids}
                             />
                         </>
                     )}
+
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
                 </div>
             </div>
         </SceneContent>

@@ -1,5 +1,5 @@
-import { Replayer, canvasMutation } from '@posthog/rrweb'
-import { ReplayPlugin } from '@posthog/rrweb'
+import { Replayer, canvasMutation } from 'posthog-js/rrweb'
+import { ReplayPlugin } from 'posthog-js/rrweb'
 import {
     CanvasArg,
     EventType,
@@ -7,7 +7,7 @@ import {
     canvasMutationData,
     canvasMutationParam,
     eventWithTime,
-} from '@posthog/rrweb-types'
+} from 'posthog-js/rrweb-types'
 
 import { debounce } from '../utils'
 import { deserializeCanvasArg } from './deserialize-canvas-args'
@@ -368,6 +368,15 @@ export const CanvasReplayerPlugin = (
 
                 for (let i = 0; i < canvasElement.attributes.length; i++) {
                     const attr = canvasElement.attributes[i]
+                    const name = attr.name.toLowerCase()
+                    // The reconstructed <img> lives in the top-level document, so it inherits only
+                    // presentational attributes from the recorded canvas. Skip inline event handlers
+                    // (every handler is named `on<event>`, so this covers the whole class) and the
+                    // URL-loading attributes — the plugin points `src` at the rendered canvas blob
+                    // itself, so a copied `src`/`srcset` would only fetch an attacker-controlled URL.
+                    if (name.startsWith('on') || name === 'src' || name === 'srcset') {
+                        continue
+                    }
                     el.setAttribute(attr.name, attr.value)
                 }
 

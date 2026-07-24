@@ -17,7 +17,16 @@ from posthog.schema import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
-from .utils import format_duration, format_matrix, format_number, format_percentage, strip_datetime_seconds
+from .utils import (
+    PARTIAL_BUCKET_MARKER,
+    format_duration,
+    format_matrix,
+    format_number,
+    format_percentage,
+    partial_bucket_flags,
+    partial_bucket_note,
+    strip_datetime_seconds,
+)
 
 
 class FunnelResultsFormatter:
@@ -60,12 +69,13 @@ class FunnelResultsFormatter:
     def __init__(
         self,
         query: AssistantFunnelsQuery | FunnelsQuery,
-        results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any],
+        results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any] | None,
         team: Team,
         utc_now_datetime: datetime,
     ):
         self._query = query
         self._results = results
+        self._team = team
         date_range = DateRange.model_validate(query.dateRange.model_dump()) if query.dateRange else None
         self._query_date_range = QueryDateRange(date_range, team, query.interval, utc_now_datetime)
 
@@ -79,7 +89,7 @@ class FunnelResultsFormatter:
 
     def _format_steps(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, list):
+        if not isinstance(results, list) or len(results) == 0:
             return "No data recorded for this time period."
 
         results = cast(list[dict[str, Any]] | list[list[dict[str, Any]]], results)
@@ -100,7 +110,7 @@ class FunnelResultsFormatter:
 
     def _format_time_to_convert(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, dict):
+        if not isinstance(results, dict) or len(results) == 0:
             return "No data recorded for this time period."
 
         matrix: list[list[Any]] = [
@@ -114,7 +124,7 @@ class FunnelResultsFormatter:
 
     def _format_trends(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, list):
+        if not isinstance(results, list) or len(results) == 0:
             return "No data recorded for this time period."
 
         results = cast(list[dict[str, Any]], results)
@@ -198,7 +208,10 @@ class FunnelResultsFormatter:
         return formatted_matrix
 
     def _format_time_range(self) -> str:
-        return f"Date range: {self._query_date_range.date_from_str} to {self._query_date_range.date_to_str}"
+        return (
+            f"Date range: {self._query_date_range.date_from_str} to {self._query_date_range.date_to_str} "
+            f"({self._team.timezone})"
+        )
 
     def _format_filter_series_label(self) -> str:
         series_labels: list[str] = []
@@ -223,6 +236,10 @@ class FunnelResultsFormatter:
         dates = result["days"]
         label = self._format_filter_series_label()
 
+        now_local = self._query_date_range.now_with_timezone.replace(tzinfo=None)
+        current_interval_start = self._query_date_range.align_with_interval(now_local)
+        partial = partial_bucket_flags(dates, current_interval_start)
+
         # Build header row
         header = ["Date"]
         for series in results:
@@ -239,10 +256,16 @@ class FunnelResultsFormatter:
 
         # Build data rows
         for i, date in enumerate(dates):
-            row = [strip_datetime_seconds(date)]
+            date_cell = strip_datetime_seconds(date)
+            if partial[i]:
+                date_cell += PARTIAL_BUCKET_MARKER
+            row = [date_cell]
             for series in results:
                 row.append(format_percentage(series["data"][i] / 100))
                 row.append(format_percentage((100 - series["data"][i]) / 100))
             matrix.append(row)
 
-        return format_matrix(matrix)
+        formatted = format_matrix(matrix)
+        if any(partial):
+            formatted = f"{formatted}\n\n{partial_bucket_note(self._team.timezone)}"
+        return formatted

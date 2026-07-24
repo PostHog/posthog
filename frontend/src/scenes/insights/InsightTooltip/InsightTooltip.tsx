@@ -8,9 +8,9 @@ import { IconX } from '@posthog/icons'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
-import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { shortTimeZone } from 'lib/utils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -42,10 +42,7 @@ export function ClickToInspectActors({
                     <br />
                 </>
             )}
-            <div className="table-subtext-click-to-inspect">
-                <IconHandClick className="mr-1 mb-0.5" />
-                {inspectLabel ?? `Click to view ${groupTypeLabel}`}
-            </div>
+            <div className="table-subtext-click-to-inspect">{inspectLabel ?? `Click to view ${groupTypeLabel}`}</div>
         </div>
     )
 }
@@ -126,6 +123,11 @@ export function InsightTooltip({
         (seriesData?.length ?? 0) > 1 &&
         (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
 
+    const hasMultipleDatapoints = (seriesData?.length ?? 0) > 1
+    const defaultInspectLabel = hasMultipleDatapoints
+        ? `Click a series above to view ${groupTypeLabel}`
+        : `Click to view ${groupTypeLabel}`
+
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
     const formattedDate = getFormattedDate(date, {
@@ -135,13 +137,32 @@ export function InsightTooltip({
         weekStartDay,
     })
 
+    const shortFormattedDate = getFormattedDate(date, {
+        interval,
+        dateRange,
+        timezone,
+        weekStartDay,
+        short: true,
+    })
+
     const concreteTooltipTitle = altTitle ? getTooltipTitle(seriesData, altTitle, formattedDate) : null
+
+    const fullDateTitle = date
+        ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+        : null
 
     const title: ReactNode | null =
         concreteTooltipTitle ||
-        (date
-            ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
-            : null)
+        (date ? (
+            // Only the column-per-entity layout is width-constrained enough to need the date shortened.
+            itemizeEntitiesAsColumns ? (
+                <Tooltip title={fullDateTitle}>
+                    <span>{shortFormattedDate}</span>
+                </Tooltip>
+            ) : (
+                fullDateTitle
+            )
+        ) : null)
     const rightTitle: ReactNode | null = altRightTitle
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null
@@ -156,16 +177,44 @@ export function InsightTooltip({
                 title,
                 sticky: true,
                 render: function renderDatum(_, datum) {
-                    return <div className="whitespace-nowrap">{datum.datumTitle}</div>
+                    return <div className="datum-title">{datum.datumTitle}</div>
                 },
             },
         ]
         const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
 
-        if (numDataPoints > 0) {
-            const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
-            const longestSeriesData = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData
-            const truncatedCols = colCutoff !== undefined ? longestSeriesData.slice(0, colCutoff) : longestSeriesData
+        if (numDataPoints === 1) {
+            // Each row holds one series; breaking multiple series down by event name gives them
+            // distinct `order`s, so an order-keyed column would blank every non-matching row.
+            columns.push({
+                key: 'value',
+                className: 'datum-counts-column',
+                align: 'right',
+                title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
+                render: function renderSingleSeriesValue(_, datum) {
+                    const seriesColumnData = datum.seriesData[0]
+                    return renderDatumToTableCell(
+                        seriesColumnData?.action?.math_property,
+                        seriesColumnData?.count,
+                        formatPropertyValueForDisplay,
+                        renderCount,
+                        seriesColumnData?.color
+                    )
+                },
+            })
+        } else if (numDataPoints > 1) {
+            // Key columns off the union of orders across all rows, not just the longest one, so a
+            // series present in only some rows still gets a column instead of a dash.
+            const seriesByOrder = new Map<number, SeriesDatum>()
+            for (const ds of dataSource) {
+                for (const s of ds?.seriesData ?? []) {
+                    if (!seriesByOrder.has(s.order)) {
+                        seriesByOrder.set(s.order, s)
+                    }
+                }
+            }
+            const sortedColumnSeries = [...seriesByOrder.values()].sort((a, b) => a.order - b.order)
+            const truncatedCols = colCutoff !== undefined ? sortedColumnSeries.slice(0, colCutoff) : sortedColumnSeries
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
             truncatedCols.forEach((seriesColumn) => {
                 const colIdx = seriesColumn.order
@@ -176,7 +225,6 @@ export function InsightTooltip({
                     title:
                         (colIdx === 0 ? rightTitle : undefined) ||
                         (!concreteTooltipTitle &&
-                            numDataPoints > 1 &&
                             renderSeries(
                                 <InsightLabel
                                     action={seriesColumn.action}
@@ -185,7 +233,6 @@ export function InsightTooltip({
                                     hideBreakdown
                                     hideCompare
                                     hideIcon
-                                    allowWrap
                                 />,
                                 seriesColumn,
                                 colIdx
@@ -201,7 +248,7 @@ export function InsightTooltip({
                             renderCount,
                             seriesColumnData?.color
                         )
-                        if (onRowClick && seriesColumnData && numDataPoints > 1) {
+                        if (onRowClick && seriesColumnData) {
                             return (
                                 <div
                                     className="cursor-pointer hover:bg-accent-highlight-secondary -mx-2 px-2 -my-1 py-1"
@@ -214,12 +261,6 @@ export function InsightTooltip({
                         return cell
                     },
                 })
-            })
-            dataColumns.sort((a, b) => {
-                const itemA = truncatedCols?.find((s) => s.order === parseInt(a.key as string))
-                const itemB = truncatedCols?.find((s) => s.order === parseInt(b.key as string))
-
-                return (itemA?.order || 0) - (itemB?.order || 0)
             })
             columns.push(...dataColumns)
         }
@@ -254,7 +295,7 @@ export function InsightTooltip({
                 </div>
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
-                        inspectLabel={inspectLabel}
+                        inspectLabel={inspectLabel ?? defaultInspectLabel}
                         groupTypeLabel={groupTypeLabel}
                         showShiftKeyHint={showShiftKeyHint}
                     />
@@ -269,6 +310,7 @@ export function InsightTooltip({
 
     columns.push({
         key: 'datum',
+        className: 'datum-column',
         width: 200,
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
@@ -281,7 +323,6 @@ export function InsightTooltip({
                     hideBreakdown
                     hideCompare
                     hideIcon
-                    allowWrap
                 />,
                 datum,
                 rowIdx
@@ -339,7 +380,7 @@ export function InsightTooltip({
             </div>
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
-                    inspectLabel={inspectLabel}
+                    inspectLabel={inspectLabel ?? defaultInspectLabel}
                     groupTypeLabel={groupTypeLabel}
                     showShiftKeyHint={showShiftKeyHint}
                 />

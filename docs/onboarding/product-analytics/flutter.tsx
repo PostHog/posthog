@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
@@ -18,7 +19,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.0.0
+                                    posthog_flutter: ^5.24.0
                                 `,
                             },
                         ]}
@@ -44,7 +45,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             <activity>
                                               [...]
                                             </activity>
-                                            <meta-data android:name="com.posthog.posthog.API_KEY" android:value="<ph_project_token>" />
+                                            <meta-data android:name="com.posthog.posthog.PROJECT_TOKEN" android:value="<ph_project_token>" />
                                             <meta-data android:name="com.posthog.posthog.POSTHOG_HOST" android:value="<ph_client_api_host>" />
                                             <meta-data android:name="com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS" android:value="true" />
                                             <meta-data android:name="com.posthog.posthog.DEBUG" android:value="true" />
@@ -63,7 +64,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         file: 'android/app/build.gradle',
                                         code: dedent`
                                           defaultConfig {
-                                            minSdkVersion 21
+                                            minSdkVersion 23
                                             // rest of your config
                                           }
                                         `,
@@ -81,7 +82,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         code: dedent`
                                           <dict>
                                             [...]
-                                            <key>com.posthog.posthog.API_KEY</key>
+                                            <key>com.posthog.posthog.PROJECT_TOKEN</key>
                                             <string><ph_project_token></string>
                                             <key>com.posthog.posthog.POSTHOG_HOST</key>
                                             <string><ph_client_api_host></string>
@@ -124,7 +125,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                                 !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group identify setPersonProperties setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags resetGroups onFeatureFlags addFeatureFlagsHandler onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
                                                 posthog.init('<ph_project_token>', {
                                                     api_host: '<ph_client_api_host>',
-                                                    defaults: '2026-01-30',
+                                                    defaults: '${SDK_DEFAULTS_DATE}',
                                                 })
                                               </script>
                                             </head>

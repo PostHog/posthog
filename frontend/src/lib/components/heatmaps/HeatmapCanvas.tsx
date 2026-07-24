@@ -15,6 +15,9 @@ import { useScrollSync } from './useScrollSync'
 // Radius in pixels to search for nearby heatmap elements when clicking
 const CLICK_RADIUS_PX = 15
 
+const TOOLTIP_OFFSET_PX = 12
+const TOOLTIP_FLIP_THRESHOLD_PX = 160
+
 const HEATMAP_CONFIG = {
     minOpacity: 0,
     maxOpacity: 0.8,
@@ -32,12 +35,23 @@ function HeatmapMouseInfo({
     onHasValue?: (hasValue: boolean) => void
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
-    const { heatmapTooltipLabel } = useValues(heatmapDataLogic({ context }))
+    const { heatmapTooltipLabel, rawHeatmapLoading, heatmapTooltipSuppressed } = useValues(
+        heatmapDataLogic({ context })
+    )
 
-    const mousePosition = useMousePosition(containerRef?.current)
-    const value = heatmapJsRef.current?.getValueAt(mousePosition)
+    const containerMousePosition = useMousePosition(containerRef?.current)
+    const viewportMousePosition = useMousePosition()
+    let value: number | undefined
+    try {
+        value = heatmapJsRef.current?.getValueAt(containerMousePosition)
+    } catch {
+        // heatmap.js throws reading its canvas if it was created while the container had
+        // zero height (IndexSizeError in Chromium, raw NS_ERROR_FAILURE in Firefox);
+        // this runs on every mouse move, so swallow rather than crash the scene
+        value = undefined
+    }
 
-    const hasValue = !!(mousePosition && (value || shiftPressed))
+    const hasValue = !!(containerMousePosition && (value || shiftPressed)) && !heatmapTooltipSuppressed
 
     useEffect(() => {
         onHasValue?.(hasValue)
@@ -47,28 +61,20 @@ function HeatmapMouseInfo({
         return null
     }
 
-    const leftPosition = window.innerWidth - mousePosition.x < 100
+    const flipLeft = window.innerWidth - viewportMousePosition.x < TOOLTIP_FLIP_THRESHOLD_PX
 
     return (
         <div
-            className="absolute z-10"
+            className="fixed z-10 -translate-y-1/2 pointer-events-none"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                top: mousePosition.y,
-                left: mousePosition.x,
+                top: viewportMousePosition.y,
+                left: flipLeft ? undefined : viewportMousePosition.x + TOOLTIP_OFFSET_PX,
+                right: flipLeft ? window.innerWidth - viewportMousePosition.x + TOOLTIP_OFFSET_PX : undefined,
             }}
         >
-            <div
-                className="absolute border rounded bg-surface-primary shadow-md p-2 mx-2 -translate-y-1/2"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    left: leftPosition ? undefined : 0,
-                    right: leftPosition ? 0 : undefined,
-                }}
-            >
-                <span className="font-semibold whitespace-nowrap">
-                    {value} {heatmapTooltipLabel}
-                </span>
+            <div className="border rounded bg-surface-primary shadow-md p-2 whitespace-nowrap font-semibold">
+                {rawHeatmapLoading ? 'Loading…' : `${value ?? 0} ${heatmapTooltipLabel}`}
             </div>
         </div>
     )
@@ -94,7 +100,7 @@ export function HeatmapCanvas({
         isReady,
         heightOverride,
         heatmapFixedPositionMode,
-        heatmapElements,
+        filteredHeatmapElements,
         windowWidthOverride,
     } = useValues(heatmapDataLogic({ context, exportToken }))
     const { setSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
@@ -137,7 +143,7 @@ export function HeatmapCanvas({
             const nearbyElements: HeatmapAreaPoint[] = []
             let totalCount = 0
 
-            for (const element of heatmapElements) {
+            for (const element of filteredHeatmapElements) {
                 const visualX = element.xPercentage * width
                 const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - element.y, 2))
 
@@ -160,7 +166,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
+        [filteredHeatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
@@ -195,11 +201,16 @@ export function HeatmapCanvas({
             return
         }
 
-        heatmapsJsRef.current?.configure({
-            ...HEATMAP_CONFIG,
-            container: heatmapsJsContainerRef.current,
-            gradient: heatmapJSColorGradient,
-        })
+        try {
+            heatmapsJsRef.current?.configure({
+                ...HEATMAP_CONFIG,
+                container: heatmapsJsContainerRef.current,
+                gradient: heatmapJSColorGradient,
+            })
+        } catch (e) {
+            // configure re-renders the canvas, which throws if it was created zero-height
+            console.error('error configuring heatmap', e)
+        }
     }, [heatmapJSColorGradient])
 
     if (!heatmapFilters.enabled) {
@@ -217,20 +228,20 @@ export function HeatmapCanvas({
         )
     }
 
+    const loadingClass = isReady
+        ? 'heatmaps-ready opacity-100 transition-opacity duration-150'
+        : 'heatmaps-loading opacity-40 pointer-events-none transition-opacity duration-150'
+
     if (isToolbar) {
         return (
             <div
-                className={cn(
-                    'fixed inset-0 overflow-hidden',
-                    isReady ? 'heatmaps-ready' : 'heatmaps-loading',
-                    hasValueUnderMouse && 'cursor-pointer'
-                )}
+                className={cn('fixed inset-0 overflow-hidden', hasValueUnderMouse && 'cursor-pointer')}
                 data-attr="heatmap-canvas"
                 onClick={handleCanvasClick}
             >
                 <div
                     ref={innerRef}
-                    className="absolute top-0 left-0 w-full"
+                    className={cn('absolute top-0 left-0 w-full', loadingClass)}
                     style={{ height: heightOverride, willChange: 'transform' }}
                 >
                     <div
@@ -252,22 +263,17 @@ export function HeatmapCanvas({
 
     return (
         <div
-            className={cn(
-                'inset-0 overflow-hidden w-full h-full',
-                positioning,
-                isReady ? 'heatmaps-ready' : 'heatmaps-loading',
-                hasValueUnderMouse && 'cursor-pointer'
-            )}
+            className={cn('inset-0 overflow-hidden w-full h-full', positioning, hasValueUnderMouse && 'cursor-pointer')}
             data-attr="heatmap-canvas"
             onClick={handleCanvasClick}
         >
             <div
                 key={
                     exportToken
-                        ? 'export-heatmap'
+                        ? `export-heatmap-${widthOverride ?? windowWidth}x${heightOverride}x${heatmapFixedPositionMode}`
                         : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}x${heatmapFixedPositionMode}`
                 }
-                className="absolute inset-0"
+                className={cn('absolute inset-0', loadingClass)}
                 ref={setHeatmapContainer}
             />
             <HeatmapMouseInfo

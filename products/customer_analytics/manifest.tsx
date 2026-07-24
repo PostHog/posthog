@@ -1,9 +1,10 @@
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -11,7 +12,6 @@ export const manifest: ProductManifest = {
     scenes: {
         CustomerAnalytics: {
             import: () => import('./frontend/CustomerAnalyticsScene'),
-            defaultDocsPath: '/docs/customer-analytics',
             projectBased: true,
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
@@ -20,7 +20,6 @@ export const manifest: ProductManifest = {
         CustomerAnalyticsConfiguration: {
             import: () =>
                 import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-            defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
             projectBased: true,
             name: 'Customer analytics configuration',
         },
@@ -37,6 +36,13 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+        '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        // Deep-link to a single account (filtered + expanded), optionally on a given tab. Same scene key
+        // as the list so the accounts tab activates; accountsLogic reads the params.
+        '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
+        '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
         '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
@@ -44,12 +50,22 @@ export const manifest: ProductManifest = {
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
     redirects: {
-        '/customer_analytics': (_params, searchParams, hashParams) =>
-            combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
+        '/customer_analytics': (_params, searchParams, hashParams) => {
+            const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
+                ? '/customer_analytics/accounts'
+                : '/customer_analytics/dashboard'
+            return combineUrl(defaultTab, searchParams, hashParams).url
+        },
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
         customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
+        customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+        // Path-based deep link to one account: filters the list to it, expands it, opens `tab`.
+        customerAnalyticsAccount: (accountId: string, tab?: string): string =>
+            `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+        customerAnalyticsNotes: (): string => '/customer_analytics/notes',
+        customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
         customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
         customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
@@ -60,7 +76,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             iconType: 'cohort',
             href: urls.customerAnalytics(),
             tags: ['beta'],

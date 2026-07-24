@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { VMState } from '@posthog/hogvm'
 
-import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
-import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -66,6 +66,10 @@ export type CyclotronPerson = {
     properties: Record<string, any>
     name: string
     url: string
+    // Populated whenever the manager could resolve a distinct_id for this person.
+    // Always present when looked up by distinct_id; for person_id lookups, present
+    // when the person has at least one distinct_id in the persondistinctid table.
+    distinct_id?: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -182,7 +186,7 @@ export type HogFunctionFilterGlobals = {
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
-export type MetricLogSource = 'hog_function' | 'hog_flow'
+export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
 
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -225,16 +229,28 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounced_hard'
+        | 'email_bounced_transient'
+        | 'email_bounced_undetermined'
+        | 'email_bounce_prevented'
+        | 'email_suppressed'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'push_sent'
+        | 'push_failed'
+        | 'push_skipped'
         | 'quota_limited'
+        | 'conversion'
+        | 'exited_workflow_changed'
+        | 'redirected_workflow_changed'
     count: number
 }
 
@@ -249,7 +265,7 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
@@ -286,6 +302,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
+    emailAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -294,6 +311,18 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    // Distinct from `attempts` (fetch-retry counter, reset between runs).
+    // `rerunAttempts` is incremented when an invocation is rehydrated by the
+    // rerun paginator and stays sticky across the entire rerun run. The
+    // lifecycle row producer reads this to drive the `attempts` + `is_retry`
+    // columns in `hog_invocation_results`.
+    rerunAttempts?: number
+    // ISO timestamp of the *original* cyclotron-scheduled time. Stamped on the
+    // first 'running' lifecycle row and carried through both cyclotron fetch
+    // retries and reruns so the producer can populate `first_scheduled_at`
+    // verbatim — ReplacingMergeTree would otherwise collapse to the latest
+    // version (a retry's scheduled time) and lose the original.
+    firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
@@ -306,6 +335,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
     person?: CyclotronPerson
+    groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
 }
 
@@ -317,8 +347,56 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
+        // Set by the subscription matcher consumer when it wakes a wait_until_condition
+        // job because a matching event arrived (as opposed to a scheduled timeout firing).
+        eventMatched?: boolean
+        // Name of the event that triggered the wake, so the executor can surface
+        // "woken by event: X" in logs instead of echoing the trigger event.
+        eventMatchedEvent?: string
+        // UUID of the exact event that triggered the wake, so the logs view can link to
+        // it precisely (the name alone is ambiguous when a person fires it repeatedly).
+        eventMatchedEventUuid?: string
+        // Paired with the UUID to build the event link in the logs view; never displayed.
+        eventMatchedEventTimestamp?: string
+        // Set by hog-function action handler when it returns `finished: false` without an
+        // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
+        // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
+        // continue the same action. Consumed across three sites in hogflow-executor.service.ts
+        // to suppress the redundant log lines that would otherwise leak the routing into
+        // customer-visible workflow logs:
+        //   - `scheduleInvocation` on the dequeue that set it: skips the "Workflow will pause
+        //     until..." line (the pause is sub-millisecond and not a real workflow pause).
+        //   - Top of the next `execute()`: skips the "Resuming workflow execution at..." line.
+        //     The flag is *not* cleared here — it stays set so `executeCurrentAction` can
+        //     also act on it.
+        //   - `executeCurrentAction` on the same next dequeue: skips the "Executing action..."
+        //     debug line *and clears the flag* so any subsequent actions on the same dequeue
+        //     (the email handler's `nextAction: exit`, etc.) log normally.
+        routingOnlyReschedule?: boolean
+        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
+        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
+        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
+        // ever catches a wake the subscription streams missed, gating its eventual removal.
+        pollReparked?: boolean
     }
+    // Set by the subscription matcher consumer when an incoming event matched the
+    // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
+    conversionMatched?: boolean
+    // Once-per-run guard for the property-based conversion metric. Executor-owned:
+    // shouldExitEarly runs on every resume, so without this a persistently-true
+    // conversion filter would emit a `conversion` metric on every step. Event-based
+    // conversions are counted by the matcher and never touch this flag.
+    conversionCounted?: boolean
     variables?: Record<string, any>
+    // Sticky counter incremented by the rerun paginator on rehydration. Lets
+    // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
+    // the same way it does for hog functions, so the `max_attempts` guard on
+    // the rerun filter actually applies to flows.
+    rerunAttempts?: number
+    // Stamped on the first 'running' row and carried verbatim through cyclotron
+    // fetch retries and reruns so `first_scheduled_at` survives the
+    // ReplacingMergeTree collapse on the hog_invocation_results table.
+    firstScheduledAt?: string
 }
 
 // Mostly copied from frontend types
@@ -331,14 +409,22 @@ export type HogFunctionInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
+        | 'push_subscription'
+        | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
+        | 'customer_analytics_account_relationships'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -348,6 +434,7 @@ export type HogFunctionInputSchemaType = {
     integration_key?: string
     requires_field?: string
     integration_field?: string
+    platform?: 'android' | 'ios'
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively
@@ -363,6 +450,14 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+
+// Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
+// the stored invocation onto the cyclotron hog queue and have it run. Every other type
+// runs elsewhere (source webhooks inline in the cdp-api HTTP handler, transformations
+// during ingestion, site_* transpiled to client-side JS) and would never drain from that
+// queue — re-enqueuing one wedges the partition. Mirror of the Django `TYPES_THAT_CAN_RERUN`
+// allowlist and the frontend invocations UI.
+export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -436,7 +531,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }
@@ -453,6 +548,25 @@ export type WarehouseWebhookPayload = {
     team_id: number
     schema_id: string
     payload: Record<string, any>
+}
+
+export type MessageAssetRow = {
+    team_id: number
+    function_kind: 'hog_flow' | 'hog_function'
+    function_id: string
+    parent_run_id: string
+    invocation_id: string
+    action_id: string
+    kind: 'email'
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: 'sent'
+    sent_at: string // ISO microsecond DateTime64
+    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
+    is_deleted: 0 | 1
+    html: string
 }
 
 export type Response = {

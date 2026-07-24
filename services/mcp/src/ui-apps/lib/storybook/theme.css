@@ -1,0 +1,125 @@
+/*
+ * MCP UI theme utilities for Storybook.
+ *
+ * Quill primitives use Tailwind v4 utility class names like `bg-card`,
+ * `text-foreground`, `text-muted-foreground`, `bg-primary`, `border`, etc.
+ * The main PostHog Storybook still runs Tailwind v3, so these aren't
+ * generated automatically. This file provides the missing classes,
+ * driven by ext-apps host CSS variables injected by the McpThemeDecorator,
+ * so MCP UI stories render correctly in Storybook snapshots.
+ *
+ * Once the main Storybook is on Tailwind v4 + Quill's tokens.css, this
+ * shim becomes redundant and can be deleted.
+ */
+
+/* stylelint-disable selector-class-pattern */
+
+/* -- Backgrounds -- */
+.bg-background {
+    background-color: var(--color-background-primary, #fff);
+}
+
+.bg-card {
+    background-color: var(--color-background-secondary, #f9fafb);
+}
+
+.bg-popover {
+    background-color: var(--color-background-secondary, #f9fafb);
+}
+
+.bg-muted {
+    background-color: var(--color-background-tertiary, #f2f4f7);
+}
+
+.bg-muted\/50 {
+    background-color: color-mix(in srgb, var(--color-background-tertiary, #f2f4f7) 50%, transparent);
+}
+
+.bg-muted\/25 {
+    background-color: color-mix(in srgb, var(--color-background-tertiary, #f2f4f7) 25%, transparent);
+}
+
+.bg-primary {
+    background-color: #2563eb;
+}
+
+.bg-destructive {
+    background-color: #dc2626;
+}
+
+/* -- Text colors -- */
+.text-foreground {
+    color: var(--color-text-primary, #101828);
+}
+
+.text-muted-foreground {
+    color: var(--color-text-secondary, #6b7280);
+}
+
+.text-card-foreground {
+    color: var(--color-text-primary, #101828);
+}
+
+.text-popover-foreground {
+    color: var(--color-text-primary, #101828);
+}
+
+.text-primary {
+    color: #2563eb;
+}
+
+.text-destructive {
+    color: #dc2626;
+}
+
+.text-primary-foreground {
+    color: #fff;
+}
+
+/* -- Borders (default border in Quill primitives is var(--border)) -- */
+.border {
+    border: 1px solid var(--color-border-primary, #e5e7eb);
+}
+
+.border-t {
+    border-top: 1px solid var(--color-border-primary, #e5e7eb);
+}
+
+.border-b {
+    border-bottom: 1px solid var(--color-border-primary, #e5e7eb);
+}
+
+.border-input {
+    border-color: var(--color-border-secondary, #d1d5db);
+}
+
+.border-muted-foreground {
+    border-color: var(--color-text-secondary, #6b7280);
+}
+
+/* -- Hover variants -- */
+.hover\:bg-muted:hover {
+    background-color: var(--color-background-tertiary, #f2f4f7);
+}
+
+.hover\:text-foreground:hover {
+    color: var(--color-text-primary, #101828);
+}
+
+/* -- Fonts -- */
+.font-sans {
+    font-family: var(
+        --font-sans,
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        Roboto,
+        'Helvetica Neue',
+        Arial,
+        sans-serif
+    );
+}
+
+.font-mono {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+}

@@ -1,0 +1,20 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Access control
+feature: access_control
+url_prefix: /
+ui_apps: {}
+tools:
+    property-access-controls-create:
+        operation: property_access_controls_create
+        enabled: false
+    property-access-controls-destroy:
+        operation: property_access_controls_destroy
+        enabled: false
+    property-access-controls-retrieve:
+        operation: property_access_controls_retrieve
+        enabled: false

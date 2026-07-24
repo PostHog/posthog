@@ -1,19 +1,19 @@
 use std::net::IpAddr;
 
-use axum::extract::Query as AxumQuery;
 use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::token::validate_token;
-use crate::v1::analytics::constants::SUPPORTED_ENCODINGS;
-use crate::v1::analytics::query::Query;
 use crate::v1::constants::*;
 use crate::v1::Error;
 
-#[derive(Debug)]
-pub struct Context {
+/// CaptureMode-agnostic request context shared by every v1 capture mode.
+/// Product-specific query state lives in a per-mode wrapper (e.g.
+/// `v1::analytics::Context`) that carries `raw_query` refined into a typed view.
+#[derive(Debug, Clone)]
+pub struct RequestContext {
     pub api_token: String,
     pub user_agent: String,
     pub content_type: String,
@@ -23,13 +23,17 @@ pub struct Context {
     pub request_id: Uuid,
     pub client_timestamp: DateTime<Utc>,
     pub client_ip: IpAddr,
-    pub query: Query,
+    /// Raw, un-parsed request query string. Each capture mode refines this into
+    /// its own typed query when wrapping into a product context.
+    pub raw_query: Option<String>,
     pub method: Method,
-    pub path: String,
+    pub path: &'static str,
     pub server_received_at: DateTime<Utc>,
     pub created_at: Option<String>,
     pub capture_internal: bool,
     pub historical_migration: bool,
+    /// AI-gateway provenance signature parsed from the request headers, if present.
+    pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -42,19 +46,39 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Error> 
         })
 }
 
-impl Context {
+impl RequestContext {
     pub fn clock_skew(&self) -> chrono::Duration {
         self.client_timestamp
             .signed_duration_since(self.server_received_at)
     }
 
+    /// Parse `PostHog-Sdk-Info` (`<canonical-$lib-name>/<semver>`, split at
+    /// the last '/') into `($lib, $lib_version)`. Returns `None` for malformed
+    /// or oversized values — callers skip injection, never inject placeholders.
+    pub fn sdk_lib_and_version(&self) -> Option<(&str, &str)> {
+        if self.sdk_info.len() > MAX_SDK_INFO_LEN {
+            return None;
+        }
+        let (lib, version) = self.sdk_info.rsplit_once('/')?;
+        let (lib, version) = (lib.trim(), version.trim());
+        if lib.is_empty() || version.is_empty() {
+            return None;
+        }
+        Some((lib, version))
+    }
+
     pub fn new(
         headers: &HeaderMap,
         ip: &InsecureClientIp,
-        query: &AxumQuery<Query>,
+        raw_query: Option<String>,
         method: Method,
-        path: &str,
+        path: &'static str,
     ) -> Result<Self, Error> {
+        // Authorization checked first — missing auth is 401, not 400
+        if headers.get(header::AUTHORIZATION).is_none() {
+            return Err(Error::MissingAuthorization);
+        }
+
         // Missing-headers gate: collect all absent required headers at once
         let missing: Vec<String> = REQUIRED_HEADERS
             .iter()
@@ -67,8 +91,6 @@ impl Context {
         }
 
         // All required headers are present — validate each one
-
-        // Authorization header presence is guaranteed by the REQUIRED_HEADERS gate above.
         // The Bearer scheme is case-insensitive per RFC 6750 Section 1.1.
         let auth_raw = header_str(headers, header::AUTHORIZATION.as_str())?;
         let token_raw = if auth_raw.len() > 7 && auth_raw[..7].eq_ignore_ascii_case("Bearer ") {
@@ -139,6 +161,8 @@ impl Context {
         let user_agent = header_str(headers, "user-agent")?.to_string();
         let sdk_info = header_str(headers, POSTHOG_SDK_INFO)?.to_string();
 
+        let gateway_signature = super::gateway_provenance::parse_signature(headers);
+
         Ok(Self {
             api_token,
             user_agent,
@@ -149,20 +173,29 @@ impl Context {
             request_id,
             client_timestamp,
             client_ip: ip.0,
-            query: query.0.clone(),
+            raw_query,
             method,
-            path: path.to_string(),
+            path,
             server_received_at: Utc::now(),
             created_at: None,
             capture_internal: false,
             historical_migration: false,
+            gateway_signature,
         })
     }
 
-    pub fn set_batch_metadata(&mut self, batch: &crate::v1::analytics::types::Batch) {
-        self.created_at = Some(batch.created_at.clone());
-        self.capture_internal = batch.capture_internal.unwrap_or(false);
-        self.historical_migration = batch.historical_migration;
+    /// Stamp request-level batch metadata. Takes primitives (not an
+    /// analytics `Batch`) so the shared context stays CaptureMode-agnostic;
+    /// product wrappers extract these from their own batch envelope.
+    pub fn set_batch_metadata(
+        &mut self,
+        created_at: Option<String>,
+        capture_internal: bool,
+        historical_migration: bool,
+    ) {
+        self.created_at = created_at;
+        self.capture_internal = capture_internal;
+        self.historical_migration = historical_migration;
     }
 }
 
@@ -170,7 +203,6 @@ impl Context {
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
-    use axum::extract::Query as AxumQuery;
     use axum::http::{HeaderMap, HeaderValue, Method};
     use axum_client_ip::InsecureClientIp;
     use uuid::Uuid;
@@ -178,11 +210,11 @@ mod tests {
     use super::*;
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 
-    fn test_context(headers: &HeaderMap) -> Result<Context, Error> {
-        Context::new(
+    fn test_context(headers: &HeaderMap) -> Result<RequestContext, Error> {
+        RequestContext::new(
             headers,
             &InsecureClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)),
-            &AxumQuery(Query::default()),
+            None,
             Method::POST,
             CAPTURE_V1_PATH,
         )
@@ -196,7 +228,7 @@ mod tests {
         );
         h.insert(
             POSTHOG_SDK_INFO,
-            HeaderValue::from_static("posthog-rust/1.0.0"),
+            HeaderValue::from_static("posthog-rs/1.0.0"),
         );
         h.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("1"));
         h.insert(
@@ -228,13 +260,21 @@ mod tests {
     }
 
     #[test]
-    fn missing_single_required_header() {
+    fn missing_authorization_returns_401() {
         let mut headers = valid_headers();
         headers.remove(header::AUTHORIZATION.as_str());
         let err = test_context(&headers).unwrap_err();
+        assert!(matches!(err, Error::MissingAuthorization));
+    }
+
+    #[test]
+    fn missing_single_required_header() {
+        let mut headers = valid_headers();
+        headers.remove("user-agent");
+        let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert_eq!(names, vec![header::AUTHORIZATION.as_str()]);
+                assert_eq!(names, vec!["user-agent"]);
             }
             other => panic!("expected MissingRequiredHeaders, got: {other:?}"),
         }
@@ -243,13 +283,13 @@ mod tests {
     #[test]
     fn missing_multiple_required_headers() {
         let mut headers = valid_headers();
-        headers.remove(header::AUTHORIZATION.as_str());
         headers.remove("user-agent");
+        headers.remove("content-type");
         let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert!(names.contains(&header::AUTHORIZATION.as_str().to_string()));
                 assert!(names.contains(&"user-agent".to_string()));
+                assert!(names.contains(&"content-type".to_string()));
                 assert_eq!(names.len(), 2);
             }
             other => panic!("expected MissingRequiredHeaders, got: {other:?}"),
@@ -368,6 +408,61 @@ mod tests {
         headers.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("0"));
         let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_parses_canonical_format() {
+        let headers = valid_headers();
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), Some(("posthog-rs", "1.0.0")));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_splits_at_last_slash() {
+        let mut headers = valid_headers();
+        headers.insert(
+            POSTHOG_SDK_INFO,
+            HeaderValue::from_static("posthog/sub-sdk/2.3.4"),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(
+            ctx.sdk_lib_and_version(),
+            Some(("posthog/sub-sdk", "2.3.4"))
+        );
+    }
+
+    #[test]
+    fn sdk_lib_and_version_trims_whitespace() {
+        let mut headers = valid_headers();
+        headers.insert(
+            POSTHOG_SDK_INFO,
+            HeaderValue::from_static("  posthog-rs / 1.2.3  "),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), Some(("posthog-rs", "1.2.3")));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_rejects_oversized_value() {
+        let mut headers = valid_headers();
+        let long = format!("posthog-rs/{}", "9".repeat(MAX_SDK_INFO_LEN));
+        headers.insert(POSTHOG_SDK_INFO, HeaderValue::from_str(&long).unwrap());
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), None);
+    }
+
+    #[test]
+    fn sdk_lib_and_version_rejects_malformed_values() {
+        for bad in &["no-slash", "/1.0.0", "posthog-rs/", "/", "", "   /   "] {
+            let mut headers = valid_headers();
+            headers.insert(POSTHOG_SDK_INFO, HeaderValue::from_str(bad).unwrap());
+            let ctx = test_context(&headers).unwrap();
+            assert_eq!(
+                ctx.sdk_lib_and_version(),
+                None,
+                "expected None for sdk_info: {bad:?}"
+            );
+        }
     }
 
     #[test]

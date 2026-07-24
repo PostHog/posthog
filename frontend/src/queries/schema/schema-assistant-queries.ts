@@ -1,6 +1,7 @@
 import {
     BreakdownType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FunnelMathType,
     IntervalType,
     LifecycleToggle,
@@ -23,6 +24,8 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    type RecordingOrder,
+    type RecordingOrderDirection,
     RetentionFilterLegacy,
     StickinessComputationMode,
     StickinessFilterLegacy,
@@ -170,14 +173,17 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 export interface AssistantCohortPropertyFilter {
     /**
      * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
-     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them.
+     * Examples:
+     * - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`
      */
     type: PropertyFilterType.Cohort
     key: 'id'
     /** The cohort ID to filter by. */
     value: integer
     /** @default in */
-    operator: PropertyOperator.In
+    operator: PropertyOperator.In | PropertyOperator.NotIn
 }
 
 export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
@@ -227,6 +233,36 @@ export interface AssistantFlagPropertyFilter {
     value: boolean | string
 }
 
+export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Recording
+    /**
+     * Recording metric to filter on.
+     * - `duration` — total recording duration in seconds.
+     * - `active_seconds` — seconds with user activity.
+     * - `inactive_seconds` — seconds without user activity.
+     * - `console_error_count` — number of console errors.
+     * - `console_log_count` — number of console log entries.
+     * - `console_warn_count` — number of console warnings.
+     * - `click_count` — number of clicks.
+     * - `keypress_count` — number of key presses.
+     * - `activity_score` — computed activity score (0-100).
+     * - `visited_page` — URL visited during the session.
+     * - `snapshot_source` — the recording source (e.g. "web", "mobile").
+     */
+    key:
+        | 'duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'activity_score'
+        | 'visited_page'
+        | 'snapshot_source'
+}
+
 export type AssistantPropertyFilter =
     | AssistantGenericPropertyFilter
     | AssistantGroupPropertyFilter
@@ -234,6 +270,12 @@ export type AssistantPropertyFilter =
     | AssistantElementPropertyFilter
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
+
+/**
+ * Extended property filter union for recordings queries that also supports
+ * recording-specific metric filters (e.g. duration, click_count, activity_score).
+ */
+export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -331,6 +373,35 @@ export interface AssistantTrendsActionsNode extends Omit<
     math_hogql?: string
 }
 
+/**
+ * Defines a series that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here.
+ * Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties`
+ * apply only to that node, so each event can carry its own filter.
+ */
+export interface AssistantTrendsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the series. Mirror the group's `math*` on each node for
+     * UI round-trip; they're ignored at execution time.
+     * @minItems 2
+     */
+    nodes: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    /** Display name for the combined series. */
+    name?: string
+    custom_name?: string
+    /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+    math?: AssistantTrendsEventsNode['math']
+    math_property?: AssistantTrendsEventsNode['math_property']
+    math_property_type?: AssistantTrendsEventsNode['math_property_type']
+    math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
+    math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
+    /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+    math_hogql?: string
+}
+
 export interface AssistantBaseMultipleBreakdownFilter {
     /**
      * Property name from the plan to break down by.
@@ -367,9 +438,13 @@ export interface AssistantBreakdownFilter {
 export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Use this field to define breakdowns.
-     * @maxLength 3
+     * @maxItems 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
+    /**
+     * When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.
+     */
+    breakdown_path_cleaning?: boolean
 }
 
 // Remove deprecated display types.
@@ -385,6 +460,7 @@ export interface AssistantTrendsFilter {
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+     * For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.
      */
     formulaNodes?: TrendsFormulaNode[]
 
@@ -401,6 +477,7 @@ export interface AssistantTrendsFilter {
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -420,8 +497,8 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
-     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
-     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage.
+     * `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
@@ -434,6 +511,7 @@ export interface AssistantTrendsFilter {
 
     /**
      * Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.
+     * Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.
      */
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
 
@@ -460,6 +538,12 @@ export interface AssistantTrendsFilter {
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+
     /**
      * Whether to show alert threshold lines on the chart.
      * @default false
@@ -477,6 +561,60 @@ export interface AssistantTrendsFilter {
      * @default false
      */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+
+    /**
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
+     * @default true
+     */
+    metricShowChange?: boolean
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when
+     * the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.
+     */
+    metricChangeIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when
+     * the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.
+     */
+    metricChangeDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Color the sparkline under the big number by whether
+     * the metric increased or decreased over the period (using the increase/decrease line colors).
+     * @default false
+     */
+    metricColorByDirection?: boolean
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a
+     * "lower is better" metric.
+     */
+    metricLineIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a
+     * "lower is better" metric.
+     */
+    metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -490,9 +628,16 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events or actions to include. Prioritize the more popular and fresh events and actions.
+     * Events, actions, or groups of events/actions to include. Prioritize the more popular and
+     * fresh events and actions.
+     *
+     * Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line
+     * per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or
+     * actions into a single series joined by `OR` — for example, treating
+     * "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only
+     * when the user wants the events counted together, otherwise prefer separate series.
      */
-    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode)[]
 
     /**
      * Properties specific to the trends insight
@@ -527,6 +672,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -553,7 +704,28 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
     name: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
+/**
+ * Defines a funnel step that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each
+ * event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported
+ * on grouped steps.
+ */
+export interface AssistantFunnelsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the step. Use per-node `properties` to filter each event;
+     * there is no step-wide filter on a grouped step.
+     * @minItems 2
+     */
+    nodes: (AssistantFunnelsEventsNode | AssistantFunnelsActionsNode)[]
+    /** Display name for the combined step. */
+    name?: string
+    custom_name?: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -690,9 +862,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -706,13 +882,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
@@ -756,7 +932,10 @@ export interface AssistantRetentionFilter {
      * The time window mode to use for retention calculations.
      */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
-    /** Custom brackets for retention calculations. */
+    /**
+     * Custom brackets for retention calculations.
+     * @maxItems 31
+     */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.
@@ -769,7 +948,7 @@ export interface AssistantRetentionFilter {
      * The type of property to aggregate on (event or person). Defaults to event.
      * @default event
      */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
@@ -1024,6 +1203,28 @@ export interface AssistantPathsFilter {
      * Filters out high-traffic paths to focus on less common journeys.
      */
     maxEdgeWeight?: integer
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **departed from** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`.
+     * Take the value verbatim from a `source` field of a `query-paths` result row. Combine with
+     * `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the
+     * path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.
+     */
+    pathStartKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`.
+     * Take the value verbatim from a `target` field of a `query-paths` result row. Combine with
+     * `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by
+     * non-actors paths queries.
+     */
+    pathEndKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific
+     * node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with
+     * `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.
+     */
+    pathDropoffKey?: string
 }
 
 export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
@@ -1098,7 +1299,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 
     /**
      * Event or action to analyze. Lifecycle insights only support a single series.
-     * @maxLength 1
+     * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]
 
@@ -1106,6 +1307,222 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
      * Properties specific to the lifecycle insight
      */
     lifecycleFilter?: AssistantLifecycleFilter
+}
+
+/**
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
+ * cell in the source insight.
+ */
+export interface AssistantTrendsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source insight query whose data point we are drilling into. */
+    source: AssistantTrendsQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /** Series index (0-based) when the source has multiple series. */
+    series?: integer
+
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
+
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
+/** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
+export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'dormant'
+
+/**
+ * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
+ * are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no
+ * per-actor `event_count` or matched recordings are projected — the underlying lifecycle
+ * runner does not surface a `matching_events` column.
+ *
+ * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
+ * is a 4-row stack (new / returning / resurrecting / dormant) per day.
+ *
+ * Note: lifecycle insights only support a single series and do not expose `compareFilter`, so
+ * `series` and `compare` selectors are intentionally omitted.
+ */
+export interface AssistantLifecycleActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source lifecycle insight query whose bucket we are drilling into. */
+    source: AssistantLifecycleQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /**
+     * Lifecycle status to drill into for the given day. Must be one of the bucket names visible
+     * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
+     */
+    status: AssistantLifecycleStatus
+}
+
+/**
+ * Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`,
+ * `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * There are no per-cell selectors like `day` or `series` — everything is configured on the `source`
+ * paths query. Two modes:
+ * - Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,
+ *   property filters) to return every actor on that path.
+ * - Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed
+ *   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).
+ *   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's
+ *   `target` / `source`.
+ */
+export interface AssistantPathsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source paths insight query whose actors we are listing. */
+    source: AssistantPathsQuery
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
+/**
+ * Drills into a retention insight to list the persons in one acquisition cohort and show, for each,
+ * which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`,
+ * followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`,
+ * … for a daily insight). Each interval column is `1` when the actor was active in that interval and
+ * `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how
+ * many intervals each actor returned in (most-retained first).
+ *
+ * The number and name of the interval columns are derived from the source — `retentionFilter.period`
+ * sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when
+ * custom brackets are set) sets the count.
+ *
+ * Retention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings
+ * column — its persons output is appearance-based.
+ */
+export interface AssistantRetentionActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: AssistantRetentionQuery
+
+    /**
+     * Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every
+     * actor who entered the cohort); `1` is the cohort that entered one interval later, and so on.
+     * Defaults to `0` when omitted.
+     */
+    interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
+ * Drills into a funnel insight to list the persons behind one step — either those who converted
+ * through it or those who dropped off at it. Returned rows are `distinct_id`, `email`, `name`, and
+ * optionally matched session recordings.
+ *
+ * Pair this with `query-funnel`: run the funnel query first to read the per-step counts, then call
+ * this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and
+ * the mode must match the source funnel's `funnelsFilter.funnelVizType`:
+ *
+ * 1. **Step mode** (source `funnelVizType: "steps"`, the default): use `funnelStep` to pick a step.
+ *    A **positive** value lists actors who converted **through** that step; a **negative** value lists
+ *    actors who **dropped off** at it. Steps are 1-based, so `funnelStep: 2` = converted through step 2,
+ *    `funnelStep: -2` = dropped off at step 2. (You cannot drop off at step 1, so the smallest negative
+ *    value is `-2`.) Add `funnelStepBreakdown` to scope to one breakdown series.
+ *
+ * 2. **Trends-dropoff mode** (source `funnelVizType: "trends"`): use `funnelTrendsDropOff` together with
+ *    `funnelTrendsEntrancePeriodStart` to list the persons behind one point of a funnel-trends
+ *    (conversion-over-time) chart.
+ *
+ * The funnel's `time_to_convert` viz type has no persons drilldown — do not use this tool with it.
+ */
+export interface AssistantFunnelsActorsQuery {
+    kind: NodeKind.FunnelsActorsQuery
+
+    /** The source funnel insight query whose step (or trends point) we are drilling into. */
+    source: AssistantFunnelsQuery
+
+    /**
+     * Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into.
+     * **Positive** lists actors who converted through that step; **negative** lists actors who dropped
+     * off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest
+     * negative value is `-2` (no one can drop off at the entry step).
+     */
+    funnelStep?: integer
+
+    /**
+     * Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from
+     * the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the
+     * baseline (non-breakdown) series.
+     */
+    funnelStepBreakdown?: string[]
+
+    /**
+     * Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who
+     * dropped off; when `false`, list those who converted. Use together with
+     * `funnelTrendsEntrancePeriodStart`.
+     */
+    funnelTrendsDropOff?: boolean
+
+    /**
+     * Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string
+     * (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about.
+     * Use together with `funnelTrendsDropOff`.
+     */
+    funnelTrendsEntrancePeriodStart?: string
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**
@@ -1238,3 +1655,208 @@ export interface AssistantErrorTrackingQuery {
     limit?: integer
     offset?: integer
 }
+
+/**
+ * Simplified RecordingsQuery for MCP tool usage. Exposes the most useful
+ * filtering and pagination fields with LLM-friendly descriptions while
+ * hiding internal complexity (having_predicates, operand, actions, etc.).
+ */
+export interface AssistantRecordingsQuery {
+    kind: NodeKind.RecordingsQuery
+    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    date_from?: string | null
+    /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
+    date_to?: string | null
+    /**
+     * Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.
+     *
+     * Supported types:
+     * - `person`: Filter by person properties (e.g. email, country).
+     * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
+     * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
+     * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
+     */
+    properties?: AssistantRecordingsQueryPropertyFilter[]
+    /** Exclude internal and test users. Default: false. */
+    filter_test_accounts?: boolean
+    /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */
+    order?: RecordingOrder
+    /** Sort direction: "ASC" or "DESC". Default: "DESC". */
+    order_direction?: RecordingOrderDirection
+    /** Maximum number of recordings to return. */
+    limit?: integer
+    /** Cursor for pagination from a previous response's next_cursor field. */
+    after?: string
+    /** Filter recordings to a specific person by their UUID. */
+    person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
+}
+
+export interface AssistantInsightVizNode {
+    kind: NodeKind.InsightVizNode
+    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
+    source: Record<string, any>
+}
+
+/**
+ * Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.
+ *
+ * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
+ * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
+ * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
+ * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
+ * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+ * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ */
+export type AssistantDataVisualizationDisplayType =
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsStackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.TwoDimensionalHeatmap
+
+export interface AssistantDataVisualizationAxisDisplaySettings {
+    /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
+    yAxisPosition?: 'left' | 'right'
+    /**
+     * Override how this individual series is rendered, independent of the chart-level `display` type.
+     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
+     * `auto` follows the chart-level display type.
+     */
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
+    trendLine?: boolean
+    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    label?: string
+    /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
+    color?: string
+}
+
+export interface AssistantDataVisualizationAxisFormatting {
+    /** Text prepended to each value (e.g. `$`). */
+    prefix?: string
+    /** Text appended to each value (e.g. `%` or ` ms`). */
+    suffix?: string
+    /**
+     * Number formatting style.
+     * - `none` — no formatting.
+     * - `number` — thousands separators (e.g. `1,234`).
+     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
+     * - `percent` — render the value as a percentage.
+     */
+    style?: 'none' | 'number' | 'short' | 'percent'
+    /** Number of decimal places to display. */
+    decimalPlaces?: number
+}
+
+export interface AssistantDataVisualizationAxisSettings {
+    /** Display settings for a plotted Y series. */
+    display?: AssistantDataVisualizationAxisDisplaySettings
+    /** Number-formatting settings for the values on this axis or series. */
+    formatting?: AssistantDataVisualizationAxisFormatting
+}
+
+export interface AssistantDataVisualizationAxis {
+    /** Name of a column returned by the SQL query to map onto this axis. */
+    column: string
+    /** Optional series settings. Only applies to Y-axis series. */
+    settings?: AssistantDataVisualizationAxisSettings
+}
+
+export interface AssistantDataVisualizationGoalLine {
+    /** Label rendered next to the goal line. */
+    label: string
+    /** Y-axis value at which the goal line is drawn. */
+    value: number
+}
+
+export interface AssistantDataVisualizationYAxisSettings {
+    /** Label rendered beside this Y axis. */
+    label?: string
+    /** Scale used for this Y axis. */
+    scale?: 'linear' | 'logarithmic'
+    /** Whether this Y axis should start at zero. */
+    startAtZero?: boolean
+    /** Show tick labels on this Y axis. */
+    showTicks?: boolean
+    /** Show grid lines for this Y axis. */
+    showGridLines?: boolean
+}
+
+export interface AssistantDataVisualizationChartSettings {
+    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    xAxis?: AssistantDataVisualizationAxis
+    /** Label rendered under the X axis. */
+    xAxisLabel?: string
+    /** One or more numeric columns plotted as Y series. */
+    yAxis?: AssistantDataVisualizationAxis[]
+    /** Settings for the left Y axis. */
+    leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
+    rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /**
+     * Column that splits a single Y series into multiple colored series — e.g. breaking down
+     * a line chart by `country`. Set to `null` or omit to disable.
+     */
+    seriesBreakdownColumn?: string | null
+    /** Horizontal goal lines drawn across the chart. */
+    goalLines?: AssistantDataVisualizationGoalLine[]
+    /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
+    stackBars100?: boolean
+    /** Show the chart legend. */
+    showLegend?: boolean
+    /** Render each data point's value as a label directly on the series. */
+    showValuesOnSeries?: boolean
+    /** Replace null aggregation results with zero. */
+    showNullsAsZero?: boolean
+}
+
+export interface AssistantDataVisualizationTableSettings {
+    /** Columns to display and their order. Omit to show every column returned by the query. */
+    columns?: AssistantDataVisualizationAxis[]
+    /** Column names to pin to the left of the table. */
+    pinnedColumns?: string[]
+    /** Show a total row at the bottom of the table. */
+    showTotalRow?: boolean
+    /** Transpose rows and columns. */
+    transpose?: boolean
+}
+
+/**
+ * SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be
+ * expressed as a standard product-analytics insight — cross-source joins with the data
+ * warehouse, window functions, or bespoke aggregations.
+ *
+ * Prefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention,
+ * paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.
+ */
+export interface AssistantDataVisualizationNode {
+    kind: NodeKind.DataVisualizationNode
+    /** HogQL query object that produces the rows to visualize. */
+    source: Record<string, any>
+    /**
+     * Visualization type. Defaults to `ActionsTable` when omitted.
+     *
+     * Guidance:
+     * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical proportions → `ActionsPie`.
+     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Otherwise → `ActionsTable`.
+     */
+    display?: AssistantDataVisualizationDisplayType
+    /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
+    chartSettings?: AssistantDataVisualizationChartSettings
+    /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
+    tableSettings?: AssistantDataVisualizationTableSettings
+}
+
+export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode

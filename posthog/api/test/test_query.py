@@ -13,6 +13,9 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -33,16 +36,34 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import QueryTags
-from posthog.models.insight_variable import InsightVariable
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.event_usage import EventSource
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
+        # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
+        # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
+        raw = "Exceeded maximum concurrency limit: 30 for key: app:query:per-org:abc and task: def"
+        with patch("posthog.api.query.process_query_model", side_effect=ConcurrencyLimitExceeded(raw)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        detail = response.json()["detail"]
+        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertNotIn("app:query:per-org", detail)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
@@ -150,8 +171,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    @patch("posthog.api.services.query.get_query_runner")
-    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner_or_none):
         query = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="select event from events",
@@ -163,7 +184,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         result = process_query_model(self.team, query, user=self.user)
 
         self.assertIn("suggestions", result.model_dump())  # type: ignore
-        mock_get_query_runner.assert_not_called()
+        mock_get_query_runner_or_none.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -380,6 +401,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response["detail"],
             )
 
+    def test_hogql_error_is_enriched_with_metadata(self):
+        query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
+
+        response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = response_post.json()
+        self.assertEqual(response["type"], "validation_error")
+
+        self.assertIn("Tables referenced: events", response["detail"])
+
+        self.assertIn("extra", response)
+        self.assertIn("hogql_metadata", response["extra"])
+        metadata = response["extra"]["hogql_metadata"]
+        self.assertFalse(metadata["isValid"])
+        self.assertEqual(metadata["table_names"], ["events"])
+        self.assertTrue(len(metadata["errors"]) > 0)
+        first_error = metadata["errors"][0]
+        self.assertIn("user_id", first_error["message"])
+        self.assertIsNotNone(first_error.get("start"))
+        self.assertIsNotNone(first_error.get("end"))
+        self.assertIn("Did you mean", first_error["message"])
+
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
     )  # Erroneously constructed SQL
@@ -476,7 +520,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["event", "person", "person -- P"])
+            query = EventsQuery(
+                select=["event", "person", "person -- P"],
+                orderBy=["timestamp DESC"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else None,
+            )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
@@ -609,6 +656,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("posthog.hogql_queries.query_runner.QueryRunner.run", side_effect=RuntimeError("source query failed"))
+    def test_data_visualization_source_error_is_not_chained_to_wrapper_runner_lookup(self, _mock_run):
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+            },
+        }
+
+        with self.assertRaises(RuntimeError) as raised:
+            process_query_dict(team=self.team, query_json=query)
+
+        self.assertIsNone(raised.exception.__context__)
+
     def test_query_not_supported(self):
         query = {
             "kind": "SavedInsightNode",
@@ -681,6 +743,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         mock_process_query_model.assert_called_once()
         self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.POSTHOG_AI)
+        # The posthog_ai limit context also retags the analytics source, so Max's insight tiles
+        # (browser session requests that would otherwise read as "web") are attributed to posthog_ai.
+        self.assertEqual(mock_process_query_model.call_args[1]["analytics_props"]["source"], EventSource.POSTHOG_AI)
 
     @patch("posthog.api.query.process_query_model")
     def test_query_limit_context_default(self, mock_process_query_model):
@@ -908,6 +973,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "end_time": None,
                         "error": False,
                         "error_message": None,
+                        "error_code": None,
                         "expiration_time": mock.ANY,
                         "id": mock.ANY,
                         "query_async": True,
@@ -1368,3 +1434,138 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertIn("results", data)
         self.assertNotIn("formatted_results", data)
+
+    @parameterized.expand(
+        [
+            # An explicit ISO timestamp (including midnight Z) is an exact boundary, not a calendar day.
+            ("explicit_midnight", "2026-07-09T00:00:00Z", "to 2026-07-09 00:00:00"),
+            ("explicit_time_of_day", "2026-07-09T14:30:00Z", "to 2026-07-09 14:30:00"),
+            # A bare calendar day keeps the default end-of-day rounding so the last day stays included.
+            ("bare_date", "2026-07-09", "to 2026-07-09 23:59:59"),
+        ]
+    )
+    @patch("posthog.api.query.process_query_model")
+    def test_mcp_funnel_respects_explicit_timestamp_date_to(
+        self, _name, date_to, expected_range_suffix, mock_process_query_model
+    ):
+        mock_process_query_model.return_value = {
+            "results": [
+                {"name": "$pageview", "count": 10, "average_conversion_time": None, "median_conversion_time": None}
+            ],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
+                }
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        formatted = response.json()["formatted_results"]
+        self.assertIn(expected_range_suffix, formatted)
+
+    @patch("posthog.api.query.process_query_model")
+    def test_non_mcp_request_does_not_mark_explicit_date(self, mock_process_query_model):
+        # The web UI serialises fixed calendar ranges as naive timestamps and relies on end-of-day
+        # rounding, so a non-MCP request must never have its date boundary marked explicit.
+        mock_process_query_model.return_value = {"results": [], "is_cached": False}
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": "2026-07-09T00:00:00Z"},
+                }
+            },
+        )
+
+        executed_query = mock_process_query_model.call_args.args[1]
+        self.assertFalse(executed_query.dateRange.explicitDate)
+
+
+class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
+    product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
+    along the way, in which case MCP must not override it."""
+
+    ENDPOINT = "query"
+
+    def _get_log_comment_for_team(self) -> dict:
+        """Return the log_comment of the most recent QueryFinish entry for this team."""
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            "SELECT log_comment FROM system.query_log "
+            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+            "AND type = 'QueryFinish' "
+            "ORDER BY event_time DESC LIMIT 1",
+            {"team_id": self.team.pk},
+        )
+        assert rows, f"No query_log entry found for team {self.team.pk}"
+        return json.loads(rows[0][0])
+
+    def test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped(self):
+        # Raw HogQLQuery has query_type="hogql_query" (not a NodeKind value) and no scene,
+        # so the fallback chain reaches the source=mcp branch and tags product=mcp.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.MCP.value)
+
+    def test_mcp_request_with_kind_uses_kind_product_not_mcp(self):
+        # EventsQuery → product_analytics via kind_fallback_tags. The mcp source fallback
+        # must not override the kind-based attribution.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.PRODUCT_ANALYTICS.value)
+
+    def test_mcp_request_with_inferred_product_keeps_inferred_product(self):
+        # `tags.scene="SQLEditor"` → product=warehouse via SCENE_TO_TAGS.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "SQLEditor"},
+                }
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.WAREHOUSE.value)
+
+    def test_non_mcp_request_does_not_set_product_to_mcp(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertNotEqual(comment.get("source"), "mcp")
+        self.assertNotEqual(comment.get("product"), Product.MCP.value)

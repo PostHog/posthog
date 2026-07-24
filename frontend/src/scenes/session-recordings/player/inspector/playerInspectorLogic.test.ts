@@ -1,12 +1,45 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { sessionRecordingExperimentContextLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { SessionRecordingType } from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
+
+const experimentContextResponse = {
+    session_id: '1',
+    results: [
+        {
+            experiment_id: 123,
+            experiment_name: 'Checkout CTA copy',
+            flag_key: 'checkout-cta',
+            variant: 'test',
+            variants_seen: ['test'],
+            multiple_variants: false,
+            first_exposure_timestamp: '2023-08-11T12:03:40.000Z',
+            experiment_start_date: '2023-08-01T00:00:00Z',
+            experiment_end_date: null,
+        },
+        {
+            experiment_id: 456,
+            experiment_name: 'Carried over from earlier session',
+            flag_key: 'other-flag',
+            variant: 'control',
+            variants_seen: ['control'],
+            multiple_variants: false,
+            first_exposure_timestamp: null,
+            experiment_start_date: '2023-08-01T00:00:00Z',
+            experiment_end_date: null,
+        },
+    ],
+}
 
 describe('playerInspectorLogic', () => {
     let logic: ReturnType<typeof playerInspectorLogic.build>
@@ -16,6 +49,7 @@ describe('playerInspectorLogic', () => {
         setupSessionRecordingTest({
             getMocks: {
                 '/api/environments/:team_id/session_recordings/1/': {},
+                '/api/projects/:team_id/experiments/session_context/': experimentContextResponse,
                 '/api/projects/:team/notebooks/recording_comments': {
                     results: [
                         {
@@ -84,6 +118,10 @@ describe('playerInspectorLogic', () => {
             },
         })
         featureFlagLogic.mount()
+        // featureFlags persist to localStorage across tests, so pin the experiment-context flag
+        // off before the first mount — otherwise a prior test leaves it on and the context load
+        // kicks off with stale state. The experiment-variant tests below opt in explicitly.
+        featureFlagLogic.actions.setFeatureFlags([], {})
 
         dataLogic = sessionRecordingDataCoordinatorLogic(playerLogicProps)
         dataLogic.mount()
@@ -202,6 +240,99 @@ describe('playerInspectorLogic', () => {
                 .toMatchValues({
                     trackedWindow: 1,
                 })
+        })
+    })
+
+    describe('matching events', () => {
+        it('waits for the recording start before seeking to the first matching event', async () => {
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'matching-event',
+                skipToFirstMatchingEvent: true,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+
+            await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+    })
+
+    describe('experiment variant markers', () => {
+        // The featureFlags reducer persists to localStorage, so each test pins the flag state
+        // explicitly and remounts the inspector so the context load runs with that state.
+        const remountWithFlagState = (enabled: boolean): void => {
+            featureFlagLogic.actions.setFeatureFlags(
+                enabled ? [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] : [],
+                enabled ? { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true } : {}
+            )
+            logic.unmount()
+            logic = playerInspectorLogic(playerLogicProps)
+            logic.mount()
+        }
+
+        it('synthesizes one marker per context item with a first-exposure timestamp', async () => {
+            remountWithFlagState(true)
+
+            const contextLogic = sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
+            await expectLogic(contextLogic).toDispatchActions([
+                (action) =>
+                    action.type === contextLogic.actionTypes.loadExperimentContextSuccess &&
+                    action.payload.experimentContext !== null,
+            ])
+
+            const markers = logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')
+            expect(markers).toHaveLength(1)
+            expect(markers[0]).toMatchObject({
+                type: 'experiment-variant',
+                data: {
+                    experimentId: 123,
+                    experimentName: 'Checkout CTA copy',
+                    flagKey: 'checkout-cta',
+                    variant: 'test',
+                },
+            })
+
+            const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
+            expect(seekbarMarkers).toHaveLength(1)
+        })
+
+        it('synthesizes no markers when the feature flag is off', async () => {
+            remountWithFlagState(false)
+
+            // With the flag off the context load never starts (afterMount is gated on the flag),
+            // so there is no exposure data and no markers are synthesized.
+            await expectLogic(
+                sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
+            ).toNotHaveDispatchedActions(['loadExperimentContext'])
+
+            expect(logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
+            expect(logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
         })
     })
 })

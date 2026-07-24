@@ -1,0 +1,6 @@
+export { NO_MATCH } from './dispatch'
+export type { DispatchResult, DispatchEngine } from './dispatch'
+export { Rule } from './base'
+export { EmitRule } from './emit'
+export { DelegateRule } from './delegate'
+export { DelegateEachRule } from './delegateEach'

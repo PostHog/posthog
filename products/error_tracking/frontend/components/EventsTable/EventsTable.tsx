@@ -17,6 +17,8 @@ import { urls } from 'scenes/urls'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
 
+import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'
 import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
@@ -137,13 +139,23 @@ const Actions = (record: ErrorEventType): JSX.Element => {
                     iconOnly
                 />
             </div>
+            <div className="flex justify-end align-middle items-center" onClick={(event) => cancelEvent(event)}>
+                <ViewLogsButton
+                    type="secondary"
+                    sessionId={sessionId}
+                    timestamp={record.timestamp}
+                    size="xsmall"
+                    data-attr="error-tracking-view-logs"
+                    iconOnly
+                />
+            </div>
             {record.properties.$ai_trace_id && (
                 <LemonButton
                     size="small"
                     icon={<IconAI />}
                     onClick={(event) => {
                         cancelEvent(event)
-                        urls.llmAnalyticsTrace(record.properties.$ai_trace_id, {
+                        urls.aiObservabilityTrace(record.properties.$ai_trace_id, {
                             event: record.uuid,
                             timestamp: record.timestamp,
                         })

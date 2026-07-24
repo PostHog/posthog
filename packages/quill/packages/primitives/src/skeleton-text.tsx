@@ -27,7 +27,7 @@ function SkeletonText({ lines = 3, className, minWidth = 60, maxWidth = 100 }: S
     }, [lines, minWidth, maxWidth])
 
     return (
-        <div className={cn('flex flex-col', className)}>
+        <div data-quill className={cn('flex flex-col', className)}>
             {widths.map((w, i) => (
                 <span
                     key={i}

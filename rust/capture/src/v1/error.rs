@@ -6,9 +6,9 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
 
-use crate::v1::analytics::constants::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
+use crate::v1::analytics::constants::DEFAULT_RETRY_AFTER_SECS;
 use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
@@ -34,6 +34,10 @@ pub enum Error {
     MissingRequiredHeaders(Vec<String>),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(String),
+    #[error("invalid query parameter: {0}")]
+    InvalidQueryParam(String),
+    #[error("request is missing required query parameters: {0:?}")]
+    MissingQueryParam(Vec<String>),
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
@@ -52,10 +56,10 @@ pub enum Error {
     MissingDistinctId,
     #[error("distinct_id exceeds maximum size")]
     DistinctIdTooLarge,
-    #[error("distinct_id is a known illegal value: {0}")]
-    InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
+    #[error("event uuid is not valid: {0}")]
+    InvalidEventUuid(String),
     #[error("duplicate event uuid: {0}")]
     DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
@@ -66,6 +70,8 @@ pub enum Error {
     DroppedPerformanceEvent,
 
     // 401 - authentication_error
+    #[error("missing Authorization header")]
+    MissingAuthorization,
     #[error("API token is not valid: {0}")]
     InvalidApiToken(String),
 
@@ -85,13 +91,9 @@ pub enum Error {
     #[error("body read stalled after receiving {0} bytes")]
     BodyReadTimeout(usize),
 
-    // 402 - billing_error (non-retryable, unlike 429)
+    // 402 - billing_error (non-retryable)
     #[error("billing limit exceeded")]
     BillingLimitExceeded,
-
-    // 429 - rate_limit_error
-    #[error("rate limited: {0}")]
-    RateLimited(String),
 
     // 500 - server_error
     #[error("internal server error: {0}")]
@@ -111,6 +113,8 @@ impl Error {
         match self {
             Self::MissingRequiredHeaders(_) => "missing_required_headers",
             Self::InvalidHeaderValue(_) => "invalid_header_value",
+            Self::InvalidQueryParam(_) => "invalid_query_param",
+            Self::MissingQueryParam(_) => "missing_query_params",
             Self::RequestDecodingError(_) => "request_decoding_error",
             Self::RequestParsingError(_) => "request_parsing_error",
             Self::EmptyBody => "empty_body",
@@ -120,20 +124,20 @@ impl Error {
             Self::EventNameTooLong => "event_name_too_long",
             Self::MissingDistinctId => "missing_distinct_id",
             Self::DistinctIdTooLarge => "distinct_id_too_large",
-            Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
+            Self::InvalidEventUuid(_) => "invalid_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::MalformedEventProperties => "malformed_event_properties",
             Self::DroppedPerformanceEvent => "dropped_performance_event",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
+            Self::MissingAuthorization => "missing_authorization",
             Self::InvalidApiToken(_) => "invalid_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::UnsupportedContentType(_) => "unsupported_content_type",
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
             Self::BillingLimitExceeded => "billing_limit_exceeded",
-            Self::RateLimited(_) => "rate_limited",
             Self::InternalError(_) => "internal_error",
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
@@ -146,7 +150,6 @@ impl Error {
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
-            Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
@@ -169,6 +172,8 @@ impl Error {
             // 4xx client errors: warn
             Self::MissingRequiredHeaders(_)
             | Self::InvalidHeaderValue(_)
+            | Self::InvalidQueryParam(_)
+            | Self::MissingQueryParam(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
             | Self::EmptyBody
@@ -178,19 +183,19 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::DroppedPerformanceEvent
             | Self::RequestTimeout
+            | Self::MissingAuthorization
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
-            | Self::BillingLimitExceeded
-            | Self::RateLimited(_) => Level::WARN,
+            | Self::BillingLimitExceeded => Level::WARN,
 
             // body read timeout: error-level despite being 4xx
             Self::BodyReadTimeout(_) => Level::ERROR,
@@ -209,10 +214,8 @@ impl Error {
         }
     }
 
-    pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
-        let path = ctx
-            .map(|c| c.path.clone())
-            .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
+    pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
+        let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
         counter!(
             CAPTURE_V1_ERROR_METRIC,
@@ -228,6 +231,8 @@ impl Error {
         match self {
             Self::MissingRequiredHeaders(_)
             | Self::InvalidHeaderValue(_)
+            | Self::InvalidQueryParam(_)
+            | Self::MissingQueryParam(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
             | Self::EmptyBody
@@ -237,8 +242,8 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
@@ -246,7 +251,7 @@ impl Error {
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
-            Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+            Self::MissingAuthorization | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
 
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 
@@ -255,8 +260,6 @@ impl Error {
             }
 
             Self::BillingLimitExceeded => StatusCode::PAYMENT_REQUIRED,
-
-            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
 
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -268,10 +271,16 @@ impl Error {
 
     pub fn response_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        headers.insert(header::ACCEPT, ACCEPT_JSON);
-        headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
-        if let Self::RateLimited(_) = self {
+        // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
+        if matches!(
+            self,
+            Self::RequestTimeout
+                | Self::BodyReadTimeout(_)
+                | Self::InternalError(_)
+                | Self::ServiceUnavailable(_)
+                | Self::GatewayTimeout
+        ) {
             headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
         }
 
@@ -279,7 +288,7 @@ impl Error {
     }
 }
 
-/// Emits a `tracing::event!` at the given level with all `v1::Context`
+/// Emits a `tracing::event!` at the given level with all `RequestContext`
 /// fields expanded as structured log tags.
 ///
 /// Usage:
@@ -302,18 +311,18 @@ macro_rules! ctx_log {
             content_encoding = ?ctx.content_encoding,
             client_ip = %ctx.client_ip,
             method = %ctx.method,
-            query = ?ctx.query,
+            query = ?ctx.raw_query,
             path = %ctx.path,
             $($rest)+
         )
     }};
 }
 
-/// Logs at the error's `log_level()` with all `v1::Context` fields,
+/// Logs at the error's `log_level()` with all `RequestContext` fields,
 /// then bumps the error metric counter via `stat_error()`.
 ///
-/// Always requires a `&Context`. For the pre-Context header-error path,
-/// inline the tracing call directly.
+/// Always requires a context that derefs to `&RequestContext`. For the
+/// pre-context header-error path, inline the tracing call directly.
 ///
 /// Usage:
 ///   `log_stat_error!(err, &context)`
@@ -366,6 +375,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::header::RETRY_AFTER;
+    use rstest::rstest;
 
     async fn response_body(resp: Response) -> serde_json::Value {
         let bytes = to_bytes(resp.into_body(), 65_536).await.unwrap();
@@ -383,14 +393,6 @@ mod tests {
         assert_eq!(body["error"], expected_tag);
         assert!(body["error_description"].is_string());
         assert!(body["error_uri"].is_string());
-    }
-
-    #[tokio::test]
-    async fn rate_limited_includes_retry_after() {
-        let err = Error::RateLimited("too many requests".into());
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(resp.headers().contains_key(RETRY_AFTER));
     }
 
     #[tokio::test]
@@ -423,5 +425,72 @@ mod tests {
         let err = Error::GatewayTimeout;
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[rstest]
+    #[case::request_timeout(Error::RequestTimeout, StatusCode::REQUEST_TIMEOUT)]
+    #[case::body_read_timeout(Error::BodyReadTimeout(1024), StatusCode::REQUEST_TIMEOUT)]
+    #[case::internal_error(Error::InternalError("boom".into()), StatusCode::INTERNAL_SERVER_ERROR)]
+    #[case::service_unavailable(Error::ServiceUnavailable("nope".into()), StatusCode::SERVICE_UNAVAILABLE)]
+    #[case::gateway_timeout(Error::GatewayTimeout, StatusCode::GATEWAY_TIMEOUT)]
+    #[tokio::test]
+    async fn retryable_errors_emit_retry_after_one_second(
+        #[case] err: Error,
+        #[case] expected_status: StatusCode,
+    ) {
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let value = resp
+            .headers()
+            .get(RETRY_AFTER)
+            .expect("Retry-After header must be present on retryable errors");
+        assert_eq!(value.to_str().unwrap(), "1");
+    }
+
+    #[rstest]
+    #[case::billing_limit(Error::BillingLimitExceeded)]
+    #[case::invalid_api_token(Error::InvalidApiToken("bad".into()))]
+    #[case::empty_batch(Error::EmptyBatch)]
+    #[case::payload_too_large(Error::PayloadTooLarge("big".into()))]
+    #[case::unsupported_content_type(Error::UnsupportedContentType("text/plain".into()))]
+    #[case::invalid_query_param(Error::InvalidQueryParam("bad param".into()))]
+    #[case::missing_query_param(Error::MissingQueryParam(vec!["foo".into()]))]
+    #[tokio::test]
+    async fn non_retryable_errors_omit_retry_after(#[case] err: Error) {
+        let resp = err.into_response();
+        assert!(
+            !resp.headers().contains_key(RETRY_AFTER),
+            "Retry-After must NOT be present on non-retryable errors (status {})",
+            resp.status()
+        );
+    }
+
+    #[rstest]
+    #[case::invalid_query_param(
+        Error::InvalidQueryParam("invalid query string: missing field `x`".into()),
+        StatusCode::BAD_REQUEST,
+        "invalid_query_param",
+        "invalid query parameter: invalid query string: missing field `x`"
+    )]
+    #[case::missing_query_param(
+        Error::MissingQueryParam(vec!["foo".into(), "bar".into()]),
+        StatusCode::BAD_REQUEST,
+        "missing_query_params",
+        "request is missing required query parameters: [\"foo\", \"bar\"]"
+    )]
+    #[tokio::test]
+    async fn query_param_errors_status_tag_and_description(
+        #[case] err: Error,
+        #[case] expected_status: StatusCode,
+        #[case] expected_tag: &str,
+        #[case] expected_description: &str,
+    ) {
+        assert_eq!(err.status_code(), expected_status);
+        assert_eq!(err.tag(), expected_tag);
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let body = response_body(resp).await;
+        assert_eq!(body["error"], expected_tag);
+        assert_eq!(body["error_description"], expected_description);
     }
 }

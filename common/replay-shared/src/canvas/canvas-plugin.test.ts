@@ -1,13 +1,13 @@
 /**
  * @jest-environment jsdom
  */
-import { canvasMutation } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { canvasMutation } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
-jest.mock('@posthog/rrweb', () => ({
+jest.mock('posthog-js/rrweb', () => ({
     canvasMutation: jest.fn().mockResolvedValue(undefined),
     Replayer: jest.fn(),
 }))
@@ -359,6 +359,39 @@ describe('CanvasReplayerPlugin', () => {
                 plugin.destroy()
             }).not.toThrow()
         })
+    })
+
+    describe('reconstructed image attribute copying', () => {
+        it.each(['onload', 'onerror', 'onclick', 'onmouseover', 'onanimationstart', 'ontoggle'])(
+            'does not copy the %s event handler attribute from the recorded canvas',
+            (handlerName) => {
+                const canvas = document.createElement('canvas')
+                canvas.setAttribute(handlerName, 'globalThis.__canvasXss = true')
+                canvas.setAttribute('class', 'my-canvas')
+
+                const plugin = CanvasReplayerPlugin([])
+                plugin.onBuild?.(canvas, { id: 1, replayer: mockReplayer } as any)
+
+                expect(mockImage.hasAttribute(handlerName)).toBe(false)
+                // benign attributes are still copied so playback styling is preserved
+                expect(mockImage.getAttribute('class')).toBe('my-canvas')
+            }
+        )
+
+        it.each(['src', 'srcset'])(
+            'does not copy the %s resource-loading attribute from the recorded canvas',
+            (attrName) => {
+                const canvas = document.createElement('canvas')
+                canvas.setAttribute(attrName, 'https://attacker.example/x')
+                canvas.setAttribute('class', 'my-canvas')
+
+                const plugin = CanvasReplayerPlugin([])
+                plugin.onBuild?.(canvas, { id: 1, replayer: mockReplayer } as any)
+
+                expect(mockImage.hasAttribute(attrName)).toBe(false)
+                expect(mockImage.getAttribute('class')).toBe('my-canvas')
+            }
+        )
     })
 
     describe('target canvas sizing from snapshot mutations', () => {

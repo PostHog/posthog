@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
+import { DescriptionList, formatDate } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent } from '@posthog/quill'
 
 export interface ActionStepData {
     event?: string | null
@@ -50,74 +51,73 @@ function ActionStep({ step, index }: { step: ActionStepData; index: number }): R
     }
 
     return (
-        <Stack gap="xs">
-            <span className="text-xs font-medium text-text-secondary uppercase tracking-wide">Step {index + 1}</span>
+        <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Step {index + 1}</span>
             {conditions.length > 0 ? (
                 <DescriptionList items={conditions.map((c) => ({ label: c.label, value: c.value }))} />
             ) : (
-                <span className="text-xs text-text-secondary">No conditions</span>
+                <span className="text-xs text-muted-foreground">No conditions</span>
             )}
-        </Stack>
+        </div>
     )
 }
 
 export function ActionView({ action }: ActionViewProps): ReactElement {
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{action.name}</span>
-                        {action.pinned_at && (
-                            <Badge variant="info" size="sm">
-                                Pinned
-                            </Badge>
-                        )}
+                        <span className="text-lg font-semibold">{action.name}</span>
+                        {action.pinned_at && <Badge variant="info">Pinned</Badge>}
                     </div>
-                    {action.description && <span className="text-sm text-text-secondary">{action.description}</span>}
+                    {action.description && <span className="text-sm text-muted-foreground">{action.description}</span>}
                     {action.tags && action.tags.length > 0 && (
                         <div className="flex gap-1 flex-wrap">
                             {action.tags.map((tag) => (
-                                <Badge key={tag} variant="neutral" size="sm">
-                                    {tag}
-                                </Badge>
+                                <Badge key={tag}>{tag}</Badge>
                             ))}
                         </div>
                     )}
-                </Stack>
+                </div>
 
-                <Card padding="md">
-                    <DescriptionList
-                        items={[
-                            ...(action.created_at ? [{ label: 'Created', value: formatDate(action.created_at) }] : []),
-                            ...(action.created_by
-                                ? [
-                                      {
-                                          label: 'Created by',
-                                          value: action.created_by.first_name || action.created_by.email || 'Unknown',
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
+                <Card>
+                    <CardContent>
+                        <DescriptionList
+                            items={[
+                                ...(action.created_at
+                                    ? [{ label: 'Created', value: formatDate(action.created_at) }]
+                                    : []),
+                                ...(action.created_by
+                                    ? [
+                                          {
+                                              label: 'Created by',
+                                              value:
+                                                  action.created_by.first_name || action.created_by.email || 'Unknown',
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    </CardContent>
                 </Card>
 
                 {action.steps && action.steps.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="md">
-                            <span className="text-sm font-semibold text-text-primary">
-                                Steps ({action.steps.length})
-                            </span>
-                            {action.steps.map((step, i) => (
-                                <div key={i}>
-                                    {i > 0 && <div className="border-t border-border-primary -mx-4 mb-3" />}
-                                    <ActionStep step={step} index={i} />
-                                </div>
-                            ))}
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-3">
+                                <span className="text-sm font-semibold">Steps ({action.steps.length})</span>
+                                {action.steps.map((step, i) => (
+                                    <div key={i}>
+                                        {i > 0 && <div className="border-t -mx-4 mb-3" />}
+                                        <ActionStep step={step} index={i} />
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

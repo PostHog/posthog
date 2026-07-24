@@ -1,5 +1,31 @@
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
+
+# custom latency histogram buckets,
+# since we lose some important granularity with default max at 60s
+DATA_MODELING_LATENCY_HISTOGRAM_METRICS = (
+    "temporal_activity_execution_latency",
+    "temporal_activity_schedule_to_start_latency",
+    "temporal_workflow_task_execution_latency",
+    "temporal_workflow_task_schedule_to_start_latency",
+    "temporal_workflow_endtoend_latency",
+)
+DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS = [
+    1.0,  # 1ms
+    10.0,  # 10ms
+    50.0,  # 50ms
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1s
+    5_000.0,  # 5s
+    30_000.0,  # 30s
+    60_000.0,  # 1m (old ceiling)
+    120_000.0,  # 2m
+    300_000.0,  # 5m
+    900_000.0,  # 15m
+    1_800_000.0,  # 30m
+    3_600_000.0,  # 1h (run_dag_activity start_to_close_timeout)
+]
 
 
 def get_data_modeling_finished_metric(status: str) -> MetricCounter:
@@ -8,6 +34,17 @@ def get_data_modeling_finished_metric(status: str) -> MetricCounter:
         .with_additional_attributes({"status": status})
         .create_counter(
             "data_modeling_finished", "Number of data modeling runs finished, for any reason (including failure)."
+        )
+    )
+
+
+def get_node_suspended_metric(engine: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_counter(
+            "data_modeling_node_suspended",
+            "Number of nodes suspended after repeated materialization failures, by engine.",
         )
     )
 

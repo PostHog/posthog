@@ -95,7 +95,8 @@ if (empty(logs)) {
 }
 
 // Technical limitation: Hog functions can only call postHogCapture once per invocation.
-// If Vercel batches multiple logs in one request, we capture only the first one.
+// If Vercel batches multiple logs in one request, we emit only one (the first, or the
+// first page-route log when page_routes_only is enabled — see the selection below).
 // Configure Vercel to send logs individually for complete coverage.
 let droppedCount := length(logs) - 1
 if (droppedCount > 0) {
@@ -103,7 +104,6 @@ if (droppedCount > 0) {
 }
 
 let log := logs[1]
-let proxy := log.proxy ?? {}
 
 let limit := toInt(inputs.max_message_len ?? 262144)
 
@@ -155,22 +155,134 @@ fun extractPathname(url) {
     return url
 }
 
-// Distinct ID: user-level grouping based on project, host, client IP, and user agent
+// Extension of the last path segment, lowercased; '' when there is none.
+fun pathExtension(p) {
+    if (empty(p) or typeof(p) != 'string') {
+        return ''
+    }
+    let segments := splitByString('/', p)
+    let lastSegment := segments[length(segments)]
+    if (empty(lastSegment)) {
+        return ''
+    }
+    let parts := splitByString('.', lastSegment)
+    if (length(parts) <= 1) {
+        return ''
+    }
+    return lower(parts[length(parts)])
+}
+
+// Top-level document request: a path with no file extension (e.g. /pricing,
+// /docs/x) or an HTML document. Everything else is a sub-resource (JS, CSS,
+// image, font, JSON, source map).
+fun isPageRoute(p) {
+    let ext := pathExtension(p)
+    return ext == '' or ext == 'html' or ext == 'htm'
+}
+
+fun logPathname(l) {
+    let p := l.proxy ?? {}
+    return extractPathname(p.path ?? l.path ?? '')
+}
+
+// With page_routes_only enabled, emit the first page-route log in the batch, so a page
+// view is not lost when an asset request happens to come first in the same batch. Vercel
+// can send several logs per request but only one event can be emitted per invocation.
+if (inputs.page_routes_only) {
+    let selected := null
+    for (let _, candidate in logs) {
+        if (selected == null and isPageRoute(logPathname(candidate))) {
+            selected := candidate
+        }
+    }
+    if (selected == null) {
+        // No page-route request in this batch — ack with 200 so Vercel does not retry.
+        return {
+            'httpResponse': {
+                'status': 200,
+                'body': 'OK'
+            }
+        }
+    }
+    log := selected
+}
+let proxy := log.proxy ?? {}
+
+// Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
+// one stable ID per client. The active strategy is recorded as $distinct_id_strategy
+// on the event for diagnostics — it is not an analytical breakdown dimension.
 let host := proxy.host ?? log.host ?? ''
 let clientIp := proxy.clientIp ?? ''
 let userAgent := proxy.userAgent[1] ?? ''
 let scheme := proxy.scheme ?? 'https'
 let path := proxy.path ?? log.path ?? ''
-let distinctId := f'vercel_{sha256Hex(f'{log.projectId}:{host}:{clientIp}:{userAgent}')}'
+
+let day := formatDateTime(now(), '%Y-%m-%d')
+let salt := inputs.salt_secret ?? ''
+let strategy := inputs.distinct_id_strategy ?? 'fixed_salt'
+let activeStrategy := strategy
+let distinctId := ''
+
+// Hashed strategies emit a 22-char unpadded base64 prefix of sha256, matching
+// the visual format of PostHog cookieless distinct IDs (132 bits of entropy —
+// far more than needed for collision resistance, and short enough to be readable).
+fun shortHash(input) {
+    return substring(sha256(input, 'base64'), 1, 22)
+}
+
+if (strategy == 'rotating_salt') {
+    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+} else if (strategy == 'fixed_salt') {
+    distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
+} else if (strategy == 'ip') {
+    distinctId := f'http_log_{clientIp}'
+} else if (strategy == 'custom') {
+    let customTemplate := inputs.custom_template ?? ''
+    if (empty(customTemplate)) {
+        print('vercel log drain: custom_template empty, falling back to rotating_salt')
+        distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        activeStrategy := 'rotating_salt_fallback'
+    } else {
+        let result := customTemplate
+        // Note: {salt} is intentionally NOT a placeholder — exposing the secret
+        // in distinct_ids would defeat its purpose (events are stored in plain text).
+        result := replaceAll(result, '{day}', day)
+        result := replaceAll(result, '{ip}', clientIp)
+        result := replaceAll(result, '{host}', host)
+        result := replaceAll(result, '{ua}', userAgent)
+        result := replaceAll(result, '{path}', path)
+        result := replaceAll(result, '{project_id}', toString(log.projectId))
+        // Guard: if every placeholder resolved to empty, fall back to rotating_salt
+        // so we don't collapse all such requests onto a single 'http_log_' id.
+        if (empty(result)) {
+            print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
+            distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+            activeStrategy := 'rotating_salt_fallback'
+        } else {
+            distinctId := f'http_log_{result}'
+        }
+    }
+} else {
+    // Unknown strategy value — treat as rotating_salt
+    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+    activeStrategy := 'rotating_salt'
+}
 
 // Parse URL for pathname and UTM parameters
 let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
-    // PostHog standard properties
-    '$ip': clientIp,
-    '$raw_user_agent': userAgent,
+    // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
+    // log traffic does not create a person profile per distinct ID — cheaper and faster to query.
+    // Set the "Person processing" input to "identified" to create person profiles for stitching.
+    '$process_person_profile': inputs.person_processing == 'identified',
+
+    // PostHog standard properties. $ip and $raw_user_agent are appended
+    // below when forward_ip_and_user_agent is enabled (default on, since
+    // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
+    // off to keep raw client identifiers off the emitted event.
+    '$distinct_id_strategy': activeStrategy,
     '$current_url': f'{scheme}://{host}{path}',
     '$host': host,
     '$pathname': pathname,
@@ -203,6 +315,8 @@ let props := {
     'status_code': log.statusCode,
     'request_id': log.requestId,
     'execution_region': log.executionRegion,
+    'invocation_id': log.invocationId,
+    'instance_id': log.instanceId,
 
     // Build/deploy info
     'build_id': log.buildId,
@@ -225,11 +339,10 @@ let props := {
     'proxy_method': proxy.method,
     'proxy_host': proxy.host,
     'proxy_path': proxy.path,
-    'proxy_user_agent': proxy.userAgent,
+    // proxy_user_agent and proxy_client_ip are gated on forward_ip_and_user_agent below.
     'proxy_region': proxy.region,
     'proxy_referer': proxy.referer,
     'proxy_status_code': proxy.statusCode,
-    'proxy_client_ip': proxy.clientIp,
     'proxy_scheme': proxy.scheme,
     'proxy_response_byte_size': proxy.responseByteSize,
     'proxy_cache_id': proxy.cacheId,
@@ -240,6 +353,13 @@ let props := {
     'proxy_lambda_region': proxy.lambdaRegion,
     'proxy_waf_action': proxy.wafAction,
     'proxy_waf_rule_id': proxy.wafRuleId
+}
+
+if (inputs.forward_ip_and_user_agent) {
+    props['$ip'] := clientIp
+    props['$raw_user_agent'] := userAgent
+    props['proxy_client_ip'] := proxy.clientIp
+    props['proxy_user_agent'] := proxy.userAgent
 }
 
 postHogCapture({
@@ -283,6 +403,95 @@ return {
             secret: false,
             required: false,
             default: false,
+        },
+        {
+            key: 'page_routes_only',
+            type: 'boolean',
+            label: 'Only capture page routes',
+            description:
+                'When enabled, only top-level document requests are captured — paths with no file extension (e.g. /pricing, /docs/x) or ending in .html/.htm. Sub-resource requests (JS, CSS, images, fonts, JSON, source maps) are skipped and acknowledged with 200 so Vercel does not retry them. A single page view fans out into many sub-resource requests, so this keeps $http_log close to a document/pageview stream and cuts ingested volume substantially. Off by default (the full HTTP access log is captured). Note: extension-less API routes (e.g. /api/x) are also kept.',
+            secret: false,
+            required: false,
+            default: false,
+        },
+        {
+            key: 'salt_secret',
+            type: 'string',
+            label: 'Distinct ID salt',
+            description:
+                'High-entropy random secret (e.g. base64) mixed into hashed distinct IDs. Rotate to invalidate prior IDs. Used by rotating_salt, fixed_salt, and the rotating_salt_fallback path of custom; ignored by the ip strategy. If left blank, hashed strategies still produce stable IDs but lose the unguessability the salt provides — set one in production.',
+            secret: true,
+            required: false,
+        },
+        {
+            key: 'distinct_id_strategy',
+            type: 'choice',
+            label: 'Distinct ID strategy',
+            description:
+                'How distinct IDs are derived from the request. Because events are anonymous by default (no person profiles), this affects unique-visitor counting rather than cost. The default, fixed salt, gives one stable ID per client (IP + host + user agent) for accurate uniques. Rotating salt rotates that ID daily for extra privacy, at the cost of inflated unique counts. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
+            choices: [
+                {
+                    value: 'fixed_salt',
+                    label: 'Fixed salt (sha256(salt:ip:host:ua)) — one stable ID per client, default',
+                },
+                {
+                    value: 'rotating_salt',
+                    label: 'Rotating salt (sha256(salt:day:ip:host:ua)) — rotates daily for privacy',
+                },
+                {
+                    value: 'ip',
+                    label: 'Raw IP — stores client IPs unhashed as queryable distinct IDs',
+                },
+                {
+                    value: 'custom',
+                    label: 'Custom template — placeholder substitution (see template field)',
+                },
+            ],
+            default: 'fixed_salt',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'person_processing',
+            type: 'choice',
+            label: 'Person processing',
+            description:
+                'Whether each event creates a person profile. "Anonymous" (default) emits $process_person_profile=false so high-cardinality log traffic does not create a person profile per distinct ID — cheaper, faster to query, and recommended for aggregate traffic and bot analysis. "Identified" creates a person profile per distinct ID for person-level stitching (billed on the person-profiles line).',
+            choices: [
+                {
+                    value: 'anonymous',
+                    label: 'Anonymous — no person profiles (recommended for log traffic)',
+                },
+                {
+                    value: 'identified',
+                    label: 'Identified — create a person profile per distinct ID',
+                },
+            ],
+            default: 'anonymous',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'forward_ip_and_user_agent',
+            type: 'boolean',
+            label: 'Forward client IP and user agent',
+            description:
+                'When enabled (default), $ip, $raw_user_agent, proxy_client_ip, and proxy_user_agent are emitted on each event so PostHog can run GeoIP and user-agent enrichment. Disable if you want raw client identifiers stripped — distinct_id derivation still uses them as inputs, but they will not appear on the emitted event.',
+            secret: false,
+            required: false,
+            default: true,
+        },
+        {
+            key: 'custom_template',
+            type: 'string',
+            label: 'Custom distinct ID template',
+            description:
+                'Used only when strategy is "custom". Supports placeholders {day}, {ip}, {host}, {ua}, {path}, {project_id} (literal string substitution, not Hog evaluation; unknown placeholders are left as-is). The salt secret is intentionally not exposed as a placeholder. The result is prefixed with "http_log_". Empty value or all-empty substitutions fall back to rotating_salt.',
+            secret: false,
+            required: false,
+            // Templating disabled so {placeholder} braces are not interpreted as Hog
+            // expressions at the input layer. Substitution happens inside the Hog code.
+            templating: false,
         },
     ],
 }

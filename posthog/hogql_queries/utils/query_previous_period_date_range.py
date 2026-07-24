@@ -35,7 +35,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
         delta_mapping = relative_date_parse_with_delta_mapping(
             date_from,
-            self._team.timezone_info,
+            self._timezone_info,
             now=self.now_with_timezone,
         )[1]
         return delta_mapping
@@ -44,7 +44,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
         if self._date_range and self._date_range.date_to:
             delta_mapping = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
-                self._team.timezone_info,
+                self._timezone_info,
                 always_truncate=True,
                 now=self.now_with_timezone,
             )[1]
@@ -61,6 +61,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             self.date_from_delta_mappings(),
             self.date_to_delta_mappings(),
             self.interval_name,
+            exclude_incomplete_periods=bool(self._date_range and self._date_range.excludeIncompletePeriods),
         )
 
         return previous_period_date_from, previous_period_date_to

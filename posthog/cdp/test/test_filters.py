@@ -3,6 +3,8 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from parameterized import parameterized
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 
 from posthog.cdp.filters import (
@@ -11,8 +13,9 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     hog_function_filters_to_expr,
 )
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -21,7 +24,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 def _normalize_error(error: str) -> str:
     """Replace dynamic IDs and URLs in error messages with stable placeholders."""
     error = re.sub(r"id=\d+", "id=N", error)
-    error = re.sub(r"https?://[^/]+/project/\d+/settings/project", "SETTINGS_URL", error)
+    error = re.sub(r"https?://[^/]+/project/\d+/settings/project-customization", "SETTINGS_URL", error)
     return error
 
 
@@ -207,6 +210,24 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             2,
         ]
 
+    def test_multi_value_exact_filter_matches_numeric_property(self):
+        # Survey ratings and other numeric event properties arrive as numbers, while a multi-value
+        # "exact" filter stores its values as strings. Membership must still match (it compiles to a
+        # type-coercing equality chain, not a strict IN).
+        filters = {
+            "properties": [
+                {
+                    "key": "$survey_response_1",
+                    "value": ["1", "2", "3", "4", "5", "6"],
+                    "operator": "exact",
+                    "type": "event",
+                }
+            ]
+        }
+        bytecode = compile_filters_bytecode(filters, self.team)["bytecode"]
+        assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 6}}).result is True
+        assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 7}}).result is False
+
     def test_filters_full(self):
         bytecode = self.filters_to_bytecode(filters=self.filters)
         assert bytecode == [
@@ -295,6 +316,69 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             3,
             4,
         ]
+
+    @parameterized.expand(
+        [
+            # `detail` is a nested object on `$activity_log_entry_created`, so a `detail.name` filter
+            # must resolve to `properties.detail.name` rather than a flat `properties["detail.name"]` key.
+            (
+                "activity_log_nested_detail_matches",
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
+                    "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
+                },
+                {"event": "$activity_log_entry_created", "properties": {"detail": {"name": "cheese wheel"}}},
+                True,
+            ),
+            (
+                "activity_log_nested_detail_does_not_match",
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
+                    "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
+                },
+                {"event": "$activity_log_entry_created", "properties": {"detail": {"name": "bananas"}}},
+                False,
+            ),
+            # Outside internal events a dotted key stays a single flat property lookup, so existing
+            # destinations keep matching properties whose names literally contain a dot.
+            (
+                "regular_event_dotted_key_stays_flat",
+                {
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"foo.bar": "baz"}},
+                True,
+            ),
+            (
+                "regular_event_dotted_key_not_treated_as_nested",
+                {
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"foo": {"bar": "baz"}}},
+                False,
+            ),
+            # A global property filter applies to every event branch, so when an internal event is
+            # mixed with an analytics event the dotted key must stay flat — resolving it would break
+            # the `$pageview` branch that reads `sdk.version` as a literal flat property.
+            (
+                "mixed_events_global_dotted_key_stays_flat",
+                {
+                    "events": [
+                        {"id": "$activity_log_entry_created", "type": "events", "order": 0},
+                        {"id": "$pageview", "type": "events", "order": 1},
+                    ],
+                    "properties": [{"key": "sdk.version", "value": "1.2", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"sdk.version": "1.2"}},
+                True,
+            ),
+        ]
+    )
+    def test_dotted_property_key_resolution(self, _name: str, filters: dict, hog_globals: dict, expected: bool):
+        bytecode = self.filters_to_bytecode(filters=filters)
+        assert execute_bytecode(bytecode, hog_globals).result is expected
 
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -433,7 +517,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             }
         )
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}]
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}]
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
@@ -603,8 +687,8 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             is_static=False,
         )
         self.team.test_account_filters = [
-            {"type": "cohort", "key": "id", "value": test_users_cohort.pk, "negation": True},
-            {"type": "cohort", "key": "id", "value": internal_users_cohort.pk, "negation": True},
+            {"type": "cohort", "key": "id", "value": test_users_cohort.pk, "operator": "not_in"},
+            {"type": "cohort", "key": "id", "value": internal_users_cohort.pk, "operator": "not_in"},
         ]
         self.team.save()
 
@@ -644,7 +728,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             is_static=False,
         )
         # "not in cohort" = exclude anyone whose email matches either domain
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}]
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}]
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)

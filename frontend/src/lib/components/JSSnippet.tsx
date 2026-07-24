@@ -6,7 +6,7 @@ import { buildJsHtmlSnippet, SnippetOption } from '@posthog/shared-onboarding/pr
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -85,14 +85,6 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
 
 export function JSSnippet(): JSX.Element {
     const snippet = useJsSnippet()
-
-    return <CodeSnippet language={Language.HTML}>{snippet}</CodeSnippet>
-}
-
-export function JSSnippetV2(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    const snippet = useJsSnippet(0, `/array/${currentTeam?.api_token}/array.js`)
 
     return <CodeSnippet language={Language.HTML}>{snippet}</CodeSnippet>
 }

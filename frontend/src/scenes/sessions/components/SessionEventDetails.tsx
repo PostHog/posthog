@@ -8,9 +8,10 @@ import { RecordingEventType } from '~/types'
 
 export interface SessionEventDetailsProps {
     event: RecordingEventType
+    errorDisplayIdSuffix?: string
 }
 
-export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.Element {
+export function SessionEventDetails({ event, errorDisplayIdSuffix }: SessionEventDetailsProps): JSX.Element {
     if (!event.fullyLoaded) {
         return (
             <div className="px-4 py-3 flex items-center gap-2 text-secondary">
@@ -28,11 +29,14 @@ export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.El
                 tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
                     switch (tabKey) {
                         case 'error_display':
-                            const eventId =
+                            const baseEventId =
                                 ('uuid' in event ? event.uuid : null) ||
                                 ('id' in event ? event.id : null) ||
                                 dayjs(event.timestamp).toISOString() ||
                                 `error-${event.timestamp}`
+                            const eventId = errorDisplayIdSuffix
+                                ? `${baseEventId}::${errorDisplayIdSuffix}`
+                                : baseEventId
                             return <ErrorDisplay eventProperties={properties} eventId={eventId} />
                         case 'raw':
                             return (

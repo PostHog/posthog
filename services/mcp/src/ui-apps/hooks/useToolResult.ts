@@ -29,15 +29,7 @@
  * }
  * ```
  */
-import {
-    type App,
-    McpUiHostContextChangedNotificationSchema,
-    McpUiToolCancelledNotificationSchema,
-    McpUiToolInputNotificationSchema,
-    McpUiToolResultNotificationSchema,
-    useApp,
-    useHostStyles,
-} from '@modelcontextprotocol/ext-apps/react'
+import { type App, useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -52,7 +44,7 @@ import {
     identifyUser,
     initPostHog,
 } from '../analytics/posthog'
-import { extractAnalytics } from '../types'
+import { APP_DATA_META_KEY, extractAnalytics } from '../types'
 
 export interface UseToolResultOptions {
     /** App name shown to the host */
@@ -90,12 +82,20 @@ export interface UseToolResultReturn<T> {
 }
 
 /**
- * Parse tool result content, preferring structuredContent over text parsing.
+ * Parse tool result content, preferring structuredContent over the `_meta`
+ * fallback. Never falls back to text content.
  */
-function parseToolResultContent<T>(structuredContent: unknown): T | null {
-    // Always use structuredContent, never attempt to use text content
+function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
+    // Prefer structuredContent when the host forwards it.
     if (structuredContent !== undefined && structuredContent !== null) {
         return structuredContent as T
+    }
+
+    // Coding-agent hosts suppress `structuredContent` so the model reads the
+    // compact text table; the app's data then rides on `_meta` instead.
+    const appData = (meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY]
+    if (appData !== undefined && appData !== null) {
+        return appData as T
     }
 
     return null
@@ -161,46 +161,41 @@ export function useToolResult<T = unknown>({
             log('App created', { appInstance })
 
             // Register tool input handler
-            appInstance.setNotificationHandler(McpUiToolInputNotificationSchema, (notification) => {
-                // Extract toolName from params if available (may be in extended params)
-                const params = notification.params as Record<string, unknown>
+            appInstance.ontoolinput = (params) => {
                 captureToolInput({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
                     hasArguments: !!params.arguments,
                 })
-            })
+            }
 
             // Do NOT register partial tool input handler (streaming)
             // This is too noisy, happens for each chunk of input we get from the server
-            // appInstance.setNotificationHandler(McpUiToolInputPartialNotificationSchema, () => {})
+            // appInstance.ontoolinputpartial = () => {}
 
             // Register tool cancelled handler
-            appInstance.setNotificationHandler(McpUiToolCancelledNotificationSchema, (notification) => {
-                const params = notification.params as Record<string, unknown>
+            appInstance.ontoolcancelled = (params) => {
                 setIsCancelled(true)
                 captureToolCancelled({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
                     reason: typeof params.reason === 'string' ? params.reason : undefined,
                 })
-            })
+            }
 
             // Register host context changed handler
-            appInstance.setNotificationHandler(McpUiHostContextChangedNotificationSchema, (notification) => {
-                // Cast to access theme which may be in notification params directly
-                const params = notification.params as typeof notification.params & { theme?: string }
+            appInstance.onhostcontextchanged = (params) => {
                 captureHostContextChanged({
-                    hasStyles: !!notification.params.styles,
-                    hasFonts: !!notification.params.styles?.css?.fonts,
-                    theme: params.theme,
+                    hasStyles: !!params.styles,
+                    hasFonts: !!params.styles?.css?.fonts,
+                    theme: typeof params.theme === 'string' ? params.theme : undefined,
                 })
-
-                setContainerDimensions(extractContainerDimensions(params as unknown as Record<string, unknown>))
-            })
+                setContainerDimensions(extractContainerDimensions(params))
+            }
 
             // Register tool result handler
-            appInstance.setNotificationHandler(McpUiToolResultNotificationSchema, (notification) => {
+            appInstance.ontoolresult = (params) => {
                 try {
-                    const parsed = parseToolResultContent<T>(notification.params.structuredContent)
+                    const meta = (params as { _meta?: Record<string, unknown> })._meta
+                    const parsed = parseToolResultContent<T>(params.structuredContent, meta)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
@@ -209,8 +204,8 @@ export function useToolResult<T = unknown>({
                     }
 
                     captureToolResult({
-                        hasStructuredContent: !!notification.params.structuredContent,
-                        contentLength: notification.params.content?.length,
+                        hasStructuredContent: !!params.structuredContent,
+                        contentLength: params.content?.length,
                     })
 
                     if (parsed !== null) {
@@ -226,7 +221,7 @@ export function useToolResult<T = unknown>({
                     console.error('[PostHog MCP App UI] Exception:', err)
                     setParseError(err)
                 }
-            })
+            }
         },
     })
 

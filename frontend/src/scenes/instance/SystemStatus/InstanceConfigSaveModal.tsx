@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { SystemStatusRow } from '~/types'
 
@@ -11,7 +11,7 @@ import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
 
 interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
-    oldValue?: boolean | string | number | null
+    oldValue?: boolean | string | number | number[] | null
     metricKey: string
     isSecret?: boolean
 }

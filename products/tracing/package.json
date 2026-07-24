@@ -1,19 +1,27 @@
 {
     "name": "@posthog/products-tracing",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "fast-deep-equal": "*",
-        "react": "*"
+        "fast-equals": "catalog:",
+        "react": "*",
+        "react-window": "*"
     }
 }

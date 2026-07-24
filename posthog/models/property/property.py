@@ -6,6 +6,10 @@ from typing import Any, Literal, Optional, Union, cast
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
+
+# Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
+# without booting Django; re-exported here for existing callers.
+from posthog.property_columns import PropertyName, TableColumn, TableWithProperties  # noqa: F401
 from posthog.utils import str_to_bool
 
 
@@ -25,6 +29,7 @@ PropertyType = Literal[
     "event_metadata",
     "feature",
     "person",
+    "person_metadata",
     "cohort",
     "element",
     "static-cohort",
@@ -42,22 +47,16 @@ PropertyType = Literal[
     "log",
     "log_attribute",
     "log_resource_attribute",
+    "metric_attribute",
     "span",
     "span_attribute",
     "span_resource_attribute",
     "revenue_analytics",
+    "account_custom_property",
     "flag",
     "workflow_variable",
 ]
 
-PropertyName = str
-TableWithProperties = Literal["events", "person", "groups"]
-TableColumn = Literal[
-    "properties",  # for events & persons table
-    "group_properties",  # for groups table
-    # all below are for person&groups on events table
-    "person_properties",
-]
 OperatorType = Literal[
     "exact",
     "is_not",
@@ -95,6 +94,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "event_metadata": ["key", "value"],
     "person": ["key", "value"],
+    "person_metadata": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
     "error_tracking_issue": ["key", "value"],
@@ -109,11 +109,13 @@ VALIDATE_PROP_TYPES = {
     "log": ["key", "value"],
     "log_attribute": ["key", "value"],
     "log_resource_attribute": ["key", "value"],
+    "metric_attribute": ["key", "value"],
     "span": ["key", "value"],
     "span_attribute": ["key", "value"],
     "span_resource_attribute": ["key", "value"],
     "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
+    "account_custom_property": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
@@ -123,12 +125,41 @@ VALIDATE_PROP_TYPES = {
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         {"time_value", "time_interval"},
+        # explicit_datetime_to is always optional — the existing `{explicit_datetime}` entry
+        # already accepts the both-set case since the validator uses "all required keys present".
         {"explicit_datetime"},
+        # Realtime-compiled unbounded condition ("did this person ever do X"): the cohort
+        # backend compiles bytecode/conditionHash from event_type/event_filters regardless
+        # of whether a time bound is present, so a leaf carrying compiled bytecode but no
+        # time window is a deliberately unbounded condition, not a malformed one. A related
+        # (stricter, unconditional) requirement for these two fields lives in
+        # products/cohorts/backend/parity/eligibility.py::_classify_behavioral and its Rust
+        # source of truth rust/cohort-core/src/filters/leaf_classifier.rs — those answer a
+        # different question (is this leaf eligible for realtime precompute) and intentionally
+        # still require a time window there.
+        {"conditionHash", "bytecode"},
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
+        {"conditionHash", "bytecode"},
     ],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
+}
+
+# Behavioral `value`s that don't match BehavioralPropertyType's enum value but are
+# produced by cohort filter generators and are equivalent for validation purposes.
+# Keyed by the raw stored value string; resolves to the canonical type whose
+# VALIDATE_BEHAVIORAL_PROP_TYPES / VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES rules apply.
+# `Property.__init__` normalizes `self.value` to this canonical string once validation
+# passes, so downstream consumers that compare `prop.value` against the canonical
+# BehavioralPropertyType strings (e.g. HogQLCohortQuery._get_condition_for_property)
+# don't each need their own alias awareness.
+BEHAVIORAL_VALUE_ALIASES: dict[str, BehavioralPropertyType] = {
+    "performed_event_multiple_times": BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -147,8 +178,6 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",
@@ -192,6 +221,13 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
 }
 
 
+class PropertyValidationError(ValueError):
+    """Every failure to construct a valid Property from prop_params raises this (a
+    ValueError subclass, so existing `except ValueError` callers are unaffected) — one
+    owned type callers can catch, instead of having to discover each new internal raise
+    site (e.g. via validate_group_type_index) by reading Property.__init__'s source."""
+
+
 class Property:
     key: str
     operator: Optional[OperatorType]
@@ -214,6 +250,8 @@ class Property:
     time_interval: Optional[OperatorInterval]
     # Alternative to time_value & time_interval, for explicit date bound rather than relative
     explicit_datetime: Optional[str]
+    # End date for date range filtering when using explicit datetime
+    explicit_datetime_to: Optional[str]
     # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
     # key = '$pageview', value = 'restarted_performing_event'
@@ -251,6 +289,7 @@ class Property:
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
         explicit_datetime: Optional[str] = None,
+        explicit_datetime_to: Optional[str] = None,
         total_periods: Optional[int] = None,
         min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
@@ -267,12 +306,18 @@ class Property:
         self.key = key
         self.operator = operator
         self.type = type if type else "event"
+        # Left unwrapped (a DRF ValidationError, not PropertyValidationError): callers that
+        # construct Property() directly inside serializer validation (e.g. feature_flag.py's
+        # validate_filters) rely on DRF recognizing this exception type to turn it into a 400.
+        # _parse_properties, the one caller that needs report-and-skip for this, catches it
+        # explicitly alongside PropertyValidationError.
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
         self.operator_value = operator_value
         self.time_value = time_value
         self.time_interval = time_interval
         self.explicit_datetime = explicit_datetime
+        self.explicit_datetime_to = explicit_datetime_to
         self.total_periods = total_periods
         self.min_periods = min_periods
         self.seq_event_type = seq_event_type
@@ -289,34 +334,47 @@ class Property:
         elif self.type == "hogql":
             pass  # keep value as None
         elif value is None:
-            raise ValueError(f"Value must be set for property type {self.type} & operator {self.operator}")
+            raise PropertyValidationError(f"Value must be set for property type {self.type} & operator {self.operator}")
         else:
             self.value = value
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
-            raise ValueError(f"Invalid property type: {self.type}")
+            raise PropertyValidationError(f"Invalid property type: {self.type}")
 
         for attr in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, attr, None) is None:
-                raise ValueError(f"Missing required attr {attr} for property type {self.type} with key {self.key}")
+                raise PropertyValidationError(
+                    f"Missing required attr {attr} for property type {self.type} with key {self.key}"
+                )
 
         if self.type == "behavioral":
-            for attr in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
-                if getattr(self, attr, None) is None:
-                    raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
+            behavioral_value = BEHAVIORAL_VALUE_ALIASES.get(
+                cast(str, self.value), cast(BehavioralPropertyType, self.value)
+            )
+            required_attrs = VALIDATE_BEHAVIORAL_PROP_TYPES.get(behavioral_value)
+            if required_attrs is None:
+                raise PropertyValidationError(f"Invalid behavioral value: {self.value}")
 
-            if cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
+            for attr in required_attrs:
+                if getattr(self, attr, None) is None:
+                    raise PropertyValidationError(
+                        f"Missing required attr {attr} for property type {self.type}::{self.value}"
+                    )
+
+            if behavioral_value in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
                 matches_attr_list = False
-                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]
+                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[behavioral_value]
                 for attr_list in condition_list:
                     if all(getattr(self, attr, None) is not None for attr in attr_list):
                         matches_attr_list = True
                         break
 
                 if not matches_attr_list:
-                    raise ValueError(
+                    raise PropertyValidationError(
                         f"Missing required parameters, atleast one of values ({'), ('.join([' & '.join(condition) for condition in condition_list])}) for property type {self.type}::{self.value}"
                     )
+
+            self.value = behavioral_value
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

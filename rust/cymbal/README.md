@@ -2,6 +2,59 @@
 
 You throw 'em, we catch 'em.
 
+Cymbal owns the HTTP ingress and full processing pipeline (fingerprinting,
+suppression, Kafka producers, issue linking). The binary runs in one of two
+modes selected by `CYMBAL_MODE` (default `processing`): the processing
+pipeline, or the `cymbal.resolution.v1` gRPC symbol-resolution service
+(`CYMBAL_MODE=resolution`). Symbol resolution can run either inline inside the
+processing binary (default) or be offloaded to resolution-mode pods via the
+`cymbal.resolution.v1` contract. The remote path is opt-in via
+`CYMBAL_REMOTE_RESOLUTION_ENABLED=true` and has **no silent local fallback**
+— see the [resolution mode README](src/modes/resolution/README.md) for
+rollout, configuration, and operator guidance.
+
+## Remote resolution behavior
+
+The public HTTP contract stays `POST /process`: callers send an array of
+events and receive an equally sized array in the same order, with `null` in a
+slot only when the normal cymbal pipeline suppresses that event. The
+Node.js error-tracking consumer can keep using its existing DNS routing
+and HTTP body-size chunking because remote symbol resolution happens behind
+the same cymbal HTTP boundary.
+
+When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
+controls a deterministic event-level rollout. Events selected for remote
+processing are flattened into exception-level `ResolveItem`s, grouped by a
+symbol-set routing key when one is available, and submitted over a
+bidirectional `Resolve` stream. Items without a symbol-set reference fall back
+to the existing per-team key. Each item carries JSON
+`metadata` bytes for resolver-specific context such as
+`debug_images_json`, and each terminal `ResolveOutcome` is correlated by
+item id. Sampled remote attempts do not fall back to local resolution if the
+remote pool fails; unsampled events use the inline local exception and frame
+resolvers and then rejoin the same properties/grouping/linking pipeline.
+
+Backpressure is result-only on the `Resolve` stream: overload is surfaced as
+`ResolveOutcome.Error { kind: ERROR_KIND_OVERLOADED }`, which the cymbal client
+reroutes with overload-specific backoff. Pods emit `ResolveOutcome.Accepted`
+after they admit an item; cymbal limits concurrent unaccepted routing attempts
+with a process-local semaphore and releases the permit when acceptance arrives.
+When
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS` is non-zero, the overloaded
+endpoint is also excluded from new routing in that cymbal process. Repeated
+overloads double the endpoint cooldown up to
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it.
+`LoadEvent` carries freshness, draining, and item-concurrency load (`in_flight` / `max_in_flight`).
+Cymbal uses that load as a soft routing bias: busier endpoints are less likely to win the rendezvous-ranked candidate list, while stale or draining endpoints remain excluded.
+`CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER` flattens traffic across the load-adjusted rendezvous-ranked candidate list: `0.0` sends traffic to the top load-adjusted endpoint, `1.0` makes selection load-weighted across candidates, and intermediate values decay by rank.
+
+See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
+compatibility checklist and [`src/modes/resolution/README.md`](src/modes/resolution/README.md)
+for rollout and dashboard guidance.
+
+Fetched JavaScript sources and external source maps are limited to 25 MB after HTTP decompression by default. Set `SOURCEMAP_MAX_RESPONSE_BYTES` to adjust this limit.
+
 ### Terms
 
 We use a lot of terms in this and other error tracking code, with implied meanings. Here are some of them:

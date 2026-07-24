@@ -1,7 +1,8 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -9,6 +10,7 @@ import {
     IconCalendar,
     IconCheck,
     IconClock,
+    IconChevronRight,
     IconCode,
     IconCode2,
     IconDatabase,
@@ -17,13 +19,22 @@ import {
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import {
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -31,22 +42,66 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
+export function getSidebarAddJoinSourceTableName(
+    recordType: string | undefined,
+    itemName: string,
+    tableName?: string
+): string | null {
+    switch (recordType) {
+        case 'view':
+        case 'managed-view':
+            return itemName
+        case 'endpoint':
+            return tableName ?? null
+        default:
+            return null
+    }
+}
+
+/**
+ * Keep a section whose folder, or any of its children, matches the search term — the same
+ * name-and-field matching the database tree does for its own tables.
+ */
+const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
+    const needle = searchTerm.trim().toLowerCase()
+    if (!needle) {
+        return sections
+    }
+    const matches = (item: TreeDataItem): boolean =>
+        item.name.toLowerCase().includes(needle) || (item.children ?? []).some(matches)
+    return sections.flatMap((section) => {
+        const children = (section.children ?? []).filter(matches)
+        return children.length ? [{ ...section, children }] : []
+    })
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
+    extraTreeSections,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+    /**
+     * Extra top-level sections to render above the database tree, owned by the embedding surface
+     * (notebooks lists the dataframes its kernel holds). Rendered as-is: whatever builds them owns
+     * their icons, children, and search filtering. Default empty, so surfaces that pass nothing are
+     * unaffected.
+     */
+    extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
         searchTerm,
@@ -58,6 +113,7 @@ export const QueryDatabase = ({
         activeDraggedViewId,
         highlightedDropFolderId,
         highlightViewsSectionDrop,
+        featureFlags,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -79,13 +135,24 @@ export const QueryDatabase = ({
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
+        deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+    const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
+    const { openMaterializationModal, openAccessControlModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
+    // Project-wide warehouse write actions (Add join, Materialization) — gated at the
+    // resource level regardless of per-object creator bypass. Per-object actions like
+    // Edit view use the view's own user_access_level inline below.
+    const resourceLevelEditorDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
+    const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
+    const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -266,10 +333,21 @@ export const QueryDatabase = ({
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
+    const treeData = useMemo(() => {
+        if (!extraTreeSections?.length) {
+            return displayedTreeData
+        }
+        // Filtered here rather than by the caller: the tree swaps in its own filtered data while
+        // searching, so an unfiltered section would sit above the results still listing
+        // everything — and keeping the search term on this side means an embedder doesn't have to
+        // mount this logic just to read it.
+        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
+    }, [extraTreeSections, displayedTreeData, searchTerm])
+
     return (
         <LemonTree
             ref={treeRef}
-            data={displayedTreeData}
+            data={treeData}
             enableDragAndDrop={!searchTerm}
             isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>
@@ -291,7 +369,9 @@ export const QueryDatabase = ({
                 )
             }}
             expandedItemIds={expandedItemIds}
-            onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+            onSetExpandedItemIds={
+                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+            }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     toggleFolderOpen(folder.id, isExpanded)
@@ -315,9 +395,11 @@ export const QueryDatabase = ({
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName).then(
-                        setQueryInput
-                    )
+                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                        .then(setQueryInput)
+                        .catch(() => {
+                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
+                        })
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -331,6 +413,7 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
                     item.record?.folderType === 'view-folder' &&
@@ -356,7 +439,7 @@ export const QueryDatabase = ({
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
                                 {hasMatches && searchTerm ? (
                                     <SearchHighlightMultiple
-                                        string={item.name}
+                                        string={itemLabel}
                                         substring={searchTerm}
                                         className={cn(isColumn && 'font-mono text-xs')}
                                     />
@@ -373,7 +456,7 @@ export const QueryDatabase = ({
                                             'truncate shrink-0'
                                         )}
                                     >
-                                        {item.name}
+                                        {item.displayName ?? item.name}
                                     </span>
                                 )}
                                 {isColumn && columnType ? (
@@ -472,19 +555,24 @@ export const QueryDatabase = ({
 
                 // Show menu for tables
                 if (item.record?.type === 'table') {
+                    // Per-object access control only exists for actual warehouse tables, not posthog/system tables
+                    const warehouseTableId =
+                        warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
+                            ? item.record.table?.id
+                            : null
+
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    newInternalTab(
+                                    const nextConnectionId =
+                                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+                                    router.actions.push(
                                         urls.sqlEditor({
-                                            query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(item.name)}`,
-                                            connectionId:
-                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
-                                                    ? connectionId
-                                                    : undefined,
+                                            query: buildSelectAllQuery(item.name, null),
+                                            connectionId: nextConnectionId,
                                         })
                                     )
                                 }}
@@ -495,10 +583,20 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    if (addJoinAccessDisabledReason) {
+                                        return
+                                    }
                                     selectSourceTable(item.name)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem
+                                    disabledReasons={
+                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                    }
+                                >
+                                    Add join
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
@@ -509,6 +607,21 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Copy table name</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {warehouseTableId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseTable,
+                                            resourceId: warehouseTableId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
@@ -625,38 +738,60 @@ export const QueryDatabase = ({
                     item.record?.type === 'managed-view'
                 ) {
                     const editLabel = item.record.type === 'endpoint' ? 'Edit endpoint' : 'Edit view'
+                    const addJoinSourceTableName = getSidebarAddJoinSourceTableName(
+                        item.record.type,
+                        item.name,
+                        item.record.type === 'endpoint' ? item.record.tableName : undefined
+                    )
+                    // Edit view is per-object — creators can edit their own views.
+                    const editViewAccessDisabledReason =
+                        item.record.type !== 'endpoint'
+                            ? getAccessControlDisabledReason(
+                                  AccessControlResourceType.WarehouseObjects,
+                                  AccessControlLevel.Editor,
+                                  item.record.view?.user_access_level
+                              )
+                            : null
+                    // Only saved views map to the WarehouseView resource; endpoints use the Endpoint resource, managed views have none.
+                    const warehouseViewId =
+                        warehouseAccessControlEnabled && item.record.type === 'view' && item.record.isSavedQuery
+                            ? item.record.view?.id
+                            : null
 
                     return (
                         <DropdownMenuGroup>
                             <div className="flex gap-px">
                                 {!isEmbeddedMode && item.record.type !== 'endpoint' ? (
                                     <>
-                                        <DropdownMenuItem
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                openItemEditor(item)
-                                            }}
-                                        >
-                                            <ButtonPrimitive menuItem className="flex-1 rounded-r-none">
+                                        <DropdownMenuItem asChild>
+                                            <Link
+                                                to={urls.sqlEditor({ view_id: item.record.view?.id })}
+                                                onClick={(e) => e.stopPropagation()}
+                                                disabledReason={editViewAccessDisabledReason}
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                    className: 'flex-1 rounded-r-none',
+                                                }}
+                                            >
                                                 {editLabel}
-                                            </ButtonPrimitive>
+                                            </Link>
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                openItemEditor(item, true)
-                                            }}
-                                        >
-                                            <ButtonPrimitive
-                                                menuItem
-                                                className="px-2 rounded-l-none"
-                                                iconOnly
+                                        <DropdownMenuItem asChild>
+                                            <Link
+                                                to={urls.sqlEditor({ view_id: item.record.view?.id })}
+                                                target="_blank"
+                                                targetBlankIcon={false}
+                                                onClick={(e) => e.stopPropagation()}
+                                                disabledReason={editViewAccessDisabledReason}
                                                 tooltip={editLabel}
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                    iconOnly: true,
+                                                    className: 'px-2 rounded-l-none',
+                                                }}
                                             >
                                                 <IconExternal />
-                                            </ButtonPrimitive>
+                                            </Link>
                                         </DropdownMenuItem>
                                     </>
                                 ) : (
@@ -680,15 +815,112 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {addJoinSourceTableName ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (addJoinAccessDisabledReason) {
+                                            return
+                                        }
+                                        selectSourceTable(addJoinSourceTableName)
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Add join
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        if (materializationAccessDisabledReason) {
+                                            return
+                                        }
                                         openMaterializationModal(item.record?.view)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Materialization</ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            materializationAccessDisabledReason
+                                                ? { [materializationAccessDisabledReason]: true }
+                                                : {}
+                                        }
+                                    >
+                                        Materialization
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record.type !== 'endpoint' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        void copyToClipboard(item.name)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {warehouseViewId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseView,
+                                            resourceId: warehouseViewId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (editViewAccessDisabledReason) {
+                                            return
+                                        }
+                                        LemonDialog.open({
+                                            title: `Delete view "${item.name}"?`,
+                                            description:
+                                                'Are you sure you want to delete this view? This action cannot be undone.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete view',
+                                                onClick: () => {
+                                                    if (item.record?.view?.id) {
+                                                        deleteDataWarehouseSavedQuery(item.record.view.id)
+                                                    }
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        className="text-danger"
+                                        disabledReasons={
+                                            editViewAccessDisabledReason ? { [editViewAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Delete view
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>
@@ -729,6 +961,73 @@ export const QueryDatabase = ({
                     return null
                 }
 
+                // External source folders get an actions menu: edit the source and add a new one of this type
+                if (
+                    item.record?.type === 'source-folder' &&
+                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
+                ) {
+                    const sourceType = item.record?.sourceType
+                    const sources: { id: string; label: string }[] = item.record?.sources ?? []
+                    return (
+                        <DropdownMenuGroup>
+                            {sources.length === 1 ? (
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to={urls.dataWarehouseSource(`managed-${sources[0].id}`, 'configuration')}
+                                        target="_blank"
+                                        buttonProps={{ menuItem: true }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        Edit source
+                                    </Link>
+                                </DropdownMenuItem>
+                            ) : sources.length > 1 ? (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger asChild>
+                                        <ButtonPrimitive menuItem>
+                                            Edit source
+                                            <IconChevronRight className="ml-auto size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {sources.map((source) => (
+                                            <DropdownMenuItem key={source.id} asChild>
+                                                <Link
+                                                    to={urls.dataWarehouseSource(
+                                                        `managed-${source.id}`,
+                                                        'configuration'
+                                                    )}
+                                                    target="_blank"
+                                                    buttonProps={{ menuItem: true }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    {source.label}
+                                                </Link>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            ) : null}
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.dataWarehouseSourceNew(sourceType)}
+                                    target="_blank"
+                                    buttonProps={{ menuItem: true }}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        posthog.capture('sql-editor-add-source-clicked', {
+                                            source_type: sourceType,
+                                            location: 'source_type_row',
+                                        })
+                                    }}
+                                >
+                                    Add new source of this type
+                                </Link>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 return undefined
             }}
             itemSideActionButton={(item) => {
@@ -740,6 +1039,10 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: null,
+                                    location: 'sources_header',
+                                })
                                 newInternalTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
@@ -748,6 +1051,9 @@ export const QueryDatabase = ({
                         </ButtonPrimitive>
                     )
                 }
+
+                // External source folders fall through to the default ellipsis trigger, which opens
+                // the actions menu (edit source / add new source of this type) defined in itemSideAction
             }}
             renderItemTooltip={(item) => {
                 // Show tooltip with full name for items that could be truncated

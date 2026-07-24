@@ -7,7 +7,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -19,8 +19,9 @@ def resolve_lazy_tables(
     dialect: HogQLDialect,
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,
+    resolver_factory: ResolverFactory | None = None,
 ):
-    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
+    LazyTableResolver(stack=stack, context=context, dialect=dialect, resolver_factory=resolver_factory).visit(node)
 
 
 @dataclasses.dataclass
@@ -178,11 +179,15 @@ class LazyTableResolver(TraversingVisitor):
         dialect: HogQLDialect,
         stack: Optional[list[ast.SelectQuery]],
         context: HogQLContext,
+        resolver_factory: ResolverFactory | None = None,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.dialect: HogQLDialect = dialect
+        # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
+        # factory (e.g. BoundedResolver) applies to subqueries built mid-transform
+        self.resolver_factory = resolver_factory
 
     def _find_tables_needing_lazy_preresolution(
         self,
@@ -242,8 +247,11 @@ class LazyTableResolver(TraversingVisitor):
         )
 
         # Resolve types and lazy tables within the subquery
-        subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
-        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context)
+        subquery = cast(
+            ast.SelectQuery,
+            resolve_types(subquery, self.context, self.dialect, [], resolver_factory=self.resolver_factory),
+        )
+        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context, resolver_factory=self.resolver_factory)
         assert subquery.type is not None
 
         # Replace the table with the subquery
@@ -448,49 +456,56 @@ class LazyTableResolver(TraversingVisitor):
                     if table_type == field.table_type or (
                         isinstance(field.table_type, ast.VirtualTableType) and table_type == field.table_type.table_type
                     ):
-                        chain = []
+                        lazy_chain: list[str | int] = []
                         if isinstance(field.table_type, ast.VirtualTableType):
-                            chain.append(field.table_type.field)
-                        chain.append(field.name)
+                            lazy_chain.append(field.table_type.field)
+                        lazy_chain.append(field.name)
                         if property is not None:
-                            chain.extend(property.chain)
-                            property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                            new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                            lazy_chain.extend(property.chain)
+                            property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
+                            new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
-                            new_table.fields_accessed[field.name] = chain
+                            new_table.fields_accessed[field.name] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-                    if isinstance(table_type.table_type, ast.LazyJoinType):
-                        from_table = get_long_table_name(select_type, table_type.table_type)
+                    # Widen mypy's view of the inner type: the annotated union is
+                    # `TableType | LazyTableType`, but the LazyJoinType branch below is a
+                    # defensive runtime guard against annotation drift.
+                    inner_table_type = cast(
+                        "ast.TableType | ast.LazyTableType | ast.LazyJoinType",
+                        table_type.table_type,
+                    )
+                    if isinstance(inner_table_type, ast.LazyJoinType):
+                        from_table = get_long_table_name(select_type, inner_table_type)
                         to_table = get_long_table_name(select_type, table_type)
                         if to_table not in joins_to_add:
                             joins_to_add[to_table] = LazyJoinToAdd(
                                 fields_accessed={},  # collect here all fields accessed on this table
-                                lazy_join=table_type.table_type.lazy_join,
+                                lazy_join=inner_table_type.lazy_join,
                                 from_table=from_table,
                                 to_table=to_table,
-                                lazy_join_type=table_type.table_type,
+                                lazy_join_type=inner_table_type,
                             )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type or (
                             isinstance(field.table_type, ast.VirtualTableType)
                             and table_type == field.table_type.table_type
                         ):
-                            chain: list[str | int] = []
+                            field_chain: list[str | int] = []
                             if isinstance(field.table_type, ast.VirtualTableType):
-                                chain.append(field.table_type.field)
-                            chain.append(field.name)
+                                field_chain.append(field.table_type.field)
+                            field_chain.append(field.name)
                             if property is not None:
-                                chain.extend(property.chain)
-                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                                new_join.fields_accessed[property.joined_subquery_field_name] = chain
+                                field_chain.extend(property.chain)
+                                property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
+                                new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[field.name] = chain
-                    elif isinstance(table_type.table_type, ast.LazyTableType):
+                                new_join.fields_accessed[field.name] = field_chain
+                    elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
                             tables_to_add[table_name] = LazyTableToAdd(
                                 fields_accessed={},  # collect here all fields accessed on this table
-                                lazy_table=cast(ast.LazyTable, table_type.table_type.table),
+                                lazy_table=cast(ast.LazyTable, inner_table_type.table),
                             )
                         new_table = tables_to_add[table_name]
                         if table_type == field.table_type or (
@@ -550,7 +565,12 @@ class LazyTableResolver(TraversingVisitor):
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [select_type]))
+            subquery = cast(
+                ast.SelectQuery,
+                resolve_types(
+                    subquery, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                ),
+            )
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -575,12 +595,22 @@ class LazyTableResolver(TraversingVisitor):
                     join_ptr.table = subquery
                     join_ptr.type = select_type.tables[table_name]
                     join_ptr.alias = table_name
+                    # A lazy table expands into an aggregating subquery. ClickHouse rejects a SAMPLE
+                    # modifier on a subquery, and sampling a pre-aggregated table is meaningless, so
+                    # drop the modifier rather than emitting invalid SQL.
+                    if join_ptr.sample is not None:
+                        self.context.add_warning(
+                            f'SAMPLE clause ignored: the "{table_name}" table is computed on the fly and cannot be sampled',
+                            start=join_ptr.sample.start,
+                            end=join_ptr.sample.end,
+                        )
+                        join_ptr.sample = None
                     break
                 join_ptr = join_ptr.next_join
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
-            join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
+            join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,
                 self.context,
                 node,
@@ -593,7 +623,12 @@ class LazyTableResolver(TraversingVisitor):
                 FieldChainReplacer(overrides).visit(join_to_add)
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [select_type]))
+            join_to_add = cast(
+                ast.JoinExpr,
+                resolve_types(
+                    join_to_add, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                ),
+            )
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -638,14 +673,21 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
-                    if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
-                        if join_ptr.next_join.next_join:
-                            join_to_add.next_join = join_ptr.next_join.next_join
-                        join_ptr.next_join.next_join = join_to_add
-                    else:
-                        join_to_add.next_join = join_ptr.next_join
-                        join_ptr.next_join = join_to_add
+                    # The join's ON constraint may depend on other joins (`constraint_tables`); the
+                    # ones that matter here are those earlier in this source table's join chain,
+                    # which ClickHouse resolves left-to-right and so must appear before this join.
+                    # Scan the whole remaining chain — not just the immediate next join — and insert
+                    # after the last such dependency, or right after the source table when none are
+                    # present. Looking only one join ahead placed this join before a dependency that
+                    # a non-dependent join had been inserted in front of.
+                    insert_after = join_ptr
+                    scan = join_ptr.next_join
+                    while scan is not None:
+                        if scan.alias in constraint_tables:
+                            insert_after = scan
+                        scan = scan.next_join
+                    join_to_add.next_join = insert_after.next_join
+                    insert_after.next_join = join_to_add
                     added = True
                     break
                 if join_ptr.next_join:
@@ -660,7 +702,7 @@ class LazyTableResolver(TraversingVisitor):
                 else:
                     node.select_from = join_to_add
 
-            # Collect any fields or properties that may have been added from the join_function with the LazyJoinType
+            # Collect any fields or properties that may have been added by the join resolver with the LazyJoinType
             join_field_collector: list[ast.FieldType | ast.PropertyType] = []
             self.field_collectors.append(join_field_collector)
             super().visit(join_to_add)

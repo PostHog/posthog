@@ -5,9 +5,10 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -22,7 +24,13 @@ export const scene: SceneExport = {
 }
 
 export function ToolbarLaunch(): JSX.Element {
-    const isExperimentsEnabled = useFeatureFlag('WEB_EXPERIMENTS')
+    // Authorized URLs are a single shared team field; the backend gates edits on web analytics
+    // editor access, so only offer the add/edit/delete controls to users who can actually save.
+    // In Storybook there's no app context, so allow editing there.
+    const canEdit =
+        inStorybook() || inStorybookTestRunner()
+            ? true
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     const features: FeatureHighlightProps[] = [
         {
@@ -50,15 +58,11 @@ export function ToolbarLaunch(): JSX.Element {
             caption: "Measure your website's performance.",
             icon: <IconPieChart />,
         },
-        ...(isExperimentsEnabled
-            ? [
-                  {
-                      title: 'Experiments',
-                      caption: 'Run experiments and A/B test your website.',
-                      icon: <IconFlask />,
-                  },
-              ]
-            : []),
+        {
+            title: 'Experiments',
+            caption: 'Run experiments and A/B test your website.',
+            icon: <IconFlask />,
+        },
     ]
 
     return (
@@ -72,7 +76,13 @@ export function ToolbarLaunch(): JSX.Element {
             />
 
             <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
-                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
+                <AuthorizedUrlList
+                    type={AuthorizedUrlListType.TOOLBAR_URLS}
+                    addText="Add authorized URL"
+                    allowAdd={canEdit}
+                    allowDelete={canEdit}
+                    displaySuggestions={canEdit}
+                />
                 <LemonBanner type="info">
                     Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or
                     the latest <code>posthog-js</code> version.

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { handleAuthorize } from '@/handlers/authorize'
+import { hashKey } from '@/lib/kv'
 
 import { createMockKV, mockKVGet } from './helpers'
 
@@ -21,7 +22,7 @@ describe('handleAuthorize', () => {
         expect(response.headers.get('content-type')).toContain('text/html')
 
         const html = await response.text()
-        expect(html).toContain('Log in to PostHog')
+        expect(html).toContain('Authenticate with PostHog')
         expect(html).toContain('US Cloud')
         expect(html).toContain('EU Cloud')
     })
@@ -128,21 +129,53 @@ describe('handleAuthorize', () => {
 
         const putCalls = vi.mocked(mockKV.put).mock.calls
 
+        const stateHash = await hashKey('abc123')
+        const clientHash = await hashKey('us_id')
+
         // Region selection stored by both state and client_id
-        const regionByState = putCalls.find(([key]) => (key as string) === 'region:abc123')
-        const regionByClient = putCalls.find(([key]) => (key as string) === 'region:us_id')
+        const regionByState = putCalls.find(([key]) => (key as string) === `region:${stateHash}`)
+        const regionByClient = putCalls.find(([key]) => (key as string) === `region:${clientHash}`)
         expect(regionByState).toBeTruthy()
         expect(regionByState![1]).toBe('eu')
         expect(regionByClient).toBeTruthy()
         expect(regionByClient![1]).toBe('eu')
 
         // Callback redirect_uri stored by both state and client_id
-        const callbackByState = putCalls.find(([key]) => (key as string) === 'callback:abc123')
-        const callbackByClient = putCalls.find(([key]) => (key as string) === 'callback:us_id')
+        const callbackByState = putCalls.find(([key]) => (key as string) === `callback:${stateHash}`)
+        const callbackByClient = putCalls.find(([key]) => (key as string) === `callback:${clientHash}`)
         expect(callbackByState).toBeTruthy()
         expect(callbackByState![1]).toBe('http://localhost:3000/callback')
         expect(callbackByClient).toBeTruthy()
         expect(callbackByClient![1]).toBe('http://localhost:3000/callback')
+    })
+
+    it('writes bounded-length KV keys even for very large state values', async () => {
+        const mapping = {
+            us_client_id: 'us_id',
+            eu_client_id: 'eu_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
+        mockKVGet(mockKV, (_key: string, type?: unknown) => {
+            if (type === 'json') {
+                return Promise.resolve(mapping)
+            }
+            return Promise.resolve(null)
+        })
+
+        // A JWT-shaped state well above Cloudflare's 512-byte KV key limit.
+        const longState = 'x'.repeat(2000)
+        const request = new Request(
+            `https://oauth.posthog.com/oauth/authorize/?client_id=us_id&redirect_uri=http://localhost:3000/callback&response_type=code&state=${longState}&_region=us`
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.status).toBe(302)
+        const putCalls = vi.mocked(mockKV.put).mock.calls
+        expect(putCalls.length).toBeGreaterThan(0)
+        for (const [key] of putCalls) {
+            expect((key as string).length).toBeLessThanOrEqual(512)
+        }
     })
 
     it('passes redirect_uri through without interception for legacy clients (no stored redirect_uris)', async () => {
@@ -169,12 +202,15 @@ describe('handleAuthorize', () => {
         expect(callbackPuts).toHaveLength(0)
     })
 
-    it('sets security headers on region picker page', async () => {
+    it('sets security and cache headers on region picker page', async () => {
         const request = new Request('https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
         const response = await handleAuthorize(request, mockKV)
 
         expect(response.headers.get('x-frame-options')).toBe('DENY')
         expect(response.headers.get('x-content-type-options')).toBe('nosniff')
         expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+        expect(response.headers.get('cache-control')).toBe(
+            'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+        )
     })
 })

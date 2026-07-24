@@ -1,9 +1,9 @@
 from datetime import timedelta
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,21 +14,29 @@ from posthog.schema import EventsQuery
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.product_analytics.backend.models.insight import Insight
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
+        description = "Test description"
         response = self.client.post(
             "/api/personal_api_keys",
-            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            {
+                "label": label,
+                "description": description,
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
         )
         assert response.status_code == 201
         data = response.json()
@@ -38,6 +46,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
+            "description": description,
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
@@ -50,6 +59,20 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "mask_value": data["mask_value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    def test_create_personal_api_key_normalizes_blank_description_to_null(self):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {
+                "label": "test",
+                "description": "",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["description"] is None
 
     def test_create_too_many_api_keys(self):
         for i in range(0, 10):
@@ -128,6 +151,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["insight:invalid"]})
         assert response.status_code == 400
 
+    def test_rejects_internal_scope_objects(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["clickhouse_test_cluster_perf:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid scope: clickhouse_test_cluster_perf:read"
+
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
             label="Test",
@@ -198,6 +229,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response_data[0] == {
             "id": my_key.id,
             "label": my_label,
+            "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
@@ -409,6 +441,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
@@ -422,6 +455,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_alternative_iteration_count(self):
         key_before = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(
@@ -464,7 +498,6 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    @pytest.mark.requires_secrets
     def test_does_not_interfere_with_other_auth_methods(self):
         from django.utils import timezone
 
@@ -573,7 +606,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_special_handling_for_teams_still_forbids(self):
         response = self._do_request(f"/api/projects/{self.team.id}/")
@@ -590,32 +623,23 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
-    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
-        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-
+    def test_allows_action_with_required_scopes(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert "flags" in response_data
-        assert "group_type_mapping" in response_data
-        assert "cohorts" in response_data
 
-    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+    def test_feature_flag_list_with_no_current_team(self):
+        # LegacyFeatureFlagViewSet resolves the project from the token when the user
+        # has no current_team (param_derived_from_user_current_team), so the list route
+        # must still work in that case.
         original_team = self.user.current_team
-
         try:
             self.user.current_team = None
             self.user.save()
-
-            # Use team token to provide team context when user.current_team is None
-            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            response = self._do_request(f"/api/feature_flag/?token={self.team.api_token}")
             assert response.status_code == status.HTTP_200_OK
         finally:
             self.user.current_team = original_team
             self.user.save()
-
-    def test_allows_action_with_required_scopes(self):
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        assert response.status_code == status.HTTP_200_OK
 
     def test_allows_custom_error_tracking_read_action(self):
         self.key.scopes = ["error_tracking:read"]
@@ -650,7 +674,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_forbids_action_with_other_scope(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
@@ -778,6 +802,41 @@ class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'comment:read'"
 
 
+class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
+    # Regression: batch_by_distinct_ids and batch_by_uuids shipped without
+    # `required_scopes`, so APIScopePermission rejected every personal API key —
+    # even one scoped `*` — with "This action does not support personal API key
+    # access". Both are reads, so they must accept `person:read`.
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_allows_batch_endpoint_with_person_read_scope(self, action):
+        self.key.scopes = ["person:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": {}}
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_denies_batch_endpoint_without_person_scope(self, action):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'person:read'"
+
+
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
@@ -822,7 +881,7 @@ class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
 
     def _create_change_request(self):
-        from posthog.approvals.models import ChangeRequest, ChangeRequestState
+        from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 
         return ChangeRequest.objects.create(
             team=self.team,
@@ -859,7 +918,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_denies_available_filters_with_unrelated_scope(self):
         self.key.scopes = ["feature_flag:read"]
@@ -988,7 +1047,7 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         # Should not be allowed to list with API key
         response = self.client.get(f"/api/personal_api_keys/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_retrieve_personal_api_key_with_bearer_auth(self):
         # Should be allowed to get current key
@@ -1008,19 +1067,19 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
             f"/api/personal_api_keys/", {"label": "New key"}, **self._get_auth_headers(self.api_key_value)
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_update_personal_api_key_with_bearer_auth(self):
         response = self.client.patch(
             f"/api/personal_api_keys/@current/", {"label": "Updated key"}, **self._get_auth_headers(self.api_key_value)
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_delete_personal_api_key_with_bearer_auth(self):
         response = self.client.delete(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_invalid_bearer_token(self):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))

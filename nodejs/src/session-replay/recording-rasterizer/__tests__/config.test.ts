@@ -1,5 +1,10 @@
-import { buildCaptureConfig, buildPlayerConfig, validateInput } from '../capture/config'
-import { RasterizeRecordingInput } from '../types'
+import {
+    buildCaptureConfig,
+    buildPlayerConfig,
+    validateInput,
+} from '~/session-replay/recording-rasterizer/capture/config'
+import { parseList } from '~/session-replay/recording-rasterizer/config'
+import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
     return {
@@ -12,6 +17,35 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 }
 
 describe('config', () => {
+    describe('parseList', () => {
+        it.each([
+            { text: undefined, expected: [] },
+            { text: '', expected: [] },
+            { text: 'a,b, c ', expected: ['a', 'b', 'c'] },
+            { text: 'a,,b', expected: ['a', '', 'b'] },
+        ])('parses $text', ({ text, expected }) => {
+            expect(parseList(text)).toEqual(expected)
+        })
+
+        it('filters empty fallback keys from config', async () => {
+            const originalFallbackKeys = process.env.TEMPORAL_FALLBACK_SECRET_KEYS
+            process.env.TEMPORAL_FALLBACK_SECRET_KEYS = 'a,,b,'
+
+            try {
+                jest.resetModules()
+                const { config } = await import('~/session-replay/recording-rasterizer/config.js')
+                expect(config.fallbackKeys).toEqual(['a', 'b'])
+            } finally {
+                if (originalFallbackKeys === undefined) {
+                    delete process.env.TEMPORAL_FALLBACK_SECRET_KEYS
+                } else {
+                    process.env.TEMPORAL_FALLBACK_SECRET_KEYS = originalFallbackKeys
+                }
+                jest.resetModules()
+            }
+        })
+    })
+
     describe('validateInput', () => {
         it('accepts valid input', () => {
             expect(() => validateInput(baseInput())).not.toThrow()
@@ -103,24 +137,60 @@ describe('config', () => {
         describe('ffmpeg filters', () => {
             it('adds setpts and fps filters when playback speed > 1', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 8 }))
-                expect(config.ffmpegVideoFilters).toEqual(['setpts=8*PTS', 'fps=24'])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=8*PTS', 'fps=24'])
             })
 
-            it('no video filters at 1x speed', () => {
+            it('pads to even dimensions at 1x speed', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 1 }))
-                expect(config.ffmpegVideoFilters).toEqual([])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2'])
             })
 
-            it('always includes baseline output opts', () => {
+            it('includes MP4 baseline output opts by default', () => {
                 const config = buildCaptureConfig(baseInput())
+                expect(config.outputFormat).toBe('mp4')
+                expect(config.ffmpegOutputOpts).toContain('-f mp4')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libx264')
+                expect(config.ffmpegOutputOpts).toContain('-preset veryfast')
                 expect(config.ffmpegOutputOpts).toContain('-crf 23')
                 expect(config.ffmpegOutputOpts).toContain('-pix_fmt yuv420p')
                 expect(config.ffmpegOutputOpts).toContain('-movflags +faststart')
             })
 
+            it('uses VP9 output opts for WebM format', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'webm' }))
+                expect(config.outputFormat).toBe('webm')
+                expect(config.ffmpegOutputOpts).toContain('-f webm')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libvpx-vp9')
+                expect(config.ffmpegOutputOpts).toContain('-crf 30')
+                expect(config.ffmpegOutputOpts).toContain('-b:v 0')
+                expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+            })
+
+            it('adds trim to WebM output opts', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'webm', trim: 30 }))
+                expect(config.ffmpegOutputOpts).toContain('-t 30')
+                expect(config.ffmpegOutputOpts).toContain('-c:v libvpx-vp9')
+            })
+
+            it('uses GIF output opts with palette generation', () => {
+                const config = buildCaptureConfig(baseInput({ output_format: 'gif' }))
+                expect(config.outputFormat).toBe('gif')
+                expect(config.ffmpegOutputOpts).toContain('-f gif')
+                expect(config.ffmpegOutputOpts).toContain('-c:v gif')
+                expect(config.ffmpegOutputOpts).toContain('-loop')
+                expect(config.ffmpegOutputOpts).toContain('0')
+                expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+                expect(config.ffmpegVideoFilters).not.toContain('pad=ceil(iw/2)*2:ceil(ih/2)*2')
+                expect(config.ffmpegVideoFilters).toContain('scale=800:-2:flags=lanczos')
+                expect(config.ffmpegVideoFilters).toContain('fps=12')
+                expect(config.ffmpegVideoFilters).toContain(
+                    'split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle'
+                )
+            })
+
             it.each([
-                { speed: 1.5, expected: ['setpts=1.5*PTS', 'fps=24'] },
-                { speed: 2.5, expected: ['setpts=2.5*PTS', 'fps=24'] },
+                { speed: 1.5, expected: ['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=1.5*PTS', 'fps=24'] },
+                { speed: 2.5, expected: ['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=2.5*PTS', 'fps=24'] },
             ])('adds setpts and fps filters for fractional speed $speed', ({ speed, expected }) => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: speed }))
                 expect(config.ffmpegVideoFilters).toEqual(expected)
@@ -141,12 +211,44 @@ describe('config', () => {
             it('handles very high playback speed', () => {
                 const config = buildCaptureConfig(baseInput({ playback_speed: 100, recording_fps: 3 }))
                 expect(config.captureFps).toBe(300)
-                expect(config.ffmpegVideoFilters).toEqual(['setpts=100*PTS', 'fps=3'])
+                expect(config.ffmpegVideoFilters).toEqual(['pad=ceil(iw/2)*2:ceil(ih/2)*2', 'setpts=100*PTS', 'fps=3'])
             })
 
             it('trim=1 produces trimFrameLimit equal to outputFps', () => {
                 const config = buildCaptureConfig(baseInput({ trim: 1, recording_fps: 24 }))
                 expect(config.trimFrameLimit).toBe(24)
+            })
+        })
+
+        describe('ffmpeg argument safety', () => {
+            it.each([
+                { field: 'trim', value: Infinity },
+                { field: 'trim', value: '10 -i /etc/passwd' },
+                { field: 'trim', value: 'not-a-number' },
+                { field: 'playback_speed', value: Infinity },
+                { field: 'playback_speed', value: '8 -vf evil' },
+                { field: 'playback_speed', value: 'NaN' },
+                { field: 'recording_fps', value: Infinity },
+                { field: 'recording_fps', value: '24; rm -rf /' },
+                { field: 'recording_fps', value: 'abc' },
+            ])('throws on non-finite $field=$value before it reaches an ffmpeg arg', ({ field, value }) => {
+                expect(() => buildCaptureConfig(baseInput({ [field]: value as any }))).toThrow(
+                    'must be a finite number'
+                )
+            })
+
+            it('emits the -t value as a single numeric token (no embedded flags)', () => {
+                const config = buildCaptureConfig(baseInput({ trim: 60 }))
+                const tOpt = config.ffmpegOutputOpts.find((o) => o.startsWith('-t'))
+                // Exactly two space-separated tokens → fluent-ffmpeg passes ['-t', '60'],
+                // so an attacker can never split the value into extra ffmpeg arguments.
+                expect(tOpt!.split(' ')).toEqual(['-t', '60'])
+            })
+
+            it('interpolates speed/fps as bare numbers into the filtergraph', () => {
+                const config = buildCaptureConfig(baseInput({ playback_speed: 8, recording_fps: 24 }))
+                expect(config.ffmpegVideoFilters).toContain('setpts=8*PTS')
+                expect(config.ffmpegVideoFilters).toContain('fps=24')
             })
         })
     })
@@ -169,20 +271,16 @@ describe('config', () => {
             expect(result.showMetadataFooter).toBe(true)
         })
 
-        it('passes startTimestamp and endTimestamp', () => {
-            const result = buildPlayerConfig(
-                baseInput({ start_timestamp: 1700000000000, end_timestamp: 1700000060000 }),
-                4,
-                5
-            )
-            expect(result.startTimestamp).toBe(1700000000000)
-            expect(result.endTimestamp).toBe(1700000060000)
+        it('passes startOffsetS and endOffsetS', () => {
+            const result = buildPlayerConfig(baseInput({ start_offset_s: 10, end_offset_s: 70 }), 4, 5)
+            expect(result.startOffsetS).toBe(10)
+            expect(result.endOffsetS).toBe(70)
         })
 
-        it('omits startTimestamp and endTimestamp when not provided', () => {
+        it('omits startOffsetS and endOffsetS when not provided', () => {
             const result = buildPlayerConfig(baseInput(), 4, 5)
-            expect(result.startTimestamp).toBeUndefined()
-            expect(result.endTimestamp).toBeUndefined()
+            expect(result.startOffsetS).toBeUndefined()
+            expect(result.endOffsetS).toBeUndefined()
         })
 
         it('passes skipInactivity=false when explicitly disabled', () => {

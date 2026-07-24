@@ -10,7 +10,7 @@ from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONT
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS, SESSION_SUMMARY_EVENT_BLOCKLIST
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
@@ -53,43 +53,43 @@ def get_session_events(
     Get session events with pagination to handle large sessions.
     Returns combined results from all pages up to max_pages.
     """
-    events_to_ignore = ["$feature_flag_called"]
+    events_to_ignore = list(SESSION_SUMMARY_EVENT_BLOCKLIST)
     extra_fields = EXTRA_SUMMARY_EVENT_FIELDS
     # Collect all events and columns from all pages
     all_events = []
     columns = None
     events_obj = SessionReplayEvents()
-    for page in range(max_pages):
+    for page_number in range(max_pages):
         if not local_reads_prod:
             team = get_team(team_id=team_id)
-            page_columns, page_events = events_obj.get_events(
+            page = events_obj.get_events(
                 session_id=str(session_id),
                 team=team,
                 metadata=session_metadata,
                 events_to_ignore=events_to_ignore,
                 extra_fields=extra_fields,
                 limit=items_per_page,
-                page=page,
+                page=page_number,
             )
         else:
-            page_columns, page_events = _get_production_session_events_locally(
+            page = _get_production_session_events_locally(
                 events_obj=events_obj,
                 session_id=str(session_id),
                 metadata=session_metadata,
                 events_to_ignore=events_to_ignore,
                 extra_fields=extra_fields,
                 limit=items_per_page,
-                page=page,
+                page=page_number,
             )
         # Expect columns to be exact for all the page as we don't change the query
-        if page_columns and not columns:
-            columns = page_columns
+        if page.columns and not columns:
+            columns = page.columns
         # Avoid the next page if no events are returned
-        if not page_events:
+        if not page.rows:
             break
-        all_events.extend(page_events)
+        all_events.extend(page.rows)
         # Or we got less than the page size (reached the end)
-        if len(page_events) < items_per_page:
+        if len(page.rows) < items_per_page:
             break
     if not columns:
         msg = f"No columns found for session_id {session_id}"

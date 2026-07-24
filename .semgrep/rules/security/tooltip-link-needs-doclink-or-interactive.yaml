@@ -1,0 +1,69 @@
+rules:
+    - id: tooltip-link-needs-doclink-or-interactive
+      message: >-
+          This `<Tooltip>` renders a `<Link>` inside its `title` prop but has neither
+          `docLink` nor `interactive` set. The shared Tooltip defaults `interactive`
+          to `false`, which passes `disableHoverablePopup={true}` to base-ui — the
+          popup is not a valid hover target, so the cursor leaves the trigger before
+          it can reach the link. The link is effectively unreachable.
+
+          Fix:
+
+          - If the link is a PostHog docs URL, use the `docLink` prop. It auto-enables
+            `interactive`, renders the canonical "Read the docs" link, and attaches
+            the standard `clicked tooltip doc link` autocapture:
+            `<Tooltip docLink="https://posthog.com/docs/..." title="...">...</Tooltip>`
+
+          - If the link points to an internal app page (settings, urls.*) or fires
+            an action, add `interactive` so the popup becomes hoverable:
+            `<Tooltip interactive title={<>... <Link to={...}>...</Link></>}>...</Tooltip>`
+
+          Note: `closeDelayMs` extends the close timer but does NOT make the popup
+          hoverable. It is not a substitute for `interactive`.
+
+          If a particular call site is intentionally non-hoverable (e.g. the Link is
+          purely decorative and unreachable on purpose), add a `// nosemgrep: tooltip-link-needs-doclink-or-interactive`
+          comment above it with a brief justification.
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          # Match <Tooltip ... title={$TITLE} ...>...</Tooltip>, then run a
+          # fresh Semgrep search inside the binding of $TITLE looking for a
+          # <Link> or <a>. metavariable-pattern descends through the JSX AST,
+          # so this catches Links nested at any depth inside the title
+          # expression — including the audit case with two <div> layers
+          # between the Fragment root and the <Link>.
+          - pattern: <Tooltip ... title={$TITLE} ...>$...CHILDREN</Tooltip>
+          - metavariable-pattern:
+                metavariable: $TITLE
+                patterns:
+                    - pattern-either:
+                          - pattern: <Link ...>...</Link>
+                          - pattern: <a ...>...</a>
+          # Structural `pattern-not: <Tooltip ... interactive ... title={$T} ...>`
+          # in Semgrep does not reliably expand `...` to zero JSX attributes,
+          # so call sites where `interactive`/`docLink` is the first prop are
+          # not excluded. Drop to a text-level exclusion: if the matched
+          # source text contains `interactive` or `docLink` as a whole word,
+          # the developer has acknowledged hoverability — even an explicit
+          # `interactive={false}` is a deliberate choice, and `interactive={dynamic}`
+          # at least signals intent. `closeDelayMs` is intentionally NOT in
+          # this list: it extends the close timer but does not make the popup
+          # hoverable, so tooltips relying on it as a workaround still fire.
+          - pattern-not-regex: '\binteractive\b'
+          - pattern-not-regex: '\bdocLink\b'
+      paths:
+          include:
+              - 'frontend/'
+              - 'products/'
+          exclude:
+              - '**/*.test.tsx'
+              - '**/*.test.ts'
+              - '**/*.spec.tsx'
+              - '**/*.spec.ts'
+              - '**/*.stories.tsx'
+      metadata:
+          category: correctness
+          technology:
+              - react
+              - posthog

@@ -14,10 +14,23 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process logging (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all phrocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the phrocs process key (see `bin/mprocs.yaml`).
+Where logs land depends on how the stack was launched:
+
+**Detached (`hogli up -d`)** — phrocs writes files under `.posthog/.generated/logs/` on every boot:
+
+- `phrocs.log` — the daemon's own stdio; the place to look when phrocs died at startup and the phrocs MCP tools are unreachable.
+- `<process>.log` — per-process output (truncated on each start), where `<process>` matches the phrocs process key (see `bin/mprocs.yaml`).
+- `hogli doctor:report` prints the `phrocs.log` path and tails its last lines.
+
+**TUI with `hogli dev:setup --log`, then `hogli start`** — adds a tee wrap per process:
+
+- `/tmp/posthog-<process>.log` — full stdout+stderr; persists in the generated config until `dev:setup` is re-run without `--log`.
+
+When the phrocs MCP is reachable, prefer `mcp__phrocs__get_process_logs` over grepping files.
 
 ## Key references
 
-- `common/hogli/manifest.yaml` — command definitions (source of truth)
-- `common/hogli/commands.py` — extension point for custom Click commands
-- `common/hogli/README.md` — full developer and architecture docs
+- `hogli.yaml` — command definitions (source of truth)
+- `tools/hogli-commands/hogli_commands/` — PostHog-specific lazy Click command modules
+- `tools/hogli/README.md` — framework documentation
+- `tools/hogli-commands/README.md` — PostHog commands documentation

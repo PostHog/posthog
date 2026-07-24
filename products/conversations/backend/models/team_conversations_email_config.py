@@ -31,11 +31,28 @@ class EmailChannel(UUIDModel):
     domain_verified = models.BooleanField(default=False)
     dns_records = models.JSONField(default=dict, blank=True)
 
+    # The team's primary channel — used as the send-from identity when a channel isn't chosen
+    # explicitly (e.g. tickets opened from the widget). At most one per team (partial constraint below).
+    is_default = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def mark_domain_unverified(self) -> None:
+        """Flip domain_verified off after Mailgun reports the domain is no longer
+        registered. Single source of truth — called from the send-reply task and
+        the test-send view when send_mime raises MailgunDomainNotRegistered.
+        """
+        self.domain_verified = False
+        self.save(update_fields=["domain_verified"])
 
     class Meta:
         app_label = "conversations"
         db_table = "posthog_conversations_email_channel"
         constraints = [
             models.UniqueConstraint(fields=["from_email"], name="unique_email_channel_from_email"),
+            models.UniqueConstraint(
+                fields=["team"],
+                condition=models.Q(is_default=True),
+                name="unique_default_email_channel_per_team",
+            ),
         ]

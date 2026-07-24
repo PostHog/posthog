@@ -41,7 +41,7 @@ export const getProductToursListUrl = (projectId: string, params?: ProductToursL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -52,6 +52,9 @@ export const getProductToursListUrl = (projectId: string, params?: ProductToursL
         : `/api/projects/${projectId}/product_tours/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursList = async (
     projectId: string,
     params?: ProductToursListParams,
@@ -67,6 +70,9 @@ export const getProductToursCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/product_tours/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursCreate = async (
     projectId: string,
     productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
@@ -84,6 +90,9 @@ export const getProductToursRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursRetrieve = async (
     projectId: string,
     id: string,
@@ -99,6 +108,9 @@ export const getProductToursUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursUpdate = async (
     projectId: string,
     id: string,
@@ -117,10 +129,13 @@ export const getProductToursPartialUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedProductTourSerializerCreateUpdateOnlyApi: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
+    patchedProductTourSerializerCreateUpdateOnlyApi?: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
     return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursPartialUpdateUrl(projectId, id), {
@@ -135,6 +150,9 @@ export const getProductToursDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getProductToursDestroyUrl(projectId, id), {
         ...options,
@@ -142,13 +160,13 @@ export const productToursDestroy = async (projectId: string, id: string, options
     })
 }
 
-/**
- * Discard draft content.
- */
 export const getProductToursDiscardDraftDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/discard_draft/`
 }
 
+/**
+ * Discard draft content.
+ */
 export const productToursDiscardDraftDestroy = async (
     projectId: string,
     id: string,
@@ -160,17 +178,17 @@ export const productToursDiscardDraftDestroy = async (
     })
 }
 
-/**
- * Save draft content (server-side merge). No side effects triggered.
- */
 export const getProductToursDraftPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/draft/`
 }
 
+/**
+ * Save draft content (server-side merge). No side effects triggered.
+ */
 export const productToursDraftPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedProductTourSerializerCreateUpdateOnlyApi: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
+    patchedProductTourSerializerCreateUpdateOnlyApi?: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<ProductTourApi> => {
     return apiMutator<ProductTourApi>(getProductToursDraftPartialUpdateUrl(projectId, id), {
@@ -181,13 +199,13 @@ export const productToursDraftPartialUpdate = async (
     })
 }
 
-/**
- * Lightweight polling endpoint for draft change detection.
- */
 export const getProductToursDraftStatusRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/draft_status/`
 }
 
+/**
+ * Lightweight polling endpoint for draft change detection.
+ */
 export const productToursDraftStatusRetrieve = async (
     projectId: string,
     id: string,
@@ -199,17 +217,17 @@ export const productToursDraftStatusRetrieve = async (
     })
 }
 
-/**
- * Generate tour step content using AI.
- */
 export const getProductToursGenerateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/generate/`
 }
 
+/**
+ * Generate tour step content using AI.
+ */
 export const productToursGenerateCreate = async (
     projectId: string,
     id: string,
-    generateRequestApi: GenerateRequestApi,
+    generateRequestApi?: GenerateRequestApi,
     options?: RequestInit
 ): Promise<GenerateResponseApi> => {
     return apiMutator<GenerateResponseApi>(getProductToursGenerateCreateUrl(projectId, id), {
@@ -220,16 +238,16 @@ export const productToursGenerateCreate = async (
     })
 }
 
-/**
- * Commit draft to live tour. Runs full validation and triggers side effects.
-
-Accepts an optional body payload. If provided, merges it into the draft
-before publishing so the caller can save + publish in a single request.
- */
 export const getProductToursPublishDraftCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/publish_draft/`
 }
 
+/**
+ * Commit draft to live tour. Runs full validation and triggers side effects.
+ *
+ * Accepts an optional body payload. If provided, merges it into the draft
+ * before publishing so the caller can save + publish in a single request.
+ */
 export const productToursPublishDraftCreate = async (
     projectId: string,
     id: string,

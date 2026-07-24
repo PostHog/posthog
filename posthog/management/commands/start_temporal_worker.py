@@ -6,6 +6,7 @@ import datetime as dt
 import functools
 import threading
 import faulthandler
+import collections.abc
 from collections import defaultdict
 
 import structlog
@@ -19,10 +20,22 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+)
+from posthog.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
+)
+from posthog.temporal.backfill_group_type_created_at import (
+    ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
+    WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
 )
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
@@ -32,19 +45,19 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
-from posthog.temporal.data_imports.settings import (
-    ACTIVITIES as DATA_SYNC_ACTIVITIES,
-    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
-    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-    WORKFLOWS as DATA_SYNC_WORKFLOWS,
-)
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
+)
+from posthog.temporal.delete_teams import (
+    ACTIVITIES as DELETE_TEAMS_ACTIVITIES,
+    WORKFLOWS as DELETE_TEAMS_WORKFLOWS,
 )
 from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
@@ -66,10 +79,6 @@ from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
     WORKFLOWS as EXPORT_WORKFLOWS,
 )
-from posthog.temporal.exports_video import (
-    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
-    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
-)
 from posthog.temporal.health_checks import (
     ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
     WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
@@ -78,13 +87,9 @@ from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
 )
-from posthog.temporal.llm_analytics import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+from posthog.temporal.mcp_analytics.intent_clustering import (
+    MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
@@ -106,31 +111,49 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
-from posthog.temporal.session_replay.delete_recordings import (
-    ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
-    WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
+from posthog.temporal.session_replay.count_playlist_items import (
+    COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    COUNT_PLAYLIST_ITEMS_WORKFLOWS,
 )
+from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_ACTIVITIES, DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import (
-    ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
-    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+    ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+    ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.export_recording import (
-    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
-)
-from posthog.temporal.session_replay.import_recording import (
-    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
+from posthog.temporal.session_replay.gemini_cleanup_sweep import (
+    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
+    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.session_replay.rasterize_recording import (
-    ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
-    WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
+    RASTERIZE_RECORDING_ACTIVITIES,
+    RASTERIZE_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.replay_count_metrics import (
+    REPLAY_COUNT_METRICS_ACTIVITIES,
+    REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
-from posthog.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+from posthog.temporal.session_replay.session_summary_group import (
+    SESSION_SUMMARY_GROUP_ACTIVITIES,
+    SESSION_SUMMARY_GROUP_WORKFLOWS,
 )
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
+from posthog.temporal.session_replay.surfacing_score_export_sweep import (
+    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
+    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
+)
+from posthog.temporal.session_replay.surfacing_scoring_sweep import (
+    SURFACING_SCORING_SWEEP_ACTIVITIES,
+    SURFACING_SCORING_SWEEP_WORKFLOWS,
+)
+from posthog.temporal.signup_enrichment import (
+    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
+)
+from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -139,9 +162,13 @@ from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
 )
-from posthog.temporal.usage_reports import (
+from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+from posthog.temporal.warehouse_sources_queue_partition_management import (
+    ACTIVITIES as WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
 )
 from posthog.temporal.weekly_digest import (
     ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
@@ -152,17 +179,87 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-from products.logs.backend.temporal import (
+from products.business_knowledge.backend.temporal import (
+    ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
+    WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.conversations.backend.temporal import (
+    ACTIVITIES as CONVERSATIONS_ACTIVITIES,
+    WORKFLOWS as CONVERSATIONS_WORKFLOWS,
+)
+from products.engineering_analytics.backend.facade.temporal import (
+    CI_SIGNALS_ACTIVITIES,
+    CI_SIGNALS_WORKFLOWS,
+    JOB_LOGS_ACTIVITIES,
+    JOB_LOGS_WORKFLOWS,
+)
+from products.error_tracking.backend.facade.temporal import (
+    ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
+    WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
+)
+from products.experiments.backend.temporal import (
+    ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_CANARY_ACTIVITIES,
+    EXPERIMENT_CANARY_WORKFLOWS,
+    WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
+)
+from products.exports.backend.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.notebooks.backend.facade.temporal import (
+    ACTIVITIES as NOTEBOOKS_ACTIVITIES,
+    WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.pulse.backend.temporal.registry import (
+    ACTIVITIES as PULSE_ACTIVITIES,
+    WORKFLOWS as PULSE_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
+from products.review_hog.backend.temporal import (
+    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
+    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
+)
+from products.signals.backend.emission.temporal_settings import (
+    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
-from products.tasks.backend.temporal import (
+from products.stamphog.backend.facade.temporal import (
+    ACTIVITIES as STAMPHOG_ACTIVITIES,
+    WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.warehouse_sources.backend.facade.temporal import (
+    ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+    PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+    PERSON_PROPERTY_SYNC_ACTIVITIES,
+    PERSON_PROPERTY_SYNC_WORKFLOWS,
+    WORKFLOWS as DATA_SYNC_WORKFLOWS,
+    load_all_sources,
+)
+from products.web_analytics.backend.temporal import (
+    ACTIVITIES as WA_DIGEST_ACTIVITIES,
+    WORKFLOWS as WA_DIGEST_WORKFLOWS,
 )
 
 # When adding modules to a queue, also update the corresponding CI trigger
@@ -189,6 +286,17 @@ _task_queue_specs = [
         DATA_SYNC_ACTIVITIES,
     ),
     (
+        settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS
+        + SEMANTIC_ENRICHMENT_WORKFLOWS
+        + PERSON_PROPERTY_SYNC_WORKFLOWS
+        + PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES
+        + SEMANTIC_ENRICHMENT_ACTIVITIES
+        + PERSON_PROPERTY_SYNC_ACTIVITIES
+        + PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+    ),
+    (
         settings.DATA_MODELING_TASK_QUEUE,
         DATA_MODELING_WORKFLOWS,
         DATA_MODELING_ACTIVITIES,
@@ -197,18 +305,26 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
-        + USAGE_REPORTS_WORKFLOWS
+        + DELETE_TEAMS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
+        + EXPERIMENT_CANARY_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
+        + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
+        + SYNC_EVENTS_RETENTION_WORKFLOWS
+        + JOB_LOGS_WORKFLOWS
+        + CI_SIGNALS_WORKFLOWS
+        + NOTEBOOKS_WORKFLOWS
+        + SIGNUP_ENRICHMENT_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
-        + USAGE_REPORTS_ACTIVITIES
+        + DELETE_TEAMS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -216,8 +332,29 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
+        + EXPERIMENT_CANARY_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+        + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
+        + SYNC_EVENTS_RETENTION_ACTIVITIES
+        + JOB_LOGS_ACTIVITIES
+        + CI_SIGNALS_ACTIVITIES
+        + NOTEBOOKS_ACTIVITIES
+        + SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
+    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    (
+        settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+        SIGNUP_ENRICHMENT_WORKFLOWS,
+        SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        EXPERIMENTS_RECALCULATION_WORKFLOWS,
+        EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -231,13 +368,18 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + PULSE_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        TASKS_WORKFLOWS,
-        TASKS_ACTIVITIES,
+        # PostHog Code Slack workflows are also registered on MAX_AI_TASK_QUEUE.
+        # First step of merging them onto this queue — once master traffic has
+        # cut over and any in-flight runs have drained, drop them from
+        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
+        # products/slack_app to settings.TASKS_TASK_QUEUE.
+        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
+        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,
@@ -251,39 +393,56 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS
-        + VIDEO_SEGMENT_CLUSTERING_WORKFLOWS
-        + SIGNALS_PRODUCT_WORKFLOWS
-        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES
-        + VIDEO_SEGMENT_CLUSTERING_ACTIVITIES
-        + SIGNALS_PRODUCT_ACTIVITIES
-        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS
+        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
+        + BUSINESS_KNOWLEDGE_WORKFLOWS
+        + CONVERSATIONS_WORKFLOWS
+        + REVIEW_HOG_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES
+        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
+        + BUSINESS_KNOWLEDGE_ACTIVITIES
+        + CONVERSATIONS_ACTIVITIES
+        + REVIEW_HOG_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS
+        GEMINI_CLEANUP_SWEEP_WORKFLOWS
+        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-        + EXPORT_RECORDING_WORKFLOWS
-        + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES
+        + REPLAY_COUNT_METRICS_WORKFLOWS
+        + SESSION_SUMMARY_WORKFLOWS
+        + SESSION_SUMMARY_GROUP_WORKFLOWS
+        + SUMMARIZATION_SWEEP_WORKFLOWS
+        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
+        + SURFACING_SCORING_SWEEP_WORKFLOWS,
+        GEMINI_CLEANUP_SWEEP_ACTIVITIES
+        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
-        + EXPORT_RECORDING_ACTIVITIES
-        + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES,
+        + REPLAY_COUNT_METRICS_ACTIVITIES
+        + SESSION_SUMMARY_ACTIVITIES
+        + SESSION_SUMMARY_GROUP_ACTIVITIES
+        + SUMMARIZATION_SWEEP_ACTIVITIES
+        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
+        + SURFACING_SCORING_SWEEP_ACTIVITIES,
+    ),
+    (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS,
-        MESSAGING_ACTIVITIES,
+        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
@@ -292,18 +451,33 @@ _task_queue_specs = [
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES,
-    ),
-    (
-        settings.LLMA_SENTIMENT_TASK_QUEUE,
-        LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-        LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
         LLM_ANALYTICS_WORKFLOWS,
         LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        # Dedicated queue for MCP analytics clustering — isolates the CPU
+        # burst (cluster compute) and external embedding worker calls from
+        # the general-purpose queue that hosts the rest of mcp_analytics.
+        # Workflow + activity lists are populated as the stack lands; an
+        # empty queue is harmless — the worker registers and idles.
+        settings.MCPA_TASK_QUEUE,
+        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
+        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    ),
+    (
+        settings.ERROR_TRACKING_TASK_QUEUE,
+        ERROR_TRACKING_WORKFLOWS,
+        ERROR_TRACKING_ACTIVITIES,
+    ),
+    (
+        settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
+        ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
+        ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
@@ -314,6 +488,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.STAMPHOG_TASK_QUEUE,
+        STAMPHOG_WORKFLOWS,
+        STAMPHOG_ACTIVITIES,
     ),
 ]
 
@@ -330,6 +509,11 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+
+
+def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
+    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
+    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
 if settings.DEBUG:
@@ -465,6 +649,16 @@ class Command(BaseCommand):
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
+        # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
+        # SDKs register protobuf descriptors into a process-global pool that rejects a second
+        # registration of the same symbol. They must be imported exactly once per process. Do it here
+        # — synchronously, at worker boot, on the main thread — for any queue that runs data syncs.
+        # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
+        # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
+        # import the vendor SDKs, so they keep their fast startup.
+        if workflows_include_data_import_syncs(workflows):
+            load_all_sources()
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
@@ -480,10 +674,18 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI and tasks-agent traces span the Django request and the Temporal activity that runs
+        # the agent loop. Without the OTel plugin on the worker, every span emitted from an activity
+        # is a root span and the conversation trace splits across disconnected pieces. Force-enable
+        # for both queues so investigations don't depend on an operator flipping
+        # TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
+            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
-            initialize_otel(settings.OTEL_SERVICE_NAME)  # type: ignore
+            initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore
 
         async def shutdown_all(
             worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
@@ -520,8 +722,9 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
+            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
-            configure_logger(loop=loop)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -537,6 +740,15 @@ class Command(BaseCommand):
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
+
+            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
+                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
+
+                # Best-effort: surfacing shares this queue with the rest of the
+                # session-replay worker, so a model problem must not crash the
+                # pod. It logs and continues; scoring activities retry until the
+                # model is fixed.
+                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(

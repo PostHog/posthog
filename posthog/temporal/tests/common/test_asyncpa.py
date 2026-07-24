@@ -44,7 +44,7 @@ def generate_record_batches(total_records: int = 1_000, total_batches: int = 10,
         iter(
             [
                 pa.RecordBatch.from_arrays(
-                    [  # type: ignore
+                    [
                         pa.array([2, 2, 4, 4, 5, 100]),
                         pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"]),
                     ],
@@ -86,6 +86,7 @@ async def test_record_batch_reader_reads_record_batches(record_batches: collecti
 
         _ = buffer.seek(0)
 
+        assert await reader.get_schema() == first_batch.schema
         read_batch = await anext(reader)
 
         assert first_batch == read_batch

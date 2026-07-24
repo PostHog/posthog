@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import {
     DangerousOperationResponse,
@@ -11,10 +11,18 @@ import {
     MultiQuestionFormQuestion,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { MarkdownMessage } from '../MarkdownMessage'
+import {
+    isFieldValid,
+    MarkdownMessage,
+    MultiFieldQuestion,
+    type Option,
+    OptionSelector,
+    PermissionInput,
+    QuestionField,
+    QuestionInput,
+} from 'products/posthog_ai/frontend/api/primitives'
+
 import { maxThreadLogic } from '../maxThreadLogic'
-import { Option, OptionSelector } from './OptionSelector'
-import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,
@@ -32,6 +40,15 @@ function isQuestionComplete(
             return false
         }
         return q.fields.every((field) => isFieldValid(field, answers[field.id]))
+    }
+    if (q.type === 'multi_select') {
+        // Multi_select questions accumulate selections before submission.
+        // Require explicit confirmation like multi_field questions.
+        if (!confirmedQuestions?.has(q.id)) {
+            return false
+        }
+        const val = answers[q.id]
+        return Array.isArray(val) && val.length > 0
     }
     return answers[q.id] !== undefined
 }
@@ -150,12 +167,21 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
     )
 
     const handleSingleFieldAnswer = useCallback(
-        (value: string | string[]) => {
+        (value: string | string[] | null) => {
             const nextSkippedQuestions = removeQuestionFromSet(currentQuestion.id, skippedQuestionsRef.current)
             if (nextSkippedQuestions !== skippedQuestionsRef.current) {
                 setSkippedQuestions(nextSkippedQuestions)
                 skippedQuestionsRef.current = nextSkippedQuestions
             }
+
+            if (value === null) {
+                const updatedAnswers = { ...answersRef.current }
+                delete updatedAnswers[currentQuestion.id]
+                setAnswers(updatedAnswers)
+                answersRef.current = updatedAnswers
+                return
+            }
+
             const updatedAnswers = { ...answersRef.current, [currentQuestion.id]: value }
             setAnswers(updatedAnswers)
             advanceToNextQuestion(updatedAnswers, confirmedQuestionsRef.current, nextSkippedQuestions)
@@ -171,6 +197,25 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
                 skippedQuestionsRef.current = nextSkippedQuestions
             }
             setAnswers((prev) => ({ ...prev, [fieldId]: value }))
+        },
+        [currentQuestion.id]
+    )
+
+    const handleMultiSelectChange = useCallback(
+        (value: string[]) => {
+            const nextSkippedQuestions = removeQuestionFromSet(currentQuestion.id, skippedQuestionsRef.current)
+            if (nextSkippedQuestions !== skippedQuestionsRef.current) {
+                setSkippedQuestions(nextSkippedQuestions)
+                skippedQuestionsRef.current = nextSkippedQuestions
+            }
+            const nextConfirmedQuestions = removeQuestionFromSet(currentQuestion.id, confirmedQuestionsRef.current)
+            if (nextConfirmedQuestions !== confirmedQuestionsRef.current) {
+                setConfirmedQuestions(nextConfirmedQuestions)
+                confirmedQuestionsRef.current = nextConfirmedQuestions
+            }
+            const updatedAnswers = { ...answersRef.current, [currentQuestion.id]: value }
+            setAnswers(updatedAnswers)
+            answersRef.current = updatedAnswers
         },
         [currentQuestion.id]
     )
@@ -228,27 +273,30 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
 
     return (
         <div className="flex flex-col gap-2 p-3">
-            <div className="flex justify-end">
-                <LemonButton size="xsmall" type="tertiary" icon={<IconX />} onClick={handleDismissForm}>
-                    Dismiss form
-                </LemonButton>
-            </div>
             {questions.length > 1 && (
-                <div className="w-full">
-                    <LemonTabs
-                        size="xsmall"
-                        activeKey={currentQuestionIndex}
-                        onChange={handleTabClick}
-                        tabs={questions.map((question, index) => {
-                            return {
-                                key: index,
-                                label: question.title,
-                                completed: isQuestionComplete(question, answers, confirmedQuestions, skippedQuestions),
-                            }
-                        })}
-                        className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3 -mt-2.5"
-                    />
-                </div>
+                <LemonTabs
+                    size="xsmall"
+                    activeKey={currentQuestionIndex}
+                    onChange={handleTabClick}
+                    tabs={questions.map((question, index) => {
+                        return {
+                            key: index,
+                            label: question.title,
+                            completed: isQuestionComplete(question, answers, confirmedQuestions, skippedQuestions),
+                        }
+                    })}
+                    className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3 -mt-2.5"
+                    rightSlot={
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            icon={<IconX />}
+                            onClick={handleDismissForm}
+                            aria-label="Dismiss form"
+                        />
+                    }
+                    rightSlotClassName="pr-1 bg-unset"
+                />
             )}
             <div
                 className="transition-[height] duration-150 motion-reduce:transition-none"
@@ -284,6 +332,8 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
                                         question={q}
                                         value={answers[q.id]}
                                         onAnswer={handleSingleFieldAnswer}
+                                        onChange={handleMultiSelectChange}
+                                        onSubmit={handleMultiFieldSubmit}
                                         onSkip={handleSkipQuestion}
                                         submitLabel={allQuestionsCompleted ? 'Submit' : 'Next'}
                                     />
@@ -310,7 +360,7 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
         { label: 'Reject this operation', value: 'reject', icon: <IconX /> },
     ]
 
-    const handleSelect = (value: string): void => {
+    const handleSelect = (value: string | null): void => {
         if (value === 'approve') {
             setStatus('approving')
             continueAfterApproval(operation.proposalId)
@@ -360,10 +410,37 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
     )
 }
 
+/**
+ * Compact badge showing the active ACP permission mode (e.g. plan vs default) for sandbox
+ * conversations. Hidden when no mode has been reported. Reads the mode via `maxThreadLogic`'s
+ * alias — this renders outside ThreadView's BindLogic subtree, so it cannot bind the keyed
+ * stream logic itself.
+ */
+export function SandboxModeBadge(): JSX.Element | null {
+    const { conversation, sandboxCurrentMode } = useValues(maxThreadLogic)
+
+    if (conversation?.agent_runtime !== 'sandbox' || !sandboxCurrentMode) {
+        return null
+    }
+
+    const isPlan = sandboxCurrentMode === 'plan'
+    return (
+        <LemonTag size="small" type={isPlan ? 'highlight' : 'muted'}>
+            {isPlan ? 'Plan mode' : 'Default mode'}
+        </LemonTag>
+    )
+}
+
 export function InputFormArea(): JSX.Element | null {
     // Use raw state values instead of selector to ensure re-renders on state changes
-    const { activeMultiQuestionForm, pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses } =
-        useValues(maxThreadLogic)
+    const {
+        activeMultiQuestionForm,
+        pendingApprovalProposalId,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        sandboxConversationKey,
+        pendingSandboxPermissionRequest,
+    } = useValues(maxThreadLogic)
 
     // Build the approval object to display - only show if not yet resolved
     // Resolved approvals are shown as summaries in the chat thread, not in the input area
@@ -387,6 +464,31 @@ export function InputFormArea(): JSX.Element | null {
             payload: approval.payload as Record<string, unknown>,
         }
     }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
+
+    // Sandbox permission requests take precedence in the input area, mirroring the LangGraph
+    // dangerous-operation flow but driven by runStreamLogic. A pending request only ever
+    // originates from the sandbox stream, so its presence is sufficient — gating on `agent_runtime`
+    // would strand approvals on new conversations whose runtime isn't resolved yet.
+    if (pendingSandboxPermissionRequest) {
+        // An `AskUserQuestion` rides the same permission rails but is a question, not an approval —
+        // render the interactive question overlay instead of the approve/decline card.
+        if (pendingSandboxPermissionRequest.questions?.length) {
+            return (
+                <QuestionInput
+                    key={pendingSandboxPermissionRequest.requestId}
+                    streamKey={sandboxConversationKey}
+                    request={pendingSandboxPermissionRequest}
+                />
+            )
+        }
+        return (
+            <PermissionInput
+                key={pendingSandboxPermissionRequest.requestId}
+                streamKey={sandboxConversationKey}
+                request={pendingSandboxPermissionRequest}
+            />
+        )
+    }
 
     if (activeDangerousOperationApproval) {
         return (

@@ -1,5 +1,5 @@
 use crate::{
-    config_cache::get_cached_data,
+    config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
     sanitize::sanitize_config_for_client,
     token::{Token, TokenError},
@@ -50,7 +50,14 @@ fn parse_token(raw: &str) -> Result<Token, Response> {
 ///
 /// The `Token` type guarantees format validity at construction time.
 async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, Response> {
-    match get_cached_data(&state.config_hypercache_reader, token.as_str()).await {
+    match get_cached_data(
+        &state.config_hypercache_reader,
+        state.config_negative_cache.as_ref(),
+        CacheNamespace::Array,
+        token.as_str(),
+    )
+    .await
+    {
         Some(value) => {
             inc(
                 REMOTE_CONFIG_COUNTER,
@@ -272,8 +279,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_invalid_token_returns_400() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/token.with.dots/config").await;
@@ -282,8 +289,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_missing_returns_404() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/phc_unknown/config").await;
@@ -304,8 +311,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body, headers) =
@@ -340,8 +347,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body) = get(&router, &format!("/array/{token}/config")).await;
@@ -372,8 +379,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body, headers) =
@@ -396,11 +403,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_js_missing_returns_404() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/phc_unknown/config.js").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_negative_cache_short_circuits_config_miss() {
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
+        let (router, _surveys_nc, config_nc) = test_router_with_negative_cache(surveys, config);
+
+        let token = "phc_neg_cache_test";
+
+        // First request: cache miss → populates negative cache, returns 404
+        let (status, _) = get(&router, &format!("/array/{token}/config")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            config_nc.contains(token),
+            "miss should populate config negative cache"
+        );
+
+        // Second request: negative cache hit → returns 404 without hitting Redis
+        let (status2, _) = get(&router, &format!("/array/{token}/config")).await;
+        assert_eq!(status2, StatusCode::NOT_FOUND);
     }
 }

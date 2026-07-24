@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -31,6 +33,9 @@ describe('mergeSplitPersonLogic', () => {
         })
         initKeaTests()
 
+        // execute() reports through eventUsageLogic, which must be mounted (in the app it always is)
+        eventUsageLogic.mount()
+
         personsLogicInstance = personsLogic({ syncWithUrl: true, urlId: URL_DISTINCT_ID })
         personsLogicInstance.mount()
 
@@ -38,9 +43,13 @@ describe('mergeSplitPersonLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        // Drain in-flight execute() calls before unmounting so their success path
+        // doesn't dispatch into an unmounted logic
+        await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
         personsLogicInstance.unmount()
+        eventUsageLogic.unmount()
     })
 
     describe('cancel', () => {
@@ -77,6 +86,41 @@ describe('mergeSplitPersonLogic', () => {
     describe('execute', () => {
         it('closes the modal on successful split', async () => {
             personsLogicInstance.actions.setSplitMergeModalShown(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.execute()
+            })
+                .toDispatchActions(['execute', 'executeSuccess'])
+                .toFinishListeners()
+
+            await expectLogic(personsLogicInstance).toMatchValues({
+                splitMergeModalShown: false,
+            })
+        })
+    })
+
+    describe('partial split', () => {
+        it('defaults to the "all" split mode with an empty distinct ID list', async () => {
+            await expectLogic(logic).toMatchValues({
+                splitMode: 'all',
+                distinctIdsToSplit: [],
+            })
+        })
+
+        it('tracks mode changes and selected distinct IDs', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSplitMode('partial')
+                logic.actions.setDistinctIdsToSplit(['user-456'])
+            }).toMatchValues({
+                splitMode: 'partial',
+                distinctIdsToSplit: ['user-456'],
+            })
+        })
+
+        it('executes successfully when partial mode has a selection', async () => {
+            personsLogicInstance.actions.setSplitMergeModalShown(true)
+            logic.actions.setSplitMode('partial')
+            logic.actions.setDistinctIdsToSplit(['user-456'])
 
             await expectLogic(logic, () => {
                 logic.actions.execute()

@@ -1,11 +1,11 @@
 import * as fs from 'fs/promises'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { rasterizeRecording } from '../capture/recorder'
-import { RasterizationError } from '../errors'
-import { uploadToS3 } from '../storage'
-import { createActivities } from '../temporal/activities'
-import { RasterizeRecordingInput, RecordingResult } from '../types'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { createActivities } from '~/session-replay/recording-rasterizer/temporal/activities'
+import { RasterizeRecordingInput, RecordingResult } from '~/session-replay/recording-rasterizer/types'
 
 jest.mock('@temporalio/activity', () => ({
     Context: {
@@ -31,10 +31,10 @@ jest.mock('@temporalio/common', () => ({
     },
 }))
 
-jest.mock('../capture/recorder')
-jest.mock('../storage')
-jest.mock('../metrics')
-jest.mock('../logger', () => ({
+jest.mock('~/session-replay/recording-rasterizer/capture/recorder')
+jest.mock('~/session-replay/recording-rasterizer/storage')
+jest.mock('~/session-replay/recording-rasterizer/metrics')
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
@@ -125,6 +125,8 @@ describe('rasterizeRecordingActivity', () => {
             expect.stringContaining('ph-video-'),
             playerHtml,
             expect.any(Function),
+            // Progress object — phase transitions to 'upload' after capture completes.
+            { phase: 'upload', frame: 0, estimatedTotalFrames: 0 },
             undefined,
             expect.any(Object)
         )
@@ -142,6 +144,7 @@ describe('rasterizeRecordingActivity', () => {
             'my-bucket',
             'exports/mp4/team-99/task-42',
             expect.any(String),
+            'mp4',
             expect.any(Function)
         )
     })

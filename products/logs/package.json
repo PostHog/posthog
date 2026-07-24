@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-logs",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -12,27 +12,35 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@posthog/products-error-tracking": "workspace:*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@types/papaparse": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "ansi-colors": "*",
         "clsx": "*",
         "eslint": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "jest": "*",
         "papaparse": "*",
         "react": "*",
+        "react-dom": "*",
         "react-window": "*",
         "stylelint": "*",
-        "typescript": "*",
+        "typescript": "catalog:*",
         "use-debounce": "*"
     }
 }

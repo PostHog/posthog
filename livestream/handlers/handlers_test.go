@@ -249,3 +249,187 @@ func TestStatsHandler_FallsBackToLocal(t *testing.T) {
 	assert.Equal(t, 2, resp.ActiveRecordings)
 	assert.Empty(t, resp.Error)
 }
+
+func TestFilterNotificationForUser(t *testing.T) {
+	const userID = 42
+
+	tests := []struct {
+		name       string
+		payload    string
+		wantOK     bool
+		wantReason string
+		wantHasKey string // a key expected to be present in cleaned output when delivered
+	}{
+		{
+			name:       "invalid json -> malformed_payload",
+			payload:    "not-json",
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "missing resolved_user_ids -> malformed_payload",
+			payload:    `{"id": "n1"}`,
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "resolved_user_ids wrong type -> malformed_payload",
+			payload:    `{"id": "n1", "resolved_user_ids": "42"}`,
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "user not in list -> wrong_user",
+			payload:    `{"id": "n1", "resolved_user_ids": [1, 2, 3]}`,
+			wantOK:     false,
+			wantReason: "wrong_user",
+		},
+		{
+			name:       "user in list -> delivered, resolved_user_ids stripped",
+			payload:    `{"id": "n1", "resolved_user_ids": [1, 42, 3], "body": "hi"}`,
+			wantOK:     true,
+			wantHasKey: "body",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleaned, ok, reason := filterNotificationForUser(tt.payload, userID)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantReason, reason)
+			if ok {
+				var out map[string]interface{}
+				require.NoError(t, json.Unmarshal([]byte(cleaned), &out))
+				_, present := out["resolved_user_ids"]
+				assert.False(t, present, "resolved_user_ids must be stripped from delivered payload")
+				if tt.wantHasKey != "" {
+					_, present := out[tt.wantHasKey]
+					assert.True(t, present, "expected key %q in cleaned payload", tt.wantHasKey)
+				}
+			} else {
+				assert.Empty(t, cleaned)
+			}
+		})
+	}
+}
+
+type filterShape struct {
+	Key      string
+	Operator string
+	Values   []string
+}
+
+func shapesOf(filters []events.CompiledPropertyFilter) []filterShape {
+	if filters == nil {
+		return nil
+	}
+	out := make([]filterShape, 0, len(filters))
+	for _, f := range filters {
+		out = append(out, filterShape{Key: f.Key, Operator: f.Operator, Values: f.Values})
+	}
+	return out
+}
+
+func TestParsePropertyFilters(t *testing.T) {
+	tests := []struct {
+		name           string
+		propertiesJSON string
+		legacy         []string
+		want           []filterShape
+	}{
+		{
+			name: "no input returns nil",
+			want: nil,
+		},
+		{
+			name:   "legacy single key=value as exact",
+			legacy: []string{"$browser=Chrome"},
+			want:   []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}}},
+		},
+		{
+			name:   "legacy multiple keys AND",
+			legacy: []string{"$browser=Chrome", "plan=enterprise"},
+			want: []filterShape{
+				{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}},
+				{Key: "plan", Operator: events.OpExact, Values: []string{"enterprise"}},
+			},
+		},
+		{
+			name:   "legacy same key OR grouped",
+			legacy: []string{"$browser=Chrome", "$browser=Firefox"},
+			want:   []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome", "Firefox"}}},
+		},
+		{
+			name:   "legacy missing equals skipped",
+			legacy: []string{"$browser", "plan=free"},
+			want:   []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
+		},
+		{
+			name:   "legacy all malformed returns nil",
+			legacy: []string{"=foo", "bar"},
+			want:   nil,
+		},
+		{
+			name:           "json single icontains",
+			propertiesJSON: `[{"key":"$current_url","operator":"icontains","value":"checkout"}]`,
+			want:           []filterShape{{Key: "$current_url", Operator: events.OpIContains, Values: []string{"checkout"}}},
+		},
+		{
+			name:           "json array value preserves order",
+			propertiesJSON: `[{"key":"$browser","operator":"exact","value":["Chrome","Firefox"]}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome", "Firefox"}}},
+		},
+		{
+			name:           "json numeric value not reformatted",
+			propertiesJSON: `[{"key":"count","operator":"gt","value":1000000}]`,
+			want:           []filterShape{{Key: "count", Operator: events.OpGreaterThan, Values: []string{"1000000"}}},
+		},
+		{
+			name:           "json is_set has no values",
+			propertiesJSON: `[{"key":"$browser","operator":"is_set"}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpIsSet, Values: nil}},
+		},
+		{
+			name:           "json null value yields nil values",
+			propertiesJSON: `[{"key":"$browser","operator":"exact","value":null}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpExact, Values: nil}},
+		},
+		{
+			name:           "json entry missing key skipped",
+			propertiesJSON: `[{"operator":"exact","value":"x"},{"key":"plan","operator":"exact","value":"free"}]`,
+			want:           []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
+		},
+		{
+			name:           "json entry missing operator skipped",
+			propertiesJSON: `[{"key":"plan","value":"free"}]`,
+			want:           nil,
+		},
+		{
+			name:           "malformed json ignored",
+			propertiesJSON: `not json`,
+			want:           nil,
+		},
+		{
+			name:           "malformed json ignored but legacy still applies",
+			propertiesJSON: `{ broken`,
+			legacy:         []string{"plan=free"},
+			want:           []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
+		},
+		{
+			name:           "json and legacy merged, json first",
+			propertiesJSON: `[{"key":"$current_url","operator":"icontains","value":"checkout"}]`,
+			legacy:         []string{"$browser=Chrome"},
+			want: []filterShape{
+				{Key: "$current_url", Operator: events.OpIContains, Values: []string{"checkout"}},
+				{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parsePropertyFilters(tt.propertiesJSON, tt.legacy)
+			assert.Equal(t, tt.want, shapesOf(got))
+		})
+	}
+}

@@ -4,13 +4,13 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
-# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
+# Note: PostHog Cloud uses this same image (re-tagged to ECR posthog-cloud); there is no separate Dockerfile.cloud.
 #
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
-# - node-scripts-build: build standalone Node.js scripts and their dependencies
+# - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -37,6 +37,7 @@ COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
+COPY packages/quill/ packages/quill/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -61,40 +62,52 @@ ARG COMMIT_HASH
 
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
+# Upload sourcemaps to error tracking, recording whether it GENUINELY succeeded so the later strip
+# only deletes the .map files when an uploaded copy exists. The build never fails on a sourcemap
+# problem (missing secret, CLI download / network / auth failure): in that case the status is
+# "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
+# which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
+#
+# The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
+# the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
+# To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
+#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
+ARG POSTHOG_CLI_VERSION=0.7.22
+ARG POSTHOG_CLI_INSTALLER_SHA256=9bfeafcfb6f3acd2d15e3fad267b3c22b26d6aa0a28497e3f1a214f143f66219
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    ( \
-        if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
-            apt-get update && \
-            apt-get install -y --no-install-recommends ca-certificates curl && \
-            curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
-            export PATH="/root/.posthog:$PATH" && \
-            export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-            export POSTHOG_CLI_ENV_ID=2 && \
-            posthog-cli --no-fail sourcemap process \
-                --directory /code/frontend/dist \
-                --public-path-prefix /static \
-                --project posthog \
-                --version "${COMMIT_HASH:-unknown}"; \
-        fi \
-    ) || true && \
+    if ( \
+        [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends ca-certificates curl && \
+        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
+            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
+        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
+        sh /tmp/posthog-cli-installer.sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --public-path-prefix /static \
+            --project posthog \
+            --version "${COMMIT_HASH:-unknown}" \
+    ); then \
+        echo uploaded > /tmp/.sourcemaps-status; \
+    else \
+        echo "WARNING: sourcemaps not uploaded (no secret or upload failed); .map files will be retained in the image" >&2; \
+        echo retained > /tmp/.sourcemaps-status; \
+    fi && \
     touch /tmp/.sourcemaps-processed
 
 
 #
 # ---------------------------------------------------------
 #
-# Build standalone Node.js scripts and their dependencies.
-# These scripts can be invoked from Python via subprocess.
+# Build plugin transpiler and other Node.js build artifacts.
 #
 FROM node:24.13.0-bookworm-slim AS node-scripts-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-# Skip Puppeteer Chromium download - we would use system Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-COPY nodejs/src/scripts/ nodejs/src/scripts/
-RUN cd nodejs/src/scripts && npm install --omit=dev
-
 # Build plugin transpiler for site destinations/apps
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
@@ -106,14 +119,24 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
 
+# The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
+# self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
+# own node_modules, replacing the pnpm symlink that pointed into the root node_modules. The final
+# image then carries just this package instead of the entire ~469MB root /code/node_modules.
+RUN cd /code/common/plugin_transpiler && \
+    BABEL_REAL=$(node -e "process.stdout.write(require('path').dirname(require.resolve('@babel/standalone/package.json')))") && \
+    rm -rf node_modules/@babel/standalone && \
+    mkdir -p node_modules/@babel && \
+    cp -rL "$BABEL_REAL" node_modules/@babel/standalone
+
 
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -142,26 +165,53 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    # uv sync validates workspace membership even with --no-dev, so every
+    # workspace member must be present in the build context.
+    --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+# Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
+# blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under
+# restricted egress or flaky DNS. Covers the two encodings our callers resolve to: o200k_base
+# (gpt-4o) and cl100k_base (text-embedding-3-small). The cache is keyed by the blob URL, which is
+# stable for the pinned tiktoken version, so the baked files are used verbatim at runtime.
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]"
 
 # Add in Django deps
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
+COPY common/alerting common/alerting/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 
-# Copy the built frontend assets and also the products.json file
-COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+# Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
+# chunk IDs into JS before uploading maps, so the runtime JS must come from the same processed tree.
+COPY --from=sourcemap-upload /code/frontend/dist /code/frontend/dist
 COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
+# isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
+# upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
+# lost. Done here (not in the final stage) so the bytes never enter the COPYed layers.
+COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
+RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
+        echo "sourcemaps uploaded — stripping .map files from the image"; \
+        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
+    else \
+        echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
+    fi
 
 
 
@@ -188,38 +238,82 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
+FROM unit:1.34.2-python3.13
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# coercion never runs and open() defaults to ASCII under the container's bare locale.
+# Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
+ENV PYTHONUTF8 1
+ENV LANG C.UTF-8
+ARG UNIT_GIT_TAG=1.35.0
+ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
+
+# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpcre2-dev" \
+    "zlib1g-dev" \
+    && \
+    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
+    cd /tmp/unit && \
+    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
+    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
+    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
+    CONFIGURE_ARGS="--prefix=/usr \
+        --statedir=/var/lib/unit \
+        --control=unix:/var/run/control.unit.sock \
+        --runstatedir=/var/run \
+        --pid=/var/run/unit.pid \
+        --logdir=/var/log \
+        --log=/var/log/unit.log \
+        --tmpdir=/var/tmp \
+        --user=unit \
+        --group=unit \
+        --openssl \
+        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
+        --modulesdir=/usr/lib/unit/modules" && \
+    ./configure $CONFIGURE_ARGS && \
+    make -j "$NCPU" unitd && \
+    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
+    make clean && \
+    ./configure $CONFIGURE_ARGS && \
+    ./configure python --config=/usr/local/bin/python3-config && \
+    make -j "$NCPU" python3-install && \
+    rm -rf /tmp/unit && \
+    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
+# Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
+# its own -dev headers), so the final image needs the runtime .so, not the -dev headers/static libs.
+# libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "chromium" \
-    "chromium-driver" \
     "gettext-base" \
-    "libpq-dev" \
+    "libpq5" \
     "libxmlsec1=1.2.37-2" \
-    "libxmlsec1-dev=1.2.37-2" \
+    "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.18-1~deb12u2" \
-    "libssl3=3.0.18-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl3=3.0.*" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
-    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
-    apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
-    rm -rf /var/lib/apt/lists/*
+# Note: no MS SQL ODBC driver is installed — the data-warehouse MSSQL source uses pymssql, which
+# bundles FreeTDS in its wheel and does not use msodbcsql18/unixodbc (there is no pyodbc in the tree).
 
-# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification
+# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification.
+# Only the `node` binary is used at runtime (the plugin transpiler subprocess), so npm/npx/corepack/
+# headers are stripped after install. Note: the dev-only `create_channel_definitions_file` management
+# command shells out to `npx prettier` to regenerate a checked-in file; it is not run in this image.
 ENV NODE_VERSION 24.13.0
 
 RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
@@ -258,12 +352,13 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
     && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
     && node --version \
-    && npm --version \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.
-RUN groupadd -g 1000 posthog && \
-    useradd -r -g posthog posthog && \
+# Pin uid/gid to a fixed, host-safe value (avoid 1000, which maps to ec2-user on the nodes).
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog -s /bin/bash posthog && \
     chown posthog:posthog /code
 USER posthog
 
@@ -277,21 +372,10 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (as root for system deps)
-# Use cache mount for browser binaries to avoid re-downloading on every build
-USER root
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
-    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
-    /python-runtime/bin/python -m playwright install --with-deps chromium && \
-    mkdir -p /ms-playwright && \
-    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
-    chown -R posthog:posthog /ms-playwright
-USER posthog
-
-# Copy the frontend assets from the frontend-build stage.
-# TODO: this copy should not be necessary, we should remove it once we verify everything still works.
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+# frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
+# fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
+# where the JS sourcemaps have already been stripped.
+COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
 # Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
 COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
@@ -302,12 +386,14 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Copy standalone Node.js scripts and their dependencies.
-COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
+# Copy the pre-warmed tiktoken encoding cache and point tiktoken at it so token counting never
+# reaches out to OpenAI's blob host at runtime (see the posthog-build stage for details).
+COPY --from=posthog-build --chown=posthog:posthog /code/.tiktoken_cache /code/.tiktoken_cache
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
 
-# Copy plugin transpiler (used by Django for site destinations/apps).
-# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
-COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+# Copy plugin transpiler (used by Django for site destinations/apps). The transpiler dist is a
+# self-contained esbuild bundle (build.mjs uses bundle:true), so only its own dist + node_modules
+# are needed at runtime — the full root /code/node_modules COPY was redundant.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
@@ -321,25 +407,25 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --chown=posthog:posthog common/alerting common/alerting/
 COPY --chown=posthog:posthog products products/
+# Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
+# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image.
+COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
+COPY --chown=posthog:posthog tools/owners tools/owners/
+RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+# Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
+# (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
+# services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
+COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 
-# Validate video export dependencies
-RUN ffmpeg -version
+# Validate the Playwright client library (used to drive the remote browserless service over CDP —
+# no browser binary ships in this image).
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-RUN cd /code/nodejs/src/scripts && timeout 60s node -e "\
-  require('puppeteer'); \
-  require('puppeteer-screen-recorder'); \
-  console.log('Puppeteer and screen recorder available')"
 
 # Setup ENV.
-ENV NODE_ENV=production \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
 
 # Expose container port and run entry point script.
 EXPOSE 8000

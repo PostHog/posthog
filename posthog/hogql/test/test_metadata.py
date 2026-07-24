@@ -3,6 +3,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
+from django.db import DatabaseError
 from django.test import override_settings
 
 from posthog.schema import (
@@ -14,17 +16,24 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.parser import parse_select
 
-from posthog.models import Cohort, PropertyDefinition
-from posthog.models.insight_variable import InsightVariable
+from posthog.models import EventDefinition, PropertyDefinition
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    # No test here writes per-team ClickHouse data, so the per-test team isolation
+    # that ClickhouseTestMixin defaults to (CLASS_DATA_LEVEL_SETUP = False) only adds
+    # ~100ms of org/team/user creation to every test.
+    CLASS_DATA_LEVEL_SETUP = True
 
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -86,7 +95,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "select 1",
                 "errors": [
                     {
-                        "message": "extraneous input '1' expecting <EOF>",
+                        "message": "trailing tokens after expression: '1' (Number)",
                         "start": 7,
                         "end": 8,
                         "fix": None,
@@ -173,6 +182,188 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_metadata_warns_for_unknown_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Event 'purchase' was not found in this project taxonomy.",
+        )
+        self.assertIsNone(metadata.warnings[0].fix)
+
+    def test_metadata_suggests_similar_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Event 'pageview' was not found in this project taxonomy. Did you mean '$pageview'?",
+        )
+        self.assertEqual(metadata.warnings[0].fix, "'$pageview'")
+
+    def test_metadata_does_not_warn_for_known_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.warnings, [])
+
+    def test_metadata_warns_for_unknown_event_in_literal(self):
+        EventDefinition.objects.create(team=self.team, name="signed_up")
+
+        metadata = self._select("SELECT count() FROM events WHERE event IN ('signed_up', 'signup')")
+
+        self.assertTrue(metadata.isValid)
+        warning_messages = [warning.message for warning in metadata.warnings]
+        self.assertIn(
+            "Event 'signup' was not found in this project taxonomy. Did you mean 'signed_up'?", warning_messages
+        )
+        self.assertNotIn("Event 'signed_up' was not found in this project taxonomy.", warning_messages)
+
+    def test_metadata_warns_for_unknown_property_field_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties.country_code, count() FROM events GROUP BY properties.country_code")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Property 'country_code' was not found in this project taxonomy. Did you mean '$geoip_country_code'?",
+        )
+        self.assertEqual(metadata.warnings[0].fix, "properties.$geoip_country_code")
+
+    def test_metadata_warns_for_unknown_property_array_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['country_code'] FROM events")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(metadata.warnings[0].fix, "'$geoip_country_code'")
+
+    def test_metadata_does_not_warn_for_known_property_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="country_code")
+
+        metadata = self._select("SELECT properties.country_code FROM events")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.warnings, [])
+
+    def test_metadata_does_not_warn_for_dynamic_event_expression(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = concat('paid_', 'bill')")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_does_not_warn_for_dynamic_property_access(self):
+        metadata = self._select("SELECT properties[key] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_does_not_warn_for_allowlisted_dynamic_property(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['$feature/my-flag'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        with patch("posthog.hogql.taxonomy_validation._known_names") as known_names:
+            metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
+
+        self.assertTrue(metadata.isValid)
+        known_names.assert_not_called()
+
+    def test_metadata_event_literal_fix_preserves_quotes(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+
+        query = "SELECT count() FROM events WHERE event = 'pagevisit'"
+        warning = self._select(query).warnings[0]
+
+        # Apply the fix exactly as the editor quick-fix does: replace [start, end] with fix.
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT count() FROM events WHERE event = '$pageview'")
+
+    def test_metadata_property_field_fix_preserves_prefix(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        query = "SELECT properties.country_code FROM events"
+        warning = self._select(query).warnings[0]
+
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT properties.$geoip_country_code FROM events")
+
+    def test_metadata_event_literal_fix_escapes_quote_in_suggestion(self):
+        EventDefinition.objects.create(team=self.team, name="o'brien")
+
+        query = "SELECT count() FROM events WHERE event = 'obrien'"
+        warning = self._select(query).warnings[0]
+
+        # A suggested name containing a quote must be escaped so the quick-fix stays valid HogQL.
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT count() FROM events WHERE event = 'o\\'brien'")
+        parse_select(replaced)  # round-trips to a parseable query
+
+    def test_metadata_property_field_fix_quotes_suggestion_needing_backticks(self):
+        PropertyDefinition.objects.create(team=self.team, name="my prop")
+
+        query = "SELECT properties.myprop FROM events"
+        warning = self._select(query).warnings[0]
+
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT properties.`my prop` FROM events")
+        parse_select(replaced)
+
+    def test_metadata_taxonomy_db_error_fails_open(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        with patch(
+            "posthog.hogql.taxonomy_validation.EventDefinition.objects.filter",
+            side_effect=DatabaseError("boom"),
+        ):
+            metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
+
+        # A DB error during the advisory taxonomy lookup must not invalidate a valid query.
+        self.assertTrue(metadata.isValid)
+        self.assertEqual([w for w in metadata.warnings if "project taxonomy" in w.message], [])
+
+    def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
+        with (
+            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
+            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.filter") as property_filter,
+        ):
+            metadata = self._select("SELECT count() FROM events")
+
+        self.assertTrue(metadata.isValid)
+        event_filter.assert_not_called()
+        property_filter.assert_not_called()
+
+    def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM (SELECT 'signup' AS event) WHERE event = 'signup'")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
     def test_metadata_table(self):
         metadata = self._expr("timestamp", "events")
         self.assertEqual(metadata.isValid, True)
@@ -240,7 +431,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(metadata.isValid)
-        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+        self.assertEqual([error.message for error in metadata.errors], [INVALID_CONNECTION_ID_ERROR])
 
     def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
         source = ExternalDataSource.objects.create(
@@ -422,7 +613,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(metadata.isValid)
-        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+        self.assertEqual([error.message for error in metadata.errors], [INVALID_CONNECTION_ID_ERROR])
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
@@ -439,7 +630,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": query,
                 "notices": [
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 7,
                         "end": 16,
                         "fix": None,
@@ -451,7 +642,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": f"'{cohort.name}'",
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
@@ -463,7 +654,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": str(cohort.pk),
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
@@ -484,6 +675,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number")
+        materialized_notice = (
+            "not materialized 🐢." if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "materialized (mat_*) ⚡️."
+        )
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -498,7 +692,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": None,
                     },
                     {
-                        "message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.",
+                        "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,

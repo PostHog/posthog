@@ -7,6 +7,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { examples } from '~/queries/examples'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -31,7 +32,7 @@ const meta: Meta<StoryArgs> = {
         const { licensed = false, passwordRequired = false, ...props } = args
         const [modalOpen, setModalOpen] = useState(false)
 
-        useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ADVANCED_PERMISSIONS] : [])
+        useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
 
         useStorybookMocks({
             get: {
@@ -60,7 +61,8 @@ const meta: Meta<StoryArgs> = {
             ].reduce(
                 (acc, url) =>
                     Object.assign(acc, {
-                        [url]: (req: any) => {
+                        [url]: async ({ request }: MockResolverInfo) => {
+                            const body = (await request.json()) as Record<string, unknown>
                             return [
                                 200,
                                 {
@@ -68,7 +70,7 @@ const meta: Meta<StoryArgs> = {
                                     enabled: true,
                                     access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                     password_required: passwordRequired,
-                                    ...req.body,
+                                    ...body,
                                 },
                             ]
                         },

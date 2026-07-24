@@ -33,7 +33,7 @@ These components rely on a few external services:
 
 - ClickHouse – for storing big data (events, persons – analytics queries)
 - Kafka – for queuing events for ingestion
-- MinIO – for storing files (session recordings, file exports)
+- SeaweedFS – S3-compatible object storage for files (session recordings, file exports)
 - PostgreSQL – for storing ordinary data (users, projects, saved insights)
 - Redis – for caching and inter-service communication
 - Zookeeper – for coordinating Kafka and ClickHouse clusters
@@ -134,7 +134,13 @@ To get PostHog running in a dev environment:
 
    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
-3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
+3. After successful environment activation, run `hogli start`. This automatically cleans up any orphaned dev processes from a previous unclean shutdown, then launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
+
+   > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
+   >
+   > ```text
+   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+   > ```
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
@@ -143,6 +149,47 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 ### Customizing which services run
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
+
+### Setting environment variables
+
+Three env files come into play when `hogli start` runs:
+
+- `.env.services` (committed) — how to reach local services like Postgres, Redis, Kafka, ClickHouse. Shared with hobby deployments and Docker containers.
+- `.env.development` (committed) — dev-mode runtime knobs: `DEBUG`, OpenTelemetry, DuckLake, ports, etc.
+- `.env.local` (gitignored) — your overrides and secrets. Copy `.env.local.example` to get started.
+
+Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
+
+To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
+
+```bash
+cp .env.local.example .env.local           # uncomment the op:// lines you need
+brew install 1password-cli                 # one-time
+hogli start                                 # auto-resolves op:// via `op run`
+```
+
+If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself under `op run --env-file=.env.local`. No need to remember the wrapper command.
+
+If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
+
+### Running in detached mode
+
+By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
+
+```bash
+hogli up -d
+```
+
+This starts all services in the background and returns once the IPC socket is bound. `hogli start -d` is also available as an equivalent. Detached mode is useful for:
+
+- Coder workspaces and remote development environments
+- CI pipelines and automated testing
+- Agent sessions and headless development
+
+**Companion commands:**
+
+- `hogli wait` – blocks until all services are ready (useful in scripts)
+- `hogli down` – gracefully stops the detached stack (`hogli stop` is also available as an equivalent)
 
 ### Manual setup
 
@@ -159,7 +206,7 @@ If you see "Exit Code 137" or out-of-memory errors, your Docker container doesn'
 If you see `Error while fetching server API version: 500 Server Error for http+docker://localhost/version`, make sure Docker (or OrbStack) is actually running.
 
 **Port conflicts**
-If you see a port binding error for 5432, you have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it. You may also see errors like `role "posthog" does not exist`, which could indicate that a local PostgreSQL instance is being used instead of the expected containerized one.
+`hogli start` automatically cleans up orphaned PostHog processes before launching, which resolves most port conflicts. To skip this, set `HOGLI_SKIP_ZOMBIE_CHECK=1`. If you still see a port binding error for 5432, you likely have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it. You may also see errors like `role "posthog" does not exist`, which could indicate that a local PostgreSQL instance is being used instead of the expected containerized one.
 
 **GeoLite database missing**
 The feature-flags container needs the GeoLite database in `/share`. If it's missing, run `./bin/download-mmdb` and then `chmod 0755 ./share/GeoLite2-City.mmdb`.
@@ -203,36 +250,11 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
 
-## Option 2: Developing with Codespaces
+## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-This is a faster option to get up and running if you can't or don't want to set up locally.
-GitHub Codespaces gives you a cloud-hosted dev environment with all dependencies pre-installed.
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
 
-### Creating a codespace
-
-1. Go to the [PostHog repository](https://github.com/PostHog/posthog) and click **Code > Codespaces > New codespace**.
-2. Select at least the **8-core** machine type — smaller sizes don't have enough resources.
-3. Wait for the codespace to build. The devcontainer installs all system dependencies, Python/Node packages, Docker infrastructure, and runs database migrations automatically. This takes a while on first creation but is cached for subsequent starts.
-4. Once the codespace is ready, open a terminal and run `hogli start`.
-5. Open your browser to the forwarded port for **PostHog (proxy)** (port 8010).
-
-### How it works
-
-The devcontainer lifecycle scripts handle everything automatically:
-
-- **on-create** (`on-create.sh`) — installs Python/Node dependencies, pulls Docker images, starts infrastructure, runs migrations. This only runs once when the codespace is first created.
-- **update-content** (`update-content.sh`) — re-syncs dependencies and rebuilds if the branch changes (e.g. during a prebuild update).
-- **post-create** (`post-create.sh`) — final setup after creation (hogli symlink, demo data generation).
-- **post-start** (`post-start.sh`) — restarts Docker services if they stopped during idle suspension. Runs on every codespace start/resume.
-- **post-attach** (`post-attach.sh`) — prints a welcome message on each client attach.
-
-### Generating test data
-
-To get practical test data, run `hogli dev:demo-data`.
-
-## Option 3: Developing with Coder workspaces (PostHog employees only)
-
-If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
+If you drive your workflow with a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill walks the agent through the whole flow — the tailnet prerequisite, `hogli devbox:setup`, starting a box, storing auth as Coder user secrets, and running commands on the box with `hogli devbox:exec`. Just ask it to set up your devbox.
 
 ## Testing
 

@@ -1,18 +1,28 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
-import { infiniteListLogic } from './infiniteListLogic'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+
+import { clearApiCache, infiniteListLogic } from './infiniteListLogic'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from './taxonomicFilterPinnedPropertiesLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -25,10 +35,11 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
-                    const limit = Number(req.url.searchParams.get('limit'))
-                    const offset = Number(req.url.searchParams.get('offset'))
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
+                    const limit = Number(url.searchParams.get('limit'))
+                    const offset = Number(url.searchParams.get('offset'))
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -42,13 +53,14 @@ describe('infiniteListLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/property_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('filter_by_event_names')) {
-                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
+                    if (url.searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = url.searchParams.get('filter_by_event_names') === 'true'
                         results = results.filter(
                             (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
                         )
@@ -64,6 +76,7 @@ describe('infiniteListLogic', () => {
             },
         })
         initKeaTests()
+        clearApiCache()
     })
 
     const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {
@@ -119,6 +132,14 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        it('stamps the remote load duration so callers can report search latency', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ loadDurationMs: expect.any(Number) }),
+                })
+        })
+
         it('can set the index', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 156 }) })
@@ -154,6 +175,112 @@ describe('infiniteListLogic', () => {
                         results: partial([partial({ name: 'event1' })]),
                     }),
                 })
+        })
+
+        describe('"All events" visibility', () => {
+            it('shows "All events" when the search query is empty', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['All e', 'prefix'],
+                ['all events', 'lowercase'],
+                ['ALL EVENTS', 'uppercase'],
+                ['All Events', 'title case'],
+                ['events', 'suffix only'],
+                ['ll ev', 'mid substring'],
+            ])('shows "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['mcp tool call', 'long unrelated query'],
+                ['foobar', 'short unrelated query'],
+                ['xyz', 'no overlap'],
+                ['$pageview', 'real event name'],
+            ])('hides "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('excludes "All events" from the combined items list for a non-matching query but keeps remote events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('event')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote /event_definitions mock returns 3 events whose names contain "event".
+                        // "All events" also contains "event" so the meta option is kept as the first local item.
+                        items: partial({
+                            count: 4,
+                            results: partial([{ name: 'All events', value: null }, partial({ name: 'event1' })]),
+                        }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote mock returns 0 matches; local "All events" is filtered out by substring match.
+                        items: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('restores "All events" when the search query is cleared', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({ count: 0 }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
         })
 
         it('resets pinned state when the search query changes', async () => {
@@ -264,6 +391,352 @@ describe('infiniteListLogic', () => {
                         }),
                     })
             })
+        })
+    })
+
+    describe('transient empty responses are not pinned in the module cache', () => {
+        let flakyLogic: ReturnType<typeof infiniteListLogic.build>
+        let requestCounts: Record<string, number>
+
+        beforeEach(() => {
+            requestCounts = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        requestCounts[search] = (requestCounts[search] ?? 0) + 1
+                        // Simulate a backend blip: the first fetch for this term comes back empty,
+                        // later fetches surface the event that actually exists.
+                        const results =
+                            search === 'flaky_event'
+                                ? requestCounts[search] === 1
+                                    ? []
+                                    : [{ ...mockEventDefinitions[0], name: 'flaky_event' }]
+                                : mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            flakyLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flakyList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            flakyLogic.mount()
+        })
+
+        it('re-fetches the same query after an empty blip instead of serving a pinned blank', async () => {
+            await expectLogic(flakyLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial mount
+
+            // First search hits the blip and comes back empty.
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.setSearchQuery('flaky_event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({ remoteItems: partial({ count: 0 }) })
+
+            // Retrying the identical query must re-hit the backend (the empty was not cached) and
+            // surface the event that exists — otherwise it would keep reading as "No results".
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.loadRemoteItems({ offset: 0, limit: 100 })
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ results: partial([partial({ name: 'flaky_event' })]) }),
+                })
+        })
+    })
+
+    describe('switching tabs reconciles a stale remote list', () => {
+        let staleLogic: ReturnType<typeof infiniteListLogic.build>
+        let surveyRequestCount: number
+
+        // The first 'survey' fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            surveyRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        if (search === 'survey') {
+                            surveyRequestCount += 1
+                            // First fetch is cut short (a transient client-side failure stands in for
+                            // an in-flight debounced load a tab switch cancels). The event exists.
+                            if (surveyRequestCount === 1) {
+                                return [500, { detail: 'transient error' }]
+                            }
+                            const results = [{ ...mockEventDefinitions[0], name: 'Survey Responded' }]
+                            return [200, { results, count: results.length }]
+                        }
+                        const results = mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            clearApiCache()
+            staleLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'staleTabList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
+            })
+            staleLogic.mount()
+        })
+
+        it('re-fetches the current query when the cached remote results are stale for it', async () => {
+            await expectLogic(staleLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial empty-query load
+
+            // The search is cut short, leaving the tab on its stale empty-query results even
+            // though "Survey Responded" exists for this term.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('survey')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+            expect(staleLogic.values.remoteItems.searchQuery).not.toBe('survey')
+
+            // Switching category tabs must reconcile the stale tab against the active query rather
+            // than leaving it on a false "No results".
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({
+                        searchQuery: 'survey',
+                        results: partial([partial({ name: 'Survey Responded' })]),
+                    }),
+                })
+        })
+
+        it('does not re-fetch when the tab is already fresh for the current query', async () => {
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteItems: partial({ searchQuery: 'event' }) })
+
+            // The cached remote query already matches, so a tab switch must not trigger a
+            // redundant reload.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['setActiveTab'])
+                .toNotHaveDispatchedActions(['loadRemoteItems'])
+        })
+    })
+
+    describe('remote fetch failure settles the list', () => {
+        // Every fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const failingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'failingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            failingLogic.mount()
+            await expectLogic(failingLogic, () => {
+                failingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showLoadingState: false,
+                    showEmptyState: true,
+                })
+
+            // The failure lands on the same empty state as a genuine no-match, so telemetry is
+            // the only prod signal that the backend blipped — losing this capture makes the
+            // worst case ("event exists, fetch failed") invisible.
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: 'user_signed_up',
+            })
+        })
+    })
+
+    describe('SuggestedFilters aggregate holds the empty state until sibling groups settle', () => {
+        // Regression for the false "No results" flash while typing on the aggregated "All" tab.
+        // That tab runs no fetch of its own, so it can only tell it has settled by watching its
+        // sibling group lists. It used to gate solely on the transient `anyGroupLoading` boolean,
+        // which dips false in the sub-render between a keystroke and the debounced sibling fetch —
+        // surfacing `showEmptyState` for a query that does have matches. The fix adds an
+        // `anyGroupStale` guard mirroring the per-list `remoteResultsAreFresh` gate: the empty
+        // state must never show while a contributing group is stale for the current query.
+        const groupTypes = [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.SuggestedFilters,
+        ]
+
+        const mountAggregate = (): {
+            suggested: ReturnType<typeof infiniteListLogic.build>
+            tfl: ReturnType<typeof taxonomicFilterLogic.build>
+        } => {
+            const tfl = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'aggregate-freshness',
+                taxonomicGroupTypes: groupTypes,
+            })
+            tfl.mount()
+            let suggested: ReturnType<typeof infiniteListLogic.build> | undefined
+            for (const gt of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'aggregate-freshness',
+                    listGroupType: gt,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (gt === TaxonomicFilterGroupType.SuggestedFilters) {
+                    suggested = listLogic
+                }
+            }
+            return { suggested: suggested!, tfl }
+        }
+
+        it('never shows "No results" while a sibling group is stale for a query that has matches', async () => {
+            const { suggested, tfl } = mountAggregate()
+            // Let the initial empty-query loads settle so every sibling starts fresh.
+            await expectLogic(suggested).toFinishAllListeners()
+
+            // The false-empty condition: the aggregate declaring an empty state in a frame where a
+            // contributing group has not yet caught up to the current search query. Watching every
+            // store transition (not just settled frames) catches the sub-render flash directly.
+            const violations: string[] = []
+            const unsubscribe = getContext().store.subscribe(() => {
+                if (suggested.values.showEmptyState && suggested.values.searchQuery && tfl.values.anyGroupStale) {
+                    violations.push(
+                        `q="${suggested.values.searchQuery}" count=${suggested.values.totalListCount} anyGroupLoading=${tfl.values.anyGroupLoading}`
+                    )
+                }
+            })
+
+            // Type "browser" (matches the mock property $browser), extend to a non-matching query,
+            // then backspace back to the matching one — each keystroke re-stales the siblings.
+            for (const q of ['b', 'br', 'bro', 'brow', 'brows', 'browse', 'browser', 'browserzzz', 'browser']) {
+                tfl.actions.setSearchQuery(q)
+            }
+            await expectLogic(suggested).toFinishAllListeners()
+            unsubscribe()
+
+            expect(violations).toEqual([])
+            // Sanity: the query that has matches ends up showing them, not an empty state.
+            expect(suggested.values.showEmptyState).toBe(false)
+            expect(suggested.values.totalResultCount).toBeGreaterThan(0)
+        })
+    })
+
+    describe('internal events local options filtering', () => {
+        // The Internal Events group has multiple local options ("All internal events" plus
+        // product filter options), so substring matching needs to cover both the meta option
+        // and the concrete labels.
+        let internalLogic: ReturnType<typeof infiniteListLogic.build>
+
+        beforeEach(() => {
+            internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListInternal',
+                listGroupType: TaxonomicFilterGroupType.InternalEvents,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEvents],
+                showNumericalPropsOnly: false,
+            })
+            internalLogic.mount()
+        })
+
+        it('shows all options when the search query is empty', async () => {
+            await expectLogic(internalLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([partial({ name: 'All internal events' })]),
+                    }),
+                })
+            expect(internalLogic.values.localItems.count).toBeGreaterThanOrEqual(1)
+        })
+
+        it('keeps "All internal events" when the search query matches it', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('internal')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([{ name: 'All internal events', value: null }]),
+                    }),
+                })
+        })
+
+        it('hides "All internal events" when the search query does not match any option', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('mcp tool call')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 0,
+                        results: [],
+                    }),
+                })
+        })
+
+        it('keeps option labels when the search query matches them (case-insensitive)', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('TEAM')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+            // "Team activity" is one of the default activity-log product filter options.
+            const names = internalLogic.values.localItems.results.map((item: any) => item.name)
+            expect(names).toContain('Team activity')
+            expect(names).not.toContain('All internal events')
+        })
+    })
+
+    describe('listGroupType with no matching built group', () => {
+        let noGroupLogic: ReturnType<typeof infiniteListLogic.build>
+        // A group-analytics index with no matching group type mapping, so `group` resolves to undefined.
+        const groupsListType = `${TaxonomicFilterGroupType.GroupsPrefix}_55` as TaxonomicFilterGroupType
+
+        beforeEach(() => {
+            noGroupLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListNoGroup',
+                listGroupType: groupsListType,
+                taxonomicGroupTypes: [groupsListType],
+                showNumericalPropsOnly: false,
+            })
+            noGroupLogic.mount()
+        })
+
+        it('returns empty localItems instead of throwing', async () => {
+            await expectLogic(noGroupLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    group: undefined,
+                    localItems: partial({ count: 0, results: [] }),
+                })
         })
     })
 
@@ -383,9 +856,9 @@ describe('infiniteListLogic', () => {
             joins: [],
         } as any)
 
-        const joinsLogic = dataWarehouseJoinsLogic()
-        joinsLogic.mount()
-        joinsLogic.actions.loadJoinsSuccess([
+        const joinsLogicInstance = joinsLogic()
+        joinsLogicInstance.mount()
+        joinsLogicInstance.actions.loadJoinsSuccess([
             {
                 id: 'join-1',
                 source_table_name: 'persons',
@@ -556,6 +1029,620 @@ describe('infiniteListLogic', () => {
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
             localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+        })
+    })
+
+    describe('keyword shortcuts', () => {
+        let keySuffix = 0
+        const mountEventsLogic = (enableKeywordShortcuts: boolean): ReturnType<typeof infiniteListLogic.build> => {
+            // Unique key per test so kea doesn't hand us a logic instance that was already mounted
+            // with a previous test's mock data.
+            keySuffix += 1
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}-${keySuffix}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                enableKeywordShortcuts,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        it('surfaces matching shortcut items when enableKeywordShortcuts is true', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: partial([
+                        partial({
+                            _type: 'quick_filter',
+                            name: 'Click (autocapture)',
+                            filterValue: 'click',
+                            eventName: '$autocapture',
+                        }),
+                    ]),
+                })
+        })
+
+        it('places shortcuts at the TOP of the list so they are prominent and Enter picks them', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            // First result is the shortcut; real matches follow.
+            const results = listLogic.values.items.results
+            expect(results[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('contributes shortcuts to topMatchesForQuery so they flow into the SuggestedFilters aggregate', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const topMatches = listLogic.values.topMatchesForQuery
+            expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
+            const listLogic = mountEventsLogic(false)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+
+        it('returns no shortcut items when the search query does not match a keyword', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyzabc'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+    })
+
+    describe('`taxonomic filter empty result` capture', () => {
+        // Every list runs the same search in parallel — without an active-tab gate, one keystroke
+        // can fire 4-8 empty events from background tabs the user never sees. Pin the gate.
+        const taxonomicFilterLogicKey = 'emptyResultGateTest'
+        const props = {
+            taxonomicFilterLogicKey,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        }
+
+        it.each([
+            {
+                name: 'fires when the empty list is the active tab',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: true,
+            },
+            {
+                name: 'does not fire when the empty list is a background tab',
+                activeTab: TaxonomicFilterGroupType.EventProperties,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: false,
+            },
+        ])('$name', async ({ activeTab, listGroupType, expectFire }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            const parent = taxonomicFilterLogic(props)
+            parent.mount()
+            parent.actions.setActiveTab(activeTab)
+
+            const listLogic = infiniteListLogic({ ...props, listGroupType })
+            listLogic.mount()
+
+            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+            // `isActiveTab` to be self-contained, this assertion catches it before the
+            // empty-result expectations silently start passing for the wrong reason.
+            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+            if (expectFire) {
+                expect(emptyCalls).toHaveLength(1)
+                expect(emptyCalls[0][1]).toMatchObject({
+                    groupType: listGroupType,
+                    searchQuery: 'mcp tool call',
+                })
+            } else {
+                expect(emptyCalls).toHaveLength(0)
+            }
+        })
+    })
+
+    describe('suggested list dedupes pinned against recents', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const seedRecentAndPins = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$current_url',
+                item: { name: '$current_url' },
+            })
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$current_url',
+                {
+                    name: '$current_url',
+                }
+            )
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
+                name: '$browser',
+            })
+            // Guards against default-pin seeding turning the first togglePin into an
+            // unpin, which would make the dedupe assertions pass vacuously.
+            expect(pinnedLogic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', '$browser'])
+        }
+
+        const mountSuggestedList = (): ReturnType<typeof infiniteListLogic.build> => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-pinned-dedupe-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        const pinnedValues = (results: unknown[]): unknown[] =>
+            results.filter((item) => hasPinnedContext(item)).map((item) => item._pinnedContext.value)
+
+        it.each([
+            { description: 'in the idle prefix', searchQuery: '', expectedPinned: ['$browser'] },
+            { description: 'in search matches', searchQuery: 'current', expectedPinned: [] },
+        ])(
+            'shows an item that is both recent and pinned once, under recents: $description',
+            async ({ searchQuery, expectedPinned }) => {
+                seedRecentAndPins()
+                const listLogic = mountSuggestedList()
+
+                if (searchQuery) {
+                    listLogic.actions.setSearchQuery(searchQuery)
+                    await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+                }
+
+                const results = listLogic.values.items.results
+                expect(pinnedValues(results)).toEqual(expectedPinned)
+                expect(
+                    results.filter(
+                        (item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url'
+                    )
+                ).toHaveLength(1)
+            }
+        )
+    })
+
+    describe('committed selection promotion', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const mountSuggestedList = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> =>
+            logicWith({
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                ...props,
+            })
+
+        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
+            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
+        })
+
+        it('statically inserts the committed selection while its row is not yet loaded', async () => {
+            logic = logicWith({ value: 'zzz custom event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'zzz custom event',
+                group: TaxonomicFilterGroupType.Events,
+            })
+            // the synthetic is counted so the windowed loader's row math stays consistent:
+            // 1 local ("All events") + 156 remote + 1 synthetic
+            expect(logic.values.items.count).toBe(158)
+        })
+
+        it('hands off from the synthetic row to the real row once its page loads, without duplicating it', async () => {
+            // 'misc-150-generated' sits past the first page (100 rows) of the 156-row mock list
+            logic = logicWith({ value: 'misc-150-generated', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'misc-150-generated',
+                group: TaxonomicFilterGroupType.Events,
+            })
+
+            // scrolling to the hole after the loaded page must fetch the true remote offset
+            // (display index minus local rows minus the synthetic), completing the list
+            await expectLogic(logic, () =>
+                logic.actions.onRowsRendered({ startIndex: 90, stopIndex: 110, overscanStopIndex: 130 })
+            ).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+
+            const results = logic.values.results
+            expect(logic.values.items.count).toBe(157)
+            expect(results).toHaveLength(157)
+            expect(results.every((item) => item != null)).toBe(true)
+            // the real row (it has an id; the synthetic doesn't) floats, the synthetic is gone
+            expect(results[1]).toMatchObject({ name: 'misc-150-generated', id: 'uuid-150-foobar' })
+            expect(results.filter((item) => (item as { name?: string })?.name === 'misc-150-generated')).toHaveLength(1)
+        })
+
+        it('leaves relevance ordering alone while searching', async () => {
+            logic = logicWith({ value: 'other event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(logic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+                'loadRemoteItemsSuccess',
+            ])
+            const names = logic.values.results.map((item) => (item as { name?: string })?.name)
+            expect(names).toContain('other event')
+            expect(names.indexOf('other event')).toBeGreaterThan(0)
+        })
+
+        it('floats a matching recent to the top of the suggested list without duplicating it', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'event1',
+                item: { name: 'event1' },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'test event',
+                item: { name: 'test event' },
+            })
+
+            const listLogic = mountSuggestedList({ value: 'event1', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+
+            const results = listLogic.values.results
+            expect(hasRecentContext(results[0]) && results[0]._recentContext.sourceValue).toBe('event1')
+            expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
+        })
+
+        it.each([
+            {
+                description: 'default events group',
+                taxonomicGroupTypes: undefined,
+                value: '$pageview',
+                groupType: TaxonomicFilterGroupType.Events,
+            },
+            {
+                description: 'name-keyed property group, so the round-trip guard still passes',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                value: '$browser',
+                groupType: TaxonomicFilterGroupType.EventProperties,
+            },
+        ])(
+            'prepends a synthetic selected row keyed by the raw value when the selection is not visible ($description)',
+            async ({ taxonomicGroupTypes, value, groupType }) => {
+                const listLogic = mountSuggestedList(
+                    taxonomicGroupTypes ? { taxonomicGroupTypes, value, groupType } : { value, groupType }
+                )
+                await expectLogic(listLogic).toFinishAllListeners()
+                expect(listLogic.values.results[0]).toMatchObject({ name: String(value), group: groupType })
+            }
+        )
+
+        it('skips the synthetic row for id-keyed groups where only the raw id could render', async () => {
+            const listLogic = mountSuggestedList({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.SuggestedFilters],
+                value: 5,
+                groupType: TaxonomicFilterGroupType.Cohorts,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results).toEqual([])
+        })
+
+        it('does not synthesize a row when groupType is the meta Suggested filters group itself', async () => {
+            // Callers like ActionFilterRow open the popover with `groupType={SuggestedFilters}`
+            // while `value` is the real committed event/action — that meta type must never be
+            // treated as the selection's source group, or the synthetic row round-trips through
+            // the wrong group and `onChange` can't map it back to a real entity type.
+            const listLogic = mountSuggestedList({
+                value: 'some_event',
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { name?: string })?.name === 'some_event')).toBe(
+                false
+            )
+        })
+
+        it('does not synthesize a blank row for an empty-string selection', async () => {
+            // '' round-trips through `getValue` for name/value-keyed groups, so without the
+            // empty-string guard a blank, clickable synthetic row would land at row 0 and
+            // re-commit '' on click.
+            const listLogic = mountSuggestedList({ value: '', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { value?: unknown })?.value === '')).toBe(false)
+        })
+    })
+
+    describe('contextFilteredRecentItems', () => {
+        // Generic wrapper around hasRecentContext so .filter() preserves the input type
+        // (the production type guard uses `unknown` which TS can't narrow through Array.filter).
+        const onlyWithRecentContext = <T>(
+            item: T
+        ): item is T & {
+            _recentContext: { sourceGroupType: TaxonomicFilterGroupType; propertyFilter?: { value?: any } }
+        } => hasRecentContext(item)
+
+        // Recent cohort filters can carry any operator the user previously chose elsewhere
+        // (insights, recordings, etc). Feature flag release conditions intentionally hide
+        // the operator dropdown for cohorts (only `in` is supported), so a non-`in` recent
+        // must not surface there — otherwise the picker would offer an option the
+        // surrounding UI is hiding. Hosts express this via excludedOperators.
+        const recentCohortIn = {
+            name: 'Power Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            },
+        }
+        const recentCohortNotIn = {
+            name: 'Trial Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            },
+        }
+        const recentEventProperty = {
+            name: '$browser',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            },
+        }
+
+        const seedRecents = (items: Record<string, any>[]): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            for (const item of items) {
+                recentLogic.actions.recordRecentFilter({
+                    groupType: item._recentContext.sourceGroupType,
+                    groupName: item._recentContext.sourceGroupName,
+                    value: item._recentContext.propertyFilter.value,
+                    item: { name: item.name },
+                    propertyFilter: item._recentContext.propertyFilter,
+                })
+            }
+        }
+
+        it('hides recents whose operator is excluded for their source group', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn, recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.RecentFilters,
+                ],
+                showNumericalPropsOnly: false,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+            })
+            listLogic.mount()
+
+            const filtered = listLogic.values.contextFilteredRecentItems
+            const cohortValues = filtered
+                .filter(onlyWithRecentContext)
+                .filter(
+                    (i) =>
+                        i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts &&
+                        i._recentContext.propertyFilter
+                )
+                .map((i) => i._recentContext.propertyFilter?.value)
+            expect(cohortValues).toEqual([1])
+            expect(filtered.some((i) => 'name' in i && i.name === '$browser')).toBe(true)
+        })
+
+        it('surfaces a bare key alongside each complete recent in value mode', () => {
+            seedRecents([recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-bare-key-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const items = listLogic.values.contextFilteredRecentItems.filter(onlyWithRecentContext)
+            expect(items).toHaveLength(2)
+            expect(items[0]._recentContext.propertyFilter).toBeUndefined()
+            expect(items[1]._recentContext.propertyFilter).not.toBeUndefined()
+        })
+
+        it('keeps cohort recents whose operator is undefined even when excludedOperators is set', () => {
+            const recentCohortNoOperator = {
+                name: 'Static Users',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                    sourceGroupName: 'Cohorts',
+                    propertyFilter: {
+                        type: PropertyFilterType.Cohort,
+                        key: 'id',
+                        value: 3,
+                        operator: undefined,
+                        cohort_name: 'Static Users',
+                    },
+                },
+            }
+            seedRecents([recentCohortIn, recentCohortNoOperator, recentCohortNotIn])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-no-op-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+            })
+            listLogic.mount()
+
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            // The undefined-operator recent stays (1 + 3); the explicit NotIn (2) is hidden.
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 3]))
+            expect(cohortValues).not.toContain(2)
+        })
+
+        it('keeps all recents when excludedOperators is not set', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'insight-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
+        })
+
+        it('hides a recent whose value is excluded for its source group (logs group-by drops `message`)', () => {
+            // The logs group-by picker excludes `message`, but a `message contains …` search is
+            // recorded as a recent under Log attributes — it must not leak back into the Recent tab.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'message',
+                item: { name: 'message' },
+                propertyFilter: {
+                    type: PropertyFilterType.Log,
+                    key: 'message',
+                    value: 'blah',
+                    operator: PropertyOperator.IContains,
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'level',
+                item: { name: 'level' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'logs-group-by-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.LogAttributes, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.LogAttributes]: ['message'] },
+                selectingKeyOnly: true,
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredRecentItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('message')
+            expect(names).toContain('level')
+        })
+
+        it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
+            // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
+            // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of
+            // calling Persons.getValue (which would return undefined). This test asserts that
+            // sourceValue is recorded correctly at storage time so the fallback has something to use.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Persons,
+                groupName: 'Persons',
+                value: 'user-distinct-id',
+                item: { name: 'Jane Doe' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'persons-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const personItems = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
+
+            expect(personItems).toHaveLength(1)
+            expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
         })
     })
 })

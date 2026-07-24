@@ -2,9 +2,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use super::event_name::get_event_name;
+use super::error_status::apply_error_status_properties;
+use super::identity::extract_distinct_id_for_span;
+use super::providers;
 
 pub struct SpanEvent {
     pub event_name: String,
@@ -58,7 +60,7 @@ fn any_value_to_json(value: &any_value::Value) -> Value {
     }
 }
 
-fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
@@ -75,7 +77,7 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
-fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
@@ -93,6 +95,17 @@ fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Val
         .collect()
 }
 
+fn apply_geoip_default(properties: &mut Map<String, Value>) {
+    let alias = properties.remove("posthog.geoip_disable");
+    if properties.contains_key("$geoip_disable") {
+        return;
+    }
+    properties.insert(
+        "$geoip_disable".to_string(),
+        alias.unwrap_or(Value::Bool(true)),
+    );
+}
+
 fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     if nanos == 0 {
         return None;
@@ -102,9 +115,13 @@ fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     Utc.timestamp_opt(secs, nsecs).single()
 }
 
+/// Convert OTLP spans into [`SpanEvent`]s. `request_fallback_distinct_id` is
+/// used only when neither the span nor its enclosing resource carries a
+/// distinct_id attribute — see [`extract_distinct_id_for_span`] for the full
+/// precedence list.
 pub fn expand_into_events(
     request: &ExportTraceServiceRequest,
-    distinct_id: &str,
+    request_fallback_distinct_id: &str,
 ) -> Vec<SpanEvent> {
     let total_spans: usize = request
         .resource_spans
@@ -112,7 +129,7 @@ pub fn expand_into_events(
         .flat_map(|rs| &rs.scope_spans)
         .map(|ss| ss.spans.len())
         .sum();
-    let mut events = Vec::with_capacity(total_spans);
+    let mut events = Vec::with_capacity(total_spans.min(super::MAX_SPANS_PER_REQUEST));
 
     for rs in &request.resource_spans {
         let resource_attrs = rs
@@ -123,12 +140,22 @@ pub fn expand_into_events(
 
         for ss in &rs.scope_spans {
             for span in &ss.spans {
-                let span_attrs = attributes_to_map(&span.attributes);
+                let Some(provider) = providers::get_provider_raw(&span.attributes) else {
+                    continue;
+                };
 
-                let event_name = get_event_name(&span_attrs).to_string();
+                let distinct_id = extract_distinct_id_for_span(
+                    &span.attributes,
+                    rs.resource.as_ref(),
+                    request_fallback_distinct_id,
+                );
+                let span_attrs = attributes_to_map(&span.attributes);
+                let event_name = (provider.classify)(&span_attrs);
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
+
+                apply_geoip_default(&mut properties);
 
                 properties.insert(
                     "$ai_trace_id".to_string(),
@@ -163,12 +190,13 @@ pub fn expand_into_events(
                     "$otel_end_time_unix_nano".to_string(),
                     Value::String(span.end_time_unix_nano.to_string()),
                 );
+                apply_error_status_properties(span, &mut properties);
 
                 let timestamp = nanos_to_datetime(span.start_time_unix_nano);
 
                 events.push(SpanEvent {
-                    event_name,
-                    distinct_id: distinct_id.to_string(),
+                    event_name: event_name.to_string(),
+                    distinct_id,
                     properties: Value::Object(properties),
                     timestamp,
                 });
@@ -185,6 +213,7 @@ mod tests {
     use opentelemetry_proto::tonic::common::v1::AnyValue;
     use opentelemetry_proto::tonic::resource::v1::Resource;
     use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+    use rstest::rstest;
 
     fn make_kv(key: &str, value: any_value::Value) -> KeyValue {
         KeyValue {
@@ -317,6 +346,38 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_skips_irrelevant_spans() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![1; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        1_704_067_201_000_000_000,
+                        "http POST https://us.i.posthog.com/e",
+                        vec![make_kv(
+                            "http.request.method",
+                            any_value::Value::StringValue("POST".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "user-1");
+        assert!(events.is_empty());
+    }
+
+    #[test]
     fn test_noisy_resource_attrs_are_filtered() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
@@ -344,7 +405,18 @@ mod tests {
                 }),
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
@@ -374,7 +446,10 @@ mod tests {
                         0,
                         0,
                         "",
-                        vec![],
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
                     )],
                     schema_url: String::new(),
                 }],
@@ -394,7 +469,18 @@ mod tests {
                 resource: None,
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
@@ -413,5 +499,227 @@ mod tests {
         };
         let events = expand_into_events(&request, "user");
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_span_attribute_distinct_id_overrides_resource_and_fallback() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![make_kv(
+                        "posthog.distinct_id",
+                        any_value::Value::StringValue("resource-user".to_string()),
+                    )],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![
+                            make_kv(
+                                "ai.telemetry.metadata.posthog_distinct_id",
+                                any_value::Value::StringValue("span-user".to_string()),
+                            ),
+                            make_kv(
+                                "gen_ai.request.model",
+                                any_value::Value::StringValue("gpt-4".to_string()),
+                            ),
+                        ],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+        let events = expand_into_events(&request, "fallback");
+        assert_eq!(events[0].distinct_id, "span-user");
+    }
+
+    #[test]
+    fn test_mixed_users_in_one_batch_get_independent_distinct_ids() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: None,
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![
+                        make_span(
+                            vec![0; 16],
+                            vec![1; 8],
+                            vec![],
+                            0,
+                            0,
+                            "",
+                            vec![
+                                make_kv(
+                                    "ai.telemetry.metadata.posthog_distinct_id",
+                                    any_value::Value::StringValue("user-a".to_string()),
+                                ),
+                                make_kv(
+                                    "gen_ai.request.model",
+                                    any_value::Value::StringValue("gpt-4".to_string()),
+                                ),
+                            ],
+                        ),
+                        make_span(
+                            vec![0; 16],
+                            vec![2; 8],
+                            vec![],
+                            0,
+                            0,
+                            "",
+                            vec![
+                                make_kv(
+                                    "ai.telemetry.metadata.posthog_distinct_id",
+                                    any_value::Value::StringValue("user-b".to_string()),
+                                ),
+                                make_kv(
+                                    "gen_ai.request.model",
+                                    any_value::Value::StringValue("gpt-4".to_string()),
+                                ),
+                            ],
+                        ),
+                    ],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+        let events = expand_into_events(&request, "fallback");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].distinct_id, "user-a");
+        assert_eq!(events[1].distinct_id, "user-b");
+    }
+
+    #[test]
+    fn test_falls_back_to_resource_when_span_has_no_id() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![make_kv(
+                        "posthog.distinct_id",
+                        any_value::Value::StringValue("resource-user".to_string()),
+                    )],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+        let events = expand_into_events(&request, "fallback");
+        assert_eq!(events[0].distinct_id, "resource-user");
+    }
+
+    #[test]
+    fn test_falls_back_to_request_fallback_when_no_attrs() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: None,
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+        let events = expand_into_events(&request, "fallback-id");
+        assert_eq!(events[0].distinct_id, "fallback-id");
+    }
+
+    fn make_minimal_request(
+        extra_resource_attrs: Vec<KeyValue>,
+        extra_span_attrs: Vec<KeyValue>,
+    ) -> ExportTraceServiceRequest {
+        let mut span_attrs = vec![make_kv(
+            "gen_ai.request.model",
+            any_value::Value::StringValue("gpt-4".to_string()),
+        )];
+        span_attrs.extend(extra_span_attrs);
+
+        ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: extra_resource_attrs,
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        span_attrs,
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        }
+    }
+
+    #[rstest]
+    // Default: no attributes set; $geoip_disable defaults to true.
+    #[case::default_disabled(vec![], vec![], true)]
+    // Canonical $geoip_disable on span wins.
+    #[case::canonical_opt_in(vec![], vec![("$geoip_disable", false)], false)]
+    // posthog.geoip_disable alias on resource is copied into $geoip_disable.
+    #[case::alias_opt_in(vec![("posthog.geoip_disable", false)], vec![], false)]
+    // Both set: canonical wins, alias is consumed (not duplicated).
+    #[case::canonical_wins_over_alias(
+        vec![("posthog.geoip_disable", false)],
+        vec![("$geoip_disable", true)],
+        true
+    )]
+    fn test_geoip_default_behavior(
+        #[case] resource_attrs: Vec<(&str, bool)>,
+        #[case] span_attrs: Vec<(&str, bool)>,
+        #[case] expected_geoip_disable: bool,
+    ) {
+        let to_kv = |(k, v): &(&str, bool)| make_kv(k, any_value::Value::BoolValue(*v));
+        let request = make_minimal_request(
+            resource_attrs.iter().map(to_kv).collect(),
+            span_attrs.iter().map(to_kv).collect(),
+        );
+        let events = expand_into_events(&request, "user");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$geoip_disable"], Value::Bool(expected_geoip_disable));
+        // Alias must always be consumed so it doesn't leak as a duplicate property.
+        assert!(!props.contains_key("posthog.geoip_disable"));
     }
 }

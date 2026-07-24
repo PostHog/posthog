@@ -1,10 +1,11 @@
+# TODO(migration): Stripe-only coverage - remove once Stripe traffic has fully moved to /api/partners/stripe/ (equivalent tests live in ee/partners/stripe/api/provisioning/test/).
 import time
 
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 from ee.api.agentic_provisioning.views import SERVICES_CACHE_EXPIRES_KEY, SERVICES_CACHE_KEY
 
 MOCK_BILLING_PRODUCTS = {
@@ -61,8 +62,8 @@ def _mock_cache_fresh(services):
     return mock
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
-class TestProvisioningServices(StripeProvisioningTestBase):
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestProvisioningServices(ProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
     def test_returns_three_services(self, mock_cache, mock_get):
@@ -151,5 +152,5 @@ class TestProvisioningServices(StripeProvisioningTestBase):
             assert "analytics" in service["categories"]
 
     def test_missing_signature_returns_401(self):
-        res = self.client.get("/api/agentic/provisioning/services", HTTP_API_VERSION="0.1d")
+        res = self.client.get("/api/agentic/provisioning/services", headers={"api-version": "0.1d"})
         assert res.status_code == 401

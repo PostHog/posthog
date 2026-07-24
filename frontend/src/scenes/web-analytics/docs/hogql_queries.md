@@ -36,9 +36,9 @@ You can test web analytics queries directly using PostHog's `/query` API endpoin
 - [PostHog Query API Documentation](https://posthog.com/docs/api/query)
 - [API Schema (Swagger UI)](https://app.posthog.com/api/schema/swagger-ui)
 
-### 1. Create a Personal Access Token
+### 1. Create a personal API key
 
-1. Go to your PostHog instance → Settings → Personal API Keys (`/project/<project_id>/settings/user-api-keys`)
+1. Go to your PostHog instance → Settings → Personal API keys (`/project/<project_id>/settings/user-api-keys`)
 2. Click "Create personal API key"
 3. Give it a name and select the appropriate scopes (At least 'Query: Read' is required)
 4. Copy the token
@@ -440,7 +440,7 @@ WHERE or(equals(event, '$pageview'), equals(event, '$screen'))
 To print the HogQL syntax in tests instead of ClickHouse SQL:
 
 ```python
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.context import HogQLContext
 
 # In your test
@@ -451,7 +451,8 @@ context = HogQLContext(
     team_id=team.pk,
     enable_select_queries=True,
 )
-hogql = print_ast(query_ast, context=context, dialect="hogql")
+# prepare_and_print_ast returns a (sql, prepared_ast) tuple
+hogql, _ = prepare_and_print_ast(query_ast, context=context, dialect="hogql")
 print(hogql)
 ```
 

@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
-                check=models.Q(("group_type_index__lte", 5)),
+                condition=models.Q(("group_type_index__lte", 5)),
                 name="group_type_index is less than or equal 5",
             ),
         ),

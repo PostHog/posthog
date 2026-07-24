@@ -1,7 +1,7 @@
 import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
@@ -147,6 +147,7 @@ export function openConfirmationModal({
                     : type === 'rollout'
                       ? 'Update conditions'
                       : 'Save changes',
+            status: type === 'flag-status' && !activeNewValue ? 'danger' : 'default',
             onClick: hasBlockingDependentFlags ? undefined : onConfirm,
             disabled: hasBlockingDependentFlags,
         },

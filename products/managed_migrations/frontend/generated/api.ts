@@ -10,9 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BatchImportApi,
+    BatchImportResponseApi,
+    BatchImportSupportDetailApi,
     ManagedMigrationsListParams,
+    ManagedMigrationsSupportListParams,
+    ManagedMigrationsTrialRecordsRetrieveParams,
     PaginatedBatchImportListApi,
+    PaginatedBatchImportSupportListListApi,
     PatchedBatchImportApi,
+    TrialRecordsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -32,15 +38,58 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getManagedMigrationsSupportListUrl = (params?: ManagedMigrationsSupportListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/managed_migrations_support/?${stringifiedParams}`
+        : `/api/managed_migrations_support/`
+}
+
 /**
- * List managed migrations using the response serializer
+ * List batch import (managed migration) jobs across all teams. PostHog staff only.
  */
+export const managedMigrationsSupportList = async (
+    params?: ManagedMigrationsSupportListParams,
+    options?: RequestInit
+): Promise<PaginatedBatchImportSupportListListApi> => {
+    return apiMutator<PaginatedBatchImportSupportListListApi>(getManagedMigrationsSupportListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsSupportRetrieveUrl = (id: string) => {
+    return `/api/managed_migrations_support/${id}/`
+}
+
+/**
+ * Get one batch import job with its raw worker state and import config. PostHog staff only.
+ */
+export const managedMigrationsSupportRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<BatchImportSupportDetailApi> => {
+    return apiMutator<BatchImportSupportDetailApi>(getManagedMigrationsSupportRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getManagedMigrationsListUrl = (projectId: string, params?: ManagedMigrationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -51,6 +100,9 @@ export const getManagedMigrationsListUrl = (projectId: string, params?: ManagedM
         : `/api/projects/${projectId}/managed_migrations/`
 }
 
+/**
+ * List managed migrations using the response serializer
+ */
 export const managedMigrationsList = async (
     projectId: string,
     params?: ManagedMigrationsListParams,
@@ -62,27 +114,33 @@ export const managedMigrationsList = async (
     })
 }
 
-/**
- * Create a new managed migration/batch import.
- */
 export const getManagedMigrationsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/managed_migrations/`
 }
 
-export const managedMigrationsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getManagedMigrationsCreateUrl(projectId), {
+/**
+ * Create a new managed migration/batch import.
+ */
+export const managedMigrationsCreate = async (
+    projectId: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
     })
+}
+
+export const getManagedMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
 }
 
 /**
  * Viewset for BatchImport model
  */
-export const getManagedMigrationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/managed_migrations/${id}/`
-}
-
 export const managedMigrationsRetrieve = async (
     projectId: string,
     id: string,
@@ -94,17 +152,17 @@ export const managedMigrationsRetrieve = async (
     })
 }
 
-/**
- * Viewset for BatchImport model
- */
 export const getManagedMigrationsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/`
 }
 
+/**
+ * Viewset for BatchImport model
+ */
 export const managedMigrationsUpdate = async (
     projectId: string,
     id: string,
-    batchImportApi: NonReadonly<BatchImportApi>,
+    batchImportApi?: NonReadonly<BatchImportApi>,
     options?: RequestInit
 ): Promise<BatchImportApi> => {
     return apiMutator<BatchImportApi>(getManagedMigrationsUpdateUrl(projectId, id), {
@@ -115,17 +173,17 @@ export const managedMigrationsUpdate = async (
     })
 }
 
-/**
- * Viewset for BatchImport model
- */
 export const getManagedMigrationsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/`
 }
 
+/**
+ * Viewset for BatchImport model
+ */
 export const managedMigrationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedBatchImportApi: NonReadonly<PatchedBatchImportApi>,
+    patchedBatchImportApi?: NonReadonly<PatchedBatchImportApi>,
     options?: RequestInit
 ): Promise<BatchImportApi> => {
     return apiMutator<BatchImportApi>(getManagedMigrationsPartialUpdateUrl(projectId, id), {
@@ -136,13 +194,13 @@ export const managedMigrationsPartialUpdate = async (
     })
 }
 
-/**
- * Viewset for BatchImport model
- */
 export const getManagedMigrationsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/`
 }
 
+/**
+ * Viewset for BatchImport model
+ */
 export const managedMigrationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getManagedMigrationsDestroyUrl(projectId, id), {
         ...options,
@@ -150,17 +208,17 @@ export const managedMigrationsDestroy = async (projectId: string, id: string, op
     })
 }
 
-/**
- * Pause a running batch import.
- */
 export const getManagedMigrationsPauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/pause/`
 }
 
+/**
+ * Pause a running batch import.
+ */
 export const managedMigrationsPauseCreate = async (
     projectId: string,
     id: string,
-    batchImportApi: NonReadonly<BatchImportApi>,
+    batchImportApi?: NonReadonly<BatchImportApi>,
     options?: RequestInit
 ): Promise<BatchImportApi> => {
     return apiMutator<BatchImportApi>(getManagedMigrationsPauseCreateUrl(projectId, id), {
@@ -171,17 +229,35 @@ export const managedMigrationsPauseCreate = async (
     })
 }
 
+export const getManagedMigrationsPromoteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/promote/`
+}
+
 /**
- * Resume a paused batch import.
+ * Start the real import from a completed trial run, reusing its source config and credentials.
  */
+export const managedMigrationsPromoteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<BatchImportResponseApi> => {
+    return apiMutator<BatchImportResponseApi>(getManagedMigrationsPromoteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getManagedMigrationsResumeCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/resume/`
 }
 
+/**
+ * Resume a paused batch import.
+ */
 export const managedMigrationsResumeCreate = async (
     projectId: string,
     id: string,
-    batchImportApi: NonReadonly<BatchImportApi>,
+    batchImportApi?: NonReadonly<BatchImportApi>,
     options?: RequestInit
 ): Promise<BatchImportApi> => {
     return apiMutator<BatchImportApi>(getManagedMigrationsResumeCreateUrl(projectId, id), {
@@ -189,5 +265,40 @@ export const managedMigrationsResumeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsTrialRecordsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ManagedMigrationsTrialRecordsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_migrations/${id}/trial_records/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_migrations/${id}/trial_records/`
+}
+
+/**
+ * Fetch one page of a trial run's results (source event paired with its would-be output events).
+ */
+export const managedMigrationsTrialRecordsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: ManagedMigrationsTrialRecordsRetrieveParams,
+    options?: RequestInit
+): Promise<TrialRecordsResponseApi> => {
+    return apiMutator<TrialRecordsResponseApi>(getManagedMigrationsTrialRecordsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }

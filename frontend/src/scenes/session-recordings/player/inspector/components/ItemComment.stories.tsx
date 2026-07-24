@@ -129,6 +129,9 @@ function makeCommentItem(
                 email: 'paul@posthog.com',
                 is_email_verified: false,
             },
+            is_task: false,
+            completed_at: null,
+            completed_by: null,
             ...dataOverrides,
         },
         timeInRecording: 0,
@@ -150,5 +153,33 @@ export const NotebookComment: Story = {
 export const AnnotationComment: Story = {
     args: {
         item: makeCommentItem(),
+    },
+}
+
+export const TaskComment: Story = {
+    args: {
+        item: makeCommentItem({}, { is_task: true, content: 'fix the empty-state copy' }),
+    },
+}
+
+export const CompletedTaskComment: Story = {
+    args: {
+        item: makeCommentItem(
+            {},
+            {
+                is_task: true,
+                content: 'fix the empty-state copy',
+                completed_at: '2026-04-19T15:00:00.000Z',
+                completed_by: {
+                    id: 1,
+                    uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
+                    distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',
+                    first_name: 'Ric',
+                    last_name: '',
+                    email: 'ric@example.com',
+                    is_email_verified: false,
+                },
+            }
+        ),
     },
 }

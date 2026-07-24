@@ -2,7 +2,7 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -14,9 +14,10 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    BehavioralFilterKey,
     CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -38,13 +39,9 @@ import {
     PropertyType,
 } from '~/types'
 
-let uniqueMemoizedIndex = 0
-
 const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
-    const cohortFilterLogicKey = useMemo(
-        () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
-        [props.cohortFilterLogicKey]
-    )
+    const generatedKey = useId()
+    const cohortFilterLogicKey = props.cohortFilterLogicKey || `cohort-filter-${generatedKey}`
     return {
         logic: cohortFieldLogic({ ...props, cohortFilterLogicKey }),
     }
@@ -122,7 +119,12 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const propertyType = props.criteria?.type
+    const definitionType =
+        propertyType === BehavioralFilterKey.PersonMetadata
+            ? PropertyDefinitionType.PersonMetadata
+            : PropertyDefinitionType.Person
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, definitionType) : null
     const isDateTime = propDef?.property_type === PropertyType.DateTime
 
     const fieldOptionGroupTypes = isDateTime
@@ -272,6 +274,23 @@ export function CohortEventFiltersField({
     )
 }
 
+const RELATIVE_DATE_REGEX = /^-\d+[hdwmqy]$/
+
+function computeLabelPrefix(dateFrom: string, dateTo: string | null): string {
+    const isRelativeFrom = RELATIVE_DATE_REGEX.test(dateFrom)
+    const isRelativeTo = dateTo !== null && RELATIVE_DATE_REGEX.test(dateTo)
+    const hasRange = !!dateFrom && !!dateTo
+    if (hasRange) {
+        const bothRelative = isRelativeFrom && isRelativeTo
+        const bothAbsolute = !isRelativeFrom && !isRelativeTo
+        return bothRelative || bothAbsolute ? 'between' : 'from'
+    }
+    if (!isRelativeFrom && dateFrom) {
+        return 'after'
+    }
+    return 'within'
+}
+
 export function CohortRelativeAndExactTimeField({
     fieldKey,
     criteria,
@@ -284,27 +303,32 @@ export function CohortRelativeAndExactTimeField({
         cohortFilterLogicKey,
         onChange: _onChange,
     })
-    // This replaces the old TimeUnit and TimeInterval filters
-    // and combines them with a relative+exact time option.
-    // This is more inline with rest of analytics filters and make things much nicer here.
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
-    const isRelativeDate = typeof value === 'string' && /^-\d+[hdwmqy]$/.test(value)
-    const prefix = isRelativeDate ? 'within' : 'after'
+    const dateFromValue = String(value)
+    const dateToValue = criteria.explicit_datetime_to || null
+    const hasRange = !!dateFromValue && !!dateToValue
+    const prefix = computeLabelPrefix(dateFromValue, dateToValue)
 
     return (
         <div className="flex items-center gap-2">
             <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{prefix}</span>
             <DateFilter
-                dateFrom={String(value)}
-                onChange={(fromDate) => {
-                    onChange({ [fieldKey]: fromDate })
+                dateFrom={dateFromValue}
+                dateTo={dateToValue}
+                onChange={(fromDate, toDate) => {
+                    onChange({
+                        [fieldKey]: fromDate,
+                        // `|| null` rather than `?? null` so an empty-string `toDate` (some
+                        // callers pass '' to mean "no bound") is normalised to null too.
+                        explicit_datetime_to: toDate || null,
+                    })
                 }}
                 max={1000}
-                isFixedDateMode
                 allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                 showCustom
+                allowSingleAndRange
                 dateOptions={[
                     {
                         key: 'Last 7 days',
@@ -315,14 +339,16 @@ export function CohortRelativeAndExactTimeField({
                     {
                         key: 'Last 30 days',
                         values: ['-30d'],
-                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(30, 'd')),
                         defaultInterval: 'day',
                     },
                 ]}
                 size="medium"
-                makeLabel={(_, startOfRange) => (
+                makeLabel={(_, startOfRange, endOfRange) => (
                     <span className="hide-when-small">
-                        Matches all values {prefix} {startOfRange} if evaluated today.
+                        {hasRange && endOfRange !== undefined
+                            ? `Matches all values ${prefix} ${startOfRange} and ${endOfRange} if evaluated today.`
+                            : `Matches all values ${prefix} ${startOfRange} if evaluated today.`}
                     </span>
                 )}
             />

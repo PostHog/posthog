@@ -16,9 +16,11 @@ from posthog.schema import (
     LogsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyGroupsMode,
     PropertyOperator,
 )
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
@@ -81,6 +83,134 @@ class TestAttributeFilters(APIBaseTest):
         # Log attributes DO NOT use resource_fingerprint filtering for optimization
         # this optimization was premature and needs more thought, and probably has very little benefit anyway
         self.assertNotIn("in(resource_fingerprint", query_str)
+
+    def _to_clickhouse_sql(self, query: LogsQuery) -> str:
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        return executor.clickhouse_prepared_ast.to_hogql()
+
+    def test_nested_or_group_ors_across_attribute_keys(self):
+        # The person profile Logs tab pins an OR group so one person's distinct_ids
+        # match against every configured distinct-id attribute key. A regression that
+        # drops nested groups would silently return unfiltered logs.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="posthogDistinctId",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value=["distinct-1", "distinct-2"],
+                                    ),
+                                    LogPropertyFilter(
+                                        key="user.id",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value=["distinct-1", "distinct-2"],
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("posthogDistinctId", query_str)
+        self.assertIn("user.id", query_str)
+        self.assertIn("or(", query_str.lower())
+
+    def test_nested_group_with_single_filter_needs_no_or(self):
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="posthogDistinctId",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value="distinct-1",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("posthogDistinctId", query_str)
+
+    def test_nested_group_rejects_non_attribute_filters(self):
+        # Only log_attribute leaves are supported inside nested groups; anything else
+        # must fail loudly rather than be silently dropped from the WHERE clause.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="message",
+                                        operator=PropertyOperator.ICONTAINS,
+                                        type=LogPropertyFilterType.LOG,
+                                        value="error",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        with self.assertRaises(QueryError):
+            LogsQueryRunner(query=query, team=self.team).to_query()
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
@@ -472,6 +602,25 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 101)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            ("utc_aware", "2025-12-16T00:00:00+00:00"),
+            ("naive", "2025-12-16T00:00:00"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_live_tail_checkpoint_iso_string(self, _name, checkpoint):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "orderBy": "latest",
+            "liveLogsCheckpoint": checkpoint,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)
+
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_filters(self):
         query_params = {
@@ -541,6 +690,109 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 0)
         self.assertEqual(len(queries), 2)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_multiple_negative_resource_attribute_filters(self):
+        # Two negative resource attribute filters on disjoint values (no log has both an envoy
+        # container AND the kube-system namespace). The fix exists so a resource is excluded when
+        # it matches ANY of the negative filters, not just when it matches every one. Pre-fix this
+        # would return ~all logs because nothing matched both filters at once.
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
+            "limit": 2000,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "k8s.container.name",
+                                "value": "envoy",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                            {
+                                "key": "k8s.namespace.name",
+                                "value": "kube-system",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+
+        response = self._make_logs_api_request(query_params)
+        results = response["results"]
+
+        # at least some logs come back (sanity check)
+        self.assertGreater(len(results), 0)
+        # neither excluded value appears anywhere — proves OR semantics
+        for result in results:
+            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
+            self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
+        # both excluded groups exist in the test data, so the result count must be strictly less than
+        # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
+        # matched both filters at once).
+        unfiltered = self._make_logs_api_request(
+            {
+                "dateRange": query_params["dateRange"],
+                "limit": query_params["limit"],
+                "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            }
+        )
+        self.assertLess(len(results), len(unfiltered["results"]))
+
+    def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2025-12-14T00:00:00Z", date_to="2025-12-18T03:00:00Z"),
+            limit=2000,
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="logtag",
+                                operator=operator,
+                                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                value=["F"],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+        runner = LogsQueryRunner(query=query, team=self.team)
+        # Simulate a logs query path that reaches the printer with a non-OPTIMIZED mode (the logs-cluster
+        # path this regression covers). The printer must still force OPTIMIZED so the filter resolves the
+        # type-suffixed key against the typed `attributes_map_str` column instead of the un-suffixed alias.
+        runner.modifiers.propertyGroupsMode = mode
+        return runner.calculate().results
+
+    @parameterized.expand([(PropertyGroupsMode.OPTIMIZED,), (PropertyGroupsMode.DISABLED,)])
+    @freeze_time("2025-12-18T03:00:00Z")
+    def test_log_attribute_filter_resolves_regardless_of_property_groups_mode(self, mode: PropertyGroupsMode):
+        # The seed data has 1000 logs with logtag="F" and 11 without. A log-attribute filter must resolve the
+        # type-suffixed key (logtag__str) to its physical Map column for every property-groups mode — otherwise an
+        # `is not` filter matches every row (does nothing) and an `exact` filter matches none, which is the silent
+        # mis-filtering this regression guards against. DISABLED is the mode that fails without the printer's forced
+        # OPTIMIZED; OPTIMIZED is the control.
+        is_not_results = self._run_log_attribute_filter(PropertyOperator.IS_NOT, mode)
+        # The "is not F" filter must actually exclude the 1000 logtag="F" rows — not pass them through.
+        self.assertTrue(all(r["attributes"].get("logtag") != "F" for r in is_not_results))
+        self.assertEqual(len(is_not_results), 11)
+
+        exact_results = self._run_log_attribute_filter(PropertyOperator.EXACT, mode)
+        # The "= F" filter must match the 1000 logtag="F" rows — not return nothing.
+        self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
+        self.assertEqual(len(exact_results), 1000)
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
@@ -846,7 +1098,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_normalize_filter_group(self, _name, input_value, expected):
-        from products.logs.backend.api import LogsViewSet
+        from products.logs.backend.presentation.views.api import LogsViewSet
 
         self.assertEqual(LogsViewSet._normalize_filter_group(input_value), expected)
 

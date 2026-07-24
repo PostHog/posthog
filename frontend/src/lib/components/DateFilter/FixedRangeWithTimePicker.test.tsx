@@ -126,6 +126,31 @@ describe('FixedRangeWithTimePicker', () => {
         expect(dayjs(from).isBefore(dayjs(to))).toBe(true)
     })
 
+    it('allows setting the start time when no start date is initially set', async () => {
+        const { container } = render(
+            <FixedRangeWithTimePicker
+                rangeDateFrom={null}
+                rangeDateTo={null}
+                setDate={setDate}
+                onClose={onClose}
+                use24HourFormat
+            />
+        )
+
+        // Default mode is selectingStart=true. With no rangeDateFrom, clicking a
+        // time button used to silently do nothing. Verify the click takes effect.
+        const hourButton = container.querySelector('[data-attr="14-h"]') as HTMLElement
+        expect(hourButton).toBeTruthy()
+        await userEvent.click(hourButton)
+
+        const minuteButton = container.querySelector('[data-attr="30-m"]') as HTMLElement
+        expect(minuteButton).toBeTruthy()
+        await userEvent.click(minuteButton)
+
+        // Start label should reflect the chosen time (regardless of fallback date).
+        expect(screen.getByText(/^Start: .* 14:30$/)).toBeInTheDocument()
+    })
+
     describe('24-hour format', () => {
         it('displays times in HH:mm format', () => {
             render(
@@ -138,8 +163,8 @@ describe('FixedRangeWithTimePicker', () => {
                 />
             )
 
-            expect(screen.getByRole('button', { name: 'Start: Jan 15, 2024 14:30' })).toBeInTheDocument()
-            expect(screen.getByRole('button', { name: 'End: Jan 15, 2024 16:45' })).toBeInTheDocument()
+            expect(screen.getByText('Start: Jan 15, 2024 14:30')).toBeInTheDocument()
+            expect(screen.getByText('End: Jan 15, 2024 16:45')).toBeInTheDocument()
         })
 
         it('sets hours directly without AM/PM conversion', async () => {

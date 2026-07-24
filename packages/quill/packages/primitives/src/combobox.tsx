@@ -1,3 +1,5 @@
+import './combobox.css'
+
 import { Combobox as ComboboxPrimitive } from '@base-ui/react'
 import { ChevronDownIcon, XIcon, CheckIcon } from 'lucide-react'
 import * as React from 'react'
@@ -6,24 +8,19 @@ import { Button } from './button'
 import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
-import { MenuLabel } from './menuLabel'
+import { MenuEmpty } from './menu-empty'
+import { MenuLabel } from './menu-label'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
 function Combobox<Value, Multiple extends boolean | undefined = false>({
     children,
-    highlightItemOnHover = false,
     ...props
 }: ComboboxPrimitive.Root.Props<Value, Multiple>): React.ReactElement {
     const anchorRef = React.useRef<HTMLDivElement>(null!)
     return (
         <ComboboxAnchorContext.Provider value={anchorRef}>
-            <ComboboxPrimitive.Root
-                    highlightItemOnHover={highlightItemOnHover}
-                    {...props}
-                >
-                {children}
-            </ComboboxPrimitive.Root>
+            <ComboboxPrimitive.Root {...props}>{children}</ComboboxPrimitive.Root>
         </ComboboxAnchorContext.Provider>
     )
 }
@@ -38,7 +35,7 @@ const ComboboxTrigger = React.forwardRef<HTMLButtonElement, ComboboxPrimitive.Tr
             <ComboboxPrimitive.Trigger
                 ref={ref}
                 data-slot="combobox-trigger"
-                className={cn("[&_svg:not([class*='size-'])]:size-3.5", className)}
+                className={cn('quill-combobox__trigger', className)}
                 {...props}
             >
                 {children}
@@ -75,22 +72,24 @@ function ComboboxInput({
 }): React.ReactElement {
     const anchorRef = React.useContext(ComboboxAnchorContext)
     return (
-        <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
-            <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
-            <InputGroupAddon align="inline-end">
-                {showTrigger && (
-                    <InputGroupButton
-                        size="icon-xs"
-                        render={<ComboboxTrigger />}
-                        data-slot="input-group-button"
-                        className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
-                        disabled={disabled}
-                    />
-                )}
-                {showClear && <ComboboxClear disabled={disabled} />}
-            </InputGroupAddon>
-            {children}
-        </InputGroup>
+        <div data-slot="combobox-input-group-wrapper">
+            <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
+                <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
+                <InputGroupAddon align="inline-end">
+                    {showTrigger && (
+                        <InputGroupButton
+                            size="icon-xs"
+                            render={<ComboboxTrigger />}
+                            data-slot="input-group-button"
+                            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
+                            disabled={disabled}
+                        />
+                    )}
+                    {showClear && <ComboboxClear disabled={disabled} />}
+                </InputGroupAddon>
+                {children}
+            </InputGroup>
+        </div>
     )
 }
 
@@ -112,20 +111,19 @@ function ComboboxContent({
     return (
         <ComboboxPrimitive.Portal>
             <ComboboxPrimitive.Positioner
+                data-quill
+                data-quill-portal="popover"
                 side={side}
                 sideOffset={sideOffset}
                 align={align}
                 alignOffset={alignOffset}
                 anchor={anchor}
-                className="isolate z-50"
+                className="isolate"
             >
                 <ComboboxPrimitive.Popup
                     data-slot="combobox-content"
                     data-chips={!!anchor}
-                    className={cn(
-                        'group/combobox-content relative max-h-(--available-height) min-w-[max(12rem,var(--anchor-width))] max-w-[min(24rem,var(--available-width))] origin-(--transform-origin) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-7 *:data-[slot=input-group]:border-none *:data-[slot=input-group]:bg-input/20 *:data-[slot=input-group]:shadow-none dark:bg-popover data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-                        className
-                    )}
+                    className={cn('quill-combobox__content group/combobox-content', className)}
                     {...props}
                 />
             </ComboboxPrimitive.Positioner>
@@ -137,8 +135,15 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
     return (
         <ComboboxPrimitive.List
             data-slot="combobox-list"
+            // `scroll-mask-t-4` always (top fade for items scrolling out of view).
+            // Bottom fade is conditional: if a `ComboboxListFooter` is rendered,
+            // the footer's own `quill-scroll-fade-top` pseudo handles the bottom
+            // fade (and only when content is actually hidden below, via
+            // container scroll-state). Otherwise, fall back to plugin's
+            // `scroll-mask-b-4` for the same behavior on lists without a footer.
             className={cn(
-                'max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0',
+                'quill-combobox__list scroll-mask-t-4 scroll-py-4',
+                'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
                 className
             )}
             {...props}
@@ -146,21 +151,26 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
     )
 }
 
-function ComboboxItem({ className, children, title, ...props }: ComboboxPrimitive.Item.Props & { title?: string }): React.ReactElement {
+function ComboboxItem({
+    className,
+    children,
+    title,
+    ...props
+}: ComboboxPrimitive.Item.Props & { title?: string }): React.ReactElement {
     return (
         <ComboboxPrimitive.Item
             data-slot="combobox-item"
-            className={cn(
-                'w-full font-normal not-data-[variant=destructive]:data-highlighted:**:text-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&>.item]:border-0',
-                'not-has-[>[data-slot=item]]:[&>button]:overflow-hidden',
-                className
-            )}
-            render={<Button left className="aria-selected:pe-7" />}
+            className={cn('quill-combobox__item', className)}
+            title={title ?? (typeof children === 'string' ? children : undefined)}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
+            render={<Button left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
-            <span className="truncate" title={title ?? (typeof children === 'string' ? children : undefined)}>{children}</span>
+            <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
             <ComboboxPrimitive.ItemIndicator
-                render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
+                render={<span className="pointer-events-none absolute start-2 flex items-center justify-center" />}
             >
                 <CheckIcon className="pointer-events-none" />
             </ComboboxPrimitive.ItemIndicator>
@@ -187,15 +197,13 @@ function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): R
     return <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
 }
 
-function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
+function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Empty
             data-slot="combobox-empty"
-            className={cn(
-                'hidden w-full justify-center py-2 text-center text-xs/relaxed text-muted-foreground group-data-empty/combobox-content:flex',
-                className
-            )}
+            className={cn('hidden group-data-empty/combobox-content:flex', className)}
             {...props}
+            render={<MenuEmpty>{children}</MenuEmpty>}
         />
     )
 }
@@ -204,7 +212,7 @@ function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.
     return (
         <ComboboxPrimitive.Separator
             data-slot="combobox-separator"
-            className={cn('-mx-1 my-1 h-px bg-border/50', className)}
+            className={cn('quill-combobox__separator', className)}
             {...props}
         />
     )
@@ -217,10 +225,7 @@ function ComboboxChips({
     return (
         <ComboboxPrimitive.Chips
             data-slot="combobox-chips"
-            className={cn(
-                'flex min-h-8 flex-wrap items-center gap-1 rounded-md border border-input bg-input/20 bg-clip-padding px-2 py-1 text-xs/relaxed transition-colors focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/30 has-aria-invalid:border-destructive has-aria-invalid:ring-2 has-aria-invalid:ring-destructive/20 has-data-[slot=combobox-chip]:px-[0.175rem] dark:bg-input/30 dark:has-aria-invalid:border-destructive/50 dark:has-aria-invalid:ring-destructive/40',
-                className
-            )}
+            className={cn('quill-combobox__chips flex flex-wrap items-center gap-1 py-1', className)}
             {...props}
         />
     )
@@ -238,14 +243,14 @@ function ComboboxChip({
 }): React.ReactElement {
     return (
         <ComboboxPrimitive.Chip
-            render={<Chip className="pe-0" title={title ?? (typeof children === 'string' ? children : undefined)} />}
+            render={<Chip title={title ?? (typeof children === 'string' ? children : undefined)} />}
             data-slot="combobox-chip"
             className={cn(className)}
             {...props}
         >
             <span className="truncate flex-1">{children}</span>
             {showRemove && (
-                <ComboboxPrimitive.ChipRemove render={<ChipClose />} data-slot="combobox-chip-remove">
+                <ComboboxPrimitive.ChipRemove render={<ChipClose />}>
                     <XIcon className="pointer-events-none" />
                 </ComboboxPrimitive.ChipRemove>
             )}
@@ -257,9 +262,24 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
     return (
         <ComboboxPrimitive.Input
             data-slot="combobox-chip-input"
-            className={cn('min-w-16 flex-1 outline-none', className)}
+            className={cn('quill-combobox__chips-input', className)}
             {...props}
         />
+    )
+}
+
+function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+    return (
+        <div
+            data-slot="combobox-list-footer"
+            // `quill-scroll-fade-top` adds a `var(--card) → transparent` gradient
+            // pseudo-element above the footer, gated by container scroll-state on
+            // the parent list. Renders only when items are hidden below the visible
+            // area, mirroring `scroll-mask-b` without fading the footer itself.
+            className={cn('quill-combobox__list-footer quill-scroll-fade-top', className)}
+        >
+            <div className="p-1" {...props} />
+        </div>
     )
 }
 
@@ -281,6 +301,7 @@ export {
     ComboboxLabel,
     ComboboxCollection,
     ComboboxEmpty,
+    ComboboxListFooter,
     ComboboxSeparator,
     ComboboxChips,
     ComboboxChip,

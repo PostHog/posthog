@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { ShortcutMenu } from 'lib/components/Shortcuts/ShortcutMenu'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -54,11 +54,12 @@ export function ScenePanelActionsSection({ children }: { children: React.ReactNo
 export function ScenePanelLabel({
     children,
     title,
+    className,
     ...props
 }: PropsWithChildren<Omit<LabelProps, 'title'> & { title: React.ReactNode }>): JSX.Element {
     return (
         <div className="flex flex-col gap-0">
-            <Label intent="menu" {...props}>
+            <Label intent="menu" {...props} className={cn('text-tertiary/80', className)}>
                 {title}
             </Label>
             {children}
@@ -80,7 +81,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
         <>
             {children}
 
-            <AppShortcutMenu />
+            <ShortcutMenu />
         </>
     )
 }

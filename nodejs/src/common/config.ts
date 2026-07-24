@@ -1,14 +1,12 @@
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
 import type { BaseServerConfig } from '../servers/base-server'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
-export enum KafkaSecurityProtocol {
-    Plaintext = 'PLAINTEXT',
-    SaslPlaintext = 'SASL_PLAINTEXT',
-    Ssl = 'SSL',
-    SaslSsl = 'SASL_SSL',
-}
+// Public dev-only default for the internal API secret. Never accepted as a valid secret in production
+// (mirrors LOCAL_DEV_INTERNAL_API_SECRET on the Django side).
+export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
 
 export enum KafkaSaslMechanism {
     Plain = 'plain',
@@ -24,26 +22,35 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     // TODO: Remove once charts deploy with mode=recordings-blob-ingestion-v2 for overflow pods
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
+    recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
+    recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
+    recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_precalculated_filters = 'cdp-precalculated-filters',
+    cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
+    cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
+    cdp_cyclotron_worker_email_legacy_pg = 'cdp-cyclotron-worker-email-legacy-pg',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
-    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    ingestion_metrics = 'ingestion-metrics',
+    cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
+    cdp_rerun_worker = 'cdp-rerun-worker',
     recording_api = 'recording-api',
-    ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
 }
 
@@ -61,10 +68,14 @@ export type CommonConfig = BaseServerConfig & {
     OTEL_TRACES_SAMPLER_ARG: number
     OTEL_MAX_SPANS_PER_GROUP: number
     OTEL_MIN_SPAN_DURATION_MS: number
+    /** OTLP metrics push target (e.g. capture-logs /v1/metrics); empty disables the meter provider. */
+    OTEL_METRICS_EXPORT_URL: string
+    /** Capture token identifying the team that receives the pushed metrics. */
+    OTEL_METRICS_EXPORT_TOKEN: string
+    OTEL_METRICS_EXPORT_INTERVAL_MS: number
     DISABLE_OPENTELEMETRY_TRACING: boolean
 
     // Tasks
-    TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
 
     // Database
@@ -119,13 +130,18 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE: boolean
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
+    CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    /**
+     * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
+     * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
+     * `src/kafka/consumer/index.ts`. Will be removed once v1 is deleted.
+     */
+    CONSUMER_USE_V2: boolean
 
     // Kafka
     KAFKA_HOSTS: string
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
@@ -171,6 +187,13 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+
+    // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
+    // can't run (unsupported host functions, addon not built) fall back to the Node VM.
+    CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    // Event loop yield helper (yieldEventLoopIfNeeded)
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -202,10 +225,12 @@ export function getDefaultCommonConfig(): CommonConfig {
         OTEL_TRACES_SAMPLER_ARG: 1,
         OTEL_MAX_SPANS_PER_GROUP: 2,
         OTEL_MIN_SPAN_DURATION_MS: 50,
+        OTEL_METRICS_EXPORT_URL: '',
+        OTEL_METRICS_EXPORT_TOKEN: '',
+        OTEL_METRICS_EXPORT_INTERVAL_MS: 15000,
         DISABLE_OPENTELEMETRY_TRACING: false,
 
         // Tasks
-        TASKS_PER_WORKER: 10,
         TASK_TIMEOUT: 30,
 
         // Database
@@ -249,7 +274,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
-        PERSONHOG_TIMEOUT_MS: 1000,
+        PERSONHOG_TIMEOUT_MS: 3000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -278,13 +303,13 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE: false,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
+        CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_USE_V2: false,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
-        KAFKA_SECURITY_PROTOCOL: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -319,7 +344,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         INTERNAL_API_BASE_URL: isProdEnv()
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
-        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : LOCAL_DEV_INTERNAL_API_SECRET,
+        INTERNAL_API_SECRET_FALLBACKS: '',
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
@@ -336,6 +362,10 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
+        CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+
+        // Event loop yield helper
+        EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

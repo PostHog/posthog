@@ -1,8 +1,7 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import React, { useEffect, useState } from 'react'
 
 import { IconPieChart } from '@posthog/icons'
 
@@ -11,7 +10,7 @@ import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { InsightColor } from '~/types'
 
@@ -40,6 +39,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
+    /** Refresh control revealed on card hover, shown in the top controls area. */
+    refreshControl?: JSX.Element | null
     /** Description shown in the compact popover. */
     metaDescription?: JSX.Element | null
     /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
@@ -69,11 +70,25 @@ export function CardMeta({
     onMouseDown,
     samplingFactor,
     extraControls,
+    refreshControl,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
     const { ref: topRef, width: topWidth } = useResizeObserver()
     const { ref: headingRef, width: headingWidth } = useResizeObserver()
+
+    // Keep the details content mounted during the 200 ms collapse animation
+    // so the outer `.CardMeta__details` height transition plays over real
+    // content rather than an empty container.
+    const [shouldRenderDetails, setShouldRenderDetails] = useState(areDetailsShown)
+    useEffect(() => {
+        if (areDetailsShown) {
+            setShouldRenderDetails(true)
+            return
+        }
+        const t = window.setTimeout(() => setShouldRenderDetails(false), 200)
+        return () => clearTimeout(t)
+    }, [areDetailsShown])
 
     // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
     const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
@@ -89,6 +104,12 @@ export function CardMeta({
         inStorybook() ||
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
+    const extraControlsWithLabel = extraControls
+        ? React.cloneElement(extraControls, {
+              ...extraControls.props,
+              showLabel: showControlsLabels,
+          })
+        : null
 
     return (
         <div
@@ -111,8 +132,9 @@ export function CardMeta({
                     {compact ? (
                         <>
                             <div className="CardMeta__top">
-                                <h5 className="CardMeta__heading">{topHeading}</h5>
+                                <div className="CardMeta__heading">{topHeading}</div>
                                 <div className="CardMeta__controls">
+                                    {refreshControl}
                                     {showEditingControls &&
                                         (moreTooltip ? (
                                             <Tooltip title={moreTooltip}>
@@ -143,11 +165,8 @@ export function CardMeta({
                                     )}
                                 </h5>
                                 <div className="CardMeta__controls">
-                                    {extraControls &&
-                                        React.cloneElement(extraControls, {
-                                            ...extraControls.props,
-                                            showLabel: showControlsLabels,
-                                        })}
+                                    {refreshControl}
+                                    {extraControlsWithLabel}
                                     {showDetailsControls && setAreDetailsShown && (
                                         <Tooltip title={detailsTooltip}>
                                             <LemonButton
@@ -185,13 +204,12 @@ export function CardMeta({
                         height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
                     }}
                 >
-                    {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                    {shouldRenderDetails && (
                         <div className="CardMeta__details__content" ref={detailsRef}>
                             {/* Stops the padding getting in the height calc  */}
                             <div className="p-4">{metaDetails}</div>
                         </div>
-                    </Transition>
+                    )}
                 </div>
             )}
         </div>

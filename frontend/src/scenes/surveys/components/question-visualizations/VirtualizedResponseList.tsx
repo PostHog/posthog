@@ -3,6 +3,7 @@ import { Grid } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -32,16 +33,30 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
             onClick={isLongResponse ? () => setIsExpanded(!isExpanded) : undefined}
         >
             <div className="text-sm truncate mb-auto">{responseText}</div>
-            <div className="flex items-center justify-between text-xs text-secondary mt-1">
-                <PersonDisplay
-                    person={{ distinct_id: response.distinctId }}
-                    displayName={response.personDisplayName}
-                    withIcon="xs"
-                    noEllipsis={false}
-                    noLink={!response.distinctId}
-                    muted
-                />
-                {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+            <div className="flex items-center justify-between text-xs text-secondary mt-1 gap-2 min-w-0">
+                <div className="min-w-0 flex-1">
+                    <PersonDisplay
+                        person={{ distinct_id: response.distinctId }}
+                        displayName={response.personDisplayName}
+                        withIcon="xs"
+                        noEllipsis={false}
+                        noLink={!response.distinctId}
+                        muted
+                    />
+                </div>
+                <div
+                    className="flex items-center gap-2 shrink-0 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <ViewRecordingButton
+                        sessionId={response.sessionId}
+                        timestamp={response.timestamp}
+                        variant={ViewRecordingButtonVariant.Link}
+                        className="whitespace-nowrap"
+                        checkRecordingExists
+                    />
+                    {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+                </div>
             </div>
         </div>
     )
@@ -67,7 +82,15 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                             noEllipsis={false}
                             noLink={!response.distinctId}
                         />
-                        {response.timestamp && <TZLabel time={response.timestamp} />}
+                        <div className="flex items-center gap-2">
+                            <ViewRecordingButton
+                                sessionId={response.sessionId}
+                                timestamp={response.timestamp}
+                                size="xsmall"
+                                checkRecordingExists
+                            />
+                            {response.timestamp && <TZLabel time={response.timestamp} />}
+                        </div>
                     </div>
                 </div>
             }
@@ -120,8 +143,8 @@ export function VirtualizedResponseList({
     className,
 }: VirtualizedResponseListProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
-    const isMobile = isWindowLessThan('sm')
-    const columnCount = isMobile ? 1 : 2
+    const isNarrow = isWindowLessThan('md')
+    const columnCount = isNarrow ? 1 : 2
     const rowCount = Math.ceil(responses.length / columnCount)
     const [isAtBottom, setIsAtBottom] = useState(false)
 
@@ -140,7 +163,7 @@ export function VirtualizedResponseList({
 
     if (responses.length <= MAX_STATIC_RESPONSES) {
         return (
-            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${className ?? ''}`}>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${className ?? ''}`}>
                 {responses.map((response, index) => (
                     <ResponseListItem key={`${response.distinctId}-${index}`} response={response} />
                 ))}

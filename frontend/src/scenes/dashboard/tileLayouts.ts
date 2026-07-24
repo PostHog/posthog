@@ -1,5 +1,11 @@
 import { Layout } from 'react-grid-layout'
 
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+    type DashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
+
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -15,6 +21,48 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
+const MIN_WIDGET_TILE_WIDTH_COLS = 3
+const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
+
+/** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
+export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
+
+type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
+
+/**
+ * Widget tile sizing from `DASHBOARD_WIDGET_CATALOG[].defaultLayout` (w, h, minW, minH).
+ * Returns undefined when `widget_type` is missing or unknown; callers use scene fallbacks
+ * (default size 6×5, mins `MIN_WIDGET_TILE_WIDTH_COLS` / `MIN_WIDGET_TILE_HEIGHT_ROWS`).
+ */
+function getWidgetCatalogLayout(widgetType: string | undefined): WidgetCatalogLayout | undefined {
+    if (!widgetType || !(widgetType in DASHBOARD_WIDGET_CATALOG)) {
+        return undefined
+    }
+    return getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+}
+
+function getTileMinDimensions({
+    isTextTile,
+    isButtonTile,
+    isWidgetTile,
+    widgetCatalogLayout,
+}: {
+    isTextTile: boolean
+    isButtonTile: boolean
+    isWidgetTile: boolean
+    widgetCatalogLayout: WidgetCatalogLayout | undefined
+}): { minW: number; minH: number } {
+    if (isTextTile || isButtonTile) {
+        return { minW: 1, minH: MIN_TEXT_TILE_HEIGHT_ROWS }
+    }
+    if (isWidgetTile) {
+        return {
+            minW: widgetCatalogLayout?.minW ?? MIN_WIDGET_TILE_WIDTH_COLS,
+            minH: widgetCatalogLayout?.minH ?? MIN_WIDGET_TILE_HEIGHT_ROWS,
+        }
+    }
+    return { minW: 2, minH: MIN_TILE_HEIGHT_ROWS }
+}
 
 export interface DuplicateLayoutResult {
     duplicateLayouts: { sm?: TileLayout }
@@ -27,7 +75,7 @@ export function calculateDuplicateLayout(
 ): DuplicateLayoutResult {
     const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
 
-    const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
+    const originalSmLayout = currentLayouts?.sm?.find((l) => l.i === `${tileId}`)
 
     if (!originalSmLayout) {
         return result
@@ -53,12 +101,59 @@ export function calculateDuplicateLayout(
     // shift down any tiles that would overlap with the new placement
     for (const smLayout of currentLayouts?.sm || []) {
         // ignore the duplicated tile and tiles above the insertion point
-        if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
+        if (smLayout.i === `${tileId}` || smLayout.y < insertY) {
             continue
         }
 
         result.tilesToUpdate.push({
-            id: parseInt(smLayout.i),
+            id: Number(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+export interface InsertionLayoutResult {
+    newTileLayout: { sm: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+/**
+ * Layout for inserting a tile at a given grid slot: the new tile lands at (`targetX`, `targetY`) and
+ * only tiles sharing its column span (those horizontally overlapping the new tile) that sit at or
+ * below `targetY` are pushed down by `h` rows. Tiles in other columns stay put, so inserting into the
+ * right column doesn't shove the left one. Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape
+ * so persistence is shared.
+ */
+export function calculateInsertionLayout(
+    currentSmLayout: Layout | undefined,
+    newTileId: number,
+    targetY: number,
+    targetX: number,
+    w: number,
+    h: number
+): InsertionLayoutResult {
+    const result: InsertionLayoutResult = {
+        newTileLayout: { sm: { x: targetX, y: targetY, w, h } },
+        tilesToUpdate: [],
+    }
+
+    for (const smLayout of currentSmLayout || []) {
+        // leave the new tile and anything above the insertion point untouched
+        if (smLayout.i === `${newTileId}` || smLayout.y < targetY) {
+            continue
+        }
+        // only push tiles that share horizontal space with the inserted tile's column span
+        const overlapsColumn = smLayout.x < targetX + w && smLayout.x + smLayout.w > targetX
+        if (!overlapsColumn) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: Number(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
             },
@@ -83,13 +178,22 @@ function canPlaceToRight(
     }
 
     return !layouts.some((l) => {
-        if (String(l.i) === String(excludeTileId)) {
+        if (l.i === `${excludeTileId}`) {
             return false
         }
         const overlapsX = l.x < rightX + w && l.x + l.w > rightX
         const overlapsY = l.y < y + h && l.y + l.h > y
         return overlapsX && overlapsY
     })
+}
+
+export function defaultSmLayoutAtBottom(smLayout: Layout | undefined, w: number, h: number): TileLayout {
+    let maxBottom = 0
+    for (const layout of smLayout ?? []) {
+        maxBottom = Math.max(maxBottom, (layout.y ?? 0) + (layout.h ?? 0))
+    }
+
+    return { x: 0, y: maxBottom, w, h }
 }
 
 export const sortTilesByLayout = (
@@ -123,9 +227,7 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            // First pass: calculate sm layout and establish order
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
             // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
@@ -154,6 +256,9 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+                defaultW = 3
+                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {
@@ -167,15 +272,24 @@ export const calculateLayouts = (
 
             const isTextTile = !!tile.text
             const isButtonTile = !!tile.button_tile
+            const isWidgetTile = !!tile.widget
+            const widgetCatalogLayout = isWidgetTile ? getWidgetCatalogLayout(tile.widget?.widget_type) : undefined
             if (isButtonTile) {
                 defaultW = 3
                 defaultH = 1
+            } else if (isWidgetTile) {
+                defaultW = widgetCatalogLayout?.w ?? 6
+                defaultH = widgetCatalogLayout?.h ?? 5
             }
             const xsSmH = breakpoint === 'xs' ? tile.layouts?.sm?.h : undefined
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || (typeof xsSmH === 'number' && xsSmH > 0 ? xsSmH : undefined) || defaultH
-            const minH = isTextTile || isButtonTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
-            const minW = isTextTile || isButtonTile ? 1 : 2
+            const { minW, minH } = getTileMinDimensions({
+                isTextTile,
+                isButtonTile,
+                isWidgetTile,
+                widgetCatalogLayout,
+            })
 
             return {
                 i: tile.id?.toString(),
@@ -234,6 +348,12 @@ export const calculateLayouts = (
             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
                 lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
             }
+        }
+
+        if (breakpoint === 'sm') {
+            referenceOrder = [...cleanLayouts]
+                .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
+                .map((l) => Number(l.i))
         }
 
         allLayouts[breakpoint] = cleanLayouts

@@ -12,11 +12,16 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
+    ActorsQuery,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
+    FunnelMathType,
+    FunnelsActorsQuery,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -25,12 +30,13 @@ from posthog.schema import (
 )
 
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
 
@@ -206,6 +212,44 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[0]["count"] == 5
         assert results[1]["count"] == 1
 
+    def _days_of_week_trends_query(self, table_name: str, days_of_week: list[int] | None) -> FunnelsQuery:
+        node = FunnelsDataWarehouseNode(
+            id=table_name,
+            table_name=table_name,
+            id_field="uuid",
+            aggregation_target_field="user_id",
+            timestamp_field="created",
+        )
+        return FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01", date_to="2025-11-07", daysOfWeek=days_of_week),
+            interval="day",
+            series=[node, node],
+            funnelsFilter=FunnelsFilter(funnelVizType="trends"),
+        )
+
+    @parameterized.expand(
+        [
+            # funnels_data.csv has one row per day Nov 1 (Sat) through Nov 6 (Thu); Nov 3 is the only Monday
+            ("mondays_only", [1], 1),
+            ("empty_means_unfiltered", [], 6),
+        ]
+    )
+    def test_data_warehouse_trends_days_of_week_filters_entrances(self, _name, days_of_week, expected_entrances):
+        # The data-warehouse trends query builds its own WHERE clause, separate from the events path,
+        # so it needs its own day-of-week coverage
+        table_name = self.setup_data_warehouse()
+
+        with freeze_time("2025-11-08"):
+            response = FunnelsQueryRunner(
+                query=self._days_of_week_trends_query(table_name, days_of_week),
+                team=self.team,
+                just_summarize=True,
+            ).calculate()
+
+        total_entrances = sum(row["reached_from_step_count"] for row in response.results)
+        assert total_entrances == expected_entrances
+
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_and_regular_nodes(self):
         table_name = self.setup_data_warehouse()
@@ -260,6 +304,75 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             results = response.results
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
+
+    def _string_aggregation_target_funnels_query(self, table_name: str) -> FunnelsQuery:
+        return FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                EventsNode(event="$pageview"),
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target(self):
+        # A mixed funnel where the warehouse series aggregates by a plain string
+        # column (not cast to UUID) must not fail the UNION ALL with NO_COMMON_TYPE
+        # against the events series' person_id UUID.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            journeys_for(
+                {"person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}]},
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = self._string_aggregation_target_funnels_query(table_name)
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+            results = response.results
+            assert results[0]["count"] == 1
+            assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target_actors(self):
+        # The actors drill-down INNER-joins person.id (UUID) against the funnel
+        # actor_id, which is a String for a mixed funnel. Exercise it to confirm
+        # the stringified actor id still resolves to a person.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            journeys_for(
+                {"person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}]},
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = self._string_aggregation_target_funnels_query(table_name)
+            actors_query = ActorsQuery(
+                source=FunnelsActorsQuery(source=funnels_query, funnelStep=2),
+                select=["id", "person"],
+            )
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+            actor_ids = [str(row[0]) for row in response.results]
+            assert actor_ids == ["bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"]
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_non_uuid_id_column(self):
@@ -547,6 +660,73 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
+        results = response.results
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 2
+
+    def test_funnels_data_warehouse_first_time_for_user(self):
+        # cf6a408b's first-ever row is 2025-11-02, before the 2025-11-03 window start, so
+        # first-time-for-user must exclude that user from step 0 while a plain (total) funnel
+        # still counts their later 2025-11-06 row.
+        table_name = self.setup_data_warehouse()
+
+        def _query(first_time: bool) -> FunnelsQuery:
+            node = FunnelsDataWarehouseNode(
+                id=table_name,
+                table_name=table_name,
+                id_field="uuid",
+                aggregation_target_field="user_id",
+                timestamp_field="created",
+                math=FunnelMathType.FIRST_TIME_FOR_USER if first_time else None,
+            )
+            return FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-03"),
+                series=[node, node],
+            )
+
+        with freeze_time("2025-11-07"):
+            total = FunnelsQueryRunner(query=_query(False), team=self.team, just_summarize=True).calculate()
+            first_time = FunnelsQueryRunner(query=_query(True), team=self.team, just_summarize=True).calculate()
+
+        # 4 distinct users have a row in the window; first-time-for-user drops cf6a408b,
+        # whose first-ever occurrence falls before the window.
+        assert total.results[0]["count"] == 4
+        assert first_time.results[0]["count"] == 3
+
+    def test_funnels_first_time_for_user_two_different_tables(self):
+        table_one_name, table_two_name = self.setup_same_config_different_tables_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_one_name,
+                    table_name=table_one_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_two_name,
+                    table_name=table_two_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
+        )
+
+        with freeze_time("2025-11-07"):
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+        # Each user appears once per table, so first-time-for-user leaves the counts unchanged —
+        # but the funnel must still run with an independent first-time subquery per table
+        # (a config bleed between the two tables would error or miscount).
         results = response.results
         assert results[0]["count"] == 2
         assert results[1]["count"] == 2

@@ -1,0 +1,102 @@
+---
+name: creating-experiments
+description: "Guides agents through the 3-step experiment creation flow: defining the hypothesis, configuring rollout, and setting up analytics. Delegates rollout decisions to configuring-experiment-rollout and metric setup to configuring-experiment-analytics.\nTRIGGER when: user asks to create a new experiment or A/B test, OR when you are about to call experiment-create.\nDO NOT TRIGGER when: user is updating an existing experiment, managing lifecycle, or only browsing experiments."
+---
+
+# Creating experiments
+
+This skill walks through the 3-step flow for creating a new A/B test experiment.
+
+## Core principle: draft first, iterate on details
+
+Create the experiment as a draft quickly, then iterate on metrics and configuration.
+The user gets a tangible draft immediately and can refine it.
+
+## The 3-step creation flow
+
+### Step 1: What are we testing?
+
+Gather these before calling `experiment-create`:
+
+- **Experiment name** — descriptive, inferred from context when possible
+- **Hypothesis** — what you expect to happen (goes in `description`)
+- **Feature flag key** — kebab-case. Ask if they want a new flag or to reuse an existing one.
+  The flag is auto-created — do NOT create one separately.
+- **Type** — leave empty (will internally default to `"product"`. The `"web"` value is reserved for no-code experiments configured visually with the PostHog
+  toolbar in a browser; it cannot be meaningfully driven via MCP. If a user asks for a
+  no-code/toolbar experiment, point them to the PostHog UI instead of creating one here.)
+
+If the user gives enough context to infer these, don't ask — just proceed.
+
+### Step 2: Who sees what variant?
+
+This is about rollout configuration.
+
+**Before asking any rollout question, load `configuring-experiment-rollout`.** The disambiguation wording, recommendations, and post-answer branches live there — do not formulate rollout questions yourself, and do not assume an example you remember covers the user's path.
+
+Key decision points (covered in detail by `configuring-experiment-rollout`):
+
+- Variant split (how many variants, what percentage each)
+- Overall rollout percentage (what % of all users enter the experiment)
+- Whether to persist the flag across authentication steps
+
+If the user doesn't mention rollout specifics, use defaults: 50/50 control/test, 100% rollout.
+
+### Step 3: How to measure impact?
+
+This is about analytics and metrics. **Load the `configuring-experiment-analytics` skill** for guidance.
+That skill's first step checks for an existing **shared metric** to reuse before building a new one —
+don't duplicate a metric the project already has set up.
+
+**Do NOT configure metrics on creation.** Metrics are not passed to `experiment-create` — they are added
+afterwards via `experiment-update`. This keeps the creation call lightweight.
+
+When the user specifies metrics upfront, acknowledge them and add them immediately after creation.
+When they don't, create the draft and then guide them through metric setup as a follow-up.
+
+## How to create
+
+Call `experiment-create` with:
+
+```json
+{
+  "name": "Descriptive experiment name",
+  "feature_flag_key": "kebab-case-key",
+  "description": "Hypothesis: [what you expect to happen]",
+  "feature_flag": {
+    "filters": {
+      "multivariate": {
+        "variants": [
+          { "key": "control", "name": "Control", "rollout_percentage": 50 },
+          { "key": "test", "name": "Test", "rollout_percentage": 50 }
+        ]
+      },
+      "groups": [{ "properties": [], "rollout_percentage": 100 }]
+    },
+    "ensure_experience_continuity": false
+  }
+}
+```
+
+Flag config goes in the `feature_flag` object, in the flag's own filters shape (not the deprecated `parameters` keys).
+Two different percentages live in there, do NOT mix them up:
+
+- `filters.multivariate.variants[].rollout_percentage` is how users **inside** the experiment are split across variants (must sum to 100, recommended to have an even split).
+- `filters.groups[0].rollout_percentage` is the overall gate: what fraction of **all** users enter the experiment at all (0-100, defaults to 100).
+
+Key details:
+
+- Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
+- `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
+- `ensure_experience_continuity` persists a user's variant across authentication steps; leave it `false` unless the flag is shown to both logged-out and logged-in users (see `configuring-experiment-rollout`).
+- Stats default to Bayesian. Only set `stats_config` if the user requests Frequentist.
+
+## After creation
+
+1. **Always show the experiment URL.** The `experiment-create` response includes `_posthogUrl` — always display this link so the user can view and configure the experiment in the UI.
+
+2. **Remind the user to implement the feature flag in code.** Link to the experiment page and say "implement the flag as shown here" — the experiment detail page shows implementation snippets for the user's SDK.
+
+3. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
+
+4. **Launch** when ready — use the `experiment-launch` tool.

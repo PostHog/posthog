@@ -3,7 +3,7 @@ import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
-import { UserBasicType } from '~/types'
+import { AccessControlLevel, UserBasicType } from '~/types'
 
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
@@ -36,6 +36,14 @@ export const HogFlowSchema = z.object({
         .object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any().optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             bytecode: z.array(z.union([z.string(), z.number()])).optional(), // Bytecode only present after save
         })
         .optional(),
@@ -62,10 +70,9 @@ export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend
 export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     hog_flow: z.string(),
-    variables: z.record(z.any()),
+    variables: z.record(z.string(), z.any()),
     status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
     filters: z.any(),
-    scheduled_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -73,6 +80,8 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // Effective access level of the current user for this workflow (resource access control).
+    user_access_level?: AccessControlLevel
 }
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}

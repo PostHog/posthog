@@ -1,6 +1,6 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText } from 'lib/utils'
-import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -14,7 +14,7 @@ import {
 } from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
-import { TileOverridesWarning } from './TileOverridesWarning'
+import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverridesWarning'
 
 function getInsightType(query: Node | null): InsightTypeMetadata {
     if (query?.kind) {
@@ -30,14 +30,22 @@ export function TopHeading({
     query,
     lastRefresh,
     hasTileOverrides,
+    ignoresDashboardFilters,
     resolvedDateRange,
     showInsightType = true,
+    showDate = true,
+    dateFromOverride,
+    dateToOverride,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
+    ignoresDashboardFilters?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    showDate?: boolean
+    dateFromOverride?: string | null
+    dateToOverride?: string | null
 }): JSX.Element {
     const insightType = getInsightType(query)
 
@@ -49,6 +57,12 @@ export function TopHeading({
             date_to = queryDateRange.date_to
         }
     }
+    if (dateFromOverride != null) {
+        date_from = dateFromOverride
+    }
+    if (dateToOverride != null) {
+        date_to = dateToOverride
+    }
 
     let dateText: string | null = null
     if (insightType?.name !== 'Retention') {
@@ -56,28 +70,24 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
+    const dateLabel = showDate ? dateText : null
 
     const insightQueryNode = isInsightVizNode(query) ? query.source : isInsightQueryNode(query) ? query : null
     const interval = insightQueryNode ? getInterval(insightQueryNode) : null
     const resolvedDateTooltip = formatResolvedDateRange(alignResolvedDateRangeToInterval(resolvedDateRange, interval))
 
     return (
-        <div className="flex items-center gap-1">
-            {showInsightType && <span title={insightType?.description}>{insightType?.name}</span>}
-            {dateText ? (
-                <>
-                    {showInsightType && <span>•</span>}
-                    {resolvedDateTooltip ? (
-                        <Tooltip title={resolvedDateTooltip}>
-                            <span className="whitespace-nowrap">{dateText}</span>
-                        </Tooltip>
-                    ) : (
-                        <span className="whitespace-nowrap">{dateText}</span>
-                    )}
-                </>
-            ) : null}
-            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+        <CardTopHeadingRow
+            typeLabel={insightType?.name}
+            typeTitle={insightType?.description}
+            showTypeLabel={showInsightType}
+            dateText={dateLabel}
+            dateTooltip={resolvedDateTooltip}
+        >
+            {/* Freshness clock lives in the date row — without a date it would hold the row open on its own. */}
+            {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
-        </div>
+            {ignoresDashboardFilters ? <IgnoresDashboardFiltersNotice /> : null}
+        </CardTopHeadingRow>
     )
 }

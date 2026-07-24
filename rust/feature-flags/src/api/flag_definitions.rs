@@ -2,16 +2,14 @@ use crate::{
     api::{
         auth,
         errors::{ClientFacingError, FlagError},
+        instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
-    flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_request::FlagRequestType,
-        flag_service::FlagService,
-    },
+    flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
     handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -25,15 +23,23 @@ use axum::{
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
 use common_types::TeamId;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
-const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Redis sorted set holding team IDs whose flag-definitions cache is missing and
+/// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
+/// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
+/// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
+/// `test_request_zset_key_matches_rust_contract`).
+const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
 /// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
@@ -67,30 +73,15 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
 }
 
 /// Query the posthog_instancesetting table for the rate limit allowlist.
-/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
 /// Returns None if the row doesn't exist (env var default should be kept),
 /// Some(set) if the row exists (overrides the env var).
 pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
-            .bind(CONSTANCE_KEY)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| format!("DB query failed: {e}"))?;
-
-    let raw_value = match row {
-        Some((val,)) => val,
+    let raw = match fetch_instance_setting_raw_value(pool, &CONSTANCE_KEY).await? {
+        Some(v) => v,
         None => return Ok(None),
     };
 
-    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
-    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
-    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
-        Ok(serde_json::Value::String(s)) => s,
-        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
-        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
-    };
-    let value = value.trim();
+    let value = raw.trim();
     if value.is_empty() {
         return Ok(Some(HashSet::new()));
     }
@@ -124,8 +115,11 @@ pub type FlagDefinitionsResponse = Value;
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
-    /// Team API token - required to specify which team's flags to return
-    pub token: String,
+    /// Team API token. Required when authenticating with a personal API key (which
+    /// can access multiple teams). Optional when authenticating with a `phs_` secret
+    /// token or project secret API key, since those are team-scoped and the team can
+    /// be derived from the token itself.
+    pub token: Option<String>,
 }
 
 /// Flag definitions endpoint handler
@@ -161,7 +155,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = %params.token,
+        token = ?params.token,
         "Processing flag definitions request"
     );
 
@@ -171,11 +165,17 @@ pub async fn flags_definitions(
         return Ok(handle_non_get_method(&method));
     }
 
-    // Fetch team using the token from query parameter
-    let team = fetch_team_by_token(&state, &params.token).await?;
-
-    // Authenticate against the specified team
-    authenticate_flag_definitions(&state, &team, &headers).await?;
+    // Resolve the team. Two flows:
+    // 1. Token provided: look up team by token, then authenticate against it (standard SDK flow)
+    // 2. Token absent: authenticate with phs_ secret token first, derive team_id from it
+    //    (supports direct API callers who authenticate with Bearer phs_<key> only)
+    let team = if let Some(ref token) = params.token {
+        let team = fetch_team_by_token(&state, token).await?;
+        authenticate_flag_definitions(&state, &team, &headers).await?;
+        team
+    } else {
+        resolve_team_from_auth(&state, &headers).await?
+    };
 
     // Refresh the rate limit allowlist from the database if stale (every ~60s)
     refresh_rate_limit_allowlist_if_stale(&state).await;
@@ -183,10 +183,10 @@ pub async fn flags_definitions(
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
     if state
         .feature_flags_billing_limiter
-        .is_limited(&params.token)
+        .is_limited(&team.api_token)
         .await
     {
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
@@ -227,21 +227,9 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
-            state.redis_client.clone(),
-            team.id,
-            1,
-            FlagRequestType::FlagDefinitions,
-            Some(library),
-        )
-        .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+        state
+            .billing_aggregator
+            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
     }
 
     Ok(ok_response_with_etag(
@@ -250,12 +238,12 @@ pub async fn flags_definitions(
     ))
 }
 
-fn format_weak_etag(raw: &str) -> String {
+pub(crate) fn format_weak_etag(raw: &str) -> String {
     format!("W/\"{}\"", raw)
 }
 
 /// Build a 304 Not Modified response with ETag and Cache-Control headers.
-fn not_modified_response(etag: &str) -> Response {
+pub(crate) fn not_modified_response(etag: &str) -> Response {
     (
         StatusCode::NOT_MODIFIED,
         [
@@ -287,7 +275,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
 ///
 /// Handles both strong ETags (`"abc123"`) and weak ETags (`W/"abc123"`) per RFC 7232.
 /// Returns `None` if the header is absent or empty.
-fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>) -> Option<String> {
+pub(crate) fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>) -> Option<String> {
     let value = header?.to_str().ok()?;
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -350,7 +338,7 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
-fn handle_non_get_method(method: &Method) -> Response {
+pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     match *method {
         Method::HEAD => (
             StatusCode::OK,
@@ -372,15 +360,49 @@ fn handle_non_get_method(method: &Method) -> Response {
 /// Fetches a team by its API token, delegating to FlagService for consistent
 /// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let flag_service = FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    );
-    flag_service.verify_token_and_get_team(token).await
+    state.flag_service().verify_token_and_get_team(token).await
+}
+
+/// Resolves a team from the Authorization header when no `?token=` param is provided.
+///
+/// Only works with `phs_` secret tokens and project secret API keys, which are
+/// team-scoped. Personal API keys can access multiple teams and require an explicit
+/// `?token=` param to disambiguate — returns an error in that case.
+async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (team_id, api_token, is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+
+        // Prefer HyperCache via api_token (new cache entries include it).
+        // Fall back to PG for old cache entries that predate the field.
+        let svc = state.flag_service();
+        return match api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(team_id).await,
+        };
+    }
+
+    // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
+    if auth::extract_personal_api_key(headers)?.is_some() {
+        return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
+            "The 'token' query parameter is required unless authenticating with a \
+             phs_-prefixed token."
+                .to_string(),
+        )));
+    }
+
+    Err(FlagError::NoAuthenticationProvided)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
@@ -422,6 +444,7 @@ async fn get_from_cache(
                 HyperCacheError::S3(_) => "s3_error",
                 HyperCacheError::Redis(_) => "redis_error",
                 HyperCacheError::Json(_) => "json_parse_error",
+                HyperCacheError::Pickle(_) => "pickle_parse_error",
                 HyperCacheError::Timeout(_) => "timeout",
             };
             inc(
@@ -435,9 +458,48 @@ async fn get_from_cache(
                 error = %e,
                 "Flag definitions cache miss"
             );
+            // Self-heal: a genuinely empty cache (not a transient redis/s3/parse
+            // error) has no DB fallback here, so it would 503 until something
+            // rewrites it. Enqueue a debounced rebuild request for a Celery worker.
+            if reason == "cache_miss" && *state.config.flag_definitions_self_heal_enabled {
+                enqueue_flag_definitions_rebuild(state, team_id);
+            }
             Err(FlagError::from(e))
         }
     }
+}
+
+/// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
+///
+/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
+/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
+/// queue can never point at a different Redis than the one the cache lives in.
+/// Re-enqueuing a team only updates its score, so a client polling a missing team
+/// every ~30s occupies a single slot. Spawned so it never adds latency to (or
+/// changes) the failing response.
+fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
+    let redis = state.redis_client.clone();
+    tokio::spawn(async move {
+        let score = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let result = redis
+            .zadd(
+                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+                team_id.to_string(),
+                score,
+            )
+            .await;
+        inc(
+            FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+            &[(
+                "result".to_string(),
+                if result.is_ok() { "ok" } else { "error" }.to_string(),
+            )],
+            1,
+        );
+    });
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys
@@ -459,10 +521,12 @@ async fn authenticate_flag_definitions(
     // Try team secret token or project secret API key (from Authorization header only)
     // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let auth_data = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
-        let method = match &auth_data {
-            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
-            _ => "secret_api_key",
+        let (_, _, is_project_secret) =
+            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
         };
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
@@ -482,18 +546,8 @@ async fn authenticate_flag_definitions(
             1,
         );
 
-        if !*state.config.skip_writes {
-            // Use shared Redis, not the dedicated flags cache client —
-            // PAK last_used_at tracking is advisory and shouldn't steal
-            // capacity from the critical path.
-            let redis = state.redis_client.clone();
-            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
-                state.database_pools.non_persons_writer.clone();
-            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
-            // spawning a background task on every request. Only the DB write
-            // (triggered when the key is newly set) runs in a spawned task.
-            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
-        }
+        // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
+        state.record_pak_last_used(pak_id).await;
 
         return Ok(());
     }

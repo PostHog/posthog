@@ -1,5 +1,37 @@
 export type ManagedMigrationStatus = 'paused' | 'completed' | 'running' | 'failed' | 'waiting_to_start'
 
+export interface TrialSummary {
+    source_records: number
+    output_events: number
+    dropped_records: number
+    skipped_records: number
+    event_name_counts: Record<string, number>
+    error_counts: Record<string, number>
+    first_timestamp?: string
+    last_timestamp?: string
+}
+
+export interface TrialProgress {
+    records_emitted: number
+    pages_written: number
+    summary: TrialSummary
+}
+
+export interface TrialOutputEvent {
+    uuid: string
+    distinct_id: string
+    event: string
+    timestamp?: string
+    payload: unknown
+}
+
+export interface TrialRecord {
+    seq: number
+    source: unknown
+    outputs: TrialOutputEvent[]
+    error?: string | null
+}
+
 export interface BaseManagedMigration {
     id: string
     access_key: string
@@ -7,6 +39,9 @@ export interface BaseManagedMigration {
     content_type: 'captured' | 'mixpanel' | 'amplitude'
     status: ManagedMigrationStatus
     display_status: ManagedMigrationStatus
+    is_trial: boolean
+    trial_record_limit: number | null
+    promoted_from_trial_id: string | null
     created_by: {
         id: number
         uuid: string
@@ -22,6 +57,7 @@ export interface BaseManagedMigration {
             total_size: number | null
             current_offset: number
         }>
+        trial?: TrialProgress
     }
 }
 
@@ -30,6 +66,7 @@ export interface S3ManagedMigration extends BaseManagedMigration {
     s3_region: string
     s3_bucket: string
     s3_prefix: string
+    endpoint_url?: string
 }
 
 export interface S3GzipManagedMigration extends BaseManagedMigration {
@@ -37,6 +74,7 @@ export interface S3GzipManagedMigration extends BaseManagedMigration {
     s3_region: string
     s3_bucket: string
     s3_prefix: string
+    endpoint_url?: string
 }
 
 export interface DateRangeManagedMigration extends BaseManagedMigration {

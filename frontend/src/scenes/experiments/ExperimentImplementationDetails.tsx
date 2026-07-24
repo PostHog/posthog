@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
 import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } from '@posthog/icons'
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
@@ -17,11 +17,15 @@ import {
     JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
+    PromptExperimentAgentPromptSnippet,
+    PromptExperimentJSSnippet,
+    PromptExperimentPythonSnippet,
     PythonSnippet,
     RNSnippet,
     ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
+import { getExperimentVariants } from './utils'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
@@ -180,8 +184,76 @@ export function CodeLanguageSelect({
     )
 }
 
-export function ExperimentImplementationDetails({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
-    const defaultVariant = experiment?.parameters?.feature_flag_variants?.[1]?.key ?? 'test'
+type PromptImplementationTab = 'agent' | 'python' | 'javascript'
+
+function PromptExperimentImplementation({
+    flagKey,
+    promptMetadata,
+}: {
+    flagKey: string
+    promptMetadata: NonNullable<NonNullable<Experiment['parameters']>['prompt_metadata']>
+}): JSX.Element {
+    const [activeTab, setActiveTab] = useState<PromptImplementationTab>('agent')
+    return (
+        <div className="mb-4">
+            <div className="border rounded bg-surface-primary">
+                <div className="p-6 deprecated-space-y-4">
+                    <div className="text-secondary text-sm">
+                        Prompt experiment for <b>{promptMetadata.name}</b>{' '}
+                        <span className="text-muted">({promptMetadata.templates.join(', ')})</span>
+                    </div>
+                    <div>
+                        <div className="mb-1">
+                            <b>Wire up the experiment in your code</b>
+                        </div>
+                        <p className="text-secondary text-xs">
+                            Each variant carries a <code>{`{prompt_name, prompt_version}`}</code> payload on the feature
+                            flag, so the SDK reads the right version via <code>flags.get_flag_payload(...)</code>. The
+                            PostHog AI wrapper auto-emits <code>$ai_generation</code> tagged with{' '}
+                            <code>$ai_prompt_name</code>, which is how the experiment metric attributes results.
+                        </p>
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(key) => setActiveTab(key as PromptImplementationTab)}
+                            tabs={[
+                                {
+                                    key: 'agent',
+                                    label: 'Agent prompt',
+                                    content: (
+                                        <>
+                                            <p className="text-secondary text-xs mb-2">
+                                                Copy this and paste it into your AI coding assistant (Cursor, Claude
+                                                Code, ChatGPT, …) to wire up the experiment in your project's framework
+                                                and style. Language-agnostic; the agent figures out the SDK.
+                                            </p>
+                                            <PromptExperimentAgentPromptSnippet flagKey={flagKey} />
+                                        </>
+                                    ),
+                                },
+                                {
+                                    key: 'python',
+                                    label: 'Python',
+                                    content: <PromptExperimentPythonSnippet flagKey={flagKey} />,
+                                },
+                                {
+                                    key: 'javascript',
+                                    label: 'JavaScript',
+                                    content: <PromptExperimentJSSnippet flagKey={flagKey} />,
+                                },
+                            ]}
+                        />
+                        <Link subtle to="https://posthog.com/docs/prompt-management" target="_blank">
+                            See the docs for prompt management.
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function GenericExperimentImplementation({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+    const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -206,12 +278,10 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                                 className="min-w-[5rem]"
                                 onSelect={setCurrentVariant}
                                 value={currentVariant}
-                                options={(experiment?.parameters?.feature_flag_variants || []).map(
-                                    (variant: MultivariateFlagVariant) => ({
-                                        value: variant.key,
-                                        label: variant.key,
-                                    })
-                                )}
+                                options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
+                                    value: variant.key,
+                                    label: variant.key,
+                                }))}
                             />
                         </div>
                         <div>
@@ -240,4 +310,19 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             </div>
         </div>
     )
+}
+
+export function ExperimentImplementationDetails({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+    const promptMetadata = experiment?.parameters?.prompt_metadata
+
+    if (promptMetadata) {
+        return (
+            <PromptExperimentImplementation
+                flagKey={experiment?.feature_flag?.key ?? ''}
+                promptMetadata={promptMetadata}
+            />
+        )
+    }
+
+    return <GenericExperimentImplementation experiment={experiment} />
 }

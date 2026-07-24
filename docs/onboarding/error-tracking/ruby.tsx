@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
 import { StepDefinition } from '../steps'
@@ -37,8 +37,8 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 rescue => e
                                   posthog.capture_exception(
                                     e,
-                                    distinct_id: 'user_distinct_id',
-                                    properties: {
+                                    'user_distinct_id',
+                                    {
                                       custom_property: 'custom_value'
                                     }
                                   )
@@ -55,7 +55,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                         | --- | --- | --- |
                         | \`exception\` | \`Exception\` | The exception object to capture (required) |
                         | \`distinct_id\` | \`String\` | The distinct ID of the user (optional) |
-                        | \`properties\` | \`Hash\` | Additional properties to attach to the exception event (optional) |
+                        | \`additional_properties\` | \`Hash\` | Additional properties to attach to the exception event (optional) |
                     `}
                 </Markdown>
             </>

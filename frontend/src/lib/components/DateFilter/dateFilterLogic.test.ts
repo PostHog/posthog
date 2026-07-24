@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { dateFilterLogic } from './dateFilterLogic'
 
@@ -135,6 +135,62 @@ describe('dateFilterLogic', () => {
             isFixedRangeWithTime: true,
             dateFromHasTimePrecision: false,
             dateToHasTimePrecision: true,
+        })
+    })
+
+    it('renders single custom date as just the date (no "to now") under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-date',
+            onChange,
+            dateFrom: '2024-01-15',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDate = dateFilterLogic(props)
+        withSingleDate.mount()
+
+        await expectLogic(withSingleDate).toMatchValues({
+            label: 'January 15, 2024',
+        })
+    })
+
+    it('renders single custom datetime with time under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-datetime',
+            onChange,
+            dateFrom: '2024-01-15 14:30:00',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDateTime = dateFilterLogic(props)
+        withSingleDateTime.mount()
+
+        await expectLogic(withSingleDateTime).toMatchValues({
+            label: 'January 15, 2024 14:30:00',
+        })
+    })
+
+    it('isDateToNow label preserves time precision even without allowTimePrecision', async () => {
+        // Regression guard: labels for callers that store a time-precise dateFrom but don't pass
+        // `allowTimePrecision` should still render the time — the new `allowSingleAndRange`
+        // gating must not silently strip seconds from unrelated call sites.
+        props = {
+            key: 'test-datetonow-time',
+            onChange,
+            dateFrom: '2024-01-15T10:30:00',
+            dateTo: null,
+            dateOptions: [],
+            isDateFormatted: false,
+        }
+        const logicWithTime = dateFilterLogic(props)
+        logicWithTime.mount()
+
+        await expectLogic(logicWithTime).toMatchValues({
+            label: 'January 15, 2024 10:30:00 to now',
         })
     })
 

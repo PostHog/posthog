@@ -1,9 +1,25 @@
 from unittest.mock import MagicMock
 
+from django.conf import settings
 from django.db import migrations, models
+
+from parameterized import parameterized
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
+from posthog.management.migration_analysis.policies import (
+    AtomicFalsePolicy,
+    ConcurrentIndexIdempotencyPolicy,
+    HotTableAlterPolicy,
+)
+from posthog.management.migration_analysis.utils import _model_name_for_table
+from posthog.migration_helpers import (
+    AddConstraintNotValid,
+    AddForeignKeyNotValid,
+    SafeAddIndexConcurrently,
+    SafeRemoveIndexConcurrently,
+    ValidateConstraint,
+)
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -481,6 +497,27 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "validate" in risk.reason.lower()
 
+    def test_add_constraint_not_valid_helper_scores_safe(self):
+        """The helper scores like the hand-written ADD CONSTRAINT ... NOT VALID (safe)."""
+        op = AddConstraintNotValid(
+            model_name="dashboard",
+            constraint=models.CheckConstraint(condition=models.Q(amount__gte=0), name="dash_amount_chk"),
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+
+    def test_validate_constraint_helper_scores_needs_review(self):
+        """The helper scores like the hand-written VALIDATE CONSTRAINT (slow, non-blocking)."""
+        op = ValidateConstraint(model_name="dashboard", name="dash_amount_chk")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
     def test_run_sql_drop_constraint(self):
         """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
@@ -566,6 +603,20 @@ class TestRunSQLOperations:
         # Should indicate it's a DROP COLUMN operation
         assert "column" in risk.reason.lower() or "drop" in risk.reason.lower()
 
+    def test_run_sql_alter_table_drop_column_quoted_identifiers(self):
+        """Test ALTER TABLE DROP COLUMN with double-quoted identifiers (standard Postgres quoting)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_preaggregation_enabled";',
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" not in risk.reason.lower()
+        assert "column" in risk.reason.lower()
+
     def test_run_sql_drop_table_not_confused_with_drop_column(self):
         """Test that DROP TABLE IF EXISTS (without COLUMN keyword) is still recognized as table drop."""
         op = create_mock_operation(
@@ -580,6 +631,20 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.BLOCKED
         assert "drop table" in risk.reason.lower()
         # Should NOT mention column
+        assert "column" not in risk.reason.lower()
+
+    def test_run_sql_drop_table_quoted_identifiers(self):
+        """Test DROP TABLE IF EXISTS with double-quoted table name."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql='DROP TABLE IF EXISTS "old_table";',
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" in risk.reason.lower()
         assert "column" not in risk.reason.lower()
 
     def test_run_sql_drop_table_with_column_in_name(self):
@@ -976,6 +1041,128 @@ class TestDropTableValidation:
         # Should be NEEDS_REVIEW (score 2) since properly staged
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
+
+    def test_drop_column_with_prior_state_removal_quoted_identifiers(self):
+        """Same as test_drop_column_with_prior_state_removal but with double-quoted identifiers."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "experiments"
+        mock_migration.name = "0008_drop_exposure_preaggregation_column"
+        mock_migration.dependencies = [("experiments", "0007_drop_exposure_preaggregation_enabled")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_preaggregation_enabled";',
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "experiments"
+        parent_migration.name = "0007_drop_exposure_preaggregation_enabled"
+
+        remove_field_op = create_mock_operation(
+            migrations.RemoveField, model_name="Experiment", name="exposure_preaggregation_enabled"
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("experiments", "0007_drop_exposure_preaggregation_enabled"): parent_migration,
+            ("experiments", "0008_drop_exposure_preaggregation_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "experiments/migrations/0008_drop_exposure_preaggregation_column.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
+    def test_drop_column_with_prior_state_removal_custom_db_table(self):
+        # ai_observability's EvaluationConfig model has a legacy custom db_table
+        # ("llm_analytics_evaluationconfig") that the app-label-derived string heuristic can't
+        # resolve; resolving through the app registry must still recognize this as staged.
+        mock_migration = MagicMock()
+        mock_migration.app_label = "ai_observability"
+        mock_migration.name = "0027_drop_trial_eval_limit_column"
+        mock_migration.dependencies = [("ai_observability", "0026_remove_trial_eval_limit_from_state")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "ai_observability"
+        parent_migration.name = "0026_remove_trial_eval_limit_from_state"
+
+        remove_field_op = create_mock_operation(
+            migrations.RemoveField, model_name="evaluationconfig", name="trial_eval_limit"
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0026_remove_trial_eval_limit_from_state"): parent_migration,
+            ("ai_observability", "0027_drop_trial_eval_limit_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "ai_observability/migrations/0027_drop_trial_eval_limit_column.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
+    def test_drop_column_custom_db_table_without_prior_state_removal(self):
+        # Same custom-db_table table as above, but with no prior state removal - must still block.
+        mock_migration = MagicMock()
+        mock_migration.app_label = "ai_observability"
+        mock_migration.name = "0027_drop_trial_eval_limit_column"
+        mock_migration.dependencies = [("ai_observability", "0026_unrelated")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "ai_observability"
+        parent_migration.name = "0026_unrelated"
+        parent_migration.operations = []
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0026_unrelated"): parent_migration,
+            ("ai_observability", "0027_drop_trial_eval_limit_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "ai_observability/migrations/0027_drop_trial_eval_limit_column.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+        assert migration_risk.operations[0].reason == "DROP COLUMN - no prior state removal found"
+
+
+class TestModelNameForTable:
+    def test_returns_none_for_unknown_app_label(self):
+        assert _model_name_for_table("not_a_real_app", "whatever_table") is None
+
+    def test_returns_none_for_table_no_model_owns(self):
+        assert _model_name_for_table("ai_observability", "not_a_real_table") is None
 
 
 class TestRunPythonOperations:
@@ -1587,8 +1774,28 @@ class TestAtomicFalsePolicy:
         assert any("WARNING" in v for v in migration_risk.policy_violations)
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
+    def test_acknowledged_atomic_false_data_migration_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("# comment\nposthog.0001_test\n")
+        monkeypatch.setattr(AtomicFalsePolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [create_mock_operation(migrations.RunPython, code=lambda a, s: None)]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        assert migration_risk.level != RiskLevel.BLOCKED
+
     def test_atomic_false_with_add_index_concurrently_ok(self):
-        """atomic=False with AddIndexConcurrently is correct - no warning"""
+        """AtomicFalsePolicy does not flag AddIndexConcurrently with atomic=False.
+
+        Idempotency of AddIndexConcurrently is a separate concern enforced by
+        ConcurrentIndexIdempotencyPolicy (see TestConcurrentIndexIdempotencyPolicy).
+        """
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1601,10 +1808,12 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        # Should not have atomic-related warnings
+        # AtomicFalsePolicy is satisfied (concurrent op with atomic=False)
         assert not any("atomic=False" in v for v in migration_risk.policy_violations)
         # Should recognize the operation (not "Unknown")
         assert not any("Unknown" in r.reason for r in migration_risk.operations)
+        # ConcurrentIndexIdempotencyPolicy still blocks the non-idempotent op
+        assert any("non-idempotent" in v for v in migration_risk.policy_violations)
 
     def test_atomic_true_with_concurrent_blocked(self):
         """CONCURRENTLY without atomic=False should be BLOCKED (will fail at runtime)"""
@@ -1624,7 +1833,11 @@ class TestAtomicFalsePolicy:
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
     def test_atomic_false_with_runsql_concurrently_ok(self):
-        """atomic=False with RunSQL CONCURRENTLY is correct - no warning"""
+        """AtomicFalsePolicy does not flag RunSQL CONCURRENTLY with atomic=False.
+
+        This SQL is missing IF NOT EXISTS, so ConcurrentIndexIdempotencyPolicy
+        blocks it separately (see TestConcurrentIndexIdempotencyPolicy).
+        """
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1635,8 +1848,10 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        # Should not have atomic-related warnings
+        # AtomicFalsePolicy is satisfied (concurrent op with atomic=False)
         assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        # ConcurrentIndexIdempotencyPolicy blocks the missing IF NOT EXISTS
+        assert any("non-idempotent" in v for v in migration_risk.policy_violations)
 
     def test_atomic_true_with_runsql_concurrently_blocked(self):
         """RunSQL with CONCURRENTLY without atomic=False should be BLOCKED"""
@@ -1748,3 +1963,596 @@ class TestAtomicFalsePolicy:
 
         # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            "CreateIndexConcurrently",
+            "DropIndexConcurrently",
+            "SafeAddIndexConcurrently",
+            "SafeRemoveIndexConcurrently",
+        ]
+    )
+    def test_posthog_helpers_recognized_as_concurrent(self, op_name):
+        """The PostHog helpers must register as concurrent ops in
+        CONCURRENT_OP_TYPES, otherwise atomic=False migrations using them
+        would trip the `atomic=False without CONCURRENTLY` warning.
+        """
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Plain MagicMock (no spec=) — spec= on a Django operation class
+        # would cause `__class__.__name__ = ...` to mutate the real class
+        # name globally and bleed across tests.
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+
+class TestConcurrentIndexIdempotencyPolicy:
+    """ConcurrentIndexIdempotencyPolicy blocks non-idempotent concurrent index ops.
+
+    Regression coverage for the deploy-blocking failure where a transient
+    lock_timeout cancellation of a bare CREATE INDEX CONCURRENTLY left an
+    invalid index and every bin/migrate retry then failed with
+    "relation already exists".
+    """
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def _analyze(self, operations, atomic=False, app_label="posthog"):
+        mock_migration = MagicMock()
+        mock_migration.atomic = atomic
+        mock_migration.app_label = app_label
+        mock_migration.name = "0001_test"
+        mock_migration.operations = operations
+        return self.analyzer.analyze_migration(mock_migration, f"{app_label}/migrations/0001_test.py")
+
+    @parameterized.expand(["AddIndexConcurrently", "RemoveIndexConcurrently"])
+    def test_django_concurrent_op_blocked(self, op_name):
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any(op_name in v and "non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("create_no_if_not_exists", "CREATE INDEX CONCURRENTLY idx_foo ON t (c);"),
+            ("drop_no_if_exists", "DROP INDEX CONCURRENTLY idx_foo;"),
+        ]
+    )
+    def test_runsql_non_idempotent_concurrent_index_blocked(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("create_idempotent", "SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);"),
+            ("drop_idempotent", "DROP INDEX CONCURRENTLY IF EXISTS idx_foo;"),
+            ("reindex", "REINDEX INDEX CONCURRENTLY idx_foo;"),
+        ]
+    )
+    def test_runsql_safe_concurrent_index_not_flagged(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_safe_pattern_in_separate_database_and_state_not_flagged(self):
+        state_op = create_mock_operation(migrations.AddIndex, model_name="mymodel", index=MagicMock())
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON mymodel (c);",
+        )
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[state_op], database_operations=[db_op]
+        )
+        risk = self._analyze([sep])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_runsql_inside_separate_database_and_state_blocked(self):
+        db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[db_op]
+        )
+        risk = self._analyze([sep])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_third_party_app_not_checked(self):
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        risk = self._analyze([op], app_label="some_third_party_app")
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_reverse_sql_blocked(self):
+        """Forward SQL is idempotent but reverse_sql is bare DROP. Rollback runs through the same retry loop, so a non-idempotent reverse re-opens the stuck-migration class."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            reverse_sql="DROP INDEX CONCURRENTLY idx_foo;",
+        )
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v and "reverse_sql" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_runsql_inside_nested_separate_database_and_state_blocked(self):
+        """SeparateDatabaseAndState can nest; descent must reach inner ops at any depth."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        risk = self._analyze([outer_sep])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_policy_in_isolation_catches_nested_sdas(self):
+        """Calling the policy directly proves it stands on its own, independent of sibling policies firing on the same migration."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.operations = [outer_sep]
+
+        violations = ConcurrentIndexIdempotencyPolicy().check_migration(mock_migration)
+
+        assert any("non-idempotent" in v for v in violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_table_if_not_exists_hides_bare_create_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int); CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "drop_table_if_exists_hides_bare_drop_index",
+                "DROP TABLE IF EXISTS old_table; DROP INDEX CONCURRENTLY idx_foo;",
+            ),
+            (
+                "block_comment_if_not_exists_hides_bare_create_index",
+                "/* IF NOT EXISTS */ CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "list_form_mixed_create_table_and_bare_index",
+                [
+                    "CREATE TABLE IF NOT EXISTS some_table (a int);",
+                    "CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+                ],
+            ),
+            (
+                "bare_create_unique_index_concurrently",
+                "CREATE UNIQUE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_substring_collision_no_longer_hides_bare_concurrent_index(self, _name, sql):
+        """Regression: a substring check `"IF NOT EXISTS" in sql` matched unrelated statements
+        in the same RunSQL blob and silently allowed a bare CREATE/DROP INDEX CONCURRENTLY through.
+        Per-statement regex catches the bare index op even when the blob also contains a legitimate
+        `CREATE TABLE IF NOT EXISTS` / `DROP TABLE IF EXISTS` / block comment / list-form sibling.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_unique_index_with_if_not_exists",
+                "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "create_table_if_not_exists_alongside_safe_concurrent_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int);"
+                " CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "comment_only_mention_of_bare_concurrently",
+                "-- old form was: CREATE INDEX CONCURRENTLY idx_foo ON t (c);\n"
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_per_statement_regex_does_not_overreach(self, _name, sql):
+        """Don't false-positive on safe SQL that happens to contain a non-CONCURRENTLY DDL or
+        the bare keyword sequence inside a comment.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("CreateIndexConcurrently",),
+            ("DropIndexConcurrently",),
+        ]
+    )
+    def test_posthog_helper_ops_pass_through(self, op_name):
+        """The PostHog migration helpers encode the idempotency guarantee internally
+        (indisvalid recovery + IF [NOT] EXISTS + timeout disabling), so the static
+        check must not flag them — even though they inherit from RunSQL and their
+        display SQL contains a CONCURRENTLY index statement.
+
+        Plain MagicMock (no spec=) — spec= on a Django operation class would
+        cause `__class__.__name__ = ...` to mutate the real class name globally
+        and bleed across tests.
+        """
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        # Mirror what the real helpers stash on `sql` for sqlmigrate display:
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert risk.level != RiskLevel.BLOCKED
+
+    @parameterized.expand(
+        [
+            (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
+            (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
+        ]
+    )
+    def test_safe_state_aware_helpers_score_safe(self, op):
+        """The state-aware helpers track state themselves and are idempotent by
+        construction, so they score SAFE and are never flagged — no
+        SeparateDatabaseAndState or raw display SQL required.
+        """
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.SAFE
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert not any("atomic=False" in v for v in risk.policy_violations)
+
+
+class TestHotTableAlterPolicy:
+    """HotTableAlterPolicy blocks unacknowledged DDL on tables read on every request.
+
+    Regression coverage for the prod-us incident where a nullable AddField on
+    Team queued an ACCESS EXCLUSIVE lock behind in-flight queries, stalling all
+    traffic on posthog_team in recurring waves (one per bin/migrate retry).
+    """
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def _analyze(self, operations, app_label="posthog", name="0001_test"):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = app_label
+        mock_migration.name = name
+        mock_migration.operations = operations
+        return self.analyzer.analyze_migration(mock_migration, f"{app_label}/migrations/{name}.py")
+
+    @parameterized.expand(["team", "user", "organization", "project"])
+    def test_nullable_add_field_on_hot_model_blocked(self, model_name):
+        op = create_mock_operation(
+            migrations.AddField, model_name=model_name, name="optional_field", field=models.IntegerField(null=True)
+        )
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    # sorted() so test IDs are stable across runs (pytest-xdist collects by ID)
+    @parameterized.expand(sorted(HotTableAlterPolicy.FIELD_LEVEL_OPS))
+    def test_every_field_level_op_on_hot_model_blocked(self, op_type):
+        op = MagicMock()
+        op.__class__.__name__ = op_type
+        op.model_name = "team"
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    @parameterized.expand(sorted(HotTableAlterPolicy.MODEL_LEVEL_OPS))
+    def test_every_model_level_op_on_hot_model_blocked(self, op_type):
+        op = MagicMock()
+        op.__class__.__name__ = op_type
+        op.name = "team"
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_on_regular_model_not_flagged(self):
+        op = create_mock_operation(
+            migrations.AddField, model_name="dashboard", name="optional_field", field=models.IntegerField(null=True)
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_acknowledged_migration_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("# comment\nposthog.0001_test\n")
+        monkeypatch.setattr(HotTableAlterPolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+        op = create_mock_operation(
+            migrations.AddField, model_name="team", name="optional_field", field=models.IntegerField(null=True)
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_violation_names_the_acknowledgment_entry(self):
+        op = create_mock_operation(
+            migrations.AddField, model_name="team", name="optional_field", field=models.IntegerField(null=True)
+        )
+        risk = self._analyze([op], name="1234_team_new_field")
+        assert any('"posthog.1234_team_new_field"' in v for v in risk.policy_violations)
+
+    def test_runsql_alter_on_hot_table_blocked(self):
+        op = create_mock_operation(
+            migrations.RunSQL, sql='ALTER TABLE "posthog_team" ADD COLUMN "foo" timestamptz NULL;'
+        )
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("if_exists", "ALTER TABLE IF EXISTS posthog_team ADD COLUMN foo int NULL;"),
+            ("if_exists_quoted", 'ALTER TABLE IF EXISTS "posthog_team" ADD COLUMN foo int NULL;'),
+            ("if_exists_only", "ALTER TABLE IF EXISTS ONLY posthog_team ADD COLUMN foo int NULL;"),
+            ("schema_qualified", "ALTER TABLE public.posthog_team ADD COLUMN foo int NULL;"),
+            ("schema_qualified_quoted", 'ALTER TABLE "public"."posthog_team" ADD COLUMN foo int NULL;'),
+            ("if_exists_schema_qualified", "ALTER TABLE IF EXISTS public.posthog_team ADD COLUMN foo int NULL;"),
+        ]
+    )
+    def test_runsql_alter_variants_on_hot_table_blocked(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_runsql_validate_constraint_on_hot_table_not_flagged(self):
+        op = create_mock_operation(migrations.RunSQL, sql='ALTER TABLE "posthog_team" VALIDATE CONSTRAINT "some_fk";')
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_runsql_hot_table_only_in_comment_not_flagged(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql='-- cleanup after ALTER TABLE "posthog_team"\nALTER TABLE "posthog_dashboard" ADD COLUMN "foo" int NULL;',
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_runsql_alter_on_regular_table_not_flagged(self):
+        op = create_mock_operation(migrations.RunSQL, sql='ALTER TABLE "posthog_dashboard" ADD COLUMN "foo" int NULL;')
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    @parameterized.expand(["AddIndexConcurrently", "CreateIndexConcurrently"])
+    def test_concurrent_index_on_hot_model_not_flagged(self, op_type):
+        op = MagicMock()
+        op.__class__.__name__ = op_type
+        op.model_name = "team"
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "posthog_team" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_validate_constraint_on_hot_model_not_flagged(self):
+        """VALIDATE CONSTRAINT takes only SHARE UPDATE EXCLUSIVE, so the helper is
+        not gated even on a hot table (unlike its AddConstraintNotValid sibling)."""
+        op = create_mock_operation(ValidateConstraint, model_name="team", name="team_some_check")
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_alter_model_options_on_hot_model_not_flagged(self):
+        op = MagicMock()
+        op.__class__.__name__ = "AlterModelOptions"
+        op.name = "team"
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_runsql_inside_separate_database_and_state_blocked(self):
+        db_op = create_mock_operation(
+            migrations.RunSQL, sql='ALTER TABLE "posthog_team" ADD COLUMN "foo" timestamptz NULL;'
+        )
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[db_op]
+        )
+        risk = self._analyze([sep])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_state_only_add_field_inside_separate_database_and_state_not_flagged(self):
+        state_op = create_mock_operation(
+            migrations.AddField, model_name="team", name="optional_field", field=models.IntegerField(null=True)
+        )
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[state_op], database_operations=[]
+        )
+        risk = self._analyze([sep])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_third_party_app_not_checked(self):
+        op = create_mock_operation(
+            migrations.AddField, model_name="team", name="optional_field", field=models.IntegerField(null=True)
+        )
+        risk = self._analyze([op], app_label="some_third_party_app")
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_hot_model_name_in_product_app_not_flagged(self):
+        """A product app's own model named like a hot model maps to a different table."""
+        op = create_mock_operation(
+            migrations.AddField, model_name="team", name="optional_field", field=models.IntegerField(null=True)
+        )
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "some_product"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [op]
+        mock_migration.__module__ = "products.some_product.backend.migrations.0001_test"
+        risk = self.analyzer.analyze_migration(mock_migration, "products/some_product/backend/migrations/0001_test.py")
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_product_app_runsql_on_hot_table_blocked(self):
+        op = create_mock_operation(
+            migrations.RunSQL, sql='ALTER TABLE "posthog_team" ADD COLUMN "foo" timestamptz NULL;'
+        )
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "some_product"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [op]
+        mock_migration.__module__ = "products.some_product.backend.migrations.0001_test"
+        risk = self.analyzer.analyze_migration(mock_migration, "products/some_product/backend/migrations/0001_test.py")
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def _analyze_product(self, operations, app_label="some_product", name="0001_test"):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = app_label
+        mock_migration.name = name
+        mock_migration.operations = operations
+        mock_migration.__module__ = f"products.{app_label}.backend.migrations.{name}"
+        return self.analyzer.analyze_migration(mock_migration, f"products/{app_label}/backend/migrations/{name}.py")
+
+    def test_create_model_with_fk_to_hot_table_blocked(self):
+        """The warehouse_sources.0034 case: a product CreateModel with a FK to posthog.team."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+        assert any("db_constraint=False" in v for v in risk.policy_violations)
+        assert any("AddForeignKeyNotValid" in v for v in risk.policy_violations)
+
+    def test_create_model_with_fk_to_hot_table_db_constraint_false_not_flagged(self):
+        """db_constraint=False emits no FK constraint and takes no parent lock - the escape hatch."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE, db_constraint=False)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_fk_to_hot_table_blocked(self):
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="team",
+            field=models.ForeignKey("posthog.team", on_delete=models.CASCADE),
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_with_fk_to_non_hot_table_not_flagged(self):
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("table", models.ForeignKey("warehouse_sources.datawarehousetable", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_unmanaged_with_fk_to_hot_table_not_flagged(self):
+        """managed=False maps an external table - Django emits no DDL or FK, so no parent lock."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+            options={"managed": False},
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_to_hot_table_blocked(self):
+        """A M2M to a hot table auto-creates a through table with FK constraints to the parent."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team"),
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_to_hot_table_db_constraint_false_not_flagged(self):
+        """db_constraint=False propagates to the through FKs - the same escape hatch as a plain FK."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", db_constraint=False),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_with_explicit_through_not_flagged(self):
+        """An explicit through model defines its own FKs, analyzed when its CreateModel runs."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", through="some_product.TableTeam"),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_create_model_with_swappable_user_fk_blocked(self):
+        """settings.AUTH_USER_MODEL desugars to posthog.user, a hot table."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("created_by", models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_fk_to_hot_table_acknowledged_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("some_product.0001_test\n")
+        monkeypatch.setattr(HotTableAlterPolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_on_hot_child_blocked(self):
+        """The helper run against a hot child still ALTERs posthog_team itself - gate it."""
+        op = AddForeignKeyNotValid(model_name="team", name="team_owner_fk", column="owner_id", to_table="some_table")
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_pointing_at_hot_parent_not_flagged(self):
+        """The sanctioned use: a non-hot child's FK pointing at a hot parent carries the
+        parent in to_table, not model_name, so it isn't gated as a direct hot-table alter."""
+        op = AddForeignKeyNotValid(
+            model_name="mymodel", name="mymodel_team_fk", column="team_id", to_table="posthog_team"
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)

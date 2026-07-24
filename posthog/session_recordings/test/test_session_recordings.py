@@ -15,10 +15,11 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.utils.timezone import now
 
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -26,12 +27,15 @@ from rest_framework import status
 
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.hogql.errors import QueryError
+
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.persons import create_person
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -104,7 +108,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "posthog.hogql.database.database.feature_enabled_or_false",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -121,7 +125,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Create users and recordings based on config
         for config in user_configs:
-            user = Person.objects.create(
+            user = create_person(
                 team=self.team,
                 distinct_ids=config["distinct_ids"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -154,7 +158,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert len(results[0]["person"]["distinct_ids"]) == expected_distinct_ids_count
 
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "posthog.hogql.database.database.feature_enabled_or_false",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -179,7 +183,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_session_recordings_includes_person_data(self) -> None:
         """Test that person data is properly included in recordings response"""
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["test_user"],
             properties={"$some_prop": "something", "email": "test@example.com"},
@@ -221,7 +225,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "posthog.hogql.database.database.feature_enabled_or_false",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -265,12 +269,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # varies which makes the snapshot useless
         twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -328,6 +332,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "access_method": ANY,
+                "user_agent": ANY,
                 "mcp_user_agent": ANY,
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
@@ -349,7 +355,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with (
             freeze_time("2022-06-03T12:00:00.000Z"),
             patch(
-                "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+                "posthog.hogql.database.database.feature_enabled_or_false",
                 return_value=False,
             ),
             snapshot_postgres_queries_context(self),
@@ -371,7 +377,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -382,12 +388,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_session_recordings_dont_leak_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
-        Person.objects.create(
+        create_person(
             team=another_team,
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        home_team_person = Person.objects.create(
+        home_team_person = create_person(
             team=self.team,
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -441,17 +447,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "has_summary": False,
                 "summary_outcome": None,
                 "external_references": [],
+                "matches_filters": True,
             },
         ]
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_session_recordings_list_metadata_includes_has_summary(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -495,7 +502,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -507,37 +514,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response_data = response.json()
 
         assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
-        # each recording must carry the distinct_id that produced it
-        results_by_session = {r["id"]: r for r in response_data["results"]}
-        assert results_by_session["1"]["person"]["distinct_ids"] == ["d1"]
-        assert results_by_session["2"]["person"]["distinct_ids"] == ["d2"]
-
-    def test_session_recording_for_user_with_multiple_distinct_ids_via_personhog(self) -> None:
-        from posthog.personhog_client.fake_client import fake_personhog_client
-
-        base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        p = Person.objects.create(
-            team=self.team,
-            distinct_ids=["d1", "d2"],
-            properties={"$some_prop": "something", "email": "bob@bob.com"},
-        )
-        self.produce_replay_summary("d1", "1", base_time)
-        self.produce_replay_summary("d2", "2", base_time + relativedelta(seconds=30))
-
-        with fake_personhog_client() as fake:
-            fake.add_person(
-                team_id=self.team.pk,
-                person_id=p.pk,
-                uuid=str(p.uuid),
-                properties={"$some_prop": "something", "email": "bob@bob.com"},
-                distinct_ids=["d1", "d2"],
-                created_at=int(p.created_at.timestamp() * 1000) if p.created_at else 0,
-            )
-
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-            response_data = response.json()
-
-        assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
         # each recording must carry the distinct_id that produced it, not the
         # last one processed — this was a bug where mutating a shared Person
         # object caused all mappings to end up with the same distinct_id
@@ -546,7 +522,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_by_session["2"]["person"]["distinct_ids"] == ["d2"]
 
     def test_viewed_state_of_session_recording_version(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -572,8 +548,84 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("test_viewed_state_of_session_recording_version-1", True),
         ]
 
+    def _result_ids(self, response) -> list[str]:
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [r["id"] for r in response.json()["results"]]
+
+    def test_hide_viewed_recordings_current_user_excludes_viewed_server_side(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        without_filter = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert sorted(self._result_ids(without_filter)) == ["unviewed", "viewed"]
+
+        with_filter = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user"
+        )
+        assert self._result_ids(with_filter) == ["unviewed"]
+
+    def test_hide_viewed_recordings_any_user_excludes_team_viewed_server_side(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed-by-other", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=other_user, session_id="viewed-by-other")
+
+        # current-user mode keeps it (this user hasn't viewed it)
+        current_user = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user"
+        )
+        assert sorted(self._result_ids(current_user)) == ["unviewed", "viewed-by-other"]
+
+        # any-user mode excludes it
+        any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
+        assert self._result_ids(any_user) == ["unviewed"]
+
+    def test_hide_viewed_recordings_does_not_apply_to_explicit_session_ids(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        # Pinned recordings request explicit session_ids; hide-viewed must not strip them.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings"
+            f'?hide_viewed_recordings=current-user&session_ids=["viewed"]'
+        )
+        assert self._result_ids(response) == ["viewed"]
+
+    def test_hide_viewed_recordings_still_prepends_selected_recording(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        # The explicitly-selected recording is prepended even though it's viewed.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings"
+            f"?hide_viewed_recordings=current-user&session_recording_id=viewed"
+        )
+        assert sorted(self._result_ids(response)) == ["unviewed", "viewed"]
+
+    def test_hide_viewed_recordings_paginates_over_filtered_set(self):
+        # The two newest recordings are viewed; with a page size of 2 and the filter on, the first page
+        # must still surface the older unviewed recordings rather than returning an empty page.
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "unviewed-old", base_time)
+        self.produce_replay_summary("u1", "unviewed-mid", base_time + relativedelta(seconds=20))
+        self.produce_replay_summary("u1", "viewed-newer", base_time + relativedelta(seconds=40))
+        self.produce_replay_summary("u1", "viewed-newest", base_time + relativedelta(seconds=60))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-newer")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-newest")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user&limit=2"
+        )
+        assert self._result_ids(response) == ["unviewed-mid", "unviewed-old"]
+
     def test_setting_viewed_state_of_session_recording(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -616,7 +668,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_update_session_recording_viewed(self, mock_capture: MagicMock):
         session_id = "test_update_viewed_state"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -713,7 +765,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata(self):
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -776,16 +828,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "has_summary": False,
             "summary_outcome": None,
             "external_references": [],
+            "matches_filters": True,
         }
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_true(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -814,11 +867,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_false_for_contextual_summary(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -945,6 +998,37 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         )
 
+    def test_load_person_found(self):
+        person = create_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
+
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="test_user")
+        recording.load_person()
+
+        assert recording._person is not None
+        assert str(recording._person.uuid) == str(person.uuid)
+        assert recording._person.properties == {"email": "test@example.com"}
+
+    def test_load_person_not_found(self):
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="nonexistent_user")
+        recording.load_person()
+
+        assert recording._person is None
+
+    def test_load_person_no_distinct_id_skips_load(self):
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id=None)
+        recording.load_person()
+
+        assert recording._person is None
+
+    def test_load_person_cross_team_isolation(self):
+        other_team = self.organization.teams.create(name="Other Team")
+        create_person(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
+
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="shared_did")
+        recording.load_person()
+
+        assert recording._person is None
+
     def test_session_recording_doesnt_exist(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -972,7 +1056,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     def test_session_ids_filter(self, use_recording_events: bool, api_version: int):
         with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1004,9 +1088,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response_data["results"][1]["id"] == "2"
             assert response_data["results"][2]["id"] == "3"
 
+    def test_session_ids_filter_returns_recordings_outside_default_date_range(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            create_person(
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            # outside the default date range
+            self.produce_replay_summary("user", "old-session", now() - relativedelta(days=10))
+
+            params_string = urlencode({"session_ids": '["old-session"]'})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+            assert response.status_code == status.HTTP_200_OK
+            assert [r["id"] for r in response.json()["results"]] == ["old-session"]
+
+            # without explicit session_ids the default date range still hides it
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["results"] == []
+
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1225,9 +1329,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             (
-                "too_many_queries",
-                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
-                "Too many simultaneous queries. Try again later.",
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                "ClickHouse is at capacity. Try again later.",
             ),
             (
                 "timeout_exceeded",
@@ -1248,14 +1352,40 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "type": "throttled_error",
         }
 
-    def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
-        """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
+    @parameterized.expand(
+        [
+            (
+                "hogql_query_error",
+                QueryError("Field not found: $device_type"),
+                status.HTTP_400_BAD_REQUEST,
+                "Field not found: $device_type",
+            ),
+            (
+                "clickhouse_memory_limit",
+                ClickHouseQueryMemoryLimitExceeded(),
+                513,
+                "ran out of memory",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_surfaces_real_error(
+        self, _name, exception, expected_status, expected_detail_substring, mock_run
+    ):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == expected_status
+        # the real reason must reach the client, not a generic "internal server error"
+        assert expected_detail_substring in response.json()["detail"]
+
+    def test_sync_execute_ch_at_capacity_retry_then_503(self):
+        """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""
         call_count = 0
 
         def mock_list_blocks(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            raise CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439)
+            raise ClickHouseAtCapacity()
 
         # Patch list_blocks where it's imported and used in session_recording_v2_service
         with patch(
@@ -1278,7 +1408,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
             properties={"email": "test@example.com"},
@@ -1323,8 +1453,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
             (
                 "too_many_recordings",
-                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(21)]},
-                "Cannot process more than 20 recordings at once",
+                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(101)]},
+                "Cannot process more than 100 recordings at once",
             ),
         ]
     )
@@ -1342,7 +1472,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_sends_all_accessible_recordings_to_recording_api(self, mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1369,6 +1499,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         called_ids = sorted(mock_delete_via_recording_api.call_args[0][0])
         assert called_ids == sorted(session_ids)
 
+    @patch(
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
+        return_value=[],
+    )
+    def test_bulk_delete_batch_larger_than_default_query_limit(self, mock_delete_via_recording_api):
+        create_person(team=self.team, distinct_ids=["user1"], properties={"email": "test@example.com"})
+
+        base_time = now() - relativedelta(days=1)
+
+        # More than the recordings query's default 50-row limit, to catch silent truncation
+        session_ids = [f"bulk_delete_large_{i}" for i in range(51)]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted_count"] == 51
+        assert sorted(mock_delete_via_recording_api.call_args[0][0]) == sorted(session_ids)
+
     def test_bulk_delete_nonexistent_recordings(self):
         session_ids = ["nonexistent_1", "nonexistent_2"]
 
@@ -1389,7 +1542,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_mixed_existing_and_nonexistent(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1419,7 +1572,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_works_for_clickhouse_only_recordings(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1448,7 +1601,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1477,7 +1630,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_bulk_delete_doesnt_leak_teams(self):
         other_team = Team.objects.create(organization=self.organization)
-        Person.objects.create(
+        create_person(
             team=other_team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1503,7 +1656,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 1
 
     def test_bulk_viewed_session_recordings(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
             properties={"email": "test@example.com"},
@@ -1535,7 +1688,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_viewed_handles_duplicates(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1574,7 +1727,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_not_viewed_session_recordings(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1618,7 +1771,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ).exists()
 
     def test_bulk_not_viewed_handles_already_not_viewed(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1758,7 +1911,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _description: str,
         _mock_delete_via_recording_api,
     ):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1800,7 +1953,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_with_date_from_parameter(self, _mock_delete_via_recording_api):
-        Person.objects.create(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
 
         # Set team retention to 90 days
         self.team.session_recording_retention_period = "90d"
@@ -1881,14 +2034,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "session_recording_id": "session_5",
                 },
                 # session_5 matches the date filter (-3d) even though it would be on a later page
-                # so it should be prepended to results
-                ["session_5"],  # must be in results
+                # so it should be prepended to results, and marked as matching the filters
+                {"session_5": True},  # must be in results, with expected matches_filters
                 [],  # must NOT be in results
             ),
             (
-                "recording_outside_date_range_is_excluded",
+                "recording_outside_date_range_is_included_but_flagged",
                 # Create a recording from 10 days ago, request with date_from=-3d
-                # The recording doesn't match the date filter, so should NOT be included
+                # The recording doesn't match the date filter, but was explicitly requested
+                # (e.g. a shared link), so it should still be included, flagged as not matching
                 {
                     "recordings": [
                         {"session_id": "recent_session", "days_ago": 1},
@@ -1897,8 +2051,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "date_from": "-3d",
                     "session_recording_id": "old_session",
                 },
-                ["recent_session"],  # must be in results
-                ["old_session"],  # must NOT be in results - doesn't match date filter
+                {"recent_session": True, "old_session": False},  # must be in results, with expected matches_filters
+                [],  # must NOT be in results
+            ),
+            (
+                "nonexistent_recording_is_excluded",
+                # Ask for a session_recording_id that was never recorded - nothing to include
+                {
+                    "recordings": [
+                        {"session_id": "recent_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_recording_id": "no_such_session",
+                },
+                {"recent_session": True},  # must be in results, with expected matches_filters
+                ["no_such_session"],  # must NOT be in results
             ),
         ]
     )
@@ -1906,17 +2073,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         _name: str,
         config: dict,
-        must_be_in_results: list[str],
+        must_be_in_results: dict[str, bool],
         must_not_be_in_results: list[str],
     ):
         """
-        Test that session_recording_id only includes recordings that match the current filters.
+        Test how session_recording_id interacts with the current filters.
 
-        A recording should be prepended to results if:
-        - It matches all filters (date range, properties, etc.) but is on a different page
+        A recording requested via session_recording_id should always be included if it exists:
+        - matches_filters=True when it matches all filters (e.g. it's just on a different page)
+        - matches_filters=False when it doesn't match the filters (e.g. outside date range),
+          so the UI can explain why it's shown
 
-        A recording should NOT be included if:
-        - It doesn't match the filters (e.g., outside date range)
+        It should NOT be included only when it doesn't exist at all.
         """
         base_time = now()
 
@@ -1936,10 +2104,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        session_ids = [r["id"] for r in response_data["results"]]
+        recordings_by_id = {r["id"]: r for r in response_data["results"]}
+        session_ids = list(recordings_by_id.keys())
 
-        for expected in must_be_in_results:
+        for expected, expected_matches_filters in must_be_in_results.items():
             assert expected in session_ids, f"Expected {expected} to be in results, but got {session_ids}"
+            assert recordings_by_id[expected]["matches_filters"] == expected_matches_filters, (
+                f"Expected {expected} to have matches_filters={expected_matches_filters}, "
+                f"but got {recordings_by_id[expected]['matches_filters']}"
+            )
 
         for unexpected in must_not_be_in_results:
             assert unexpected not in session_ids, f"Expected {unexpected} to NOT be in results, but got {session_ids}"
@@ -1991,6 +2164,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "too_many_ids",
                 {"session_ids": [f"session_{i}" for i in range(101)]},
                 "Cannot check more than 100 session IDs at once",
+            ),
+            (
+                "non_string_elements",
+                {"session_ids": ["valid_session", 123, None]},
+                "session_ids must contain only strings",
             ),
         ]
     )
@@ -2075,25 +2253,83 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         cached_value = cache.get(cache_key)
         assert cached_value is None
 
-    @parameterized.expand(
-        [
-            ("video_based", True),
-            ("event_based", False),
-        ]
-    )
-    @patch("posthog.session_recordings.session_recording_api.stream_recording_summary")
-    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session")
+    def test_batch_check_exists_with_outcomes_returns_persisted_outcomes(self):
+        """include_outcomes attaches the persisted session_outcome alongside existence results."""
+        from products.replay.backend.models.session_summaries import SingleSessionSummary
+
+        outcome_session = "outcome_session_1"
+        no_outcome_session = "outcome_session_2"
+        unknown_session = "outcome_session_unknown"
+
+        SingleSessionSummary.objects.create(
+            team_id=self.team.id,
+            session_id=outcome_session,
+            summary={
+                "session_outcome": {"description": "User completed checkout", "success": True},
+            },
+        )
+        SingleSessionSummary.objects.create(
+            team_id=self.team.id,
+            session_id=no_outcome_session,
+            summary={"segments": []},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {
+                "session_ids": [outcome_session, no_outcome_session, unknown_session],
+                "include_outcomes": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "results" in body
+        outcomes = body["outcomes"]
+        assert outcomes[outcome_session] == {"description": "User completed checkout"}
+        assert no_outcome_session not in outcomes
+        assert unknown_session not in outcomes
+
+    def test_batch_check_exists_omits_outcomes_by_default(self):
+        """Existing callers that don't opt in must keep the historical response shape."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": ["any_session"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "outcomes" not in response.json()
+
+    def test_batch_check_exists_with_outcomes_doesnt_leak_teams(self):
+        """Outcomes from other teams must not be returned even when include_outcomes is set."""
+        from products.replay.backend.models.session_summaries import SingleSessionSummary
+
+        other_team = Team.objects.create(organization=self.organization)
+        shared_session_id = "leak_check_session"
+
+        SingleSessionSummary.objects.create(
+            team_id=other_team.id,
+            session_id=shared_session_id,
+            summary={"session_outcome": {"description": "from other team", "success": False}},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": [shared_session_id], "include_outcomes": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert shared_session_id not in response.json()["outcomes"]
+
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
-    @patch("posthoganalytics.feature_enabled")
-    def test_summarize_uses_correct_path_based_on_feature_flag(
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_summarize_uses_video_based_path(
         self,
-        _name: str,
-        video_based_enabled: bool,
         mock_feature_enabled: MagicMock,
         mock_is_cloud: MagicMock,
         mock_execute_summarize: MagicMock,
-        mock_stream_summary: MagicMock,
     ):
         session_id = str(uuid7())
         self.produce_replay_summary(
@@ -2102,36 +2338,158 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             timestamp=now() - timedelta(hours=1),
         )
 
-        def feature_flag_side_effect(flag_name, *args, **kwargs):
-            if flag_name == "max-session-summarization-video-as-base":
-                return video_based_enabled
-            return True
+        async def mock_video_stream(*args, **kwargs):
+            yield "data: test\n\n"
 
-        mock_feature_enabled.side_effect = feature_flag_side_effect
-
-        async def mock_async_summarize(*args, **kwargs):
-            return {"summary": "test"}
-
-        mock_execute_summarize.side_effect = mock_async_summarize
-        mock_stream_summary.return_value = iter(["data: test\n\n"])
+        mock_execute_summarize.side_effect = mock_video_stream
 
         response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
 
         assert response.status_code == status.HTTP_200_OK
         # Consume streaming response to trigger the generator
-        list(response.streaming_content)  # type: ignore[attr-defined]
+        streaming_content = response.streaming_content  # type: ignore[attr-defined]
+        if hasattr(streaming_content, "__aiter__"):
 
-        if video_based_enabled:
-            mock_execute_summarize.assert_called_once()
-            call_kwargs = mock_execute_summarize.call_args.kwargs
-            assert call_kwargs["session_id"] == session_id
-            assert call_kwargs["user"] == self.user
-            assert call_kwargs["team"] == self.team
-            assert call_kwargs["video_validation_enabled"] == "full"
-            mock_stream_summary.assert_not_called()
+            async def _drain() -> None:
+                async for _ in streaming_content:
+                    pass
+
+            async_to_sync(_drain)()
         else:
-            mock_stream_summary.assert_called_once_with(session_id=session_id, user=self.user, team=self.team)
-            mock_execute_summarize.assert_not_called()
+            list(streaming_content)
+
+        mock_execute_summarize.assert_called_once()
+        call_kwargs = mock_execute_summarize.call_args.kwargs
+        assert call_kwargs["session_id"] == session_id
+        assert call_kwargs["user"] == self.user
+        assert call_kwargs["team"] == self.team
+        assert call_kwargs["force_restart"] is False
+
+    @parameterized.expand(
+        [
+            ("explicit_true", {"force_restart": True}, True),
+            ("explicit_false", {"force_restart": False}, False),
+            ("missing_defaults_to_false", {}, False),
+            ("non_boolean_truthy_coerces", {"force_restart": "1"}, True),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_summarize_threads_force_restart_through_body(
+        self,
+        _name: str,
+        body: dict,
+        expected_force_restart: bool,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+        mock_execute_summarize: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        async def mock_video_stream(*args, **kwargs):
+            yield "data: test\n\n"
+
+        mock_execute_summarize.side_effect = mock_video_stream
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize",
+            data=body,
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        streaming_content = response.streaming_content  # type: ignore[attr-defined]
+        if hasattr(streaming_content, "__aiter__"):
+
+            async def _drain() -> None:
+                async for _ in streaming_content:
+                    pass
+
+            async_to_sync(_drain)()
+        else:
+            list(streaming_content)
+
+        mock_execute_summarize.assert_called_once()
+        assert mock_execute_summarize.call_args.kwargs["force_restart"] is expected_force_restart
+
+    @patch(
+        "posthog.session_recordings.session_recording_api._cancel_summary_workflow",
+        new_callable=AsyncMock,
+    )
+    def test_cancel_summary_succeeds(self, mock_cancel: AsyncMock) -> None:
+        mock_cancel.return_value = None
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"cancelled": True}
+        mock_cancel.assert_awaited_once()
+        # Workflow id is per-(team, session) so leaks of either scope id would
+        # silently break dedup; assert both flow through.
+        called_workflow_id = mock_cancel.call_args[0][0]
+        assert str(self.team.id) in called_workflow_id
+        assert session_id in called_workflow_id
+
+    def test_cancel_summary_requires_auth(self) -> None:
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+        url = f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel"
+        self.client.logout()
+
+        response = self.client.post(url)
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @patch(
+        "posthog.session_recordings.session_recording_api._cancel_summary_workflow",
+        new_callable=AsyncMock,
+    )
+    def test_cancel_summary_returns_generic_500_on_temporal_failure(
+        self,
+        mock_cancel: AsyncMock,
+    ) -> None:
+        """Raw Temporal errors must not be surfaced to the client. They can leak
+        internal hostnames, namespaces, or TLS details. The client gets a
+        generic message and the full exception is logged server-side.
+        """
+        sensitive_message = "internal-temporal-host.svc.cluster.local: TLS handshake failure namespace=secret-ns"
+        mock_cancel.side_effect = RuntimeError(sensitive_message)
+
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        body = response.json()
+        assert body["cancelled"] is False
+        assert sensitive_message not in body["error"]
+        assert "internal-temporal-host" not in body["error"]
+        assert "namespace" not in body["error"].lower()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -2166,7 +2524,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_with_recording_api_enabled(self, mock_bulk_delete):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -2199,7 +2557,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=["bulk_partial_3"],
     )
     def test_bulk_delete_with_recording_api_partial_failure_logs_warning(self, mock_bulk_delete, mock_logger):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -2228,3 +2586,90 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             failed_session_ids=["bulk_partial_3"],
             failed_count=1,
         )
+
+
+class TestCancelSummaryWorkflowHelper:
+    """Unit tests for the ``_cancel_summary_workflow`` helper.
+
+    Endpoint-level tests in ``TestSessionRecordings`` mock this helper, so the
+    idempotent NOT_FOUND path and propagation of other RPC errors live here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_swallows_not_found_for_idempotent_cancel(self) -> None:
+        """The cancel endpoint must be safe to fire-and-forget — a workflow
+        that has already finished, never started, or already been cancelled
+        should not surface as a client-visible error.
+        """
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with patch(
+            "posthog.session_recordings.session_recording_api.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _cancel_summary_workflow("workflow-id-123")
+
+        handle.cancel.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @parameterized.expand(
+        [
+            ("internal", "INTERNAL"),
+            ("unavailable", "UNAVAILABLE"),
+            ("permission_denied", "PERMISSION_DENIED"),
+            ("deadline_exceeded", "DEADLINE_EXCEEDED"),
+        ]
+    )
+    async def test_propagates_other_rpc_errors(self, _name: str, status_attr: str) -> None:
+        """Only NOT_FOUND is treated as a benign no-op. Everything else (real
+        infra failures, auth errors, deadlines) must propagate so the endpoint
+        returns 500 and we can alert on it.
+        """
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        rpc_status = getattr(RPCStatusCode, status_attr)
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RPCError("upstream failure", rpc_status, b""))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.async_connect",
+                AsyncMock(return_value=client),
+            ),
+            pytest.raises(RPCError) as exc_info,
+        ):
+            await _cancel_summary_workflow("workflow-id-123")
+
+        assert exc_info.value.status == rpc_status
+
+    @pytest.mark.asyncio
+    async def test_propagates_non_rpc_exceptions(self) -> None:
+        """Non-RPC errors (e.g. asyncio cancellation, programming errors) must
+        not be silently swallowed by the NOT_FOUND check.
+        """
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RuntimeError("connection failed"))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.async_connect",
+                AsyncMock(return_value=client),
+            ),
+            pytest.raises(RuntimeError, match="connection failed"),
+        ):
+            await _cancel_summary_workflow("workflow-id-123")

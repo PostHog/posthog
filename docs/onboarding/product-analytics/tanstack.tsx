@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
@@ -54,8 +55,8 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=<ph_project_token>
-                                    VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
+                                    VITE_POSTHOG_PROJECT_TOKEN=<ph_project_token>
+                                    VITE_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
                         ]}
@@ -82,16 +83,16 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                     import { createRoot } from 'react-dom/client'
                                     import './index.css'
                                     import App from './App.jsx'
-                                    import { PostHogProvider } from 'posthog-js/react'
+                                    import { PostHogProvider } from '@posthog/react'
 
                                     const options = {
-                                      api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2026-01-30',
+                                      api_host: import.meta.env.VITE_POSTHOG_HOST,
+                                      defaults: '${SDK_DEFAULTS_DATE}',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(
                                       <StrictMode>
-                                        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN} options={options}>
+                                        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
                                           <App />
                                         </PostHogProvider>
                                       </StrictMode>

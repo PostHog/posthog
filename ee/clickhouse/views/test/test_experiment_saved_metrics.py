@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 from ee.api.test.base import APILicensedTest
 
@@ -212,8 +214,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         self.assertEqual(Experiment.objects.get(pk=exp_id).secondary_metrics_ordered_uuids, [saved_metric_uuid])
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        assert saved_metric is not None
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
             saved_metric.query,
@@ -254,6 +258,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # make sure experiment in question was updated as well
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        assert saved_metric is not None
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
             saved_metric.query,
@@ -785,9 +790,65 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertIn("query", saved_metrics[0])
         self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentMetric")
 
+    def test_cannot_create_duplicate_named_saved_metric(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Unique Metric Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Unique Metric Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A shared metric with this name already exists", str(response.json()))
+
+    def test_can_update_saved_metric_keeping_same_name(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Keep This Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+            data={
+                "name": "Keep This Name",
+                "description": "Updated description",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_saved_metric_refreshes_action_names(self):
         """Test that saved metrics show current action names when actions are renamed."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Original Action Name")
@@ -826,7 +887,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_preserves_name_for_deleted_action(self):
         """Test that saved metrics preserve old names when actions are deleted."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Action to Delete")
@@ -863,3 +924,131 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # Verify the old name is preserved
         self.assertEqual(response.json()["query"]["source"]["name"], "Action to Delete")
         self.assertEqual(response.json()["query"]["source"]["id"], action_id)
+
+    def _create_saved_metric(self, name: str, description: str = "", tags: list[str] | None = None) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": name,
+                "description": description,
+                "tags": tags or [],
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("by_name", "alpha", {"Alpha conversion"}),
+            ("by_description", "revenue tracker", {"Beta signups"}),
+            ("by_tag", "growth", {"Beta signups"}),
+            ("no_match", "zzz-nothing", set()),
+        ]
+    )
+    def test_search_filters_saved_metrics(self, _name: str, search: str, expected_names: set[str]) -> None:
+        self._create_saved_metric("Alpha conversion", description="checkout funnel")
+        self._create_saved_metric("Beta signups", description="revenue tracker thing", tags=["growth"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search={search}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, expected_names)
+
+    def test_search_returns_each_metric_once_with_multiple_matching_tags(self) -> None:
+        self._create_saved_metric("Tagged metric", description="", tags=["growth", "growth-team"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=growth")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(len(body["results"]), 1)
+
+    def test_list_paginates_with_limit_and_offset(self) -> None:
+        for i in range(5):
+            self._create_saved_metric(f"Metric {i:02d}")
+
+        page1 = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=2&offset=0").json()
+        page2 = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=2&offset=2").json()
+
+        self.assertEqual(page1["count"], 5)
+        self.assertEqual(len(page1["results"]), 2)
+        self.assertEqual(len(page2["results"]), 2)
+        ids_page1 = {row["id"] for row in page1["results"]}
+        ids_page2 = {row["id"] for row in page2["results"]}
+        self.assertEqual(ids_page1 & ids_page2, set())
+
+    def _seed_metrics_for_event_filter(self) -> None:
+        # Created via the ORM so the stored query JSON is exactly what the filter inspects. The action fires
+        # on the "signup" event, so its metric is discoverable by that event — not by the action's label.
+        signup_action = Action.objects.create(team=self.team, name="Completed signup", steps_json=[{"event": "signup"}])
+        for name, source in [
+            ("Pageview mean", {"kind": "EventsNode", "event": "$pageview"}),
+            ("Purchase mean", {"kind": "EventsNode", "event": "purchase"}),
+            ("Signup via action", {"kind": "ActionsNode", "id": signup_action.id, "name": "Completed signup"}),
+        ]:
+            ExperimentSavedMetric.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=name,
+                query={"kind": "ExperimentMetric", "metric_type": "mean", "source": source},
+            )
+
+    @parameterized.expand(
+        [
+            # `event` matches the events a metric references — directly, or via an action's step events.
+            ("direct_event", "$pageview", {"Pageview mean"}),
+            ("another_direct_event", "purchase", {"Purchase mean"}),
+            ("event_behind_an_action", "signup", {"Signup via action"}),
+            # It matches events, not the action's label, nor query structure/type tokens.
+            ("action_label_not_matched", "Completed signup", set()),
+            ("metric_type_token_not_matched", "mean", set()),
+            ("node_kind_token_not_matched", "EventsNode", set()),
+            ("no_match", "not_an_event", set()),
+        ]
+    )
+    def test_event_filter_matches_referenced_events_only(
+        self, _name: str, event: str, expected_names: set[str]
+    ) -> None:
+        self._seed_metrics_for_event_filter()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"event": event})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, expected_names)
+
+    def test_event_filter_composes_with_search(self) -> None:
+        # `event` (references) and `search` (name/description/tags) apply through different mechanisms;
+        # both must narrow the result set together (AND), not clobber each other.
+        purchase_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        for name in ["Alpha purchase", "Beta purchase"]:
+            ExperimentSavedMetric.objects.create(team=self.team, created_by=self.user, name=name, query=purchase_query)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/?event=purchase&search=Alpha"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, {"Alpha purchase"})
+
+    def test_event_param_does_not_filter_detail_retrieve(self) -> None:
+        # `event` is a list-only filter; it must never narrow a detail lookup into a 404.
+        metric_id = self._create_saved_metric("Pageview mean")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{metric_id}?event=not_an_event"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], metric_id)

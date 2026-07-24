@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -6,18 +7,19 @@ import { DateTime, Settings } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { setupExpressApp } from '~/api/router'
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
-import { HogFlow } from '~/schema/hogflow'
+import { setupExpressApp } from '~/common/api/router'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
@@ -111,13 +113,18 @@ describe('SourceWebhooksConsumer', () => {
 
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
+        let mockQueueHogflowInvocationsSpy: jest.SpyInstance
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, createCdpConsumerDeps(hub))
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
-            mockQueueInvocationsSpy = jest.spyOn(
-                api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],
+            mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
+            mockQueueHogflowInvocationsSpy = jest.spyOn(
+                api['cdpSourceWebhooksConsumer']['hogflowQueue'],
                 'queueInvocations'
             )
             app = setupExpressApp()
@@ -195,6 +202,29 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+            })
+
+            it('should 404 if the hog function is deleted', async () => {
+                // Deletion via the django API is a soft delete that leaves `enabled` untouched
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogfunction SET deleted=true, updated_at = NOW() WHERE id = $1`,
+                    [hogFunction.id],
+                    'testKey'
+                )
+
+                const res = await doPostRequest({
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(404)
+                expect(res.body).toEqual({
+                    error: 'Not found',
+                })
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
             })
 
             it('should capture an event using internal capture', async () => {
@@ -314,6 +344,8 @@ describe('SourceWebhooksConsumer', () => {
                 const res = await doGetRequest({ webhookId: customBinaryFunction.id })
                 expect(res.status).toEqual(200)
                 expect(res.headers['content-type']).toEqual('image/png')
+                expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
                 expect(Buffer.from(res.body)).toEqual(Buffer.from(base64Png, 'base64'))
             })
 
@@ -329,7 +361,80 @@ describe('SourceWebhooksConsumer', () => {
                 const res = await doGetRequest({ webhookId: customTextFunction.id })
                 expect(res.status).toEqual(200)
                 expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
                 expect(res.text).toEqual('Hello, world!')
+            })
+
+            it.each([
+                ['text/html', '<script>alert(document.cookie)</script>'],
+                ['image/svg+xml', '<svg onload="alert(1)"></svg>'],
+                ['application/javascript', 'alert(1)'],
+                ['text/javascript', 'alert(1)'],
+                ['application/xhtml+xml', '<html></html>'],
+            ])(
+                'should reject dangerous content type %s and fall back to text/plain',
+                async (dangerousType, payload) => {
+                    const fn = await insertHogFunction(hub.postgres, team.id, {
+                        type: 'source_webhook',
+                        hog: `return { 'httpResponse': { 'status': 200, 'body': '${payload}', 'contentType': '${dangerousType}' } }`,
+                        bytecode: await compileHog(
+                            `return { 'httpResponse': { 'status': 200, 'body': '${payload}', 'contentType': '${dangerousType}' } }`
+                        ),
+                        inputs: {},
+                    })
+                    const res = await doGetRequest({ webhookId: fn.id })
+                    expect(res.status).toEqual(200)
+                    expect(res.headers['content-type']).toContain('text/plain')
+                    expect(res.headers['content-type']).not.toContain(dangerousType)
+                    expect(res.headers['x-content-type-options']).toEqual('nosniff')
+                    expect(res.headers['content-security-policy']).toEqual("default-src 'none'")
+                    expect(res.text).toEqual(payload)
+                }
+            )
+
+            it('should reject unknown content types not on the allowlist', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': 'data', 'contentType': 'application/x-custom' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': 'data', 'contentType': 'application/x-custom' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+            })
+
+            it('should reject dangerous content type with charset parameter', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': '<script>alert(1)</script>', 'contentType': 'text/html; charset=utf-8' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': '<script>alert(1)</script>', 'contentType': 'text/html; charset=utf-8' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['content-type']).not.toContain('text/html')
+            })
+
+            it('should strip parameters from allowlisted content types', async () => {
+                const fn = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': 'hello', 'contentType': 'text/plain; charset=utf-7' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': 'hello', 'contentType': 'text/plain; charset=utf-7' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: fn.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.headers['content-type']).not.toContain('utf-7')
             })
 
             it('should default to application/octet-stream when isBase64Encoded is true but no contentType', async () => {
@@ -380,53 +485,6 @@ describe('SourceWebhooksConsumer', () => {
                 await insertHogFlow(hub.postgres, hogFlow)
             })
 
-            it('should schedule workflow run for scheduled_at on trigger', async () => {
-                const scheduledAt = '2025-01-02T12:00:00.000Z'
-                const scheduledHogFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'schedule',
-                            template_id: incomingWebhookTemplate.id,
-                            scheduled_at: scheduledAt,
-                            inputs: {
-                                event: {
-                                    value: 'my-event',
-                                    bytecode: await compileHog(`return f'my-event'`),
-                                },
-                                distinct_id: {
-                                    value: '{request.body.distinct_id}',
-                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
-                                },
-                                method: {
-                                    value: 'POST',
-                                    bytecode: await compileHog(`return f'POST'`),
-                                },
-                            },
-                        },
-                    })
-                    .build()
-                await insertHogFlow(hub.postgres, scheduledHogFlow)
-
-                const res = await doPostRequest({
-                    webhookId: scheduledHogFlow.id,
-                    body: {
-                        event: 'my-event',
-                        distinct_id: 'test-distinct-id',
-                    },
-                })
-                expect(res.status).toEqual(201)
-                expect(res.body).toEqual({ status: 'queued' })
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
-                await waitForBackgroundTasks()
-                expect(getLogs()).toEqual([
-                    expect.stringContaining('[Action:trigger] Function completed in'),
-                    expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
-                ])
-            })
-
             it('should 404 if the hog flow does not exist', async () => {
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',
@@ -447,8 +505,8 @@ describe('SourceWebhooksConsumer', () => {
                     status: 'queued',
                 })
                 expect(mockExecuteSpy).toHaveBeenCalledTimes(1)
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
                 expect(call.queue).toEqual('hogflow')
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
@@ -502,9 +560,9 @@ describe('SourceWebhooksConsumer', () => {
                 // (this is what actually captures the event)
                 expect(mockQueueInvocationResults).not.toHaveBeenCalled()
 
-                // Verify the workflow invocation was queued
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                // Verify the workflow invocation was queued to hogflowQueue
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const invocation = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
 
                 expect(invocation.state.event).toMatchObject({
                     event: 'my-event',

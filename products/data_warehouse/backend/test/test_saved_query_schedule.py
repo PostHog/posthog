@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
+from products.data_warehouse.backend.logic.data_load.saved_query_service import get_saved_query_schedule
 
 
 class TestGetSavedQuerySchedule(TestCase):
@@ -55,12 +55,12 @@ class TestGetSavedQuerySchedule(TestCase):
         schedule_b = get_saved_query_schedule(sq)
         assert schedule_a.spec.calendars == schedule_b.spec.calendars
 
-    def test_schedule_has_skip_overlap_policy(self):
+    def test_schedule_has_cancel_other_overlap_policy(self):
         sq = self._make_saved_query(sync_frequency_interval=timedelta(hours=6))
         schedule = get_saved_query_schedule(sq)
         from temporalio.client import ScheduleOverlapPolicy
 
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+        assert schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER
 
     def test_schedule_action_is_data_modeling_run(self):
         from temporalio.client import ScheduleActionStartWorkflow

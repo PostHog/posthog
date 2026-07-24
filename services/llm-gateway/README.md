@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, Google Gemini, OpenRouter, and Fireworks AI APIs.
+A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
@@ -49,7 +49,7 @@ You can use this key directly to make requests to the gateway locally.
 It is also available as `settings.DEV_API_KEY` in Django.
 
 In local dev (`DEBUG=True`), the gateway client defaults to `http://localhost:3308` and this key,
-so `get_llm_client()` works out of the box without setting any environment variables.
+so `get_llm_client(product=..., team_id=...)` works out of the box without setting any environment variables.
 
 You can also provision the key manually:
 
@@ -149,9 +149,21 @@ The product name is extracted from the first path segment and recorded as `ai_pr
 
 ## Supported models
 
-All OpenAI, Anthropic, Gemini, OpenRouter, and Fireworks AI chat models are supported.
+All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
+
+## OpenAI organization
+
+Set `LLM_GATEWAY_OPENAI_ORGANIZATION` to attribute all outbound OpenAI traffic
+to a specific OpenAI organization (e.g. a HIPAA-covered organization with
+Zero Data Retention enabled). The gateway exports this as `OPENAI_ORG_ID` at
+startup so the OpenAI SDK (via litellm) forwards it on every request.
+
+When unset, no organization is sent and OpenAI infers the org from the API key.
+
+The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
+values are stripped — only the gateway-configured organization reaches OpenAI.
 
 ## Bedrock provider
 
@@ -188,6 +200,24 @@ To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallba
 Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
 Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
+## GLM backends (Cloudflare and Modal)
+
+GLM is served under the public model id `@cf/zai-org/glm-5.2` on every surface (Anthropic Messages, chat/completions, Responses).
+Which backend serves a request is a gateway-internal decision made in `src/llm_gateway/glm_routing.py`:
+
+- **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
+- **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
+
+Two knobs opt traffic into Modal (OR semantics, both default off):
+
+- The `tasks-glm-modal-inference` feature flag — the primary ramp control, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are deliberately not trusted for routing.
+- `LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION` (0..1, default 0), bucketed deterministically by user id; `LLM_GATEWAY_GLM_MODAL_PRODUCT_TRAFFIC_FRACTIONS` (e.g. `{"posthog_code": 0.25}`) overrides it per product.
+
+If Cloudflare credentials are absent, Modal serves all GLM traffic regardless of the knobs.
+
+There are no cross-backend retries: a Modal-side failure surfaces to the caller unchanged (each backend's health stays independently visible under its `provider` metric label), and rollback is turning the flag/fraction back down.
+Smoke scripts: `scripts/glm_cf_smoke.py` (Cloudflare) and `scripts/glm_modal_smoke.py` (Modal).
+
 ## Products
 
 Every request is scoped to a **product**. The product determines which models and auth methods are allowed, and is recorded as `ai_product` on `$ai_generation` events so you can filter costs per product.
@@ -196,17 +226,20 @@ Every request is scoped to a **product**. The product determines which models an
 
 Defined in `src/llm_gateway/products/config.py`:
 
+OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
+
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
+| `llm_gateway`        | API key only    | All                        | Default when no product in path |
+| `ci`                 | API key only    | All                        | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `wizard`             | OAuth only      | All                        | Max AI assistant                |
-| `django`             | API key + OAuth | All                        | Server-side Django calls        |
-| `growth`             | API key + OAuth | All                        | Growth team                     |
-| `llma_translation`   | API key + OAuth | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
+| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
+| `django`             | API key only    | All                        | Server-side Django calls        |
+| `growth`             | API key only    | All                        | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | AI observability translation    |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | AI observability summarization  |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
@@ -216,9 +249,9 @@ Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `sl
 
    ```python
    "my_product": ProductConfig(
-       allowed_application_ids=None,  # None = any OAuth app, or frozenset({...}) to restrict
-       allowed_models=None,           # None = all models, or frozenset({...}) to restrict
-       allow_api_keys=True,           # False = OAuth only
+       allowed_application_ids=frozenset({...}),  # empty/None = no OAuth apps allowed; list IDs to permit OAuth
+       allowed_models=None,                       # None = all models, or frozenset({...}) to restrict
+       allow_api_keys=True,                       # False = OAuth only
    ),
    ```
 
@@ -288,10 +321,18 @@ For calling from PostHog Django:
 ```python
 from posthog.llm.gateway_client import get_llm_client
 
-client = get_llm_client()
+# Pass `team_id` to attribute the captured `$ai_generation` event to a specific
+# customer team: it sets the `x-posthog-property-team_id` header on every request so
+# the usage reporter can break cost down per customer (the gateway PAK owns a single
+# internal team). Omit it to attribute to the key owner's team (the default).
+client = get_llm_client(product="my_product", team_id=team.id)
 response = client.chat.completions.create(
-    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, Gemini, OpenRouter, or Fireworks AI model
+    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, OpenRouter, or Fireworks AI model
     messages=[...],
     user=request.user.distinct_id,  # user for analytics and rate limiting
 )
 ```
+
+`ai_product` and `$ai_billable` are derived from the product config (`products/config.py`):
+the route sets `ai_product` from the `product` arg, and `$ai_billable` from that product's
+`billable` flag. Set `billable=True` on the product config to bill its generations.

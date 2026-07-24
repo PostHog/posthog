@@ -10,6 +10,14 @@ from posthog.models.file_system.user_product_list import UserProductList
 from products.growth.dags.user_product_list import populate_user_product_list, populate_user_product_list_job
 
 
+@pytest.fixture(autouse=True)
+def _disable_default_product_seeding():
+    # These tests exercise the dagster op in isolation. Joining the org would otherwise
+    # seed the fixed default product set and skew the entry counts under test.
+    with patch("posthog.models.file_system.user_product_list.add_default_products_for_user"):
+        yield
+
+
 def create_mock_s3_resource():
     """Create a mock S3 resource for testing."""
     mock_s3_resource = MagicMock()
@@ -60,9 +68,11 @@ class TestPopulateUserProductListOp:
 
             entries = UserProductList.objects.filter(user=user, team=team)
             assert entries.count() == 1
-            assert entries.first().product_path == "product_analytics"
-            assert entries.first().enabled is True
-            assert entries.first().reason is None
+            entry = entries.first()
+            assert entry is not None
+            assert entry.product_path == "product_analytics"
+            assert entry.enabled is True
+            assert entry.reason is None
 
             metadata = context.get_output_metadata("result")
             assert metadata["created"].value == 1
@@ -260,6 +270,7 @@ class TestPopulateUserProductListOp:
             entries = UserProductList.objects.filter(user=user, team=team, product_path="product_analytics")
             assert entries.count() == 1
             entry = entries.first()
+            assert entry is not None
             assert entry.reason == "product_intent"
 
             metadata = context.get_output_metadata("result")

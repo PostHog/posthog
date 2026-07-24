@@ -1,0 +1,73 @@
+name: actionlint
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/**
+            - .github/actions/**
+            - .github/actionlint.yaml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    ACTIONLINT_VERSION: 1.7.12
+    ACTIONLINT_SCRIPT_REF: 914e7df21a07ef503a81201c76d2b11c789d3fca
+
+jobs:
+    actionlint:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github
+                  sparse-checkout-cone-mode: false
+
+            - name: Install actionlint (pinned)
+              run: |
+                  set -euo pipefail
+                  mkdir -p ./.bin
+                  curl -fsSL -o ./download-actionlint.bash \
+                      "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash"
+                  bash ./download-actionlint.bash "${ACTIONLINT_VERSION}" ./.bin
+                  ./.bin/actionlint -version
+
+            - name: Run actionlint
+              # actionlint exits 1 when findings exist, which fails this job — that is the gate.
+              # The JSON output is written before the non-zero exit, so the always()-guarded
+              # summary/upload steps below still run. SHELLCHECK_OPTS scopes the shellcheck
+              # integration to actual errors — info/warning/style findings on workflow run-blocks
+              # are too noisy.
+              env:
+                  SHELLCHECK_OPTS: --severity=error
+              run: |
+                  set -euo pipefail
+                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
+
+            - name: Summarize findings
+              if: always()
+              run: |
+                  set -euo pipefail
+                  {
+                      echo "# actionlint"
+                      echo
+                      echo "**actionlint:** v${ACTIONLINT_VERSION}"
+                      echo "**Total findings:** $(jq length actionlint.json)"
+                      echo
+                      echo "| kind | count |"
+                      echo "|---|---|"
+                      jq -r 'group_by(.kind) | map({kind: .[0].kind, count: length}) | sort_by(-.count) | .[] | "| `\(.kind)` | \(.count) |"' actionlint.json
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload findings JSON
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: actionlint-findings
+                  path: actionlint.json
+                  retention-days: 14

@@ -7,22 +7,28 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
-from posthog.models import FeatureFlag, Insight, Project, Team, User
+from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
@@ -177,6 +183,24 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def test_delete_ref_less_registered_row_refused_on_web_surface(self):
+        """
+        On the default (web) surface every registered-type row points at a real object via `ref`.
+        A ref-less registered row is a data-integrity error, so deletion is refused, not silently applied.
+        """
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="DeleteMe/RefLessDashboard",
+            type="dashboard",
+            created_by=self.user,
+        )
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
+
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
+        self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
@@ -970,6 +994,7 @@ class TestFileSystemAPI(APIBaseTest):
         fs = FileSystem.objects.get(team=self.team, path=path)
         self.assertEqual(fs.created_by_id, self.user.pk)
         self.assertEqual(fs.created_at, ts_1)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_by"], self.user.pk)
         self.assertEqual(fs.meta["created_at"], ts_1.isoformat())
 
@@ -990,6 +1015,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         fs.refresh_from_db()
         self.assertEqual(fs.created_at, ts_2)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_at"], ts_2.isoformat())
 
     def test_meta_sync_via_unfiled_endpoint(self):
@@ -1023,6 +1049,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(fs.created_by_id, flag.created_by_id)
 
         # meta mirrors those values
+        assert fs.meta is not None
         self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
         self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
 
@@ -1079,9 +1106,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions & role-based access
+        # Enable access control & role-based access
         self.organization.available_product_features = [
-            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "role_based_access"},
         ]
         self.organization.save()
@@ -1246,6 +1273,136 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # staff user sees everything
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+        blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Blocked",
+            depth=2,
+            type="dashboard",
+            ref=str(blocked_dashboard.pk),
+            created_by=self.other_user,
+        )
+        # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
+        # what tells the UI to grey them out
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/FileA"], "manager")  # creator keeps access
+        # file_b's tree row was created by someone else, but the user created the dashboard itself
+        self.assertEqual(levels["Docs/FileB"], "manager")
+        self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertIsNone(levels["Docs"])  # folders have no access controls
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_annotates_short_id_refs_via_pk_keyed_grants(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Granted insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Granted insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        self._create_access_control(resource="insight", resource_id=None, access_level="none")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # AccessControl rows are keyed by pk while insight file system refs are short_ids
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/Granted insight"], "viewer")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_access_level_annotation_queries_do_not_scale_with_rows(self, mock_flag):
+        def create_entries(suffix: str) -> None:
+            dashboard = Dashboard.objects.create(team=self.team, name=f"D{suffix}", created_by=self.other_user)
+            insight = Insight.objects.create(team=self.team, name=f"I{suffix}", created_by=self.other_user)
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/D{suffix}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.pk),
+                created_by=self.other_user,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/I{suffix}",
+                depth=2,
+                type="insight",
+                ref=insight.short_id,
+                created_by=self.other_user,
+            )
+
+        create_entries("1")
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        # Clear the ref->pk cache before each measurement so both runs exercise the cold path
+        # (a single batched translation query) - otherwise a warm cache would skip it entirely
+        # and the counts would differ for cache-warmth reasons rather than row count.
+        cache.clear()
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(list_url)
+
+        for i in range(2, 6):
+            create_entries(str(i))
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(list_url)
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_warm_ref_pk_cache_skips_short_id_translation_query(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Cached insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Cached insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # Granted by pk, while the file system ref is the short_id - so resolving it needs the translation
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as cold_ctx:
+            cold = self.client.get(list_url)
+        with CaptureQueriesContext(connection) as warm_ctx:
+            warm = self.client.get(list_url)
+
+        # Access level is resolved identically whether the pk came from the DB or the cache
+        cold_level = {i["path"]: i["user_access_level"] for i in cold.json()["results"]}["Docs/Cached insight"]
+        warm_level = {i["path"]: i["user_access_level"] for i in warm.json()["results"]}["Docs/Cached insight"]
+        self.assertEqual(cold_level, "viewer")
+        self.assertEqual(warm_level, "viewer")
+        # The warm request skips the short_id->pk translation query the cold request had to run
+        self.assertLess(len(warm_ctx), len(cold_ctx))
 
     def test_created_at_filters(self):
         """
@@ -1913,3 +2070,38 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "ref": str(feature.id),
             "path": fs_entry.path,
         }
+
+
+class TestDesktopFileSystemSurface(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.web_url = f"/api/projects/{self.team.id}/file_system/"
+        self.desktop_url = f"/api/projects/{self.team.id}/desktop_file_system/"
+
+    def test_routes_serve_isolated_trees(self):
+        self.client.post(self.web_url, {"path": "Web only", "type": "doc"})
+        self.client.post(self.desktop_url, {"path": "Desktop only", "type": "doc"})
+
+        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
+        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
+
+        self.assertEqual(web_paths, {"Web only"})
+        self.assertEqual(desktop_paths, {"Desktop only"})
+
+    def test_desktop_create_stamps_desktop_surface(self):
+        self.client.post(self.desktop_url, {"path": "Folder/Item", "type": "doc"})
+
+        surfaces = set(FileSystem.objects.filter(team=self.team).values_list("surface", flat=True))
+        # Both the leaf and the auto-created parent folder are stamped "desktop".
+        self.assertEqual(surfaces, {"desktop"})
+
+    def test_legacy_null_rows_appear_on_web_route_only(self):
+        FileSystem.objects.create(team=self.team, path="Legacy", type="doc", surface=None, created_by=self.user)
+
+        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
+        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
+
+        self.assertIn("Legacy", web_paths)
+        self.assertNotIn("Legacy", desktop_paths)

@@ -1,23 +1,12 @@
-import { ExtendedRegExpMatchArray, InputRule, NodeViewProps, PasteRule } from '@tiptap/core'
-import { NodeType } from '@tiptap/pm/model'
 import clsx from 'clsx'
 import DOMPurify from 'dompurify'
-import posthog from 'posthog-js'
-import { type ReactNode, useCallback, useMemo, useRef } from 'react'
+import { type ReactNode } from 'react'
 
-import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { percentage, tryJsonParse, uuid } from 'lib/utils'
-import { formatCurrency } from 'lib/utils/geography/currency'
+import { formatCurrency } from 'lib/utils/currency'
+import { percentage } from 'lib/utils/numbers'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { Group } from '~/types'
-
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
-
-export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
-export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
-export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
-export const OPTIONAL_PROJECT_NON_CAPTURE_GROUP = '(?:/project/[0-9]*)?'
 
 type AnsiState = {
     fgClassName?: string
@@ -139,148 +128,28 @@ export const buildMediaSource = (media: { mimeType: string; data: string }): str
     return null
 }
 
-export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
-    origin = (origin || window.location.origin).replace('.', '\\.')
-    return new RegExp(origin + path, 'ig')
+// nodeId/__-prefixed are internal
+// null/undefined would otherwise serialize as the literal strings "null"/"undefined".
+export function shouldOmitFromClipboardHTML(key: string, value: unknown): boolean {
+    return key === 'nodeId' || key.startsWith('__') || value == null
 }
 
-export function reportNotebookNodeCreation(nodeType: string): void {
-    posthog.capture('notebook node created', { type: nodeType })
-}
+// Builds the HTML that the explicit "Copy" action writes to the clipboard.
+// Each attribute is JSON.stringified to mirror the per-attribute renderHTML in
+// `createPostHogWidgetNode`, so paste round-trips through `JSON.parse` regardless of which
+// copy path produced the HTML. Building via the DOM lets the browser handle attribute escaping.
+export function buildNotebookNodeClipboardHTML(nodeType: string, attrs: Record<string, any>): string {
+    const element = document.createElement(nodeType)
+    element.setAttribute('data-pm-slice', '0 0 []')
 
-export function posthogNodePasteRule(options: {
-    find: string | RegExp
-    type: NodeType
-    editor: TTEditor
-    getAttributes: (
-        match: ExtendedRegExpMatchArray
-    ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
-}): PasteRule {
-    return new PasteRule({
-        find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
-        handler: ({ match, chain, range }) => {
-            if (match.input) {
-                chain().deleteRange(range).run()
-
-                void Promise.resolve(options.getAttributes(match)).then((attributes) => {
-                    if (attributes) {
-                        options.editor.commands.insertContent({
-                            type: options.type.name,
-                            attrs: attributes,
-                        })
-                    }
-                })
-            }
-        },
-    })
-}
-
-export function posthogNodeInputRule(options: {
-    find: string | RegExp
-    type: NodeType
-    editor: TTEditor
-    getAttributes: (
-        match: ExtendedRegExpMatchArray
-    ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
-}): InputRule {
-    return new InputRule({
-        find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
-        handler: ({ match, chain, range }) => {
-            if (match.input) {
-                chain().deleteRange(range).run()
-
-                void Promise.resolve(options.getAttributes(match)).then((attributes) => {
-                    if (attributes) {
-                        options.editor.commands.insertContent({
-                            type: options.type.name,
-                            attrs: attributes,
-                        })
-                    }
-                })
-            }
-        },
-    })
-}
-
-export function linkPasteRule(): PasteRule {
-    return new PasteRule({
-        find: createUrlRegex(
-            `(?!${window.location.host})([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)`,
-            '^(https?|mailto)://'
-        ),
-        handler: ({ match, chain, range }) => {
-            if (match.input) {
-                const url = new URL(match[0])
-                const href = url.origin === window.location.origin ? url.pathname : url.toString()
-                chain()
-                    .deleteRange(range)
-                    .insertContent([
-                        {
-                            type: 'text',
-                            marks: [{ type: 'link', attrs: { href } }],
-                            text: href,
-                        },
-                        { type: 'text', text: ' ' },
-                    ])
-                    .run()
-            }
-        },
-    })
-}
-
-export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
-    props: NodeViewProps
-): [NotebookNodeAttributes<T>, (attrs: Partial<NotebookNodeAttributes<T>>) => void] {
-    const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
-    const previousNodeAttrs = useRef<NodeViewProps['node']['attrs']>()
-    const parsedAttrs = useRef<NotebookNodeAttributes<T>>({} as NotebookNodeAttributes<T>)
-
-    if (previousNodeAttrs.current !== props.node.attrs) {
-        const newParsedAttrs = Object.keys(props.node.attrs).reduce<Record<string, any>>((acc, key) => {
-            const val = props.node.attrs[key]
-            if (previousNodeAttrs.current?.[key] !== val) {
-                // If changed, set it whilst trying to parse
-                acc[key] = tryJsonParse(val, val)
-            } else if (parsedAttrs.current) {
-                // Otherwise use the old value to preserve object equality
-                acc[key] = parsedAttrs.current[key]
-            }
-            return acc
-        }, {})
-
-        parsedAttrs.current = newParsedAttrs as NotebookNodeAttributes<T>
-        parsedAttrs.current.nodeId = nodeId
+    for (const [key, value] of Object.entries(attrs)) {
+        if (shouldOmitFromClipboardHTML(key, value)) {
+            continue
+        }
+        element.setAttribute(key, JSON.stringify(value))
     }
 
-    previousNodeAttrs.current = props.node.attrs
-
-    const updateAttributes = useCallback(
-        (attrs: Partial<NotebookNodeAttributes<T>>): void => {
-            // We call the update whilst json stringifying
-            const stringifiedAttrs = Object.keys(attrs).reduce(
-                (acc, x) => {
-                    acc[x] = attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-
-            const hasChanges = Object.keys(stringifiedAttrs).some(
-                (key) => previousNodeAttrs.current?.[key] !== stringifiedAttrs[key]
-            )
-
-            if (!hasChanges) {
-                return
-            }
-
-            // NOTE: queueMicrotask protects us from TipTap's flushSync calls, ensuring we never modify the state whilst the flush is happening
-            queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
-        },
-        // oxlint-disable-next-line exhaustive-deps
-        [props.updateAttributes]
-    )
-
-    return [parsedAttrs.current, updateAttributes]
+    return element.outerHTML
 }
 
 export const getLogicKey = ({

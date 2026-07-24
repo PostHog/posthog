@@ -42,11 +42,16 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
             method: request.method,
             pathname: url.pathname,
             search: url.search,
+            mcpSessionId: request.headers.get('mcp-session-id') ?? undefined,
             headers,
         })
 
         try {
             const response = await handler(request, env, ctx, log)
+            const responseSessionId = response.headers.get('mcp-session-id')
+            if (responseSessionId && responseSessionId !== request.headers.get('mcp-session-id')) {
+                log.extend({ mcpSessionId: responseSessionId })
+            }
             log.emit(response.status)
             return response
         } catch (error) {

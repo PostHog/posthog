@@ -11,7 +11,7 @@ from ee.api.test.test_team import team_enterprise_api_test_factory
 from ee.models.rbac.access_control import AccessControl
 
 
-class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
+class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
     """
     We inherit from TestTeamEnterpriseAPI, as previously /api/projects/ referred to the Team model, which used to mean "project".
     Now as Team means "environment" and Project is separate, we must ensure backward compatibility of /api/projects/.
@@ -102,7 +102,9 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         assert other_org.id != self.user.current_organization_id
         response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
         self.assertEqual(response.status_code, 403, msg=response.json())
-        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
+        assert response.json() == self.permission_denied_response(
+            "You need to be an organization admin or above to create new projects."
+        )
 
     def test_user_that_does_not_belong_to_an_org_cannot_create_a_projec(self):
         user = User.objects.create(email="no_org@posthog.com")
@@ -120,15 +122,19 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
             },
         )
 
-    def test_rename_project_as_org_member_allowed(self):
+    def test_rename_project_as_org_member_forbidden(self):
+        # Renaming is admin-only (mirrors the settings UI, which gates rename behind admin access).
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+        # In an access-control org, a member with no explicit project access defaults to effective admin;
+        # set default member access so the admin-only rename gate actually applies.
+        self._set_project_default_member_access(self.team)
 
         response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
         self.project.refresh_from_db()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.project.name, "Erinaceus europaeus")
+        self.assertEqual(response.status_code, 403)
+        self.assertNotEqual(self.project.name, "Erinaceus europaeus")
 
     def test_list_projects_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -161,6 +167,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,

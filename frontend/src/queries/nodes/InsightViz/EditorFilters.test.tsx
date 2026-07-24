@@ -1,11 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,6 +22,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { EditorFilters } from './EditorFilters'
 
 // MaxTool has AI integration that requires additional setup — render children directly in tests
@@ -39,6 +39,23 @@ function makeTrendsQuery(): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview', math: BaseMathType.TotalCount }],
+    }
+}
+
+function makeDataWarehouseTrendsQuery(): TrendsQuery {
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [
+            {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'warehouse_orders',
+                table_name: 'warehouse_orders',
+                name: 'Orders',
+                timestamp_field: 'created_at',
+                id_field: 'order_id',
+                distinct_id_field: 'customer_id',
+            },
+        ],
     }
 }
 
@@ -75,8 +92,10 @@ function makePathsQuery(): PathsQuery {
 }
 
 function setupAndRender(
-    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery
-): void {
+    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery,
+    showing = true,
+    embedded = false
+): ReturnType<typeof render> {
     insightLogic(insightProps).mount()
     insightDataLogic(insightProps).mount()
     funnelDataLogic(insightProps).mount()
@@ -84,10 +103,10 @@ function setupAndRender(
     vizDataLogic.mount()
     vizDataLogic.actions.updateQuerySource(query)
 
-    render(
+    return render(
         <Provider>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <EditorFilters query={query} showing embedded={false} />
+                <EditorFilters query={query} showing={showing} embedded={embedded} />
             </BindLogic>
         </Provider>
     )
@@ -104,129 +123,125 @@ describe('EditorFilters', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic().mount()
     })
 
     afterEach(() => {
         cleanup()
     })
 
-    describe.each([
-        { flagEnabled: 'control', label: 'flag off' },
-        { flagEnabled: 'test', label: 'flag on' },
-    ])('PRODUCT_ANALYTICS_SIMPLE_EDITOR $label', ({ flagEnabled }) => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: flagEnabled,
-            })
-        })
-
-        it.each([
-            {
-                name: 'trends',
-                query: makeTrendsQuery(),
-                expectedPresent: ['Filters'],
-                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
-            },
-            {
-                name: 'lifecycle',
-                query: makeLifecycleQuery(),
-                expectedPresent: ['Lifecycle Toggles', 'Filters'],
-                expectedAbsent: ['Retention condition', 'Event Types', 'Stickiness Criteria'],
-            },
-            {
-                name: 'stickiness',
-                query: makeStickinessQuery(),
-                expectedPresent: ['Stickiness Criteria', 'Filters'],
-                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
-            },
-            {
-                name: 'retention',
-                query: makeRetentionQuery(),
-                expectedPresent: ['Retention condition', 'Calculation options', 'Filters'],
-                expectedAbsent: ['Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
-            },
-            {
-                name: 'funnels',
-                query: makeFunnelsQuery(),
-                expectedPresent: ['Filters', 'Advanced options'],
-                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
-            },
-            {
-                name: 'paths',
-                query: makePathsQuery(),
-                expectedPresent: ['Event Types', 'Starts at', 'Filters'],
-                expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
-            },
-        ])('$name shows correct filter labels', ({ query, expectedPresent, expectedAbsent }) => {
-            setupAndRender(query)
-            for (const text of expectedPresent) {
-                expect(screen.getByText(text)).toBeInTheDocument()
-            }
-            for (const text of expectedAbsent) {
-                expect(screen.queryByText(text)).not.toBeInTheDocument()
-            }
-        })
+    it.each([
+        {
+            name: 'trends',
+            query: makeTrendsQuery(),
+            expectedPresent: ['Filters'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
+        },
+        {
+            name: 'lifecycle',
+            query: makeLifecycleQuery(),
+            expectedPresent: ['Lifecycle Toggles', 'Filters'],
+            expectedAbsent: ['Retention condition', 'Event Types', 'Stickiness Criteria'],
+        },
+        {
+            name: 'stickiness',
+            query: makeStickinessQuery(),
+            expectedPresent: ['Stickiness Criteria', 'Filters'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
+        },
+        {
+            name: 'retention',
+            query: makeRetentionQuery(),
+            expectedPresent: ['Retention condition', 'Calculation options', 'Filters'],
+            expectedAbsent: ['Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
+        },
+        {
+            name: 'funnels',
+            query: makeFunnelsQuery(),
+            expectedPresent: ['Filters', 'Advanced options'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
+        },
+        {
+            name: 'paths',
+            query: makePathsQuery(),
+            expectedPresent: ['Event Types', 'Starts at', 'Filters'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
+        },
+    ])('$name shows correct filter labels', ({ query, expectedPresent, expectedAbsent }) => {
+        setupAndRender(query)
+        for (const text of expectedPresent) {
+            expect(screen.getByText(text)).toBeInTheDocument()
+        }
+        for (const text of expectedAbsent) {
+            expect(screen.queryByText(text)).not.toBeInTheDocument()
+        }
     })
 
-    describe('classic layout (flag off)', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: 'control',
-            })
-        })
-
-        it('shows formula mode toggle for trends', () => {
-            setupAndRender(makeTrendsQuery())
-            expect(screen.getByText('Enable formula mode')).toBeInTheDocument()
-        })
-
-        it('toggles to "Disable formula mode" after clicking', async () => {
-            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-            jest.useFakeTimers()
-            setupAndRender(makeTrendsQuery())
-
-            await user.click(screen.getByText('Enable formula mode'))
-            await act(async () => {
-                jest.advanceTimersByTime(500)
-            })
-
-            expect(screen.getByText('Disable formula mode')).toBeInTheDocument()
-            jest.useRealTimers()
-        })
-
-        it('expands advanced options section on click', async () => {
-            setupAndRender(makeFunnelsQuery())
-
-            expect(screen.queryByText('Use person properties from query time')).not.toBeInTheDocument()
-
-            await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
-
-            expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
-        })
+    it('hides formula mode toggle for trends', () => {
+        setupAndRender(makeTrendsQuery())
+        expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
     })
 
-    describe('panels layout (flag on)', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_SIMPLE_EDITOR]: 'test',
-            })
-        })
+    it('only attaches query context while the editor is visible and not embedded', () => {
+        const query = makeTrendsQuery()
+        const { rerender } = setupAndRender(query)
+        const renderEditorFilters = (showing: boolean, embedded: boolean): JSX.Element => (
+            <Provider>
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <EditorFilters query={query} showing={showing} embedded={embedded} />
+                </BindLogic>
+            </Provider>
+        )
 
-        it('hides formula mode toggle for trends', () => {
-            setupAndRender(makeTrendsQuery())
-            expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
-        })
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([
+            {
+                type: 'insight_query',
+                value: JSON.stringify(insightVizDataLogic(insightProps).values.querySource),
+                label: 'Current query',
+            },
+        ])
 
-        it('shows funnel settings collapsed by default and expandable', async () => {
-            setupAndRender(makeFunnelsQuery())
+        rerender(renderEditorFilters(false, false))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
 
-            const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
-            expect(settingsButton).toBeInTheDocument()
-            expect(settingsButton).toHaveAttribute('title', 'Show more')
+        rerender(renderEditorFilters(true, true))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
+    })
 
-            await userEvent.click(settingsButton)
-            expect(settingsButton).toHaveAttribute('title', 'Show less')
-        })
+    it('expands advanced options section on click', async () => {
+        setupAndRender(makeFunnelsQuery())
+
+        const advancedButton = screen.getByText('Advanced options').closest('button')!
+        expect(advancedButton).toHaveAttribute('title', 'Show more')
+
+        await userEvent.click(advancedButton)
+        expect(advancedButton).toHaveAttribute('title', 'Show less')
+        expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+    })
+
+    it('disables query-time person properties for data warehouse insights', async () => {
+        setupAndRender(makeDataWarehouseTrendsQuery())
+
+        await userEvent.click(screen.getByText('Advanced options'))
+
+        const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
+        expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
+
+        await userEvent.hover(disabledArea as HTMLElement)
+
+        expect(
+            await screen.findByText('Data warehouse insights always use the latest table properties.')
+        ).toBeInTheDocument()
+        expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
+    })
+
+    it('shows funnel settings collapsed by default and expandable', async () => {
+        setupAndRender(makeFunnelsQuery())
+
+        const settingsButton = screen.getByText('Funnel settings').closest('button')!
+        expect(settingsButton).toBeInTheDocument()
+        expect(settingsButton).toHaveAttribute('title', 'Show more')
+
+        await userEvent.click(settingsButton)
+        expect(settingsButton).toHaveAttribute('title', 'Show less')
     })
 })

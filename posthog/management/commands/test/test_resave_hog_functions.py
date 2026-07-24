@@ -3,8 +3,9 @@ from unittest.mock import call, patch
 
 from django.core.management import call_command
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.integration import Integration
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class TestResaveHogFunctions(BaseTest):
@@ -24,7 +25,7 @@ class TestResaveHogFunctions(BaseTest):
         )
 
         # Create two HogFunctions that use different integrations
-        with patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             self.hog_function1 = HogFunction.objects.create(
                 team=self.team,
                 name="Test Function 1",
@@ -47,27 +48,28 @@ class TestResaveHogFunctions(BaseTest):
                 inputs={"integration": {"value": str(self.integration2.id)}},
             )
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_resave_hog_functions(self, mock_reload):
         """Test that the command correctly identifies and resaves HogFunctions connected to integrations."""
 
         call_command("resave_hog_functions")
 
-        # Verify that reload_hog_functions_on_workers was called for each function
+        # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
             [
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function1.id)]),
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function2.id)]),
-            ]
+            ],
+            any_order=True,
         )
         assert mock_reload.call_count == 2
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_only_resaves_enabled_non_deleted_functions(self, mock_reload):
         """Test that the command only resaves enabled and non-deleted functions."""
 
         # Create a disabled function
-        with patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             HogFunction.objects.create(
                 team=self.team,
                 name="Disabled Function",
@@ -89,11 +91,12 @@ class TestResaveHogFunctions(BaseTest):
 
         call_command("resave_hog_functions")
 
-        # Verify only the original enabled, non-deleted functions were reloaded
+        # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
             [
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function1.id)]),
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function2.id)]),
-            ]
+            ],
+            any_order=True,
         )
         assert mock_reload.call_count == 2

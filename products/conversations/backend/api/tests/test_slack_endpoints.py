@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
@@ -56,7 +57,7 @@ class TestSupportSlackEventsAPI(BaseTest):
             "/api/conversations/v1/slack/events",
             data=json.dumps({"type": "event_callback", "team_id": "T123", "event": {"type": "message"}}),
             content_type="application/json",
-            HTTP_X_SLACK_RETRY_NUM="1",
+            headers={"x-slack-retry-num": "1"},
         )
 
         assert response.status_code == 200
@@ -163,12 +164,133 @@ class TestSupportSlackEventsAPI(BaseTest):
         mock_proxy.assert_not_called()
 
 
+class TestSupportSlackInteractivityAPI(BaseTest):
+    client: APIClient
+
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
+        self.client = APIClient()
+        cache.clear()
+
+    def _post_raw(self, payload_field: str, **kwargs):
+        # Slack sends interactivity payloads form-encoded, as a `payload` field.
+        return self.client.post(
+            "/api/conversations/v1/slack/interactivity",
+            data=urlencode({"payload": payload_field}),
+            content_type="application/x-www-form-urlencoded",
+            **kwargs,
+        )
+
+    def _post(self, payload: Any, **kwargs):
+        return self._post_raw(json.dumps(payload), **kwargs)
+
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_invalid_signature_returns_403(self, mock_validate: MagicMock):
+        mock_validate.side_effect = SlackIntegrationError("Invalid")
+
+        response = self._post({"type": "block_actions"})
+
+        assert response.status_code == 403
+
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_invalid_json_returns_400(self, mock_validate: MagicMock):
+        mock_validate.return_value = None
+
+        response = self._post_raw("{")
+
+        assert response.status_code == 400
+
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_non_object_payload_returns_400(self, mock_validate: MagicMock):
+        mock_validate.return_value = None
+
+        response = self._post(None)
+
+        assert response.status_code == 400
+
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_missing_team_id_returns_200_without_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
+        mock_validate.return_value = None
+
+        response = self._post({"type": "block_actions"})
+
+        assert response.status_code == 200
+        mock_process.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_block_actions_enqueues_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
+        mock_validate.return_value = None
+        payload = {"type": "block_actions", "team": {"id": "T123"}, "actions": []}
+
+        response = self._post(payload)
+
+        assert response.status_code == 200
+        mock_process.delay.assert_called_once_with(payload=payload, slack_team_id="T123")
+
+    @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_proxies_to_secondary_when_team_not_found_on_primary(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        mock_validate.return_value = None
+        mock_proxy.return_value = True
+
+        with patch("products.conversations.backend.api.slack_interactivity.is_primary_region", return_value=True):
+            response = self._post({"type": "block_actions", "team": {"id": "T_UNKNOWN"}})
+
+        assert response.status_code == 200
+        mock_process.delay.assert_not_called()
+        mock_proxy.assert_called_once()
+
+    @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_returns_502_when_proxy_to_secondary_fails(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        # Acking a failed proxy with 200 silently drops the click — Slack shows the
+        # clicker nothing and never resends. A non-2xx surfaces the failure in Slack.
+        mock_validate.return_value = None
+        mock_proxy.return_value = False
+
+        with patch("products.conversations.backend.api.slack_interactivity.is_primary_region", return_value=True):
+            response = self._post({"type": "block_actions", "team": {"id": "T_UNKNOWN"}})
+
+        assert response.status_code == 502
+        mock_process.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_drops_click_when_team_not_found_on_secondary(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        mock_validate.return_value = None
+
+        with patch("products.conversations.backend.api.slack_interactivity.is_primary_region", return_value=False):
+            response = self._post({"type": "block_actions", "team": {"id": "T_UNKNOWN"}})
+
+        assert response.status_code == 200
+        mock_process.delay.assert_not_called()
+        mock_proxy.assert_not_called()
+
+
 class TestSlackChannelsAPI(APIBaseTest):
     def test_authentication_required(self):
         response = APIClient().post("/api/conversations/v1/slack/channels", {})
         assert response.status_code == 401
 
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_503_when_support_bot_token_missing(self, mock_get_token: MagicMock):
         mock_get_token.return_value = ""
 
@@ -176,8 +298,8 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 503
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_handles_slack_api_error(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -189,8 +311,8 @@ class TestSlackChannelsAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Slack API error" in response.json()["error"]
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_paginates_and_sorts_channels(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -214,9 +336,9 @@ class TestSlackChannelsAPI(APIBaseTest):
             {"id": "C2", "name": "beta"},
         ]
 
-    @patch("products.conversations.backend.api.slack_channels.MAX_CHANNEL_PAGES", 2)
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.MAX_CHANNEL_PAGES", 2)
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_error_when_page_cap_exceeded(self, mock_support_config: MagicMock, mock_web_client: MagicMock):
         mock_support_config.return_value = "xoxb-support-token"
         client = MagicMock()

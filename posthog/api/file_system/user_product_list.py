@@ -65,26 +65,6 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team=self.team, user=self.request.user, enabled=True).order_by(Lower("product_path"))
 
-    @action(methods=["PATCH"], detail=False, url_path="update_by_path")
-    def update_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        product_path = request.data.get("product_path")
-        if not product_path:
-            return Response({"error": "product_path is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        existing_item, created = UserProductList.objects.get_or_create(
-            team=self.team,
-            user=cast(User, request.user),
-            product_path=product_path,
-            defaults={"enabled": True},
-        )
-
-        serializer = self.get_serializer(existing_item, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(serializer.data, status=status_code)
-
     @action(methods=["PATCH"], detail=False, url_path="bulk_update")
     def bulk_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         items = request.data.get("items")
@@ -115,18 +95,3 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append(serializer.data)
 
         return Response({"results": results}, status=status.HTTP_200_OK)
-
-    @action(methods=["POST"], detail=False, url_path="seed")
-    def seed(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Sync products from colleagues and other projects to fill the user's product list for this team.
-        """
-        user = cast(User, request.user)
-        team = self.team
-
-        UserProductList.backfill_from_other_teams(user, team)
-        UserProductList.sync_from_team_colleagues(user, team, count=5)
-
-        # Return all products the user has enabled in this team, not just the ones we created above
-        serializer = self.get_serializer(self.safely_get_queryset(self.queryset), many=True)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)

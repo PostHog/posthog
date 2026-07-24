@@ -33,6 +33,27 @@ impl PartitionedCache {
             .insert(partition, PersonCache::new(self.per_partition_capacity));
     }
 
+    /// Atomically install a fully-populated partition cache. The records
+    /// are inserted into a fresh `PersonCache` *before* the partition is
+    /// added to the shared `DashMap`, so any thread that observes
+    /// `has_partition(partition) == true` will also see every record —
+    /// no observer can land in the window where the partition exists
+    /// but its keys haven't been put yet. Used by warming so reads that
+    /// arrive immediately after a handoff Complete don't fall through
+    /// to PG and return stale values for records that the writer hasn't
+    /// yet persisted.
+    pub fn install_warmed_partition(
+        &self,
+        partition: u32,
+        records: impl IntoIterator<Item = (PersonCacheKey, CachedPerson)>,
+    ) {
+        let cache = PersonCache::new(self.per_partition_capacity);
+        for (key, person) in records {
+            cache.put(key, person);
+        }
+        self.partitions.insert(partition, cache);
+    }
+
     /// Drop the cache for the given partition, evicting all entries.
     pub fn drop_partition(&self, partition: u32) {
         self.partitions.remove(&partition);
@@ -61,6 +82,16 @@ impl PartitionedCache {
     pub fn put(&self, partition: u32, key: PersonCacheKey, person: CachedPerson) {
         if let Some(cache) = self.partitions.get(&partition) {
             cache.put(key, person);
+        }
+    }
+
+    /// Remove a single person from the partition's cache. Only tests call
+    /// this, to force a deterministic eviction — production evictions come
+    /// from Foyer's capacity policy. Safe regardless: the miss path
+    /// recovers the person from the changelog or PG on next access.
+    pub fn remove(&self, partition: u32, key: &PersonCacheKey) {
+        if let Some(cache) = self.partitions.get(&partition) {
+            cache.remove(key);
         }
     }
 }

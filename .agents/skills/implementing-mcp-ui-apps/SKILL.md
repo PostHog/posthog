@@ -64,7 +64,8 @@ Place view components in `products/{product}/mcp/apps/`.
 
 ```tsx
 import { type ReactElement } from 'react'
-import { Card, DescriptionList, Stack } from '@posthog/mosaic'
+import { DescriptionList } from '@posthog/mcp-ui'
+import { Card, CardHeader, CardTitle, CardContent } from '@posthog/quill'
 
 export interface MyEntityData {
   id: number
@@ -74,8 +75,13 @@ export interface MyEntityData {
 
 export function MyEntityView({ data }: { data: MyEntityData }): ReactElement {
   return (
-    <Card title={data.name}>
-      <DescriptionList items={[{ label: 'ID', value: String(data.id) }]} />
+    <Card>
+      <CardHeader>
+        <CardTitle>{data.title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <DescriptionList items={[{ label: 'ID', value: String(data.id) }]} />
+      </CardContent>
     </Card>
   )
 }
@@ -85,7 +91,7 @@ export function MyEntityView({ data }: { data: MyEntityData }): ReactElement {
 
 ```tsx
 import { type ReactElement, type ReactNode } from 'react'
-import { DataTable, type DataTableColumn, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView } from '@posthog/mcp-ui'
 import { MyEntityView, type MyEntityData } from './MyEntityView'
 
 export interface MyEntityListData {
@@ -121,11 +127,23 @@ export function MyEntityListView({ data, onMyEntityClick }: MyEntityListViewProp
               ),
           },
         ]
+
         return (
           <div className="p-4">
-            <Stack gap="sm">
-              <DataTable columns={columns} data={data.results} pageSize={10} />
-            </Stack>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  {data.results.length} entit{data.results.length === 1 ? 'y' : 'ies'}
+                </span>
+              </div>
+              <DataTable<CohortData>
+                columns={columns}
+                data={data.results}
+                pageSize={10}
+                defaultSort={{ key: 'name', direction: 'asc' }}
+                emptyMessage="No entities found"
+              />
+            </div>
           </div>
         )
       }}
@@ -247,7 +265,9 @@ ui_apps:
 
 For apps that need fully custom logic (e.g. `debug.tsx`, `query-results.tsx`).
 The generator does NOT create an entry point — you maintain it manually at
-`services/mcp/src/ui-apps/apps/{key}.tsx`. Only the registry entry is generated.
+`services/mcp/src/ui-apps/apps/{key}.tsx`. The registry entry is always generated.
+If the custom app exposes a reusable view component, an optional `render_ui`
+configuration also adds it to the `render-ui` umbrella tool.
 
 **Required fields:**
 
@@ -257,6 +277,15 @@ The generator does NOT create an entry point — you maintain it manually at
 | `app_name`    | Display name. Required because there's no convention to derive it from (custom apps may not follow naming patterns). |
 | `description` | Short description. Required for the same reason.                                                                     |
 
+**Optional `render_ui` fields:**
+
+| Field              | Description                                                                       |
+| ------------------ | --------------------------------------------------------------------------------- |
+| `component_import` | Import path for the reusable view component, relative to `src/ui-apps/generated`. |
+| `view_component`   | React component name that renders the tool result.                                |
+| `view_prop`        | Prop name that receives the tool result.                                          |
+| `data_type`        | TypeScript type for the tool result. Omit when the component accepts `unknown`.   |
+
 **Example:**
 
 ```yaml
@@ -265,6 +294,10 @@ ui_apps:
     type: custom
     app_name: Query Results
     description: Interactive visualization for PostHog query results
+    render_ui:
+      component_import: ../components/Component
+      view_component: Component
+      view_prop: data
 ```
 
 ### Where the schemas live
@@ -277,9 +310,9 @@ To add a new field to an app type:
 
 1. Add it to the relevant Zod schema (`DetailUiAppSchema`, `ListUiAppSchema`, or `CustomUiAppSchema`)
    with `.optional()` if it has a default
-2. Add it to the matching `Resolved*` interface (`ResolvedDetailUiApp` or `ResolvedListUiApp`)
-3. Add the default derivation in `resolveDetailApp()` or `resolveListApp()` in `generate-ui-apps.ts`
-4. Use the resolved value in `generateDetailApp()` or `generateListApp()`
+2. Add it to the matching `Resolved*` interface (`ResolvedDetailUiApp`, `ResolvedListUiApp`, or `ResolvedCustomUiApp`)
+3. Add the default derivation in `resolveDetailApp()`, `resolveListApp()`, or `resolveCustomApp()` in `generate-ui-apps.ts`
+4. Use the resolved value in the entry-point or dispatch generator
 
 All schemas use `.strict()` — unknown keys are rejected at build time, catching typos.
 

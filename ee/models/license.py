@@ -11,7 +11,6 @@ from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class LicenseError(exceptions.APIException):
@@ -29,7 +28,7 @@ class LicenseError(exceptions.APIException):
         self.detail = exceptions._get_error_details(detail, code)
 
 
-class LicenseManager(models.Manager):
+class LicenseManager(models.Manager["License"]):
     def first_valid(self) -> Optional["License"]:
         """Return the highest valid license or cloud licenses if any"""
         valid_licenses = list(self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud")))
@@ -68,12 +67,14 @@ class License(models.Model):
         AvailableFeature.RECORDINGS_PLAYLISTS,
         AvailableFeature.RECORDINGS_FILE_EXPORT,
         AvailableFeature.RECORDINGS_PERFORMANCE,
+        AvailableFeature.HIGH_FREQUENCY_ALERTS,
+        AvailableFeature.REAL_TIME_ALERTS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = [
         *SCALE_FEATURES,
-        AvailableFeature.ADVANCED_PERMISSIONS,
+        AvailableFeature.ACCESS_CONTROL,
         AvailableFeature.SAML,
         AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,
@@ -89,7 +90,7 @@ class License(models.Model):
 
     @property
     def is_v2_license(self) -> bool:
-        return self.key and len(self.key.split("::")) == 2
+        return bool(self.key) and len(self.key.split("::")) == 2
 
     __repr__ = sane_repr("key", "plan", "valid_until")
 
@@ -115,5 +116,9 @@ def get_licensed_users_available() -> Optional[int]:
 
 
 @receiver(post_save, sender=License)
-def license_saved(sender, instance, created, raw, using, **kwargs):
+def license_saved(sender, instance: License, created: bool, raw: bool, using: str, **kwargs: object) -> None:
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+    # this model loads at django.setup(), so keep the task graph off the module level.
+    from posthog.tasks.tasks import sync_all_organization_available_product_features  # noqa: PLC0415
+
     sync_all_organization_available_product_features()

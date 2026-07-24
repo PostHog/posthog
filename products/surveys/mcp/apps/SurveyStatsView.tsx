@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Card, DataTable, type DataTableColumn, ProgressBar, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Card, CardContent, Progress } from '@posthog/quill'
 
 export interface SurveyStatEntry {
     name: string
@@ -11,6 +12,7 @@ export interface SurveyStatEntry {
 export interface SurveyStatsData {
     survey_id?: string
     stats?: Record<string, { total_count: number; unique_persons: number }>
+    // Rates come from the API already scaled to a percentage (0-100), e.g. 21.7 means 21.7%.
     rates?: { response_rate?: number; dismissal_rate?: number }
     _posthogUrl?: string
 }
@@ -36,51 +38,53 @@ export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <span className="text-lg font-semibold text-text-primary">Survey stats</span>
+            <div className="flex flex-col gap-3">
+                <span className="text-lg font-semibold">Survey stats</span>
 
                 {data.rates && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            {data.rates.response_rate != null && (
-                                <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-text-secondary">Response rate</span>
-                                        <span className="text-text-primary tabular-nums">
-                                            {(data.rates.response_rate * 100).toFixed(1)}%
-                                        </span>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                {data.rates.response_rate != null && (
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-muted-foreground">Response rate</span>
+                                            <span className="tabular-nums">{data.rates.response_rate.toFixed(1)}%</span>
+                                        </div>
+                                        <Progress value={data.rates.response_rate} variant="success" />
                                     </div>
-                                    <ProgressBar value={data.rates.response_rate * 100} variant="success" size="md" />
-                                </div>
-                            )}
-                            {data.rates.dismissal_rate != null && (
-                                <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-text-secondary">Dismissal rate</span>
-                                        <span className="text-text-primary tabular-nums">
-                                            {(data.rates.dismissal_rate * 100).toFixed(1)}%
-                                        </span>
+                                )}
+                                {data.rates.dismissal_rate != null && (
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-muted-foreground">Dismissal rate</span>
+                                            <span className="tabular-nums">
+                                                {data.rates.dismissal_rate.toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        <Progress value={data.rates.dismissal_rate} variant="warning" />
                                     </div>
-                                    <ProgressBar value={data.rates.dismissal_rate * 100} variant="warning" size="md" />
-                                </div>
-                            )}
-                        </Stack>
+                                )}
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {entries.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Events</span>
-                            <DataTable<SurveyStatEntry>
-                                columns={columns}
-                                data={entries}
-                                emptyMessage="No stats available"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Events</span>
+                                <DataTable<SurveyStatEntry>
+                                    columns={columns}
+                                    data={entries}
+                                    emptyMessage="No stats available"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

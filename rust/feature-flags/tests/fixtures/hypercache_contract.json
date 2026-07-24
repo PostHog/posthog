@@ -5,6 +5,7 @@
             "team_id": 99,
             "name": "Full feature flag with all optional fields",
             "key": "full-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -51,7 +52,6 @@
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": true,
-            "has_encrypted_payloads": false,
             "version": 3,
             "evaluation_runtime": "all",
             "bucketing_identifier": "device_id",
@@ -62,6 +62,7 @@
             "team_id": 99,
             "name": "",
             "key": "minimal-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -76,7 +77,6 @@
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "has_encrypted_payloads": false,
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
@@ -87,6 +87,7 @@
             "team_id": 99,
             "name": "Cohort flag",
             "key": "cohort-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -108,7 +109,6 @@
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "has_encrypted_payloads": false,
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
@@ -119,6 +119,7 @@
             "team_id": 99,
             "name": "Flag with dependency",
             "key": "dependent-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -141,7 +142,6 @@
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "has_encrypted_payloads": false,
             "version": 2,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
@@ -152,6 +152,7 @@
             "team_id": 99,
             "name": "Flag with missing dependency",
             "key": "missing-dep-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -174,7 +175,6 @@
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "has_encrypted_payloads": false,
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
@@ -213,7 +213,14 @@
             "groups": [],
             "created_by_id": 1,
             "cohort_type": null,
-            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00"
+            "condition_type": {
+                "person_properties": true,
+                "behavioral": false,
+                "lifecycle": false,
+                "cohorts": false
+            },
+            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00",
+            "last_backfill_events_at": "2024-01-15T12:00:00+00:00"
         }
     ]
 }

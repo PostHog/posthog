@@ -38,6 +38,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -164,6 +165,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -324,6 +326,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -449,6 +452,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -573,6 +577,7 @@ async fn test_experience_continuity_without_person_uses_anon_distinct_id() -> Re
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 

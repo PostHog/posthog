@@ -1,3 +1,5 @@
+from django.db.models import Manager, QuerySet
+
 from rest_framework import serializers
 
 
@@ -7,9 +9,10 @@ class TeamScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
     scope_field = "team_id"
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        if qs is None:
-            return qs
+        queryset = getattr(self, "queryset", None)
+        if queryset is None:
+            return None
+        qs = queryset.all() if isinstance(queryset, (QuerySet, Manager)) else queryset
         team_id = self.context.get("team_id")
         if team_id:
             return qs.filter(**{self.scope_field: team_id})
@@ -22,9 +25,10 @@ class OrgScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
     scope_field = "team__organization"
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        if qs is None:
-            return qs
+        queryset = getattr(self, "queryset", None)
+        if queryset is None:
+            return None
+        qs = queryset.all() if isinstance(queryset, (QuerySet, Manager)) else queryset
         get_org = self.context.get("get_organization")
         if get_org:
             try:

@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allows_na": {
+            "default": false,
+            "description": "Whether the evaluation can return N/A for non-applicable generations.",
+            "type": "boolean"
+        },
+        "conditions": {
+            "description": "Optional trigger conditions to filter which events are sampled.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "sample_count": {
+            "default": 5,
+            "description": "Number of recent $ai_generation events to test against (1–10, default 5).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "source": {
+            "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["source"],
+    "type": "object"
+}

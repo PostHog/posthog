@@ -3,9 +3,9 @@ import re
 import csv
 import datetime
 
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from .currencies import SUPPORTED_CURRENCY_CODES
@@ -40,7 +40,19 @@ def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
     currencies = []
 
     # Load the CSV file
-    with open(os.path.join(os.path.dirname(__file__), "historical.csv")) as f:
+    csv_path = os.path.join(os.path.dirname(__file__), "historical.csv")
+    if not os.path.exists(csv_path):
+        # `historical.csv` is a large (~9MB) git-tracked asset that ships with the repo.
+        # When it's missing the checkout is incomplete (e.g. a partial/sparse clone or a
+        # sandboxed environment that skipped large files), not a logic bug — so surface an
+        # actionable message instead of a bare FileNotFoundError from `open` below.
+        raise FileNotFoundError(
+            f"Exchange rate data file not found at {csv_path}. "
+            "This file is tracked in git and required to backfill ClickHouse exchange rates; "
+            "ensure your checkout includes it (a partial or sparse clone may have skipped it)."
+        )
+
+    with open(csv_path) as f:
         reader = csv.reader(f)
 
         # Get header row with currency codes
@@ -94,16 +106,13 @@ def HISTORICAL_EXCHANGE_RATE_TUPLES():
             yield (date, currency, rate)
 
 
-EXCHANGE_RATE_TABLE_NAME = "exchange_rate"
-EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
-
-# Storing 10 decimal places is more than enough
-# Ideally we should have gone with 4 because that's all we need for most currencies
-# but Bitcoin messes this up because it's so valuable compared to the Dollar (our base currency)
-#
-# If Bitcoin ever moons it even further, we can increase this to 12 or 14
-# but for now 10 is more than enough
-EXCHANGE_RATE_DECIMAL_PRECISION = 10
+# Re-exported from the Django-free posthog.exchange_rate_constants module so the HogQL engine can
+# use them without booting Django; kept importable here for existing callers.
+from posthog.exchange_rate_constants import (  # noqa: E402
+    EXCHANGE_RATE_DECIMAL_PRECISION,
+    EXCHANGE_RATE_DICTIONARY_NAME,
+    EXCHANGE_RATE_TABLE_NAME,
+)
 
 
 # `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree
@@ -192,6 +201,8 @@ WINDOW w AS (
 )
 EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_QUERY)
 
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
 
 # Use RANGE_HASHED to simplify queries by date
 #
@@ -224,8 +235,8 @@ RANGE(MIN start_date MAX end_date)""".format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         query=EXCHANGE_RATE_DICTIONARY_QUERY,
-        clickhouse_user=CLICKHOUSE_USER,
-        clickhouse_password=CLICKHOUSE_PASSWORD,
+        clickhouse_user=CLICKHOUSE_DICT_READER_USER,
+        clickhouse_password=CLICKHOUSE_DICT_READER_PASSWORD,
     )
 
 

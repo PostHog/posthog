@@ -41,7 +41,7 @@ class DateRange(dagster.Config):
 
 
 class QueryLogsExportConfig(dagster.Config):
-    date_range: DateRange = None  # Optional, if not provided will use yesterday's date
+    date_range: DateRange | None = None  # Optional, if not provided will use yesterday's date
     s3_path: str = "query_logs"  # Subdirectory in the S3 bucket
 
 

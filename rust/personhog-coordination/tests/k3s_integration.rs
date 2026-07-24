@@ -355,6 +355,14 @@ impl MockHandler {
 
 #[async_trait]
 impl HandoffHandler for MockHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         self.events
             .lock()
@@ -368,6 +376,14 @@ impl HandoffHandler for MockHandler {
             .lock()
             .await
             .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
         Ok(())
     }
 }

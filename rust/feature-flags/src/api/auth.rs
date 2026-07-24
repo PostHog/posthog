@@ -23,7 +23,14 @@ const SCOPE_FEATURE_FLAG_WRITE: &str = "feature_flag:write";
 #[serde(tag = "type")]
 pub enum TokenAuthData {
     #[serde(rename = "secret")]
-    Secret { team_id: i32 },
+    Secret {
+        team_id: i32,
+        /// The team's public API token, used to look up team metadata from
+        /// HyperCache when `?token=` is omitted. `#[serde(default)]` ensures
+        /// backwards compatibility with cached entries that predate this field.
+        #[serde(default)]
+        api_token: Option<String>,
+    },
     #[serde(rename = "personal")]
     Personal {
         user_id: i32,
@@ -32,12 +39,20 @@ pub enum TokenAuthData {
         scoped_teams: Option<Vec<i32>>,
         scoped_orgs: Option<Vec<String>>,
         scopes: Option<Vec<String>>,
+        /// The user's `current_team_id`, used only by remote_config's `@current` resolution.
+        /// `#[serde(default)]` keeps backwards compatibility with cached entries that predate
+        /// this field (they resolve as `None` until the entry refreshes).
+        #[serde(default)]
+        current_team_id: Option<i32>,
     },
     #[serde(rename = "project_secret")]
     ProjectSecret {
         team_id: i32,
         key_id: String,
         scopes: Option<Vec<String>>,
+        /// See `Secret::api_token` for rationale.
+        #[serde(default)]
+        api_token: Option<String>,
     },
 }
 
@@ -70,16 +85,39 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
 /// prevents negative-cache poisoning when one source misses but the other would hit.
 ///
 /// Returns the matched TokenAuthData variant on success for metric labeling.
+/// Validates a phs_-prefixed token and checks it belongs to the expected team.
+/// Returns `(team_id, api_token, is_project_secret)` — same as
+/// `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<TokenAuthData, FlagError> {
-    debug!(
-        expected_team_id = expected_team_id,
-        "Validating secret API token for team"
-    );
+) -> Result<(i32, Option<String>, bool), FlagError> {
+    let result = validate_secret_api_token(state, token).await?;
 
+    if result.0 != expected_team_id {
+        warn!(
+            cached_team_id = result.0,
+            expected_team_id = expected_team_id,
+            "Token belongs to a different team"
+        );
+        return Err(FlagError::SecretApiTokenInvalid);
+    }
+
+    Ok(result)
+}
+
+/// Validates a phs_-prefixed token without checking against a specific team.
+///
+/// Used when the `?token=` query parameter is omitted and the team must be derived
+/// from the secret token itself. Returns `(team_id, api_token, is_project_secret)`.
+///
+/// Only works for Secret and ProjectSecret tokens (which are team-scoped).
+/// Personal API keys are multi-team and cannot be used to derive a team.
+pub async fn validate_secret_api_token(
+    state: &AppState,
+    token: &str,
+) -> Result<(i32, Option<String>, bool), FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
@@ -93,24 +131,23 @@ pub async fn validate_secret_api_token_for_team(
         .await?;
 
     match result.value {
-        Some(data @ TokenAuthData::Secret { team_id }) if team_id == expected_team_id => {
-            debug!(team_id = team_id, "Secret API token validated");
-            Ok(data)
-        }
-        Some(data @ TokenAuthData::ProjectSecret { team_id, .. })
-            if team_id == expected_team_id =>
-        {
-            debug!(team_id = team_id, "Project secret API key validated");
-            Ok(data)
-        }
-        Some(TokenAuthData::Secret { team_id })
-        | Some(TokenAuthData::ProjectSecret { team_id, .. }) => {
-            warn!(
-                cached_team_id = team_id,
-                expected_team_id = expected_team_id,
-                "Token belongs to a different team"
+        Some(TokenAuthData::Secret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Secret API token validated (no token param)"
             );
-            Err(FlagError::SecretApiTokenInvalid)
+            Ok((team_id, api_token, false))
+        }
+        Some(TokenAuthData::ProjectSecret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Project secret API key validated (no token param)"
+            );
+            Ok((team_id, api_token, true))
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }
@@ -130,24 +167,30 @@ async fn load_token_from_pg(
     // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
     // to avoid doubling DB work during outages.
     match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
-        Ok(team) => return Ok(Some(TokenAuthData::Secret { team_id: team.id })),
+        Ok(team) => {
+            return Ok(Some(TokenAuthData::Secret {
+                team_id: team.id,
+                api_token: Some(team.api_token),
+            }))
+        }
         Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
         Err(e) => return Err(e),
     }
 
-    // Try ProjectSecretAPIKey
+    // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
     let mut conn =
         get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
             .await?;
     let query = r#"
-        SELECT id, team_id, scopes
-        FROM posthog_projectsecretapikey
-        WHERE secure_value = $1
+        SELECT k.id, k.team_id, k.scopes, t.api_token
+        FROM posthog_projectsecretapikey k
+        JOIN posthog_team t ON t.id = k.team_id
+        WHERE k.secure_value = $1
           AND (
-              scopes IS NULL
-              OR '*' = ANY(scopes)
-              OR 'feature_flag:read' = ANY(scopes)
-              OR 'feature_flag:write' = ANY(scopes)
+              k.scopes IS NULL
+              OR '*' = ANY(k.scopes)
+              OR 'feature_flag:read' = ANY(k.scopes)
+              OR 'feature_flag:write' = ANY(k.scopes)
           )
     "#;
 
@@ -161,10 +204,12 @@ async fn load_token_from_pg(
             let key_id: String = row.try_get("id")?;
             let team_id: i32 = row.try_get("team_id")?;
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
+            let api_token: String = row.try_get("api_token")?;
             Ok(Some(TokenAuthData::ProjectSecret {
                 team_id,
                 key_id,
                 scopes,
+                api_token: Some(api_token),
             }))
         }
         None => {
@@ -193,6 +238,7 @@ async fn load_personal_key_from_pg(
             pak.scoped_teams,
             pak.scoped_organizations,
             u.id as user_id,
+            u.current_team_id,
             ARRAY(
                 SELECT om.organization_id::text
                 FROM posthog_organizationmembership om
@@ -202,11 +248,6 @@ async fn load_personal_key_from_pg(
         INNER JOIN posthog_user u ON pak.user_id = u.id
         WHERE pak.secure_value = $1
           AND u.is_active = true
-          AND (
-              '*' = ANY(pak.scopes)
-              OR 'feature_flag:read' = ANY(pak.scopes)
-              OR 'feature_flag:write' = ANY(pak.scopes)
-          )
     "#;
 
     match sqlx::query(query)
@@ -222,6 +263,7 @@ async fn load_personal_key_from_pg(
             let scoped_organizations: Option<Vec<String>> = row.try_get("scoped_organizations")?;
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
             let org_ids: Vec<String> = row.try_get("org_ids")?;
+            let current_team_id: Option<i32> = row.try_get("current_team_id")?;
 
             Ok(Some(TokenAuthData::Personal {
                 user_id,
@@ -230,12 +272,46 @@ async fn load_personal_key_from_pg(
                 scoped_teams,
                 scoped_orgs: scoped_organizations,
                 scopes,
+                current_team_id,
             }))
         }
         None => {
-            warn!("Personal API key not found or doesn't have required scopes");
+            warn!("Personal API key not found");
             Ok(None)
         }
+    }
+}
+
+/// Resolves the current team id for a personal API key's user — Django's `user.current_team`,
+/// used only by the remote_config endpoint's `@current` project resolution. Goes through the
+/// shared `auth_token_cache` (same loader as `validate_personal_api_key_with_scopes_for_team`),
+/// so it does no uncached DB work before the request is authenticated and throttled, and the
+/// subsequent `authenticate` call reuses the warm cache entry. Returns `Ok(None)` when the key is
+/// valid but the user has no current team set (Django: 404), and `Err(PersonalApiKeyInvalid)`
+/// (401) when the key is unknown or the user is inactive.
+pub async fn current_team_id_for_personal_api_key(
+    state: &AppState,
+    key: &str,
+) -> Result<Option<i32>, FlagError> {
+    let sha256_hash = hash_token_value(key);
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let hash_for_loader = sha256_hash.clone();
+
+    let result = state
+        .auth_token_cache
+        .get_or_load(&sha256_hash, |_key| async move {
+            load_personal_key_from_pg(pg_reader, &hash_for_loader).await
+        })
+        .await?;
+
+    match &result.value {
+        Some(TokenAuthData::Personal {
+            current_team_id, ..
+        }) => Ok(*current_team_id),
+        // Unknown key, inactive user, or a non-personal credential hashing to this value: an
+        // invalid credential (-> 401), not a missing project. Matches
+        // `validate_personal_api_key_with_scopes_for_team`'s not-found behaviour.
+        Some(_) | None => Err(FlagError::PersonalApiKeyInvalid),
     }
 }
 
@@ -274,15 +350,11 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
                 }
             }
 
-            // Check scopes
+            // Check scopes — return 403 (not 401) when the key is valid but lacks permissions
             if let Some(scope_list) = scopes {
                 if scope_list.is_empty() {
-                    // In Django, an explicit empty scopes list means "no access".
-                    // Mirror that behavior here instead of treating it as "no restriction".
-                    debug!(
-                        "Cached personal API key has an explicit empty scopes list; treating as no access"
-                    );
-                    return Err(FlagError::PersonalApiKeyInvalid);
+                    debug!("Personal API key has an explicit empty scopes list; no access");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
                 }
 
                 let has_access = scope_list.iter().any(|s| {
@@ -291,8 +363,8 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
                         || s == SCOPE_FEATURE_FLAG_WRITE
                 });
                 if !has_access {
-                    debug!(scopes = ?scope_list, "Cached personal API key lacks feature flag scopes");
-                    return Err(FlagError::PersonalApiKeyInvalid);
+                    debug!(scopes = ?scope_list, "Personal API key lacks feature flag scopes");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
                 }
             }
 
@@ -453,15 +525,52 @@ mod tests {
 
     #[test]
     fn test_token_auth_data_serialization_secret() {
-        let data = TokenAuthData::Secret { team_id: 42 };
+        let data = TokenAuthData::Secret {
+            team_id: 42,
+            api_token: Some("phc_test123".to_string()),
+        };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"secret\""));
         assert!(json.contains("\"team_id\":42"));
+        assert!(json.contains("\"api_token\":\"phc_test123\""));
 
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
         match parsed {
-            TokenAuthData::Secret { team_id } => assert_eq!(team_id, 42),
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, Some("phc_test123".to_string()));
+            }
             _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"secret","team_id":42}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_project_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"project_secret","team_id":99,"key_id":"psak_abc","scopes":["feature_flag:read"]}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::ProjectSecret {
+                team_id, api_token, ..
+            } => {
+                assert_eq!(team_id, 99);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected ProjectSecret variant"),
         }
     }
 
@@ -474,6 +583,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"personal\""));
@@ -500,11 +610,13 @@ mod tests {
             team_id: 99,
             key_id: "psak_abc123".to_string(),
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: Some("phc_proj_test".to_string()),
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"project_secret\""));
         assert!(json.contains("\"team_id\":99"));
         assert!(json.contains("\"key_id\":\"psak_abc123\""));
+        assert!(json.contains("\"api_token\":\"phc_proj_test\""));
 
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
         match parsed {
@@ -512,10 +624,12 @@ mod tests {
                 team_id,
                 key_id,
                 scopes,
+                api_token,
             } => {
                 assert_eq!(team_id, 99);
                 assert_eq!(key_id, "psak_abc123");
                 assert_eq!(scopes, Some(vec!["feature_flag:read".to_string()]));
+                assert_eq!(api_token, Some("phc_proj_test".to_string()));
             }
             _ => panic!("Expected ProjectSecret variant"),
         }
@@ -527,6 +641,7 @@ mod tests {
             team_id: 1,
             key_id: "key_id".to_string(),
             scopes: None,
+            api_token: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
@@ -553,6 +668,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -575,6 +691,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -597,6 +714,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -619,6 +737,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -641,6 +760,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["*".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -663,6 +783,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: Some(vec!["550e8400-e29b-41d4-a716-446655440000".to_string()]),
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -685,6 +806,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: Some(vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()]),
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -707,6 +829,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["session_recording:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -722,7 +845,10 @@ mod tests {
             ..Default::default()
         };
 
-        let data = TokenAuthData::Secret { team_id: 1 };
+        let data = TokenAuthData::Secret {
+            team_id: 1,
+            api_token: None,
+        };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
     }
@@ -741,6 +867,7 @@ mod tests {
             team_id: 1,
             key_id: "psak_abc123".to_string(),
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -763,6 +890,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:write".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -788,6 +916,7 @@ mod tests {
                 "session_recording:read".to_string(),
                 "feature_flag:read".to_string(),
             ]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -812,6 +941,7 @@ mod tests {
             scoped_teams: Some(vec![]), // empty = no restriction, team 99 should pass
             scoped_orgs: Some(vec![]),  // empty = no restriction
             scopes: None,               // None = no restriction
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -836,11 +966,12 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec![]),
+            current_team_id: None,
         };
 
         assert!(matches!(
             validate_personal_key_metadata(&data, &team),
-            Err(FlagError::PersonalApiKeyInvalid)
+            Err(FlagError::PersonalApiKeyInsufficientScopes)
         ));
     }
 
@@ -859,6 +990,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());

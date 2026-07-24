@@ -1,0 +1,690 @@
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import api, { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
+
+export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
+export type LLMProvider =
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'openrouter'
+    | 'fireworks'
+    | 'azure_openai'
+    | 'together_ai'
+    | 'minimax'
+    | 'zeabur'
+
+/** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
+export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
+
+export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    gemini: 'Google Gemini',
+    openrouter: 'OpenRouter',
+    fireworks: 'Fireworks',
+    azure_openai: 'Azure OpenAI',
+    together_ai: 'Together AI',
+    minimax: 'MiniMax',
+    zeabur: 'Zeabur AI Hub',
+}
+
+const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
+
+export function isLLMProvider(value: string): value is LLMProvider {
+    return LLM_PROVIDERS.has(value)
+}
+
+/** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
+export function toLLMProvider(raw: string): LLMProvider | null {
+    const normalized = raw.toLowerCase()
+    if (isLLMProvider(normalized)) {
+        return normalized
+    }
+    console.error(`[AI observability] Unknown LLM provider: "${raw}"`)
+    return null
+}
+
+const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
+
+/** Sort index for a provider string. Unknown providers sort last. */
+export function providerSortIndex(provider: string): number {
+    const normalized = toLLMProvider(provider)
+    return normalized ? PROVIDER_ORDER.indexOf(normalized) : PROVIDER_ORDER.length
+}
+
+/** Normalize provider aliases from traces/config into canonical LLMProvider keys. */
+export function normalizeLLMProvider(provider: string | undefined): LLMProvider | null {
+    if (!provider) {
+        return null
+    }
+
+    const normalized = provider.trim().toLowerCase()
+    if (normalized === 'google' || normalized === 'google-ai-studio') {
+        return 'gemini'
+    }
+    if (normalized === 'azure_openai' || normalized === 'azure-openai' || normalized === 'azure openai') {
+        return 'azure_openai'
+    }
+    if (normalized === 'together' || normalized === 'together ai' || normalized === 'together-ai') {
+        return 'together_ai'
+    }
+    if (normalized === 'mini max' || normalized === 'mini-max') {
+        return 'minimax'
+    }
+    if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
+        return 'zeabur'
+    }
+
+    return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
+}
+
+export interface LLMProviderKey {
+    id: string
+    provider: LLMProvider
+    name: string
+    state: LLMProviderKeyState
+    error_message: string | null
+    api_key_masked: string
+    azure_endpoint_display: string | null
+    api_version_display: string | null
+    created_at: string
+    created_by: {
+        id: number
+        uuid: string
+        distinct_id: string
+        first_name: string
+        last_name: string
+        email: string
+    } | null
+    last_used_at: string | null
+}
+
+/** Canonical provider key ordering: provider order, then key name, then id. */
+export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
+    return [...keys].sort((a, b) => {
+        const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+        if (providerDiff !== 0) {
+            return providerDiff
+        }
+
+        const nameDiff = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+        if (nameDiff !== 0) {
+            return nameDiff
+        }
+
+        return a.id.localeCompare(b.id)
+    })
+}
+
+export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(keys)
+        .filter((key) => key.state === 'ok')
+        .map((key) => key.id)
+}
+
+export function firstUsableProviderKeyIdForProvider(
+    provider: string | undefined,
+    keys: LLMProviderKey[]
+): string | null {
+    const normalizedProvider = normalizeLLMProvider(provider)
+    if (!normalizedProvider) {
+        return null
+    }
+
+    return sortProviderKeys(keys).find((key) => key.state === 'ok' && key.provider === normalizedProvider)?.id ?? null
+}
+
+export interface EvaluationConfig {
+    active_provider_key: LLMProviderKey | null
+    created_at: string
+    updated_at: string
+}
+
+export interface CreateLLMProviderKeyPayload {
+    provider: LLMProvider
+    name: string
+    api_key: string
+    set_as_active?: boolean
+    azure_endpoint?: string
+    api_version?: string
+}
+
+export interface UpdateLLMProviderKeyPayload {
+    name?: string
+    api_key?: string
+    azure_endpoint?: string
+    api_version?: string
+}
+
+export interface KeyValidationResult {
+    state: LLMProviderKeyState
+    error_message: string | null
+    // Form field the error should be attributed to in the UI (e.g. 'azure_endpoint', 'api_key').
+    // Only set for providers that validate multiple inputs — most providers leave it null.
+    error_field?: string | null
+}
+
+export interface DependentEvaluation {
+    id: string
+    name: string
+    model_configuration_id: string
+}
+
+export interface AlternativeKey {
+    id: string
+    name: string
+    provider: LLMProvider
+}
+
+export interface DependentConfigsResponse {
+    evaluations: DependentEvaluation[]
+    alternative_keys: AlternativeKey[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface llmProviderKeysLogicValues {
+    activeProviderKey: LLMProviderKey | null | undefined
+    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigsLoading: boolean
+    editingKey: LLMProviderKey | null
+    evaluationConfig: EvaluationConfig | null
+    evaluationConfigLoading: boolean
+    keyToDelete: LLMProviderKey | null
+    newKeyModalOpen: boolean
+    preValidationResult: KeyValidationResult | null
+    preValidationResultLoading: boolean
+    providerKeys: LLMProviderKey[]
+    providerKeysLoading: boolean
+    requiresProviderKey: boolean
+    validatingKeyId: string | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface llmProviderKeysLogicActions {
+    clearPreValidation: () => {
+        value: true
+    }
+    confirmDelete: (replacementKeyId?: string) => {
+        replacementKeyId: string | undefined
+    }
+    createProviderKey: ({ payload }: { payload: CreateLLMProviderKeyPayload }) => {
+        payload: CreateLLMProviderKeyPayload
+    }
+    createProviderKeyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    createProviderKeySuccess: (
+        providerKeys: LLMProviderKey[],
+        payload?: {
+            payload: CreateLLMProviderKeyPayload
+        }
+    ) => {
+        providerKeys: LLMProviderKey[]
+        payload?: {
+            payload: CreateLLMProviderKeyPayload
+        }
+    }
+    deleteProviderKey: ({ id, replacementKeyId }: { id: string; replacementKeyId?: string }) => {
+        id: string
+        replacementKeyId?: string
+    }
+    deleteProviderKeyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    deleteProviderKeySuccess: (
+        providerKeys: LLMProviderKey[],
+        payload?: {
+            id: string
+            replacementKeyId?: string
+        }
+    ) => {
+        providerKeys: LLMProviderKey[]
+        payload?: {
+            id: string
+            replacementKeyId?: string
+        }
+    }
+    loadDependentConfigs: ({ keyId }: { keyId: string }) => {
+        keyId: string
+    }
+    loadDependentConfigsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDependentConfigsSuccess: (
+        dependentConfigs: DependentConfigsResponse | null,
+        payload?: {
+            keyId: string
+        }
+    ) => {
+        dependentConfigs: DependentConfigsResponse | null
+        payload?: {
+            keyId: string
+        }
+    }
+    loadEvaluationConfig: () => any
+    loadEvaluationConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEvaluationConfigSuccess: (
+        evaluationConfig: EvaluationConfig | null,
+        payload?: any
+    ) => {
+        evaluationConfig: EvaluationConfig | null
+        payload?: any
+    }
+    loadProviderKeys: () => any
+    loadProviderKeysFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProviderKeysSuccess: (
+        providerKeys: LLMProviderKey[],
+        payload?: any
+    ) => {
+        providerKeys: LLMProviderKey[]
+        payload?: any
+    }
+    preValidateKey: ({
+        apiKey,
+        provider,
+        azure_endpoint,
+        api_version,
+    }: {
+        api_version?: string
+        apiKey: string
+        azure_endpoint?: string
+        provider: LLMProvider
+    }) => {
+        apiKey: string
+        provider: LLMProvider
+        azure_endpoint?: string
+        api_version?: string
+    }
+    preValidateKeyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    preValidateKeySuccess: (
+        preValidationResult: KeyValidationResult,
+        payload?: {
+            apiKey: string
+            provider: LLMProvider
+            azure_endpoint?: string
+            api_version?: string
+        }
+    ) => {
+        preValidationResult: KeyValidationResult
+        payload?: {
+            apiKey: string
+            provider: LLMProvider
+            azure_endpoint?: string
+            api_version?: string
+        }
+    }
+    setEditingKey: (key: LLMProviderKey | null) => {
+        key: LLMProviderKey | null
+    }
+    setKeyToDelete: (key: LLMProviderKey | null) => {
+        key: LLMProviderKey | null
+    }
+    setNewKeyModalOpen: (open: boolean) => {
+        open: boolean
+    }
+    updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
+        id: string
+        payload: UpdateLLMProviderKeyPayload
+    }
+    updateProviderKeyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateProviderKeySuccess: (
+        providerKeys: LLMProviderKey[],
+        payload?: {
+            id: string
+            payload: UpdateLLMProviderKeyPayload
+        }
+    ) => {
+        providerKeys: LLMProviderKey[]
+        payload?: {
+            id: string
+            payload: UpdateLLMProviderKeyPayload
+        }
+    }
+    validateProviderKey: ({ id }: { id: string }) => {
+        id: string
+    }
+    validateProviderKeyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    validateProviderKeySuccess: (
+        providerKeys: LLMProviderKey[],
+        payload?: {
+            id: string
+        }
+    ) => {
+        providerKeys: LLMProviderKey[]
+        payload?: {
+            id: string
+        }
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface llmProviderKeysLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        requiresProviderKey: (evaluationConfig: EvaluationConfig | null) => boolean
+        activeProviderKey: (evaluationConfig: EvaluationConfig | null) => LLMProviderKey | null | undefined
+    }
+}
+
+export type llmProviderKeysLogicType = MakeLogicType<
+    llmProviderKeysLogicValues,
+    llmProviderKeysLogicActions,
+    Record<string, any>,
+    llmProviderKeysLogicMeta
+>
+
+export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
+    path(['products', 'ai_observability', 'settings', 'llmProviderKeysLogic']),
+
+    actions({
+        clearPreValidation: true,
+        setNewKeyModalOpen: (open: boolean) => ({ open }),
+        setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
+        confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
+    }),
+
+    reducers({
+        newKeyModalOpen: [
+            false,
+            {
+                setNewKeyModalOpen: (_, { open }) => open,
+            },
+        ],
+        editingKey: [
+            null as LLMProviderKey | null,
+            {
+                setEditingKey: (_, { key }) => key,
+            },
+        ],
+        validatingKeyId: [
+            null as string | null,
+            {
+                validateProviderKey: (_, { id }) => id,
+                validateProviderKeySuccess: () => null,
+                validateProviderKeyFailure: () => null,
+            },
+        ],
+        preValidationResult: [
+            null as KeyValidationResult | null,
+            {
+                preValidateKeySuccess: (_, { preValidationResult }) => preValidationResult,
+                clearPreValidation: () => null,
+                setNewKeyModalOpen: () => null,
+                setEditingKey: () => null,
+            },
+        ],
+        keyToDelete: [
+            null as LLMProviderKey | null,
+            {
+                setKeyToDelete: (_, { key }) => key,
+                deleteProviderKeySuccess: () => null,
+            },
+        ],
+    }),
+
+    loaders(({ values, actions }) => ({
+        dependentConfigs: [
+            null as DependentConfigsResponse | null,
+            {
+                loadDependentConfigs: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<DependentConfigsResponse | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    return await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
+                    )
+                },
+            },
+        ],
+        preValidationResult: [
+            null as KeyValidationResult | null,
+            {
+                preValidateKey: async ({
+                    apiKey,
+                    provider,
+                    azure_endpoint,
+                    api_version,
+                }: {
+                    apiKey: string
+                    provider: LLMProvider
+                    azure_endpoint?: string
+                    api_version?: string
+                }): Promise<KeyValidationResult> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return { state: 'error', error_message: 'No team selected' }
+                    }
+                    try {
+                        const body: Record<string, string> = { api_key: apiKey, provider }
+                        if (azure_endpoint) {
+                            body.azure_endpoint = azure_endpoint
+                        }
+                        if (api_version) {
+                            body.api_version = api_version
+                        }
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.create(
+                            `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
+                            body
+                        )
+                        return response
+                    } catch (error) {
+                        if (error instanceof ApiError) {
+                            return {
+                                state: 'error',
+                                error_message: error.detail || error.data?.error || error.message,
+                            }
+                        }
+                        if (error instanceof Error) {
+                            return { state: 'error', error_message: error.message }
+                        }
+                        return { state: 'error', error_message: 'Validation request failed' }
+                    }
+                },
+            },
+        ],
+        evaluationConfig: [
+            null as EvaluationConfig | null,
+            {
+                loadEvaluationConfig: async (): Promise<EvaluationConfig | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
+                },
+            },
+        ],
+        providerKeys: [
+            [] as LLMProviderKey[],
+            {
+                loadProviderKeys: async (): Promise<LLMProviderKey[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return []
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
+                    return response.results
+                },
+                createProviderKey: async ({
+                    payload,
+                }: {
+                    payload: CreateLLMProviderKeyPayload
+                }): Promise<LLMProviderKey[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.providerKeys
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    const response = await api.create(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/`,
+                        payload
+                    )
+                    actions.setNewKeyModalOpen(false)
+                    actions.loadEvaluationConfig()
+                    return [...values.providerKeys, response]
+                },
+                updateProviderKey: async ({
+                    id,
+                    payload,
+                }: {
+                    id: string
+                    payload: UpdateLLMProviderKeyPayload
+                }): Promise<LLMProviderKey[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.providerKeys
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    const response = await api.update(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`,
+                        payload
+                    )
+                    actions.setEditingKey(null)
+                    return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
+                },
+                deleteProviderKey: async ({
+                    id,
+                    replacementKeyId,
+                }: {
+                    id: string
+                    replacementKeyId?: string
+                }): Promise<LLMProviderKey[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.providerKeys
+                    }
+                    const url = replacementKeyId
+                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
+                        : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
+                    // nosemgrep: prefer-codegen-api
+                    await api.delete(url)
+                    // If deleted key was active, reload config to reflect change
+                    if (values.evaluationConfig?.active_provider_key?.id === id) {
+                        actions.loadEvaluationConfig()
+                    }
+                    return values.providerKeys.filter((key: LLMProviderKey) => key.id !== id)
+                },
+                validateProviderKey: async ({ id }: { id: string }): Promise<LLMProviderKey[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.providerKeys
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    const response = await api.create(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
+                        {}
+                    )
+                    if (response.state === 'ok') {
+                        lemonToast.success('Key validated successfully')
+                    } else {
+                        lemonToast.error(`Key validation failed: ${response.error_message || 'Unknown error'}`)
+                    }
+                    return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
+                },
+            },
+        ],
+    })),
+
+    selectors({
+        // The team has no active key, so it must bring its own provider key to run llm_judge evals and taggers.
+        requiresProviderKey: [
+            (s) => [s.evaluationConfig],
+            (evaluationConfig: EvaluationConfig | null) =>
+                evaluationConfig !== null && evaluationConfig.active_provider_key === null,
+        ],
+        // The key keyless evals resolve through. undefined = config not loaded yet; null = no active key.
+        activeProviderKey: [
+            (s) => [s.evaluationConfig],
+            (evaluationConfig: EvaluationConfig | null): LLMProviderKey | null | undefined =>
+                evaluationConfig === null ? undefined : evaluationConfig.active_provider_key,
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        loadProviderKeysFailure: ({ error }) => {
+            lemonToast.error(`Failed to load API keys: ${error || 'Unknown error'}`)
+        },
+        loadEvaluationConfigFailure: ({ error }) => {
+            lemonToast.error(`Failed to load evaluation config: ${error || 'Unknown error'}`)
+        },
+        createProviderKeyFailure: ({ error }) => {
+            lemonToast.error(`Failed to create API key: ${error || 'Unknown error'}`)
+        },
+        updateProviderKeyFailure: ({ error }) => {
+            lemonToast.error(`Failed to update API key: ${error || 'Unknown error'}`)
+        },
+        deleteProviderKeyFailure: ({ error }) => {
+            lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
+        },
+        setKeyToDelete: ({ key }) => {
+            if (key) {
+                actions.loadDependentConfigs({ keyId: key.id })
+            }
+        },
+        confirmDelete: ({ replacementKeyId }) => {
+            if (values.keyToDelete) {
+                actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
+            }
+        },
+    })),
+
+    afterMount(({ actions }) => {
+        actions.loadProviderKeys()
+        actions.loadEvaluationConfig()
+    }),
+])

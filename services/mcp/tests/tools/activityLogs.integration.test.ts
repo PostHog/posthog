@@ -9,7 +9,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/activity_logs'
+import { GENERATED_TOOLS } from '@/tools/generated/platform_features'
 import type { Context } from '@/tools/types'
 
 describe('Activity Logs', { concurrent: false }, () => {
@@ -22,8 +22,8 @@ describe('Activity Logs', { concurrent: false }, () => {
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
     })
 
-    describe('activity-logs-list tool', () => {
-        const listTool = GENERATED_TOOLS['activity-logs-list']!()
+    describe('advanced-activity-logs-list tool', () => {
+        const listTool = GENERATED_TOOLS['advanced-activity-logs-list']!()
 
         it('should list activity logs with default parameters', async () => {
             const result = await listTool.handler(context, {})
@@ -40,13 +40,12 @@ describe('Activity Logs', { concurrent: false }, () => {
 
             expect(Array.isArray(response.results)).toBe(true)
 
-            if (response.results.length > 0) {
-                const log = response.results[0]
+            for (const log of response.results) {
                 expect(log).toHaveProperty('id')
                 expect(log).toHaveProperty('activity')
                 expect(log).toHaveProperty('scope')
                 expect(log).toHaveProperty('created_at')
-                expect(log).toHaveProperty('user')
+                // user can be null for system-generated activity entries
             }
         })
 
@@ -72,21 +71,10 @@ describe('Activity Logs', { concurrent: false }, () => {
             }
         })
 
-        it('should filter by scope', async () => {
-            const result = await listTool.handler(context, {
-                scope: 'FeatureFlag',
-                page: 1,
-                page_size: 10,
-            })
-            const response = parseToolResponse(result)
-
-            expect(Array.isArray(response.results)).toBe(true)
-            for (const log of response.results) {
-                expect(log.scope).toBe('FeatureFlag')
-            }
-        })
-
-        it('should filter by multiple scopes', async () => {
+        // Guards the array-filter fix: the MCP client sends `scopes` as a JSON-encoded
+        // array, which the advanced endpoint must parse (JSONTolerantListField) rather
+        // than treat as one literal value that matches nothing.
+        it('should filter by scopes', async () => {
             const result = await listTool.handler(context, {
                 scopes: ['FeatureFlag', 'Insight'],
                 page: 1,
@@ -100,7 +88,7 @@ describe('Activity Logs', { concurrent: false }, () => {
             }
         })
 
-        it('should filter by item_id', async () => {
+        it('should filter by item_ids', async () => {
             // First get a log to find a real item_id
             const seed = await listTool.handler(context, { page: 1, page_size: 1 })
             const seedData = parseToolResponse(seed)
@@ -115,7 +103,7 @@ describe('Activity Logs', { concurrent: false }, () => {
             }
 
             const result = await listTool.handler(context, {
-                item_id: targetItemId,
+                item_ids: [targetItemId],
                 page: 1,
                 page_size: 10,
             })
@@ -127,11 +115,10 @@ describe('Activity Logs', { concurrent: false }, () => {
             }
         })
 
-        it('should return empty results for non-existent scope filter', async () => {
-            // Use a valid scope but filter by an item_id that doesn't exist
+        it('should return empty results for a non-existent item_id filter', async () => {
             const result = await listTool.handler(context, {
-                item_id: '999999999',
-                scope: 'FeatureFlag',
+                item_ids: ['999999999'],
+                scopes: ['FeatureFlag'],
                 page: 1,
                 page_size: 10,
             })

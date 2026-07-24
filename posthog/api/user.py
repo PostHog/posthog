@@ -14,31 +14,36 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone as django_timezone
 from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
 import requests
 import structlog
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -53,20 +58,15 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import (
-    ClassicBehaviorBooleanFieldSerializer,
-    PublicIPOnlyHttpAdapter,
-    action,
-    raise_if_user_provided_url_unsafe,
-    unparsed_hostname_in_allowed_url_list,
-)
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import PERMITTED_FORUM_DOMAINS
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -74,15 +74,47 @@ from posthog.event_usage import (
     report_user_updated,
     report_user_verified_email,
 )
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
-from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Team, User, UserScenePersonalisation
-from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
+from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.middleware import (
+    IMPERSONATION_REASON_SESSION_KEY,
+    get_impersonated_session_expires_at,
+    is_read_only_impersonation,
+)
+from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
+from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.user import (
+    NOTIFICATION_DEFAULTS,
+    ROLE_CHOICES,
+    Notifications,
+    OnboardingSkippedReason,
+    ShortcutPosition,
+)
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.tasks import user_identify
+from posthog.rate_limit import (
+    OnboardingSkipThrottle,
+    ToolbarOAuthRefreshThrottle,
+    UserAuthenticationThrottle,
+    UserEmailVerificationThrottle,
+)
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.session.activity import (
+    list_user_sessions,
+    revoke_other_sessions,
+    revoke_other_sessions_for_request,
+    revoke_user_auth_session,
+    session_public_id,
+    sync_current_session_metadata,
+)
+from posthog.session.models import Session
+from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -93,13 +125,35 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notifications.backend.facade.api import NotificationType
+
+_VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
 NUM_2FA_BACKUP_CODES = 10
 
+MAX_PIPELINE_NOTIFICATIONS = 1000
+_PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+
+def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
+    for pipeline_id in incoming:
+        if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
+            raise serializers.ValidationError(
+                f"Invalid pipeline id: {pipeline_id!r}",
+                code="invalid_input",
+            )
+    if len(merged) > MAX_PIPELINE_NOTIFICATIONS:
+        raise serializers.ValidationError(
+            f"pipeline_notifications_disabled cannot have more than {MAX_PIPELINE_NOTIFICATIONS} entries",
+            code="invalid_input",
+        )
+
+
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -108,25 +162,108 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
         fields = ["scene", "dashboard"]
 
 
+class PendingInviteSerializer(serializers.Serializer):
+    """Shape of each item in UserSerializer.pending_invites."""
+
+    id = serializers.CharField()
+    target_email = serializers.EmailField()
+    organization_id = serializers.CharField()
+    organization_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
+class OnboardingSkipRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+    """
+
+    reason = serializers.ChoiceField(
+        choices=[("later", "Later"), ("other", "Other")],
+        required=True,
+        help_text=(
+            "Why the user is leaving onboarding. 'later' keeps them able to return; "
+            "'other' is a catch-all. 'delegated' is rejected here — use the delegate "
+            "endpoint so the delegation invite is created atomically."
+        ),
+    )
+    step_at_skip = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text="Onboarding step key the user was on when skipping, for analytics only.",
+    )
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
     is_impersonated_read_only = serializers.SerializerMethodField()
+    is_impersonated_reason = serializers.SerializerMethodField(
+        help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
+    )
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
+    pending_invites = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
-    current_password = serializers.CharField(write_only=True, required=False)
-    notification_settings = serializers.DictField(required=False)
+    current_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
+        ),
+    )
+    notification_settings = serializers.DictField(
+        required=False,
+        help_text=(
+            "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, "
+            "`project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, "
+            "`web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, "
+            "`data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. "
+            "Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. "
+            "Only the keys you send are updated — other preferences stay as-is."
+        ),
+    )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
-    anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    anonymize_data = ClassicBehaviorBooleanFieldSerializer(
+        help_text="Whether PostHog should anonymize events captured for this user when identified."
+    )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    # Intentionally NOT declared explicitly — Meta.read_only_fields below is silently ignored
+    # for explicitly declared fields (a well-known DRF gotcha that drf-spectacular replicates
+    # in its generated OpenAPI), so any explicit declaration here would re-open the writable
+    # PATCH bypass on /api/users/@me/. Letting DRF auto-generate the field from the model
+    # picks up the choices on User.onboarding_skipped_reason and Meta.read_only_fields wins.
+    onboarding_delegated_to_organization_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Organization ID of the pending delegation invite, if any. Used by the frontend "
+        "to scope the 'waiting for teammate' UI to the org where delegation was initiated.",
+    )
+    is_organization_first_user = serializers.SerializerMethodField()
+    active_realtime_notification_types = serializers.SerializerMethodField(
+        help_text=(
+            "Real-time notification types that currently have a live dispatch site. "
+            "Drives the in-app notifications settings UI. Read-only."
+        ),
+    )
+    requires_credential_review = serializers.SerializerMethodField(
+        help_text=(
+            "True if the user has at least one Personal API Key or passkey and has not yet "
+            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
+            "first post-provisioning login. Becomes False once the user POSTs to "
+            "`/api/users/@me/credentials_review_complete/`. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -149,6 +286,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -169,6 +307,17 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "hide_mcp_hints",
+            "onboarding_skipped_at",
+            "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
+            "onboarding_delegated_to_invite",
+            "onboarding_delegated_to_organization_id",
+            "onboarding_delegation_accepted_at",
+            "is_organization_first_user",
+            "active_realtime_notification_types",
+            "pending_invites",
+            "requires_credential_review",
         ]
 
         read_only_fields = [
@@ -182,17 +331,34 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "onboarding_skipped_at",
+            "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
+            "onboarding_delegated_to_invite",
+            "onboarding_delegated_to_organization_id",
+            "onboarding_delegation_accepted_at",
+            "is_organization_first_user",
+            "active_realtime_notification_types",
+            "pending_invites",
+            "requires_credential_review",
         ]
 
         extra_kwargs = {
             "password": {"write_only": True},
         }
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_last_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -217,32 +383,55 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         return is_read_only_impersonation(self.context["request"])
 
+    def get_is_impersonated_reason(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+        return self.context["request"].session.get(IMPERSONATION_REASON_SESSION_KEY) or None
+
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
             return None
 
-        session_created_at: int = self.context["request"].session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        session = self.context["request"].session
 
-        if not session_created_at:
+        # A pending step-up means sensitive actions are blocked now regardless of age (see
+        # TimeSensitiveActionPermission), so there is no fresh window to report.
+        if step_up_required(session):
+            return None
+
+        reference = sensitive_action_reference(session)
+        if reference is None:
             # This should always be covered by the middleware but just in case
             return None
 
-        # Session expiry is the time when the session was created plus the
-        session_expiry_time = datetime.fromtimestamp(session_created_at) + timedelta(
+        # Sensitive-action window expires at the most recent of session creation
+        # or last step-up re-auth, plus the configured freshness age.
+        session_expiry_time = datetime.fromtimestamp(reference) + timedelta(
             seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
         )
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
+    @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @tracer.start_as_current_span("user_serializer.requires_credential_review")
+    def get_requires_credential_review(self, instance: User) -> bool:
+        if instance.credentials_reviewed_at is not None:
+            return False
+        if PersonalAPIKey.objects.filter(user=instance).exists():
+            return True
+        return WebauthnCredential.objects.filter(user=instance).exists()
+
+    @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        has_totp_device = default_device(instance) is not None
+        has_passkey_2fa = bool(instance.passkeys_enabled_for_2fa) and has_passkeys(instance)
+        return has_totp_device or has_passkey_2fa
 
+    @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
-        from posthog.models.organization_domain import OrganizationDomain
-
         organization = instance.current_organization
         if not organization:
             return False
@@ -250,6 +439,83 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    def _is_self_request(self, instance: User) -> bool:
+        # True when the requesting user is the same as the user being serialized.
+        # Several SerializerMethodFields short-circuit when this is False so we don't
+        # pay extra queries on staff retrievals or leak per-user data across users.
+        request = self.context.get("request")
+        return bool(request and request.user.id == instance.id)
+
+    @tracer.start_as_current_span("user_serializer.is_organization_first_user")
+    def get_is_organization_first_user(self, instance: User) -> bool | None:
+        # Only compute when the serialized user is the requesting user. Avoids paying an
+        # extra membership query on every /api/users/@me/ hit for admin/staff flows that
+        # don't need this field, and ensures invitee attribution can't leak across users.
+        if not self._is_self_request(instance):
+            return None
+
+        organization = instance.current_organization
+        if organization is None:
+            return None
+
+        # "First user" == "didn't arrive via an invite". Direct signal (membership.invited_by IS NULL)
+        # avoids the earliest-joined heuristic, which silently reassigns creator status if the
+        # original creator leaves the org.
+        membership = (
+            OrganizationMembership.objects.filter(organization=organization, user=instance)
+            .only("invited_by_id")
+            .first()
+        )
+        if membership is None:
+            return None
+        return membership.invited_by_id is None
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_active_realtime_notification_types(self, _: User) -> list[str]:
+        return [t.value for t in NotificationType]
+
+    @extend_schema_field(PendingInviteSerializer(many=True))
+    @tracer.start_as_current_span("user_serializer.pending_invites")
+    def get_pending_invites(self, instance: User) -> list[dict]:
+        """Non-expired organization invites matching the user's email for orgs they aren't already in.
+
+        Only returned when the serialized user is the requesting user — staff retrieving
+        another account should not see that user's private invites.
+        """
+        if not self._is_self_request(instance) or not instance.email:
+            return []
+
+        normalized_email = EmailNormalizer.normalize(instance.email)
+        existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
+            "organization_id", flat=True
+        )
+
+        # Hard cap on the number of invites returned. /api/users/@me/ runs on every page
+        # navigation; an outlier user invited to many orgs (e.g. a popular gmail.com address)
+        # would otherwise ship a huge payload on every hit.
+        PENDING_INVITES_MAX = 25
+
+        invites = (
+            OrganizationInvite.objects.filter(
+                target_email__iexact=normalized_email,
+                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            )
+            .exclude(organization_id__in=existing_org_ids)
+            .select_related("organization")
+            .order_by("-created_at")[:PENDING_INVITES_MAX]
+        )
+
+        return [
+            {
+                "id": str(invite.id),
+                "target_email": invite.target_email,
+                "organization_id": str(invite.organization_id),
+                "organization_name": invite.organization.name,
+                "created_at": invite.created_at,
+            }
+            for invite in invites
+        ]
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -278,6 +544,14 @@ class UserSerializer(serializers.ModelSerializer):
             **(instance.partial_notification_settings or {}),
         }
 
+        _dict_notification_keys = (
+            "project_weekly_digest_disabled",
+            "error_tracking_weekly_digest_project_enabled",
+            "web_analytics_weekly_digest_project_enabled",
+            "organization_member_join_email_disabled",
+            "pipeline_notifications_disabled",
+        )
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
@@ -287,11 +561,7 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key in (
-                "project_weekly_digest_disabled",
-                "error_tracking_weekly_digest_project_enabled",
-                "organization_member_join_email_disabled",
-            ):
+            if key in _dict_notification_keys:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
                         f"{key} must be a dictionary mapping IDs to boolean values",
@@ -303,7 +573,38 @@ class UserSerializer(serializers.ModelSerializer):
                             f"Notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                current_settings[key] = {**current_settings.get(key, {}), **value}
+                merged = {**current_settings.get(key, {}), **value}
+                if key == "pipeline_notifications_disabled":
+                    _validate_pipeline_notifications(value, merged)
+                current_settings[key] = merged
+            elif key == "realtime_notifications_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        "realtime_notifications_disabled must be a dict",
+                        code="invalid_input",
+                    )
+                for type_key, team_map in value.items():
+                    if type_key not in _VALID_NOTIFICATION_TYPE_VALUES:
+                        raise serializers.ValidationError(
+                            f"Unknown notification type {type_key}",
+                            code="invalid_input",
+                        )
+                    if not isinstance(team_map, dict):
+                        raise serializers.ValidationError(
+                            f"Per-type value for {type_key} must be a dict of team_id to bool",
+                            code="invalid_input",
+                        )
+                    for _team_id, disabled in team_map.items():
+                        if not isinstance(disabled, bool):
+                            raise serializers.ValidationError(
+                                f"Disabled flag for {type_key} must be boolean, got {type(disabled)}",
+                                code="invalid_input",
+                            )
+                existing = current_settings.get("realtime_notifications_disabled", {}) or {}
+                realtime_merged: dict[str, dict[str, bool]] = {**existing}
+                for type_key, team_map in value.items():
+                    realtime_merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = realtime_merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -396,9 +697,46 @@ class UserSerializer(serializers.ModelSerializer):
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
-            instance.pending_email = validated_data.pop("email", None)
-            instance.save()
-            EmailVerifier.create_token_and_send_email_verification(instance)
+            new_email = validated_data["email"]
+            # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
+            # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
+            current_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+            new_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            is_same_org_migration = (
+                bool(current_sso_enforced)
+                and bool(new_sso_enforced)
+                and current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
+            # Block bypass: a user on an SSO-enforced domain can't move off of it.
+            if current_sso_enforced and not is_same_org_migration:
+                raise serializers.ValidationError(
+                    "You can't change your email because SSO is enforced on your current email's domain.",
+                    code="sso_enforced_current_email",
+                )
+            # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
+            if new_sso_enforced and not is_same_org_migration:
+                raise serializers.ValidationError(
+                    "You can't change your email to a domain where SSO is enforced.",
+                    code="sso_enforced_new_email",
+                )
+            validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
+            # Serialize concurrent email changes for this user under a row lock so the token is
+            # minted against one consistent pending_email. Without it, interleaved requests can
+            # bind a token to one address but deliver its verification email to another.
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=instance.pk)
+                instance.pending_email = new_email
+                instance.save(update_fields=["pending_email"])
+                token = email_verification_token_generator.make_token(instance)
+            # Send after the transaction commits (never inside the atomic block), pinning the
+            # recipient to the captured address so a later pending_email change can't redirect
+            # this token's verification email.
+            EmailVerifier.send_verification_email(instance, token, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -409,6 +747,7 @@ class UserSerializer(serializers.ModelSerializer):
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
 
+        old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
 
@@ -420,17 +759,44 @@ class UserSerializer(serializers.ModelSerializer):
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
 
+        # Only the upgrade (enabling) counts as a credential change — disabling is a downgrade and
+        # deliberately does not revoke other sessions.
+        credential_changed = bool(password) or (
+            "passkeys_enabled_for_2fa" in validated_data
+            and not old_passkeys_enabled_for_2fa
+            and instance.passkeys_enabled_for_2fa
+        )
+        if credential_changed:
+            # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
+            revoke_other_sessions_for_request(self.context["request"], instance)
+
         report_user_updated(instance, updated_attrs)
 
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        user_identify.identify_task.delay(user_id=instance.id)
-        data = super().to_representation(instance)
+        # Refresh PostHog person properties so the dogfood instance keeps the user's
+        # org/project/role properties current. posthoganalytics.capture is non-blocking
+        # (the SDK ships events on a background thread) so this call doesn't add request
+        # latency. Inline rather than via celery — the previous celery .delay() was a
+        # synchronous broker round-trip that spiked to ~500ms+ in slow traces, which
+        # was the whole reason for moving away from it. Server-side capture also keeps
+        # working for clients running ad blockers, which a frontend-side identify would
+        # silently miss.
+        with tracer.start_as_current_span("user_serializer.identify"):
+            posthoganalytics.capture(
+                distinct_id=instance.distinct_id,
+                event="update user properties",
+                properties={"$set": instance.get_analytics_metadata()},
+            )
+
+        with tracer.start_as_current_span("user_serializer.default_fields"):
+            data = super().to_representation(instance)
 
         # Backfill shortcut_position default for frontend if null
-        if data.get("shortcut_position") is None:
-            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+        with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
+            if data.get("shortcut_position") is None:
+                data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
 
@@ -474,7 +840,76 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+class UserAuthSessionSerializer(serializers.ModelSerializer):
+    """A cookie-auth login session shown on the user's 'Web sessions' screen."""
+
+    id = serializers.SerializerMethodField(help_text="Identifier used to revoke this login session.")
+    created_at = serializers.SerializerMethodField(
+        help_text="When this login session was first created — the original sign-in time."
+    )
+    last_activity = serializers.DateTimeField(
+        read_only=True, help_text="When this login session last made a request (refreshed periodically)."
+    )
+    location = serializers.CharField(
+        read_only=True, help_text="Approximate city and country derived from the IP address, if known."
+    )
+    device = serializers.CharField(
+        source="short_user_agent",
+        read_only=True,
+        help_text="Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'.",
+    )
+    login_method = serializers.CharField(
+        read_only=True, help_text="How this session signed in (e.g. password, Google, SAML)."
+    )
+    is_current = serializers.SerializerMethodField(
+        help_text="Whether this is the login session making the current request."
+    )
+
+    class Meta:
+        model = Session
+        fields = ["id", "created_at", "last_activity", "location", "device", "login_method", "is_current"]
+
+    @extend_schema_field({"type": "string", "format": "uuid"})
+    def get_id(self, obj: Session) -> str:
+        # Expose a stable, opaque id derived from the session key — never the key itself.
+        return str(session_public_id(obj.session_key))
+
+    @extend_schema_field({"type": "string", "format": "date-time", "nullable": True})
+    def get_created_at(self, obj: Session) -> str | None:
+        # The creation time lives in the encoded session payload, not a column.
+        created = obj.get_decoded().get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if not created:
+            return None
+        return datetime.fromtimestamp(float(created), tz=UTC).isoformat()
+
+    @extend_schema_field({"type": "boolean"})
+    def get_is_current(self, obj: Session) -> bool:
+        request = self.context.get("request")
+        return bool(request and obj.session_key == request.session.session_key)
+
+
+class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
+    revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
+
+
+@extend_schema(extensions={"x-product": "core"})
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; "
+            "non-staff callers may only access their own account."
+        ),
+    ),
+    update=extend_schema(
+        description=(
+            "Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated "
+            "user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided."
+        ),
+    ),
+    partial_update=extend_schema(
+        description=("Update one or more of the authenticated user's profile fields or settings."),
+    ),
+)
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -485,12 +920,15 @@ class UserViewSet(
     scope_object = "user"
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
+    # Custom @action GETs that should map to user:read for OAuth / personal API keys
+    scope_object_read_actions = ["list", "retrieve", "github_login"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
-        PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
     ]
     permission_classes = [
         IsAuthenticated,
@@ -559,6 +997,69 @@ class UserViewSet(
         report_user_deleted_account(user)
         super().perform_destroy(user)
 
+    @action(methods=["GET"], detail=True, url_path="github_login")
+    def github_login(self, request, **kwargs):
+        user = self.get_object()
+        return Response({"github_login": user.get_github_login()})
+
+    @extend_schema(responses=UserAuthSessionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="login_sessions",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+        pagination_class=None,
+    )
+    def login_sessions(self, request, **kwargs):
+        """List the cookie-auth login sessions for the current user. Self-only — never another user."""
+        user = cast(User, request.user)
+        # Populate the current session's display metadata up front so it appears fully on first load
+        # (the activity middleware otherwise only records it after this response is sent).
+        sync_current_session_metadata(request, force=True)
+        rows = list_user_sessions(user)
+        current_key = request.session.session_key
+        rows.sort(key=lambda row: row.session_key != current_key)  # current first, stable on -last_activity
+        serializer = UserAuthSessionSerializer(rows, many=True, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Login session revoked.")})
+    @action(
+        methods=["DELETE"],
+        detail=True,
+        url_path=r"login_sessions/(?P<session_id>[0-9a-f-]+)",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_login_session(self, request, session_id=None, **kwargs):
+        """Revoke a single login session belonging to the current user. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+        revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+        """
+        user = cast(User, request.user)
+        if not revoke_user_auth_session(user, session_id):
+            raise NotFound("Login session not found.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=None, responses=RevokeOtherSessionsResponseSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="login_sessions/revoke_others",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_other_login_sessions(self, request, **kwargs):
+        """Revoke every login session for the current user except the one making this request. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+        "log out everywhere else" lock-out, and is blocked while impersonating.
+        """
+        user = cast(User, request.user)
+        revoked_count = revoke_other_sessions(user, request.session.session_key)
+        return Response({"revoked_count": revoked_count})
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
@@ -584,16 +1085,31 @@ class UserViewSet(
 
         if user.pending_email:
             old_email = user.email
-            user.email = user.pending_email
-            user.pending_email = None
-            user.save()
+            with transaction.atomic():
+                user.email = user.pending_email
+                user.pending_email = None
+                user.save(update_fields=["email", "pending_email"])
+                # Delete social auth so the old external identity can't keep logging in.
+                UserSocialAuth.objects.filter(user=user).delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
+            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()
         report_user_verified_email(user)
 
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+        if default_device(user) or passkeys_enabled_for_2fa:
+            return Response({"success": True, "token": token, "requires_2fa": True})
+
+        # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
+        # must not become a password-backend login path around the IdP. The user logs in via SSO.
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return Response({"success": True, "token": token, "requires_sso": True})
+
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
@@ -615,6 +1131,13 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
         if user:
+            # Allow re-requests when there's a pending email change that still
+            # needs to be verified, even though the current address is verified.
+            if user.is_email_verified and not user.pending_email:
+                raise serializers.ValidationError(
+                    "Email is already verified.",
+                    code="already_verified",
+                )
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})
@@ -634,6 +1157,113 @@ class UserViewSet(
 
         instance.pending_email = None
         instance.save()
+
+        return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=OnboardingSkipRequestSerializer,
+        responses=UserSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="onboarding/skip", throttle_classes=[OnboardingSkipThrottle])
+    def onboarding_skip(self, request, **kwargs):
+        """
+        Mark the current user as having exited onboarding with a non-delegated reason.
+        Idempotent: the skip timestamp is only set on the first successful call.
+
+        Callers wanting to delegate setup to a teammate must use the dedicated
+        /organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+        invite and sets reason="delegated". This endpoint rejects that reason so state
+        can't be faked without a real invite.
+        """
+        instance = self.get_object()
+
+        # Bind the declared serializer at runtime so the contract clients believe is
+        # enforced (length cap on step_at_skip, choice validation on reason, rejection
+        # of malformed payloads) is actually enforced server-side.
+        skip_serializer = OnboardingSkipRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
+        skip_serializer.is_valid(raise_exception=True)
+        validated = skip_serializer.validated_data
+        non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
+        reason = validated["reason"]
+        step_at_skip = validated.get("step_at_skip") or ""
+
+        with transaction.atomic():
+            locked = User.objects.select_for_update().get(pk=instance.pk)
+
+            # If the user has a pending (not-yet-accepted) delegation, cancel it atomically.
+            # Otherwise the delegate could still accept and silently become admin after the
+            # delegator thinks they've backed out.
+            pending_invite_id = (
+                locked.onboarding_delegated_to_invite_id if locked.onboarding_delegation_accepted_at is None else None
+            )
+            if pending_invite_id is not None:
+                # Per-instance delete() so ModelActivityMixin signals still fire.
+                cancel_pending_delegation(locked_user=locked)
+                # Re-read the user since post_delete may have cleared some fields already.
+                locked.refresh_from_db()
+
+            # Org-scoped skip: pin to the user's current org so this doesn't suppress
+            # onboarding in other orgs they later join/create.
+            current_org_id = getattr(locked, "current_organization_id", None) or (
+                locked.organization.id if locked.organization else None
+            )
+
+            # Idempotency: preserve the first skip timestamp and short-circuit repeat analytics.
+            already_skipped_non_delegated = bool(
+                locked.onboarding_skipped_at and locked.onboarding_skipped_reason in non_delegated_reasons
+            )
+            update_fields = []
+            if not already_skipped_non_delegated:
+                locked.onboarding_skipped_at = datetime.now(UTC)
+                update_fields.append("onboarding_skipped_at")
+            if locked.onboarding_skipped_reason != reason:
+                locked.onboarding_skipped_reason = reason
+                update_fields.append("onboarding_skipped_reason")
+            if locked.onboarding_skipped_organization_id != current_org_id:
+                locked.onboarding_skipped_organization_id = current_org_id
+                update_fields.append("onboarding_skipped_organization_id")
+            # A stale FK to a delegation invite the delegate already accepted can remain; clear it
+            # so the "waiting on teammate" UI doesn't re-engage.
+            had_delegation_state = any(
+                [
+                    locked.onboarding_delegated_to_invite_id is not None,
+                    locked.onboarding_delegated_to_organization_id is not None,
+                    locked.onboarding_delegation_accepted_at is not None,
+                ]
+            )
+            if had_delegation_state:
+                clear_delegation_state(locked, save=False)
+                update_fields.extend(
+                    [
+                        "onboarding_delegated_to_invite",
+                        "onboarding_delegated_to_organization_id",
+                        "onboarding_delegation_accepted_at",
+                    ]
+                )
+            if update_fields:
+                locked.save(update_fields=update_fields)
+
+            # Sync the in-memory instance that will be serialized back to the caller.
+            instance.refresh_from_db()
+
+            if instance.distinct_id and not already_skipped_non_delegated:
+                # Fire analytics only after the transaction commits, so a rolled-back
+                # request doesn't produce a skip event the DB doesn't back.
+                distinct_id = str(instance.distinct_id)
+
+                def _fire_skip_analytics() -> None:
+                    try:
+                        # Single event name with `reason` as a property keeps dashboards simple —
+                        # counting skips doesn't require unioning event names.
+                        posthoganalytics.capture(
+                            distinct_id=distinct_id,
+                            event="onboarding skipped",
+                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                        )
+                    except Exception as exc:
+                        capture_exception(exc)
+
+                transaction.on_commit(_fire_skip_analytics)
 
         return Response(self.get_serializer(instance=instance).data)
 
@@ -730,6 +1360,8 @@ class UserViewSet(
         session_cache.delete("django_two_factor-hex")
         session_cache.delete("django_two_factor-qr_secret_key")
 
+        revoke_other_sessions_for_request(request, cast(User, request.user))
+
         return Response({"success": True})
 
     @action(methods=["GET"], detail=True)
@@ -803,9 +1435,41 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(
+        request=None,
+        responses={204: None},
+        description=(
+            "Mark the user as having reviewed their existing credentials. Idempotent. "
+            "Flips `requires_credential_review` to False so the post-login interstitial "
+            "isn't shown again. Does not modify any credentials; the user revokes "
+            "individual Personal API Keys and passkeys via their existing endpoints from "
+            "the same screen."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="credentials_review_complete",
+        authentication_classes=[SessionAuthentication],
+    )
+    def credentials_review_complete(self, request, **kwargs):
+        # Session-only auth: this endpoint dismisses the partner-issued-credential
+        # review screen, so accepting PersonalAPIKeyAuthentication here would let
+        # the attacker who minted the PAK silently dismiss their own surfacing.
+        user = self.get_object()
+        if user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = django_timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
+        return Response(status=204)
+
 
 ###
 # Toolbar
+
+
+def _user_can_access_toolbar(user: User, team: Team) -> bool:
+    """Whether the user is allowed to launch the toolbar for this team."""
+    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
 
 
 @require_http_methods(["GET"])
@@ -828,6 +1492,9 @@ def toolbar_oauth_authorize(request):
     team = request.user.team
     if not team:
         return HttpResponse("No project found", status=400)
+
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
 
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
@@ -912,6 +1579,9 @@ def toolbar_oauth_callback(request):
     if not team:
         return HttpResponse("No project found", status=400)
 
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
     try:
         state_payload = validate_and_consume_toolbar_oauth_state(
             signed_state=state,
@@ -921,6 +1591,13 @@ def toolbar_oauth_callback(request):
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
         return HttpResponse(exc.detail, status=exc.status_code)
+
+    # The first-party auto-approval path issues this grant with an org-wide
+    # scoped_teams=[] (unrestricted across every team in the org), since the generic
+    # /oauth/authorize/ view has no notion of which team a toolbar launch was verified
+    # for. Narrow it to the verified team here, before the client can exchange the code,
+    # so the resulting tokens can't be replayed against a team where toolbar access is denied.
+    OAuthGrant.objects.filter(code=code, application=oauth_app, user=request.user).update(scoped_teams=[team.id])
 
     # Re-validate app_url from the signed state against the team's allowlist.
     # validate_and_consume_toolbar_oauth_state already does this, but repeating
@@ -938,7 +1615,16 @@ def toolbar_oauth_callback(request):
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
     toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
-        fragment = f"{original_fragment}&{toolbar_param}"
+        # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
+        # as the path, so `&` would make the auth params part of the route and
+        # 404. `?` is the standard hash-query separator that React Router,
+        # Vue Router, etc. split on. If the fragment already has a `?` (e.g.
+        # `#/login?foo=bar`), keep using `&` to extend the existing hash query.
+        if original_fragment.startswith("/") and "?" not in original_fragment:
+            separator = "?"
+        else:
+            separator = "&"
+        fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param
     return redirect(f"{base_url}#{fragment}")
@@ -968,6 +1654,23 @@ class ToolbarOAuthRefreshView(APIView):
             return JsonResponse(
                 {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
             )
+
+        # Re-check current toolbar access here: the token itself is the only credential on this
+        # AllowAny endpoint, so a user whose access was revoked after the token was issued must
+        # not be able to keep minting fresh tokens with it. Check against the token's own scoped
+        # team, not the user's current team - the user can switch their active team to one they
+        # still have access to while continuing to refresh a token scoped to a different, revoked
+        # project.
+        token_record = find_oauth_refresh_token(refresh_token)
+        if token_record:
+            scoped_team_ids = token_record.scoped_teams or []
+            team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+            if not team or not _user_can_access_toolbar(token_record.user, team):
+                logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
+                return JsonResponse(
+                    {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
+                    status=403,
+                )
 
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
@@ -1011,6 +1714,9 @@ def get_toolbar_preloaded_flags(request):
         )
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    if not _user_can_access_toolbar(request.user, request.user.team):
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
@@ -1036,11 +1742,17 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        # Use Rust flags service
+        if not _user_can_access_toolbar(request.user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        # Use Rust flags service. Pass the internal token so this Django -> Rust
+        # call bypasses the team's billing limiter and isn't counted as customer
+        # SDK traffic — the toolbar launch is internal PostHog UI, not an SDK call.
         result = get_flags_from_service(
             token=team.api_token,
             distinct_id=distinct_id,
             groups={},
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
         flags = {
             flag_key: (
@@ -1074,12 +1786,19 @@ def redirect_to_site(request):
     # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
+    if not team:
+        return HttpResponse(status=404)
+
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+    if not _user_can_access_toolbar(request.user, team):
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
+    if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         parsed_app_url = urllib.parse.urlparse(app_url)
         hostname = parsed_app_url.hostname or app_url
@@ -1167,6 +1886,7 @@ def redirect_to_website(request):
                 "lastName": request.user.last_name,
             },
             headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
         if response.status_code == 200:
@@ -1195,35 +1915,3 @@ def redirect_to_website(request):
     userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
 
     return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
-
-
-@require_http_methods(["POST"])
-@session_auth_required
-def test_slack_webhook(request):
-    """Test webhook."""
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    webhook = body.get("webhook")
-
-    if not webhook:
-        return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "_Greetings_ from PostHog!"}
-    try:
-        session = requests.Session()
-
-        if not settings.DEBUG:
-            raise_if_user_provided_url_unsafe(webhook)
-            session.mount("https://", PublicIPOnlyHttpAdapter())
-            session.mount("http://", PublicIPOnlyHttpAdapter())
-
-        response = session.post(webhook, verify=False, json=message)
-
-        if response.ok:
-            return JsonResponse({"success": True})
-        else:
-            return JsonResponse({"error": response.text})
-    except:
-        return JsonResponse({"error": "invalid webhook URL"})

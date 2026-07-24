@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.sync import database_sync_to_async
 
 from products.posthog_ai.backend.models import AgentMemory
@@ -181,11 +181,17 @@ class ManageMemoriesTool(MaxTool):
 
         @database_sync_to_async(thread_sensitive=False)
         def run_query():
-            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
                 return execute_hogql_query(
                     query_type="ManageMemoriesTool",
                     query=query,
                     team=self._team,
+                    user=self._user,
                     placeholders={
                         "query_text": ast.Constant(value=query_text),
                         "model_name": ast.Constant(value=EMBEDDING_MODEL),

@@ -10,16 +10,33 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubLinkExistingRequestApi,
+    GitHubOAuthAuthorizeRequestApi,
+    GitHubOAuthAuthorizeResponseApi,
+    GitHubPrepareCallbackRequestApi,
+    GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
-    IntegrationApi,
+    GitHubTeamsResponseApi,
+    IntegrationAccessRequestApi,
+    IntegrationAccessRequestResponseApi,
+    IntegrationConfigApi,
+    IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
-    IntegrationsList2Params,
+    IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    JiraProjectsResponseApi,
+    LinearTeamsResponseApi,
     OrganizationIntegrationApi,
-    PaginatedIntegrationListApi,
-    PaginatedOrganizationIntegrationListApi,
-    PatchedIntegrationApi,
+    PaginatedIntegrationConfigListApi,
+    PaginatedRoleExternalReferenceListApi,
+    PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
+    RoleExternalReferenceApi,
+    RoleExternalReferencesListParams,
+    RoleExternalReferencesLookupRetrieveParams,
+    RoleLookupResponseApi,
+    SlackChannelsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -39,86 +56,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * ViewSet for organization-level integrations.
-
-Provides read-only access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
- */
-export const getIntegrationsListUrl = (organizationId: string, params?: IntegrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/integrations/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/integrations/`
-}
-
-export const integrationsList = async (
-    organizationId: string,
-    params?: IntegrationsListParams,
-    options?: RequestInit
-): Promise<PaginatedOrganizationIntegrationListApi> => {
-    return apiMutator<PaginatedOrganizationIntegrationListApi>(getIntegrationsListUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * ViewSet for organization-level integrations.
-
-Provides read-only access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
- */
-export const getIntegrationsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/integrations/${id}/`
-}
-
-export const integrationsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<OrganizationIntegrationApi> => {
-    return apiMutator<OrganizationIntegrationApi>(getIntegrationsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * ViewSet for organization-level integrations.
-
-Provides read-only access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
- */
 export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
 }
 
+/**
+ * ViewSet for organization-level integrations.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
+ */
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationIntegrationApi: NonReadonly<PatchedOrganizationIntegrationApi>,
+    patchedOrganizationIntegrationApi?: NonReadonly<PatchedOrganizationIntegrationApi>,
     options?: RequestInit
 ): Promise<OrganizationIntegrationApi> => {
     return apiMutator<OrganizationIntegrationApi>(
@@ -132,12 +87,101 @@ export const integrationsEnvironmentMappingPartialUpdate = async (
     )
 }
 
-export const getIntegrationsList2Url = (projectId: string, params?: IntegrationsList2Params) => {
+export const getRoleExternalReferencesListUrl = (organizationId: string, params?: RoleExternalReferencesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/role_external_references/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/role_external_references/`
+}
+
+export const roleExternalReferencesList = async (
+    organizationId: string,
+    params?: RoleExternalReferencesListParams,
+    options?: RequestInit
+): Promise<PaginatedRoleExternalReferenceListApi> => {
+    return apiMutator<PaginatedRoleExternalReferenceListApi>(getRoleExternalReferencesListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getRoleExternalReferencesCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/`
+}
+
+export const roleExternalReferencesCreate = async (
+    organizationId: string,
+    roleExternalReferenceApi: NonReadonly<RoleExternalReferenceApi>,
+    options?: RequestInit
+): Promise<RoleExternalReferenceApi> => {
+    return apiMutator<RoleExternalReferenceApi>(getRoleExternalReferencesCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(roleExternalReferenceApi),
+    })
+}
+
+export const getRoleExternalReferencesDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/${id}/`
+}
+
+export const roleExternalReferencesDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getRoleExternalReferencesDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getRoleExternalReferencesLookupRetrieveUrl = (
+    organizationId: string,
+    params: RoleExternalReferencesLookupRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/role_external_references/lookup/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/role_external_references/lookup/`
+}
+
+export const roleExternalReferencesLookupRetrieve = async (
+    organizationId: string,
+    params: RoleExternalReferencesLookupRetrieveParams,
+    options?: RequestInit
+): Promise<RoleLookupResponseApi> => {
+    return apiMutator<RoleLookupResponseApi>(getRoleExternalReferencesLookupRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -148,12 +192,12 @@ export const getIntegrationsList2Url = (projectId: string, params?: Integrations
         : `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsList2 = async (
+export const integrationsList = async (
     projectId: string,
-    params?: IntegrationsList2Params,
+    params?: IntegrationsListParams,
     options?: RequestInit
-): Promise<PaginatedIntegrationListApi> => {
-    return apiMutator<PaginatedIntegrationListApi>(getIntegrationsList2Url(projectId, params), {
+): Promise<PaginatedIntegrationConfigListApi> => {
+    return apiMutator<PaginatedIntegrationConfigListApi>(getIntegrationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -165,27 +209,27 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integrationApi: NonReadonly<IntegrationApi>,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsCreateUrl(projectId), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 
-export const getIntegrationsRetrieve2Url = (projectId: string, id: number) => {
+export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsRetrieve2 = async (
+export const integrationsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsRetrieve2Url(projectId, id), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -202,16 +246,78 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/channels/`
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsChannelsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -269,14 +375,14 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
+    patchedIntegrationConfigApi?: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedIntegrationApi),
+        body: JSON.stringify(patchedIntegrationConfigApi),
     })
 }
 
@@ -287,14 +393,14 @@ export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: numbe
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integrationApi: NonReadonly<IntegrationApi>,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 
@@ -307,7 +413,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -330,16 +436,80 @@ export const integrationsGithubBranchesRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/github_repos/`
+export const getIntegrationsGithubReposRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubReposRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repos/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
 
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsGithubReposRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsGithubReposRefreshCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/github_repos/refresh/`
+}
+
+export const integrationsGithubReposRefreshCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getIntegrationsGithubTeamsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_teams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_teams/`
+}
+
+export const integrationsGithubTeamsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubTeamsResponseApi> => {
+    return apiMutator<GitHubTeamsResponseApi>(getIntegrationsGithubTeamsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -383,8 +553,8 @@ export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+): Promise<JiraProjectsResponseApi> => {
+    return apiMutator<JiraProjectsResponseApi>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -398,8 +568,8 @@ export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+): Promise<LinearTeamsResponseApi> => {
+    return apiMutator<LinearTeamsResponseApi>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -461,27 +631,27 @@ export const integrationsAuthorizeRetrieve = async (projectId: string, options?:
     })
 }
 
-/**
- * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
- */
 export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
 }
 
+/**
+ * Unified endpoint for generating Domain Connect apply URLs.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
+ */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
-    integrationApi: NonReadonly<IntegrationApi>,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsDomainConnectApplyUrlCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 
@@ -496,5 +666,88 @@ export const integrationsDomainConnectCheckRetrieve = async (
     return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
+}
+
+/**
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
+ */
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    gitHubLinkExistingRequestApi?: GitHubLinkExistingRequestApi,
+    options?: RequestInit
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubLinkExistingRequestApi),
+    })
+}
+
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    gitHubOAuthAuthorizeRequestApi?: GitHubOAuthAuthorizeRequestApi,
+    options?: RequestInit
+): Promise<GitHubOAuthAuthorizeResponseApi> => {
+    return apiMutator<GitHubOAuthAuthorizeResponseApi>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubOAuthAuthorizeRequestApi),
+    })
+}
+
+export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+ *
+ * Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+ * Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const integrationsGithubPrepareCallbackCreate = async (
+    projectId: string,
+    gitHubPrepareCallbackRequestApi?: GitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubPrepareCallbackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubPrepareCallbackRequestApi),
+    })
+}
+
+export const getIntegrationsRequestAccessCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/request_access/`
+}
+
+/**
+ * Notify project admins that a member is requesting an integration be connected.
+ */
+export const integrationsRequestAccessCreate = async (
+    projectId: string,
+    integrationAccessRequestApi: IntegrationAccessRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccessRequestResponseApi> => {
+    return apiMutator<IntegrationAccessRequestResponseApi>(getIntegrationsRequestAccessCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationAccessRequestApi),
     })
 }

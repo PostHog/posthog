@@ -26,7 +26,7 @@ npx @posthog/wizard@latest mcp add
       "args": [
         "-y",
         "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+        "https://mcp.posthog.com/mcp",
         "--header",
         "Authorization:${POSTHOG_AUTH_HEADER}"
       ],
@@ -98,60 +98,6 @@ await client.close()
 - After `initialize`, the client must send `notifications/initialized`; the SDK does this for you in `connect()`.
 
 See also the main PostHog MCP docs for available tools and setup flows: [https://posthog.com/docs/model-context-protocol](https://posthog.com/docs/model-context-protocol)
-
-### Docker install
-
-If you prefer to use Docker instead of running npx directly:
-
-1. Build the Docker image:
-
-```bash
-pnpm docker:build
-# or
-docker build -t posthog-mcp .
-```
-
-2. Configure your MCP client with Docker:
-
-```json
-{
-  "mcpServers": {
-    "posthog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env",
-        "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
-        "--env",
-        "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
-        "posthog-mcp"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
-        "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
-      }
-    }
-  }
-}
-```
-
-3. Test Docker with MCP Inspector:
-
-```bash
-pnpm docker:inspector
-# or
-npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} posthog-mcp
-```
-
-**Environment Variables:**
-
-- `POSTHOG_AUTH_HEADER`: Your PostHog API token (required)
-- `POSTHOG_REMOTE_MCP_URL`: The MCP server URL (optional, defaults to `https://mcp.posthog.com/mcp`)
-
-This approach allows you to use the PostHog MCP server without needing Node.js or npm installed locally.
 
 ### Example Prompts
 
@@ -227,7 +173,7 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `query-error-tracking-issues` tool fetches error groups sorted by occurrence count
+1. The `query-error-tracking-issues-list` tool fetches error groups sorted by occurrence count
 2. Returns error details including affected user counts
 
 **Expected output:**
@@ -287,7 +233,7 @@ Available features:
 | `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
 | `hog_function_templates` | CDP function template browsing                                                                            |
 | `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
 | `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
 | `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
 | `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
@@ -318,30 +264,118 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 
 The example above exposes all flag tools plus `dashboard-get`.
 
+### Server mode (tools vs cli)
+
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+**cli is the default for all clients.**
+When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent) and ChatGPT (matched by its `openai-mcp … (ChatGPT)` User-Agent).
+
+You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
+
+```text
+https://mcp.posthog.com/mcp?mode=cli
+https://mcp.posthog.com/mcp?mode=tools
+```
+
+```http
+x-posthog-mcp-mode: cli
+x-posthog-mcp-mode: tools
+```
+
+| Value   | Behavior                                                |
+| ------- | ------------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
+| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+
+The header wins when both the header and the query parameter are set.
+An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
+
+Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
+In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
+Optional, task-specific guidance is served through the same tool:
+
+- `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
+- `learn analytics` loads detailed analytics guidance and examples.
+- `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
+- `learn feedback` loads feedback guidance when feedback is available.
+- `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
+- `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.
+- `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
+- `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
+- `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
+- `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
+- `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
+
+Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
+
+The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
+By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
+Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
+Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
+Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
+Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
+Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
+The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
+`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
+
+Other clients keep the full inline command reference.
+
+### Consumer attribution
+
+Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
+
+```text
+https://mcp.posthog.com/mcp?consumer=plugin
+```
+
+```http
+x-posthog-mcp-consumer: plugin
+```
+
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+
 ### Data processing
 
-The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.
+The MCP server runs in PostHog's US and EU Kubernetes clusters and stores session state in the region you connect to.
+A stateless Cloudflare Worker in front of it only authenticates requests and routes them to your cloud region; it does not store any sensitive data.
 
 ### Using self-hosted instances
 
-If you're using a self-hosted instance of PostHog, you can specify a custom base URL by adding the `POSTHOG_BASE_URL` [environment variable](https://developers.cloudflare.com/workers/configuration/environment-variables) when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_BASE_URL=https://posthog.example.com`
+If you're using a self-hosted instance of PostHog, you can specify a custom base URL by setting the `POSTHOG_API_BASE_URL` environment variable when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_API_BASE_URL=https://posthog.example.com`
 
 # Development
 
-To run the MCP server locally, run the following command:
+To run the MCP server (Hono on Node) locally, run the following command:
 
 ```bash
 pnpm run dev
 ```
 
-And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+Or use `bin/start-mcp-server` from the repo root, which also bootstraps `.env` and sets Redis/port defaults.
+Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+
+The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
+
+### Edge-proxy worker (Cloudflare)
+
+In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.
+It does not serve the MCP protocol itself - see [ARCHITECTURE.md](ARCHITECTURE.md).
+To run just the worker locally:
+
+```bash
+pnpm run dev:proxy
+```
 
 ### Developing with local resources
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
 
 1. Start the [context-mill](https://github.com/PostHog/context-mill) dev server: `cd ../context-mill && npm run dev`
-2. Start the MCP server with local resources: `pnpm run dev:local-resources`
+2. Start the MCP server with local resources: `pnpm run dev:local-resources` (runs `bin/start-mcp-server` with `POSTHOG_MCP_LOCAL_SKILLS_URL` pointed at context-mill)
 
 Changes in the examples repo will be reflected on the next request.
 
@@ -354,9 +388,12 @@ This repository is organized to support multiple language implementations:
 
 ### Development Commands
 
-- `pnpm run dev` - Start development server
-- `pnpm run schema:build:json` - Generate JSON schema for other language implementations
-- `pnpm run lint && pnpm run format` - Format and lint code
+- `pnpm run dev` - Start the MCP development server
+- `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
+- `pnpm run lint` / `pnpm run format:check` - Verify linting and formatting without changing files
+- `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
+- `pnpm run format` - Format code with Oxfmt only
+- `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
 
 ### Adding New Tools
 
@@ -364,12 +401,7 @@ See the [tools documentation](typescript/src/tools/README.md) for a guide on add
 
 ### Environment variables
 
-- Create `.dev.vars` in the root
-- Add Inkeep API key to enable `docs-search` tool (see `Inkeep API key - mcp`)
-
-```bash
-INKEEP_API_KEY="..."
-```
+Copy `.env.example` to `.env` in the root and adjust the values as needed.
 
 ### Configuring the Model Context Protocol Inspector
 
@@ -421,6 +453,6 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code 
 
 ### Data handling
 
-The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily using Cloudflare Durable Objects tied to your API key hash.
+The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily, keyed by your API key hash.
 
 For EU users, use the `mcp-eu.posthog.com` endpoint to ensure OAuth flows route to the EU PostHog instance.

@@ -5,18 +5,20 @@ import {
     IconDatabase,
     IconGear,
     IconLeave,
+    IconPeople,
     IconPlusSmall,
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -25,22 +27,23 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
-import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
+import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
@@ -58,17 +61,18 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canAccessBilling } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const isAiFirst = useFeatureFlag('AI_FIRST')
 
-    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
-        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
+        ? currentTeam?.name?.replace(/^\p{Extended_Pictographic}/u, '').trimStart()
         : currentTeam?.name
 
     return (
@@ -79,7 +83,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1 min-w-0 group', {
+                            className={cn('relative flex-1 py-1 min-w-0 group', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             data-attr="new-account-menu-button"
@@ -94,6 +98,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                                     </div>
                                     <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                    {hasPendingInvites && <div>You have a pending invitation</div>}
                                 </div>
                             }
                         >
@@ -108,15 +113,17 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
                             )}
                             {!isLayoutNavCollapsed && (
-                                <span
-                                    className={cn('truncate', isAiFirst && 'text-secondary group-hover:text-primary')}
-                                >
+                                <span className="truncate text-secondary group-hover:text-primary">
                                     {isAuthenticatedTeam(currentTeam)
                                         ? (projectNameWithoutFirstEmoji ?? 'Project')
                                         : 'Account menu'}
                                 </span>
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
+                            {hasPendingInvites && (
+                                <PendingInviteDot
+                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
+                                />
+                            )}
                         </ButtonPrimitive>
                     )}
                 />
@@ -174,6 +181,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
+                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
@@ -374,6 +382,36 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 >
                                                     <IconServer />
                                                     Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.featureFlagsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-flags-staff-tools"
+                                                >
+                                                    <IconToggle />
+                                                    Flags staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.cohortsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-cohorts-staff-tools"
+                                                >
+                                                    <IconPeople />
+                                                    Cohorts staff tools
                                                 </Link>
                                             )}
                                         />

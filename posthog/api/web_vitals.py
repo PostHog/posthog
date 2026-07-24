@@ -22,7 +22,8 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter("pathname", OpenApiTypes.STR, description="Filter web vitals by pathname", required=True),
-        ]
+        ],
+        responses={200: OpenApiTypes.OBJECT},
     )
     def list(self, request: Request, *args, **kwargs):
         if not request.user.is_authenticated:  # for mypy
@@ -43,6 +44,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ],
                 "series": [
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "INP",
                         "custom_name": "INP",
@@ -50,6 +52,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_INP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "LCP",
                         "custom_name": "LCP",
@@ -57,6 +60,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_LCP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "CLS",
                         "custom_name": "CLS",
@@ -64,6 +68,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_CLS_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "FCP",
                         "custom_name": "FCP",

@@ -14,6 +14,7 @@ import pytest
 
 from django.test import override_settings
 
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -65,8 +66,16 @@ async def _run_activity(
     timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
     extra_fields: dict[str, t.Any] | None = None,
+    min_ingested_timestamp: dt.datetime | None = None,
+    integration_id: int | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
+    config = dict(snowflake_config)
+    if integration_id is not None:
+        # Account, user and credentials come from the Integration, not inline config.
+        for key in ("account", "user", "authentication_type", "password", "private_key", "private_key_passphrase"):
+            config.pop(key, None)
+
     insert_inputs = SnowflakeInsertInputs(
         team_id=team.pk,
         table_name=table_name,
@@ -76,12 +85,13 @@ async def _run_activity(
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
-        **snowflake_config,
+        integration_id=integration_id,
+        **config,
     )
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -97,7 +107,8 @@ async def _run_activity(
             destination_default_fields=snowflake_default_fields(),
         ),
     )
-    insert_inputs.stage_folder = stage_folder
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
     result = await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     if assert_clickhouse_records:
@@ -117,6 +128,7 @@ async def _run_activity(
             timestamp_columns=timestamp_columns,
             uppercase_columns=uppercase_columns,
             extra_fields=extra_fields,
+            min_ingested_timestamp=min_ingested_timestamp,
         )
     return result
 
@@ -168,6 +180,8 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -181,6 +195,59 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         sort_key=sort_key,
+        min_ingested_timestamp=min_ingested_timestamp,
+    )
+
+
+async def test_insert_into_snowflake_activity_resolves_credentials_from_integration(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """An integration-backed export resolves account, user and credentials from the linked Integration
+    at run time, with none of them present on the activity inputs.
+    """
+    sensitive_config: dict[str, str] = {}
+    if snowflake_config["authentication_type"] == "keypair":
+        sensitive_config["private_key"] = snowflake_config["private_key"]
+        if snowflake_config.get("private_key_passphrase"):
+            sensitive_config["private_key_passphrase"] = snowflake_config["private_key_passphrase"]
+    else:
+        sensitive_config["password"] = snowflake_config["password"]
+
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.SNOWFLAKE,
+        integration_id="prod-snowflake",
+        config={
+            "name": "prod-snowflake",
+            "account": snowflake_config["account"],
+            "user": snowflake_config["user"],
+            "authentication_type": snowflake_config["authentication_type"],
+        },
+        sensitive_config=sensitive_config,
+    )
+
+    table_name = f"test_integration_activity_table_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=BatchExportModel(name="events", schema=None),
+        integration_id=integration.id,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -363,6 +430,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     """
     model = BatchExportModel(name="events", schema=None)
     table_name = f"test_insert_activity_table_remove_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -375,6 +443,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         table_name=table_name,
         batch_export_model=model,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -407,6 +476,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         table_name=table_name,
         batch_export_model=model,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(list_query)
@@ -458,6 +528,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
     activity_environment.on_heartbeat = capture_heartbeat_details
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     insert_inputs = SnowflakeInsertInputs(
         team_id=ateam.pk,
         table_name=table_name,
@@ -469,7 +540,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         assert insert_inputs.batch_export_id is not None
-        stage_folder = await activity_environment.run(
+        stage_result = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -485,7 +556,8 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
-        insert_inputs.stage_folder = stage_folder
+        insert_inputs.stage_folder = stage_result.stage_folder
+        insert_inputs.records_total = stage_result.records_total
         await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     # It's not guaranteed we will heartbeat right after every file.
@@ -499,6 +571,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -672,6 +745,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     table_name = f"test_insert_activity_{model.name}_table_handle_uppercased_{ateam.pk}"
 
     sort_key = "uuid" if model.name == "events" else "person_id"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -683,6 +757,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         table_name=table_name,
         batch_export_model=model,
         sort_key=sort_key,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     uppercase_columns = ["team_id"]
@@ -709,6 +784,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         batch_export_model=model,
         sort_key=sort_key,
         uppercase_columns=uppercase_columns,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -733,6 +809,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
     """
     table_name = f"test_insert_activity_{model.name}_handles_extra_columns_{ateam.pk}"
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -744,6 +821,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         table_name=table_name,
         batch_export_model=model,
         sort_key="uuid",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -761,4 +839,5 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         batch_export_model=model,
         sort_key="uuid",
         extra_fields={"extra_column": "test"},
+        min_ingested_timestamp=min_ingested_timestamp,
     )

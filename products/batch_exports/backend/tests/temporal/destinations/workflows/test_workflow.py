@@ -58,6 +58,7 @@ async def workflows_batch_export(ateam, interval, exclude_events, temporal_clien
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.timeout(1200)
 async def test_workflows_export_workflow(
     clickhouse_client,
     workflows_batch_export,
@@ -102,6 +103,7 @@ async def test_workflows_export_workflow(
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                build_id="test-workflows-batch-export",
             ):
                 await activity_environment.client.execute_workflow(
                     WorkflowsBatchExportWorkflow.run,

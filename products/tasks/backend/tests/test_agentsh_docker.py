@@ -82,14 +82,14 @@ class TestAgentshDockerEnforcement:
         settings.SANDBOX_PROVIDER = "docker"
 
     def _create_sandbox(self, sandbox_image):
-        from products.tasks.backend.services.docker_sandbox import DockerSandbox
-        from products.tasks.backend.services.sandbox import SandboxConfig
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.sandbox import SandboxConfig
 
         config = SandboxConfig(name="test-agentsh")
         return DockerSandbox.create(config)
 
     def _setup_agentsh_and_exec(self, sandbox, test_command: str, allowed_domains: list[str]):
-        from products.tasks.backend.services.agentsh import build_exec_prefix
+        from products.tasks.backend.logic.services.agentsh import build_exec_prefix
 
         repo_path = "/tmp/workspace"
         sandbox._setup_agentsh(repo_path, allowed_domains)
@@ -122,6 +122,20 @@ class TestAgentshDockerEnforcement:
                 allowed_domains=["github.com"],
             )
             assert result.exit_code != 0, "Expected curl to fail for denied domain"
+        finally:
+            sandbox.destroy()
+
+    @pytest.mark.django_db
+    def test_blocks_cloud_metadata_endpoint(self, sandbox_image):
+        sandbox = self._create_sandbox(sandbox_image)
+        try:
+            result = self._setup_agentsh_and_exec(
+                sandbox,
+                "curl -s --connect-timeout 2 --max-time 5 http://169.254.169.254/latest/meta-data/",
+                allowed_domains=["github.com"],
+            )
+            assert "blocked by policy" in result.stdout
+            assert "deny-cloud-metadata" in result.stderr
         finally:
             sandbox.destroy()
 

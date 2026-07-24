@@ -5,12 +5,12 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
-import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
+import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { buildMediaSource, renderAnsiText } from './utils'
@@ -285,18 +285,18 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeDuckSQLAttributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { runDuckSqlNodeWithMode } = useActions(nodeLogic)
+    const { duckSqlRunLoading, duckSqlRunQueued } = useValues(nodeLogic)
 
     return (
-        <CodeEditorResizeable
-            language="sql"
-            value={typeof attributes.code === 'string' ? attributes.code : ''}
-            onChange={(value) => updateAttributes({ code: value ?? '' })}
-            onPressCmdEnter={() => {
+        <NotebookCodeSQLEditorSettings
+            attributes={attributes}
+            updateAttributes={updateAttributes}
+            tabIdSuffix="duck"
+            onRunQuery={() => {
                 void runDuckSqlNodeWithMode({ mode: 'auto' })
             }}
-            allowManualResize={false}
-            minHeight={160}
-            embedded
+            runQueryLoading={duckSqlRunLoading || duckSqlRunQueued}
+            runQueryTooltip="Run SQL (DuckDB) query"
         />
     )
 }

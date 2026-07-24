@@ -99,7 +99,36 @@ COST_BY_TEAM_USD = TopKCounter(
 RATE_LIMIT_EXCEEDED = Counter(
     "llm_gateway_rate_limit_exceeded_total",
     "Rate limit exceeded events",
-    labelnames=["scope"],
+    labelnames=["scope", "product"],
+)
+
+PRODUCT_COST_WINDOW_USD = Gauge(
+    "llm_gateway_product_cost_window_usd",
+    (
+        "Current accumulated cost (USD) for a product within its configured window. "
+        "Reflects only the shared pool — spend from teams or staff with a rate-limit "
+        "multiplier lives in a separate per-multiplier Redis bucket and is not included here."
+    ),
+    labelnames=["product"],
+)
+
+PRODUCT_COST_LIMIT_USD = Gauge(
+    "llm_gateway_product_cost_limit_usd",
+    (
+        "Configured cost cap (USD) for a product within its configured window. "
+        "This is the base (multiplier=1) cap that pairs with llm_gateway_product_cost_window_usd; "
+        "teams or staff with a rate-limit multiplier get a multiplied cap not reflected here."
+    ),
+    labelnames=["product"],
+)
+
+PRODUCT_COST_WINDOW_SECONDS = Gauge(
+    "llm_gateway_product_cost_window_seconds",
+    (
+        "Remaining seconds until the shared-pool cost window resets for a product (Redis TTL of the "
+        "shared-pool counter; falls back to the configured window length when no spend has been recorded)."
+    ),
+    labelnames=["product"],
 )
 
 PROVIDER_ERRORS = Counter(
@@ -147,6 +176,12 @@ STREAMING_CLIENT_DISCONNECT = Counter(
     "llm_gateway_streaming_client_disconnect_total",
     "Client disconnected during streaming",
     labelnames=["provider", "model", "product"],
+)
+
+ANTHROPIC_BRIDGE_INVALID_STREAM = Counter(
+    "llm_gateway_anthropic_bridge_invalid_stream_total",
+    "Invalid Anthropic SSE event ordering produced by a compatibility bridge",
+    labelnames=["backend", "violation"],
 )
 
 CONCURRENT_REQUESTS = Gauge(
@@ -212,6 +247,53 @@ BEDROCK_FALLBACK_FAILURE = Counter(
     "llm_gateway_bedrock_fallback_failure_total",
     "Times Bedrock fallback also failed",
     labelnames=["model", "product"],
+)
+
+BEDROCK_PARAM_STRIPPED = Counter(
+    "llm_gateway_bedrock_param_stripped_total",
+    "Top-level request params dropped before sending to Bedrock because they aren't in the "
+    "Bedrock-supported allowlist. A rising rate for a new param means Anthropic shipped a feature "
+    "Bedrock doesn't accept yet — alert on it instead of waiting for a 100% fallback failure.",
+    labelnames=["param", "product"],
+)
+
+BEDROCK_COUNT_TOKENS_ERRORS = Counter(
+    "llm_gateway_bedrock_count_tokens_errors_total",
+    "Bedrock CountTokens provider-call failures before fallback handling",
+    labelnames=["transport", "error_type", "product"],
+)
+
+BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES = Counter(
+    "llm_gateway_bedrock_count_tokens_dropped_properties_total",
+    "Properties dropped while adapting an Anthropic CountTokens request for Bedrock",
+    labelnames=["transport", "property", "product"],
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_BYPASSED = Counter(
+    "llm_gateway_anthropic_circuit_breaker_bypassed_total",
+    "Anthropic requests routed straight to Bedrock because the breaker was open",
+    labelnames=["model", "product"],
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_OPEN = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_open",
+    "1 if the Anthropic->Bedrock circuit breaker is currently open, 0 otherwise",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_failure_rate",
+    "Trailing-window Anthropic failure rate observed by the circuit breaker",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_window_requests",
+    "Total Anthropic requests observed in the breaker's trailing window",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS = Counter(
+    "llm_gateway_anthropic_circuit_breaker_redis_errors_total",
+    "Redis errors encountered by the Anthropic circuit breaker (non-zero rate means breaker is blind)",
+    labelnames=["op"],
 )
 
 

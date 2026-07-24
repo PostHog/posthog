@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelInfo,
@@ -15,7 +16,6 @@ from llm_gateway.services.model_registry import (
 PROVIDER_ENV_VARS = [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
     "OPENROUTER_API_KEY",
     "FIREWORKS_API_KEY",
 ]
@@ -99,18 +99,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "gemini-2.0-flash": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 1048576,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "gemini-1.5-pro": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 2097152,
-        "supports_vision": True,
-        "mode": "chat",
-    },
     "openrouter/anthropic/claude-3.5-sonnet": {
         "litellm_provider": "openrouter",
         "max_input_tokens": 200000,
@@ -143,16 +131,24 @@ def mock_get_all_models(self: ModelCostService) -> dict[str, ModelCost]:
 def create_mock_settings(
     openai: bool = True,
     anthropic: bool = True,
-    gemini: bool = True,
     openrouter: bool = False,
     fireworks: bool = False,
+    cloudflare: bool = False,
+    modal: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
     settings.anthropic_api_key = "sk-ant-test" if anthropic else None
-    settings.gemini_api_key = "gemini-test" if gemini else None
     settings.openrouter_api_key = "or-test" if openrouter else None
     settings.fireworks_api_key = "fw-test" if fireworks else None
+    # CF needs both a key and an account id; default off so a MagicMock's truthy
+    # auto-attributes don't silently enable Cloudflare model advertising.
+    settings.cloudflare_api_key = "cf-test" if cloudflare else None
+    settings.cloudflare_account_id = "acct-test" if cloudflare else None
+    # Modal needs all three; same MagicMock-truthiness hazard as CF above.
+    settings.modal_api_base = "https://modal.test/v1" if modal else None
+    settings.modal_key = "wk-test" if modal else None
+    settings.modal_secret = "ws-test" if modal else None
     return settings
 
 
@@ -215,7 +211,6 @@ class TestGetModel:
         [
             ("gpt-4o", "openai"),
             ("claude-sonnet-4-5", "anthropic"),
-            ("gemini-2.0-flash", "vertex_ai"),
             ("openrouter/anthropic/claude-3.5-sonnet", "openrouter"),
             ("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "fireworks_ai"),
         ],
@@ -240,7 +235,6 @@ class TestGetAvailableModels:
         assert "gpt-4o" in model_ids
         assert "claude-sonnet-4-5" in model_ids
         assert "claude-3-5-sonnet-20241022" in model_ids
-        assert "gemini-2.0-flash" in model_ids
         # New providers not configured by default
         assert "openrouter/anthropic/claude-3.5-sonnet" not in model_ids
         assert "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct" not in model_ids
@@ -259,7 +253,7 @@ class TestProviderFiltering:
     def test_only_returns_models_from_configured_providers(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=True, anthropic=False, gemini=False),
+            return_value=create_mock_settings(openai=True, anthropic=False),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
@@ -267,12 +261,11 @@ class TestProviderFiltering:
             model_ids = {m.id for m in models}
             assert "gpt-4o" in model_ids
             assert "claude-sonnet-4-5" not in model_ids
-            assert "gemini-2.0-flash" not in model_ids
 
     def test_returns_empty_when_no_providers_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=False, anthropic=False, gemini=False),
+            return_value=create_mock_settings(openai=False, anthropic=False),
         ):
             models = get_available_models("llm_gateway")
             assert len(models) == 0
@@ -280,7 +273,7 @@ class TestProviderFiltering:
     def test_returns_multiple_providers_when_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=True, anthropic=True, gemini=False),
+            return_value=create_mock_settings(openai=True, anthropic=True),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
@@ -290,12 +283,12 @@ class TestProviderFiltering:
         "provider_kwargs,expected_provider,expected_model_id",
         [
             (
-                {"openai": False, "anthropic": False, "gemini": False, "openrouter": True},
+                {"openai": False, "anthropic": False, "openrouter": True},
                 "openrouter",
                 "openrouter/anthropic/claude-3.5-sonnet",
             ),
             (
-                {"openai": False, "anthropic": False, "gemini": False, "fireworks": True},
+                {"openai": False, "anthropic": False, "fireworks": True},
                 "fireworks_ai",
                 "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
             ),
@@ -314,16 +307,62 @@ class TestProviderFiltering:
             model_ids = {m.id for m in models}
             assert expected_model_id in model_ids
 
-    def test_returns_all_five_providers_when_configured(self):
+    def test_returns_all_four_providers_when_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(
-                openai=True, anthropic=True, gemini=True, openrouter=True, fireworks=True
-            ),
+            return_value=create_mock_settings(openai=True, anthropic=True, openrouter=True, fireworks=True),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
-            assert providers == {"openai", "anthropic", "vertex_ai", "openrouter", "fireworks_ai"}
+            assert providers == {"openai", "anthropic", "openrouter", "fireworks_ai"}
+
+
+class TestCloudflareModelAdvertising:
+    """CF Workers AI models aren't in litellm's cost map, so /v1/models advertises them explicitly
+    when CF creds are set — gated on both key + account id, filtered by the product allowlist."""
+
+    def _cf_ids(self, product: str) -> set[str]:
+        return {m.id for m in get_available_models(product) if m.id.startswith("@cf/")}
+
+    def test_cf_models_listed_when_configured(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=True),
+        ):
+            models = get_available_models("llm_gateway")
+            cf = [m for m in models if m.id.startswith("@cf/")]
+            assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS)
+            assert all(m.provider == "cloudflare" for m in cf)
+
+    def test_cf_models_absent_when_not_configured(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=False),
+        ):
+            assert self._cf_ids("llm_gateway") == set()
+
+    def test_cf_requires_both_key_and_account_id(self):
+        settings = create_mock_settings(cloudflare=True)
+        settings.cloudflare_account_id = None
+        with patch("llm_gateway.services.model_registry.get_settings", return_value=settings):
+            assert self._cf_ids("llm_gateway") == set()
+
+    def test_cf_models_filtered_by_product_allowlist(self):
+        # posthog_code's allowlist includes @cf/zai-org/glm-5.2 but not the other CF model(s).
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=True),
+        ):
+            assert self._cf_ids("posthog_code") == {"@cf/zai-org/glm-5.2"}
+
+    def test_modal_only_advertises_modal_served_models(self):
+        # If CF creds are ever pulled after the Modal migration, GLM must stay advertised (it has a
+        # Modal backend) while CF-only models like kimi drop off the listing.
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=False, modal=True),
+        ):
+            assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
 
 
 class TestModelMatchesAllowlist:
@@ -373,13 +412,39 @@ class TestIsModelAvailable:
     def test_model_availability(self, model_id: str, product: str, expected: bool):
         assert is_model_available(model_id, product) == expected
 
+    @pytest.mark.parametrize(
+        "model_id,product,cloudflare,modal,expected",
+        [
+            # CF creds present + model priced/allowed -> available.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", True, False, True),
+            # Same model, but no backend configured -> the runtime gate refuses it.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", False, False, False),
+            # No CF creds, but Modal serves GLM -> still available.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", False, True, True),
+            # Modal alone can't serve models without a Modal-served equivalent.
+            ("@cf/moonshotai/kimi-k2.6", "llm_gateway", False, True, False),
+            # CF configured but the product allowlist excludes this CF model -> unavailable.
+            ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False, False),
+            # CF configured and the product allowlist includes it -> available.
+            ("@cf/zai-org/glm-5.2", "posthog_code", True, False, True),
+        ],
+    )
+    def test_cf_model_availability_gated_on_creds(
+        self, model_id: str, product: str, cloudflare: bool, modal: bool, expected: bool
+    ):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=cloudflare, modal=modal),
+        ):
+            assert is_model_available(model_id, product) is expected
+
     def test_model_not_available_when_provider_not_configured(self):
         with patch.dict(os.environ, {}, clear=False):
             for var in PROVIDER_ENV_VARS:
                 os.environ.pop(var, None)
             with patch(
                 "llm_gateway.services.model_registry.get_settings",
-                return_value=create_mock_settings(openai=False, anthropic=True, gemini=True),
+                return_value=create_mock_settings(openai=False, anthropic=True),
             ):
                 assert is_model_available("gpt-4o", "llm_gateway") is False
                 assert is_model_available("claude-sonnet-4-5", "llm_gateway") is True

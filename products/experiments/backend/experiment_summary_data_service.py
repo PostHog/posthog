@@ -1,13 +1,12 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Union
+from typing import Any, TypeIs, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
 from posthoganalytics import capture_exception
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     CacheMissResponse,
@@ -26,17 +25,19 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
 
 
 @dataclass
@@ -53,7 +54,7 @@ class ExposureQueryResult:
     pending: bool
 
 
-MAX_METRICS_TO_SUMMARIZE = 20
+MAX_METRICS_TO_SUMMARIZE = 50
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
 # This threshold is just to avoid minor discrepancies in timestamps.
@@ -138,8 +139,9 @@ def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatu
 
 
 class ExperimentSummaryDataService:
-    def __init__(self, team):
+    def __init__(self, team, user):
         self._team = team
+        self._user = user
 
     async def fetch_experiment_data(
         self, experiment_id: int
@@ -153,8 +155,10 @@ class ExperimentSummaryDataService:
         # First, fetch the experiment (required to build queries)
         @database_sync_to_async(thread_sensitive=settings.TEST)
         def fetch_experiment():
-            return Experiment.objects.select_related("feature_flag", "holdout", "team").get(
-                id=experiment_id, team_id=team_id, deleted=False
+            return (
+                Experiment.objects.select_related("feature_flag", "holdout", "team")
+                .prefetch_related("experimenttosavedmetric_set__saved_metric")
+                .get(id=experiment_id, team_id=team_id, deleted=False)
             )
 
         try:
@@ -169,9 +173,12 @@ class ExperimentSummaryDataService:
         if not feature_flag:
             raise ValueError(f"Experiment {experiment_id} has no feature flag")
 
-        multivariate = feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in get_experiment_rule(experiment).variants if v.get("key")]
         stats_method = get_experiment_stats_method(experiment)
+        # PostHog AI gets one shot at the data — unlike the frontend it can't poll, so a
+        # stale metric returned as "pending" is silently dropped from the summary. Always
+        # block on stale cache so every metric resolves inline.
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES)
 
@@ -194,9 +201,13 @@ class ExperimentSummaryDataService:
                         query=experiment_query,
                         team=experiment.team,
                         workload=Workload.ONLINE,
+                        limit_context=LimitContext.QUERY_ASYNC,
+                        # Runs for the requesting Max user, so warehouse access is enforced against them.
+                        user=self._user,
+                        error_event_context="agent",
                     )
                     result = query_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        execution_mode=execution_mode,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -245,9 +256,11 @@ class ExperimentSummaryDataService:
                         exposure_runner = ExperimentExposuresQueryRunner(
                             query=exposure_query,
                             team=experiment.team,
+                            limit_context=LimitContext.QUERY_ASYNC,
+                            error_event_context="agent",
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            execution_mode=execution_mode,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
@@ -267,9 +280,21 @@ class ExperimentSummaryDataService:
             async with semaphore:
                 return await _run_query()
 
-        # Build list of all query tasks
-        primary_metrics = experiment.metrics or []
-        secondary_metrics = experiment.metrics_secondary or []
+        # Build list of all query tasks, combining inline metrics with saved metrics.
+        # Saved metrics are stored via ExperimentToSavedMetric junction records and
+        # classified as primary/secondary by the metadata.type field.
+        primary_metrics: list[dict] = list(experiment.metrics or [])
+        secondary_metrics: list[dict] = list(experiment.metrics_secondary or [])
+
+        for link in experiment.experimenttosavedmetric_set.all():
+            query = link.saved_metric.query
+            if not query:
+                continue
+            metric_type = (link.metadata or {}).get("type", "primary")
+            if metric_type == "primary":
+                primary_metrics.append(query)
+            else:
+                secondary_metrics.append(query)
 
         primary_metric_tasks = [
             run_metric_query_async(metric, i) for i, metric in enumerate(primary_metrics[:MAX_METRICS_TO_SUMMARIZE])
@@ -293,10 +318,10 @@ class ExperimentSummaryDataService:
         primary_count = len(primary_metric_tasks)
         secondary_count = len(secondary_metric_tasks)
 
-        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]
+        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         secondary_query_results: list[MetricQueryResult | BaseException] = all_results[
             primary_count : primary_count + secondary_count
-        ]  # type: ignore[assignment]
+        ]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         exposure_query_result = all_results[-1]
 
         # Aggregate results

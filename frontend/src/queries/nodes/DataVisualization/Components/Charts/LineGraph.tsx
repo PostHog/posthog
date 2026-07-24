@@ -1,8 +1,6 @@
 // TODO: Move the below scss to somewhere more common
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
-import 'chartjs-adapter-dayjs-3'
-
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -12,7 +10,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonTable, lemonToast } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import {
     ActiveElement,
@@ -29,13 +28,14 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { hexToRGBA, uuid } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hexToRGBA } from 'lib/utils/colors'
+import { uuid } from 'lib/utils/dom'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -45,6 +45,18 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlBarGraph } from './SqlBarGraph'
+import { SqlComboGraph } from './SqlComboGraph'
+import { SqlLineGraph } from './SqlLineGraph'
+import {
+    AREA_FILL_OPACITY,
+    canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
+    capYSeriesData,
+    exceedsMaxSeries,
+    isAreaSeries,
+    warnTooManySeries,
+} from './sqlLineGraphAdapter'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -64,11 +76,18 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return GraphType.Line
 }
 
+const axisLabelFont = {
+    family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+    size: 12,
+    weight: 'normal' as const,
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
     stacked: boolean,
     position: 'left' | 'right',
+    axisLabelColor: string | null,
     tickOptions: Partial<TickOptions>,
     gridOptions: Partial<GridLineOptions>
 ): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
@@ -82,6 +101,12 @@ const getYAxisSettings = (
         stacked: stacked,
         grid: mixedGridOptions,
         position,
+        title: {
+            display: !!settings?.label,
+            text: settings?.label ?? '',
+            color: axisLabelColor ?? undefined,
+            font: axisLabelFont,
+        },
         border: {
             display: chartSettings.showYAxisBorder ?? true,
         },
@@ -117,10 +142,12 @@ export type LineGraphProps = {
     dashboardId?: string
     goalLines?: GoalLine[]
     className?: string
+    /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
+     *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
+    onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
 }
 
-// LineGraph displays a graph using either x and y data or series breakdown data
-export const LineGraph = ({
+const LegacyLineGraph = ({
     xData,
     yData,
     presetChartHeight,
@@ -133,8 +160,6 @@ export const LineGraph = ({
     const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
         isPinnable: true,
     })
-
-    const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
@@ -154,21 +179,13 @@ export const LineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
-    const MAX_SERIES = 200
-    const ySeriesData = useMemo(() => {
-        if (!yData) {
-            return null
+    useEffect(() => {
+        if (exceedsMaxSeries(yData, dashboardId)) {
+            warnTooManySeries(yData!.length)
         }
-        if (yData.length > MAX_SERIES) {
-            if (!dashboardId) {
-                lemonToast.warning(
-                    `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
-                )
-            }
-            return yData.slice(0, MAX_SERIES)
-        }
-        return yData
     }, [yData, dashboardId])
+
+    const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
     const datasets = useMemo(() => {
         if (!ySeriesData) {
@@ -177,7 +194,8 @@ export const LineGraph = ({
 
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            const hasAreaFill = isAreaSeries(visualizationType, settings)
+            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, AREA_FILL_OPACITY) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
@@ -213,7 +231,7 @@ export const LineGraph = ({
                 hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
                 hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                 type: graphType,
-                fill: isAreaChart ? 'origin' : false,
+                fill: hasAreaFill ? 'origin' : false,
                 yAxisID,
                 ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
                     ? {
@@ -231,7 +249,6 @@ export const LineGraph = ({
         ySeriesData,
         xData,
         yData,
-        isAreaChart,
         isHighlightBarMode,
         hoveredDatasetIndex,
         visualizationType,
@@ -285,7 +302,7 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
 
                                     if (tooltipEl) {
                                         tooltipEl.classList.add('opacity-0', 'invisible')
@@ -304,7 +321,7 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
@@ -367,10 +384,22 @@ export const LineGraph = ({
                         backgroundColor: (context) => {
                             return (context.dataset.borderColor as string) || 'black'
                         },
-                        display: () => {
-                            return false
+                        // Read the raw value from ySeriesData rather than the (possibly percent-scaled in
+                        // stacked-100 mode) dataset value, so labels match the tooltip and hide on nulls.
+                        display: (context) => {
+                            if (!chartSettings.showValuesOnSeries) {
+                                return false
+                            }
+                            return ySeriesData?.[context.datasetIndex]?.data[context.dataIndex] != null
                         },
-                        formatter: () => {},
+                        formatter: (_value, context) => {
+                            const series = ySeriesData?.[context.datasetIndex]
+                            const formatted = formatDataWithSettings(
+                                series?.data[context.dataIndex] ?? null,
+                                series?.settings
+                            )
+                            return typeof formatted === 'object' ? null : formatted
+                        },
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',
@@ -419,49 +448,57 @@ export const LineGraph = ({
                             showTooltip()
 
                             if (tooltip.body) {
-                                const referenceDataPoint = tooltip.dataPoints[0]
+                                const { dataIndex, datasetIndex } = tooltip.dataPoints[0]
 
-                                // Filter series data based on highlight mode
-                                let filteredSeriesData = isHighlightBarMode
-                                    ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
-                                    : ySeriesData
                                 const stackedSeriesTotalAtIndex =
                                     isStackedBarChart && chartSettings.stackBars100
-                                        ? ySeriesData.reduce(
-                                              (acc, series) => acc + (series.data[referenceDataPoint.dataIndex] ?? 0),
-                                              0
-                                          )
+                                        ? ySeriesData.reduce((acc, series) => acc + (series.data[dataIndex] ?? 0), 0)
                                         : null
 
-                                filteredSeriesData = filteredSeriesData.filter(
-                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
-                                )
+                                // Iterate ySeriesData directly so seriesIndex stays as the original index —
+                                // bar colors are derived from it, so the tooltip ribbon must match.
+                                const tooltipData: {
+                                    series: string
+                                    data: ReturnType<typeof formatDataWithSettings>
+                                    rawData: number
+                                    dataIndex: number
+                                    seriesIndex: number
+                                    stackedSeriesTotalAtIndex: number | null
+                                }[] = []
 
-                                const tooltipData = filteredSeriesData
-                                    .map((series, index) => {
-                                        const seriesName =
-                                            series?.settings?.display?.label ||
-                                            ('column' in series ? series.column.name : series.name)
-                                        const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
-                                        return {
-                                            series: seriesName,
-                                            data: formatDataWithSettings(
-                                                series.data[referenceDataPoint.dataIndex],
-                                                series.settings
-                                            ),
-                                            rawData: series.data[referenceDataPoint.dataIndex],
-                                            dataIndex: referenceDataPoint.dataIndex,
-                                            seriesIndex: seriesIndex,
-                                            stackedSeriesTotalAtIndex,
-                                        }
+                                for (let seriesIndex = 0; seriesIndex < ySeriesData.length; seriesIndex++) {
+                                    if (isHighlightBarMode && seriesIndex !== datasetIndex) {
+                                        continue
+                                    }
+
+                                    const series = ySeriesData[seriesIndex]
+                                    const rawData = series.data[dataIndex]
+                                    if (rawData == null) {
+                                        continue
+                                    }
+
+                                    const settings = series.settings
+                                    const seriesName =
+                                        settings?.display?.label ||
+                                        ('column' in series ? series.column.name : series.name)
+
+                                    tooltipData.push({
+                                        series: seriesName,
+                                        data: formatDataWithSettings(rawData, settings),
+                                        rawData,
+                                        dataIndex,
+                                        seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     })
-                                    .sort((a, b) => b.rawData! - a.rawData!)
+                                }
+
+                                if (tooltipData.length > 1 && !isHighlightBarMode) {
+                                    tooltipData.sort((a, b) => b.rawData - a.rawData)
+                                }
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
-                                    (n) =>
-                                        n.settings?.formatting?.style !== 'percent' &&
-                                        n.data[referenceDataPoint.dataIndex] !== null
+                                    (n) => n.settings?.formatting?.style !== 'percent' && n.data[dataIndex] !== null
                                 )
                                 if (
                                     tooltipTotalData.length > 1 &&
@@ -469,7 +506,7 @@ export const LineGraph = ({
                                     !isHighlightBarMode
                                 ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex] ?? 0
+                                        acc += cur.data[dataIndex] ?? 0
                                         return acc
                                     }, 0)
                                     const firstSeriesSettings = tooltipTotalData[0]?.settings
@@ -481,7 +518,7 @@ export const LineGraph = ({
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
                                         <div className="flex items-center justify-between pl-5 pr-2 py-2 text-xs font-semibold border-b border-primary">
-                                            <span>{xSeriesData.data[referenceDataPoint.dataIndex]}</span>
+                                            <span>{xSeriesData.data[dataIndex]}</span>
                                             {pinTooltip && (
                                                 <button
                                                     type="button"
@@ -607,6 +644,10 @@ export const LineGraph = ({
                     showTooltip()
 
                     pinTooltip(() => {
+                        if (!chart.canvas?.isConnected) {
+                            return
+                        }
+
                         // Hide crosshair on tooltip unpin
                         if ((chart as any).crosshair) {
                             ;(chart as any).crosshair.enabled = false
@@ -639,6 +680,12 @@ export const LineGraph = ({
                         border: {
                             display: chartSettings.showXAxisBorder ?? true,
                         },
+                        title: {
+                            display: !!chartSettings.xAxisLabel,
+                            text: chartSettings.xAxisLabel ?? '',
+                            color: colors.axisLabel ?? undefined,
+                            font: axisLabelFont,
+                        },
                     },
                     ...(hasLeftYAxis
                         ? {
@@ -647,6 +694,7 @@ export const LineGraph = ({
                                   chartSettings.leftYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'left',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -659,6 +707,7 @@ export const LineGraph = ({
                                   chartSettings.rightYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'right',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -691,21 +740,36 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
+            className={clsx(className, 'rounded bg-surface-primary w-full grow relative overflow-hidden', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}
-            ref={containerRef}
         >
-            <div
-                className={clsx('flex flex-1 w-full overflow-hidden', {
-                    'h-full': !presetChartHeight,
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={height ? { height: `${height}px` } : {}}
-            >
-                <canvas ref={canvasRef} />
-            </div>
+            <canvas ref={canvasRef} />
         </div>
     )
+}
+
+export function sqlChartComponentFor(
+    props: LineGraphProps,
+    newChartsEnabled: boolean
+): (props: LineGraphProps) => JSX.Element {
+    if (!newChartsEnabled) {
+        return LegacyLineGraph
+    }
+    if (canRenderSqlComboGraph(props)) {
+        return SqlComboGraph
+    }
+    if (canRenderSqlBarGraph(props)) {
+        return SqlBarGraph
+    }
+    return SqlLineGraph
+}
+
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
+
+    const Component = sqlChartComponentFor(props, newChartsEnabled)
+    return <Component {...props} />
 }

@@ -10,7 +10,8 @@ import { cn } from 'lib/utils/css-classes'
 export interface LemonSwitchProps {
     className?: string
     onChange?: (newChecked: boolean) => void
-    checked: boolean
+    /** `'indeterminate'` shows a mixed state (centered handle with a dash); clicking it resolves to checked. */
+    checked: boolean | 'indeterminate'
     label?: string | JSX.Element
     labelClassName?: string
     id?: string
@@ -27,6 +28,8 @@ export interface LemonSwitchProps {
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
     loading?: boolean
+    /** Forwarded to the switch element so autocapture can read them off the click. Autocapture only fires on the interactive (`onChange`) variant, which renders a button; a read-only switch renders a div and these never reach an autocapture event. */
+    [captureAttribute: `data-ph-capture-attribute-${string}`]: string | boolean | undefined
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -52,6 +55,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             sliderColorOverrideChecked,
             sliderColorOverrideUnchecked,
             loading = false,
+            ...captureAttributes
         },
         ref
     ): JSX.Element {
@@ -81,14 +85,15 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 id={id}
                 className={`LemonSwitch__button ${
                     sliderColorOverrideChecked || sliderColorOverrideUnchecked
-                        ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                        ? `bg-${checked === true ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
                         : ''
                 }`}
                 type="button"
                 role="switch"
+                aria-checked={checked === 'indeterminate' ? 'mixed' : checked}
                 onClick={() => {
                     if (onChange && !loading) {
-                        onChange(!checked)
+                        onChange(checked !== true)
                     }
                 }}
                 onMouseDown={() => !loading && setIsActive(true)}
@@ -97,6 +102,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 data-attr={dataAttr}
                 disabled={isDisabled}
                 {...conditionalProps}
+                {...captureAttributes}
             >
                 <div className="LemonSwitch__handle">
                     {loading && (
@@ -124,7 +130,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             <div
                 ref={ref}
                 className={clsx('LemonSwitch', className, `LemonSwitch--${size}`, {
-                    'LemonSwitch--checked': checked,
+                    'LemonSwitch--checked': checked === true,
+                    'LemonSwitch--indeterminate': checked === 'indeterminate',
                     'LemonSwitch--active': isActive,
                     'LemonSwitch--bordered': bordered,
                     'LemonSwitch--disabled': isDisabled,

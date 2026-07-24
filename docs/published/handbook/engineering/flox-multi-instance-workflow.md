@@ -19,6 +19,14 @@ This guide explains how to create isolated PostHog development environments usin
 
 > **Important:** Only one PostHog instance (`hogli start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
+## Light worktrees
+
+You only need the full setup below when you want to run the app in a worktree. For edit and commit workflows, a plain `git worktree add <path> <branch>` is enough:
+
+- Pre-commit hooks (lint-staged, hogli, ruff, ty) work out of the box: they borrow the main clone's `node_modules` and Python venv automatically, as long as the worktree's `pnpm-lock.yaml` and `uv.lock` match the main clone's.
+- If a lockfile differs, the hooks tell you what to install locally instead.
+- Use `phw` (below) only when you need to run the app in that worktree.
+
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/
@@ -57,9 +65,6 @@ brew install direnv gh jq
 
 # Add direnv hook to your shell (~/.zshrc or ~/.bashrc)
 eval "$(direnv hook zsh)"  # or bash
-
-# Add the phw function for auto-cd functionality
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc  # or ~/.bashrc
 
 # Reload your shell
 source ~/.zshrc  # or ~/.bashrc
@@ -352,12 +357,11 @@ flox activate
 
 ### phw command not found
 
-```bash
-# Make sure you've sourced the phw script
-source ~/dev/posthog/posthog/bin/phw
+Make sure the Flox environment is activated:
 
-# Add it permanently to your shell profile
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc
+```bash
+cd ~/dev/posthog/posthog
+flox activate
 ```
 
 ### Dependencies out of sync
@@ -401,18 +405,20 @@ git worktree prune
 For a complete one-time setup, run:
 
 ```bash
-# For zsh users
+# For zsh users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc && \
 source ~/.zshrc && \
+cd ~/dev/posthog/posthog && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 
-# For bash users
+# For bash users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.bashrc && \
 source ~/.bashrc && \
+cd ~/dev/posthog/posthog && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 ```
 

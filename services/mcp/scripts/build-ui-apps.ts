@@ -21,12 +21,17 @@ import { discoverApps, MCP_ROOT_DIR, ROOT_DIR } from './utils'
 // Where to store the built files
 const OUT_DIR = resolve(MCP_ROOT_DIR, 'public/ui-apps')
 
-// Load environment variables from .dev.vars (Cloudflare convention)
-const devVarsPath = resolve(MCP_ROOT_DIR, '.dev.vars')
-if (existsSync(devVarsPath)) {
-    const output = dotenvConfig({ path: devVarsPath })
+// Load environment variables from .env (see .env.example)
+const dotEnvPath = resolve(MCP_ROOT_DIR, '.env')
+if (existsSync(dotEnvPath)) {
+    const output = dotenvConfig({ path: dotEnvPath })
     const loadedKeys = Object.keys(output.parsed || {})
-    console.info('📝 Loaded environment from .dev.vars', loadedKeys)
+    console.info('📝 Loaded environment from .env', loadedKeys)
+} else if (existsSync(resolve(MCP_ROOT_DIR, '.dev.vars'))) {
+    console.warn(
+        '⚠️ Support for `.dev.vars` was removed - move your local config to `.env` (see .env.example). ' +
+            'Building with fallback values (no analytics token).'
+    )
 }
 
 function buildAppAsync(appName: string): Promise<void> {
@@ -66,8 +71,11 @@ function buildAppAsync(appName: string): Promise<void> {
 }
 
 async function buildAllAppsParallel(apps: string[]): Promise<void> {
-    // CI environments have limited memory — limit concurrency to avoid OOM kills
-    const concurrency = process.env.CI ? 4 : apps.length
+    // Each Vite build peaks at a few hundred MB, so cap parallelism: the summed
+    // peak of an unbounded run (one process per app) OOM-kills memory-constrained
+    // builders — e.g. the Docker image build, where 27 concurrent Vite processes
+    // saturated the builder. The constraint is memory, not which environment we run in.
+    const concurrency = Math.min(apps.length, 4)
 
     if (concurrency < apps.length) {
         console.info(`\n📦 Building ${apps.length} apps (concurrency: ${concurrency})...`)
@@ -131,7 +139,6 @@ async function watchApps(apps: string[]): Promise<void> {
             [
                 join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'products/**/mcp/apps/**/*.{ts,tsx,css}'),
-                join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
             {
                 ignoreInitial: true,

@@ -13,7 +13,7 @@ type DisposableEntry = {
     options: DisposableOptions
 }
 
-type DisposablesManager = {
+export type DisposablesManager = {
     add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => void
     dispose: (key: string) => boolean
     registry: Map<string, DisposableEntry>
@@ -125,6 +125,22 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
             if (key && manager.registry.has(disposableKey)) {
                 const previousEntry = manager.registry.get(disposableKey)!
                 safeCleanup(previousEntry.cleanup, manager.logicPath)
+            }
+
+            // If the page is currently hidden and this disposable opts into
+            // pause/resume, register it without running setup. resumeAllDisposables
+            // will run setup the next time the page becomes visible. Without this,
+            // anything calling add() from a listener/loader while hidden (e.g.
+            // re-scheduling a poll inside a fetch's `finally`) creates a live
+            // timer/listener that should be paused — defeating the auto-pause.
+            const startPaused = document.hidden && disposableOptions.pauseOnPageHidden !== false
+            if (startPaused) {
+                manager.registry.set(disposableKey, {
+                    setup,
+                    cleanup: () => {},
+                    options: disposableOptions,
+                })
+                return
             }
 
             // Run setup function to get cleanup function

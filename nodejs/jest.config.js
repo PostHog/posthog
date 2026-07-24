@@ -3,21 +3,41 @@ module.exports = {
         '^.+\\.(t|j)s$': [
             'ts-jest',
             {
-                tsconfig: './tsconfig.json',
+                tsconfig: './tsconfig.test.json',
             },
         ],
     },
     testEnvironment: 'node',
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,
     coverageProvider: 'v8',
-    setupFilesAfterEnv: ['./jest.setup.ts'],
+    setupFiles: ['./jest.setup-env.ts'],
+    // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
+    setupFilesAfterEnv: ['../frontend/jest.quarantine.ts', './jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
-    modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
+    // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.
+    modulePathIgnorePatterns: [
+        '<rootDir>/.tmp/',
+        '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
+    ],
+    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
+    // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
+        // `~/...` -> src/, `~/tests/...` -> tests/. The `.js`-suffixed variants come first to strip the
+        // nodenext extension: the production tsconfig is module: nodenext, which forces import()
+        // specifiers to carry `.js` (TS2835/TS2307), so ts-jest emits e.g. `~/foo.js` while only a
+        // `.ts` exists on disk. Jest only strips `.js` from *relative* specifiers (last rule), not from
+        // `~/` aliases — without these, an alias would resolve to a non-existent `src/foo.js`.
+        '^~/tests/(.*)\\.js$': '<rootDir>/tests/$1',
         '^~/tests/(.*)$': '<rootDir>/tests/$1',
+        '^~/(.*)\\.js$': '<rootDir>/src/$1',
         '^~/(.*)$': '<rootDir>/src/$1',
+        // Strip .js from relative imports so Jest resolves to the .ts source.
+        '^(\\.{1,2}/.*)\\.js$': '$1',
     },
 }

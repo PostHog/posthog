@@ -20,13 +20,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight, InsightViewed
+from products.posthog_ai.backend.models.assistant import Conversation
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation
 
 
 def create_mock_query_executor():
@@ -833,8 +833,8 @@ class TestInsightSearchNode(BaseTest):
             "source": {
                 "kind": "RetentionQuery",
                 "retentionFilter": {
-                    "targetEntity": {"name": "$pageview"},
-                    "returningEntity": {"name": "$pageview"},
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
                 "dateRange": {"date_from": "-7d"},
                 "filterTestAccounts": False,

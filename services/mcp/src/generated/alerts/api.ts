@@ -12,24 +12,42 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.'
+        ),
 })
 
 export const AlertsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const alertsCreateBodyConfigOneTypeDefault = `TrendsAlertConfig`
+export const alertsCreateBodyNameMax = 255
+
+export const alertsCreateBodyThresholdOneNameMax = 255
+
+export const alertsCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -60,875 +78,1171 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsCreateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .describe('User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.'),
     threshold: zod
         .object({
             id: zod.string().optional(),
-            created_at: zod.iso.datetime({}).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
+            name: zod
+                .string()
+                .max(alertsCreateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod
-                        .object({
-                            lower: zod
-                                .number()
-                                .nullish()
-                                .describe('Alert fires when the value drops below this number.'),
-                            upper: zod.number().nullish().describe('Alert fires when the value exceeds this number.'),
-                        })
-                        .nullish(),
-                    type: zod.enum(['absolute', 'percentage']),
+                        .union([
+                            zod.object({
+                                lower: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Alert fires when the value drops below this number.'),
+                                upper: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Alert fires when the value exceeds this number.'),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    type: zod
+                        .enum(['absolute', 'percentage'])
+                        .describe(
+                            'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
+                        ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower\/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .describe('Threshold configuration with bounds and type for evaluating the alert.'),
     condition: zod
-        .object({
-            type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe(
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     config: zod
-        .object({
-            check_ongoing_interval: zod
-                .boolean()
-                .nullish()
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsCreateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod.enum(['FunnelsAlertConfig']).default(alertsCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod.enum(['MetricsAlertConfig']).default(alertsCreateBodyConfigOneFourTypeDefault),
+                    }),
+                ])
                 .describe(
-                    'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
                 ),
-            series_index: zod.number().describe("Zero-based index of the series in the insight's query to monitor."),
-            type: zod.enum(['TrendsAlertConfig']).default(alertsCreateBodyConfigOneTypeDefault),
-        })
-        .nullish()
+            zod.null(),
+        ])
+        .optional()
         .describe(
-            'Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).'
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase\/relative_decrease (compared against the prior period)."
         ),
     detector_config: zod
         .union([
-            zod.object({
-                detectors: zod
-                    .array(
-                        zod.union([
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+            zod
+                .union([
+                    zod.object({
+                        detectors: zod
+                            .array(
+                                zod.union([
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                        type: zod
+                                            .enum(['zscore'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                        type: zod
+                                            .enum(['mad'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        multiplier: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'
                                             ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                                    ),
-                                type: zod
-                                    .enum(['zscore'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating mean/std (default: 30)'),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        type: zod
+                                            .enum(['iqr'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating quartiles (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        lower_bound: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Lower bound - values below this are anomalies'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        type: zod
+                                            .enum(['threshold'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault),
+                                        upper_bound: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Upper bound - values above this are anomalies'),
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['ecod'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['copod'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_estimators: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of trees in the forest (default: 100)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['isolation_forest'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                                    ),
-                                type: zod
-                                    .enum(['mad'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating median/MAD (default: 30)'),
-                            }),
-                            zod.object({
-                                multiplier: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'
-                                    ),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        method: zod
+                                            .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                        n_neighbors: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of neighbors to consider (default: 5)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['knn'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_bins: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of histogram bins (default: 10)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['hbos'])
+                                            .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                type: zod
-                                    .enum(['iqr'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating quartiles (default: 30)'),
-                            }),
-                            zod.object({
-                                lower_bound: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Lower bound - values below this are anomalies'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_neighbors: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of neighbors for LOF (default: 20)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['lof'])
+                                            .default(
+                                                alertsCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        kernel: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('SVM kernel type (default: \"rbf\")'),
+                                        nu: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Upper bound on training errors fraction (default: 0.1)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['ocsvm'])
+                                            .default(
+                                                alertsCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['pca'])
+                                            .default(
+                                                alertsCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                type: zod
-                                    .enum(['threshold'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault),
-                                upper_bound: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Upper bound - values above this are anomalies'),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['ecod'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['copod'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_estimators: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of trees in the forest (default: 100)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['isolation_forest'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                method: zod.enum(['largest', 'mean', 'median']).nullish(),
-                                n_neighbors: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of neighbors to consider (default: 5)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['knn'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['hbos'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_neighbors: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of neighbors for LOF (default: 20)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['lof'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
-                                nu: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Upper bound on training errors fraction (default: 0.1)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['ocsvm'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['pca'])
-                                    .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                        ])
-                    )
-                    .describe('Sub-detector configurations (minimum 2)'),
-                operator: zod.enum(['and', 'or']),
-                type: zod.enum(['ensemble']).default(alertsCreateBodyDetectorConfigOneOneTypeDefault),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                                    }),
+                                ])
+                            )
+                            .describe('Sub-detector configurations (minimum 2)'),
+                        operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
+                        type: zod.enum(['ensemble']).default(alertsCreateBodyDetectorConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                    ),
-                type: zod.enum(['zscore']).default(alertsCreateBodyDetectorConfigOneTwoTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating mean/std (default: 30)'),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                        type: zod.enum(['zscore']).default(alertsCreateBodyDetectorConfigOneTwoTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                    ),
-                type: zod.enum(['mad']).default(alertsCreateBodyDetectorConfigOneThreeTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating median/MAD (default: 30)'),
-            }),
-            zod.object({
-                multiplier: zod
-                    .number()
-                    .nullish()
-                    .describe('IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                        type: zod.enum(['mad']).default(alertsCreateBodyDetectorConfigOneThreeTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
+                    }),
+                    zod.object({
+                        multiplier: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        type: zod.enum(['iqr']).default(alertsCreateBodyDetectorConfigOneFourTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating quartiles (default: 30)'),
+                    }),
+                    zod.object({
+                        lower_bound: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Lower bound - values below this are anomalies'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        type: zod.enum(['threshold']).default(alertsCreateBodyDetectorConfigOneFiveTypeDefault),
+                        upper_bound: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Upper bound - values above this are anomalies'),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['ecod']).default(alertsCreateBodyDetectorConfigOneSixTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                type: zod.enum(['iqr']).default(alertsCreateBodyDetectorConfigOneFourTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating quartiles (default: 30)'),
-            }),
-            zod.object({
-                lower_bound: zod.number().nullish().describe('Lower bound - values below this are anomalies'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['copod']).default(alertsCreateBodyDetectorConfigOneSevenTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                type: zod.enum(['threshold']).default(alertsCreateBodyDetectorConfigOneFiveTypeDefault),
-                upper_bound: zod.number().nullish().describe('Upper bound - values above this are anomalies'),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_estimators: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of trees in the forest (default: 100)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['isolation_forest']).default(alertsCreateBodyDetectorConfigOneEightTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['ecod']).default(alertsCreateBodyDetectorConfigOneSixTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        method: zod
+                            .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                            .optional()
+                            .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                        n_neighbors: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of neighbors to consider (default: 5)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['knn']).default(alertsCreateBodyDetectorConfigOneNineTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['copod']).default(alertsCreateBodyDetectorConfigOneSevenTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_bins: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of histogram bins (default: 10)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['hbos']).default(alertsCreateBodyDetectorConfigOneOnezeroTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['isolation_forest']).default(alertsCreateBodyDetectorConfigOneEightTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                method: zod.enum(['largest', 'mean', 'median']).nullish(),
-                n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_neighbors: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of neighbors for LOF (default: 20)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['lof']).default(alertsCreateBodyDetectorConfigOneOneoneTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['knn']).default(alertsCreateBodyDetectorConfigOneNineTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        kernel: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe('SVM kernel type (default: \"rbf\")'),
+                        nu: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Upper bound on training errors fraction (default: 0.1)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['ocsvm']).default(alertsCreateBodyDetectorConfigOneOnetwoTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['hbos']).default(alertsCreateBodyDetectorConfigOneOnezeroTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['pca']).default(alertsCreateBodyDetectorConfigOneOnethreeTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['lof']).default(alertsCreateBodyDetectorConfigOneOneoneTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
-                nu: zod.number().nullish().describe('Upper bound on training errors fraction (default: 0.1)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['ocsvm']).default(alertsCreateBodyDetectorConfigOneOnetwoTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['pca']).default(alertsCreateBodyDetectorConfigOneOnethreeTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
+                    }),
+                ])
+                .describe('Detector configuration types'),
+            zod.null(),
         ])
-        .describe('Detector configuration types')
-        .nullish(),
+        .optional(),
     calculation_interval: zod
-        .enum(['hourly', 'daily', 'weekly', 'monthly'])
-        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .describe(
+            '\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
+        )
         .optional()
         .describe(
-            'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -941,29 +1255,51 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).'),
     schedule_restriction: zod
-        .object({
-            blocked_windows: zod
-                .array(
-                    zod.object({
-                        start: zod
-                            .string()
-                            .describe(
-                                'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                            ),
-                        end: zod
-                            .string()
-                            .describe(
-                                'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                            ),
-                    })
-                )
-                .describe(
-                    'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                ),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+        ),
+    investigation_gates_notifications: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+        ),
+    investigation_inconclusive_action: zod
+        .enum(['notify', 'suppress'])
+        .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
+        .optional()
+        .describe(
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 
@@ -972,7 +1308,7 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -993,6 +1329,10 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Maximum number of check results to return (default 5, max 500). Applied after date filtering.'),
+    checks_offset: zod
+        .number()
+        .optional()
+        .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -1000,11 +1340,18 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const alertsPartialUpdateBodyConfigOneTypeDefault = `TrendsAlertConfig`
+export const alertsPartialUpdateBodyNameMax = 255
+
+export const alertsPartialUpdateBodyThresholdOneNameMax = 255
+
+export const alertsPartialUpdateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsPartialUpdateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsPartialUpdateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsPartialUpdateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -1036,7 +1383,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsPartialUpdateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .optional()
@@ -1044,871 +1391,1187 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     threshold: zod
         .object({
             id: zod.string().optional(),
-            created_at: zod.iso.datetime({}).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
+            name: zod
+                .string()
+                .max(alertsPartialUpdateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod
-                        .object({
-                            lower: zod
-                                .number()
-                                .nullish()
-                                .describe('Alert fires when the value drops below this number.'),
-                            upper: zod.number().nullish().describe('Alert fires when the value exceeds this number.'),
-                        })
-                        .nullish(),
-                    type: zod.enum(['absolute', 'percentage']),
+                        .union([
+                            zod.object({
+                                lower: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Alert fires when the value drops below this number.'),
+                                upper: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Alert fires when the value exceeds this number.'),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    type: zod
+                        .enum(['absolute', 'percentage'])
+                        .describe(
+                            'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
+                        ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower\/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .optional()
         .describe('Threshold configuration with bounds and type for evaluating the alert.'),
     condition: zod
-        .object({
-            type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe(
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     config: zod
-        .object({
-            check_ongoing_interval: zod
-                .boolean()
-                .nullish()
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsPartialUpdateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsPartialUpdateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod
+                            .enum(['FunnelsAlertConfig'])
+                            .default(alertsPartialUpdateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod.enum(['MetricsAlertConfig']).default(alertsPartialUpdateBodyConfigOneFourTypeDefault),
+                    }),
+                ])
                 .describe(
-                    'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
                 ),
-            series_index: zod.number().describe("Zero-based index of the series in the insight's query to monitor."),
-            type: zod.enum(['TrendsAlertConfig']).default(alertsPartialUpdateBodyConfigOneTypeDefault),
-        })
-        .nullish()
+            zod.null(),
+        ])
+        .optional()
         .describe(
-            'Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).'
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase\/relative_decrease (compared against the prior period)."
         ),
     detector_config: zod
         .union([
-            zod.object({
-                detectors: zod
-                    .array(
-                        zod.union([
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+            zod
+                .union([
+                    zod.object({
+                        detectors: zod
+                            .array(
+                                zod.union([
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                        type: zod
+                                            .enum(['zscore'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                        type: zod
+                                            .enum(['mad'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        multiplier: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'
                                             ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                                    ),
-                                type: zod
-                                    .enum(['zscore'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating mean/std (default: 30)'),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        type: zod
+                                            .enum(['iqr'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Rolling window size for calculating quartiles (default: 30)'),
+                                    }),
+                                    zod.object({
+                                        lower_bound: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Lower bound - values below this are anomalies'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        type: zod
+                                            .enum(['threshold'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault
+                                            ),
+                                        upper_bound: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Upper bound - values above this are anomalies'),
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['ecod'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['copod'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_estimators: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of trees in the forest (default: 100)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['isolation_forest'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                                    ),
-                                type: zod
-                                    .enum(['mad'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating median/MAD (default: 30)'),
-                            }),
-                            zod.object({
-                                multiplier: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'
-                                    ),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        method: zod
+                                            .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                        n_neighbors: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of neighbors to consider (default: 5)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['knn'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_bins: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of histogram bins (default: 10)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['hbos'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                type: zod
-                                    .enum(['iqr'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating quartiles (default: 30)'),
-                            }),
-                            zod.object({
-                                lower_bound: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Lower bound - values below this are anomalies'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        n_neighbors: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Number of neighbors for LOF (default: 20)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['lof'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        kernel: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('SVM kernel type (default: \"rbf\")'),
+                                        nu: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Upper bound on training errors fraction (default: 0.1)'),
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['ocsvm'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
+                                    }),
+                                    zod.object({
+                                        preprocessing: zod
+                                            .union([
+                                                zod.object({
+                                                    diffs_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                        ),
+                                                    lags_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                        ),
+                                                    smooth_n: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Preprocessing transforms applied before detection'),
+                                        threshold: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Anomaly probability threshold (default: 0.9)'),
+                                        type: zod
+                                            .enum(['pca'])
+                                            .default(
+                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault
+                                            ),
+                                        window: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
                                             .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
-                                    })
-                                    .nullish(),
-                                type: zod
-                                    .enum(['threshold'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault),
-                                upper_bound: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Upper bound - values above this are anomalies'),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['ecod'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['copod'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_estimators: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of trees in the forest (default: 100)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['isolation_forest'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                method: zod.enum(['largest', 'mean', 'median']).nullish(),
-                                n_neighbors: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of neighbors to consider (default: 5)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['knn'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['hbos'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                n_neighbors: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Number of neighbors for LOF (default: 20)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['lof'])
-                                    .default(
-                                        alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
-                                    ),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
-                                nu: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Upper bound on training errors fraction (default: 0.1)'),
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['ocsvm'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
-                                threshold: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Anomaly probability threshold (default: 0.9)'),
-                                type: zod
-                                    .enum(['pca'])
-                                    .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault),
-                                window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe(
-                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                        ])
-                    )
-                    .describe('Sub-detector configurations (minimum 2)'),
-                operator: zod.enum(['and', 'or']),
-                type: zod.enum(['ensemble']).default(alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                                    }),
+                                ])
+                            )
+                            .describe('Sub-detector configurations (minimum 2)'),
+                        operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
+                        type: zod.enum(['ensemble']).default(alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                    ),
-                type: zod.enum(['zscore']).default(alertsPartialUpdateBodyDetectorConfigOneTwoTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating mean/std (default: 30)'),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                        type: zod.enum(['zscore']).default(alertsPartialUpdateBodyDetectorConfigOneTwoTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
-                    ),
-                type: zod.enum(['mad']).default(alertsPartialUpdateBodyDetectorConfigOneThreeTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating median/MAD (default: 30)'),
-            }),
-            zod.object({
-                multiplier: zod
-                    .number()
-                    .nullish()
-                    .describe('IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                        type: zod.enum(['mad']).default(alertsPartialUpdateBodyDetectorConfigOneThreeTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
+                    }),
+                    zod.object({
+                        multiplier: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        type: zod.enum(['iqr']).default(alertsPartialUpdateBodyDetectorConfigOneFourTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Rolling window size for calculating quartiles (default: 30)'),
+                    }),
+                    zod.object({
+                        lower_bound: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Lower bound - values below this are anomalies'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        type: zod.enum(['threshold']).default(alertsPartialUpdateBodyDetectorConfigOneFiveTypeDefault),
+                        upper_bound: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Upper bound - values above this are anomalies'),
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['ecod']).default(alertsPartialUpdateBodyDetectorConfigOneSixTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                type: zod.enum(['iqr']).default(alertsPartialUpdateBodyDetectorConfigOneFourTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating quartiles (default: 30)'),
-            }),
-            zod.object({
-                lower_bound: zod.number().nullish().describe('Lower bound - values below this are anomalies'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['copod']).default(alertsPartialUpdateBodyDetectorConfigOneSevenTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                type: zod.enum(['threshold']).default(alertsPartialUpdateBodyDetectorConfigOneFiveTypeDefault),
-                upper_bound: zod.number().nullish().describe('Upper bound - values above this are anomalies'),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_estimators: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of trees in the forest (default: 100)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod
+                            .enum(['isolation_forest'])
+                            .default(alertsPartialUpdateBodyDetectorConfigOneEightTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['ecod']).default(alertsPartialUpdateBodyDetectorConfigOneSixTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        method: zod
+                            .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                            .optional()
+                            .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                        n_neighbors: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of neighbors to consider (default: 5)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['knn']).default(alertsPartialUpdateBodyDetectorConfigOneNineTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['copod']).default(alertsPartialUpdateBodyDetectorConfigOneSevenTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_bins: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of histogram bins (default: 10)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['hbos']).default(alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['isolation_forest']).default(alertsPartialUpdateBodyDetectorConfigOneEightTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                method: zod.enum(['largest', 'mean', 'median']).nullish(),
-                n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        n_neighbors: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Number of neighbors for LOF (default: 20)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['lof']).default(alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['knn']).default(alertsPartialUpdateBodyDetectorConfigOneNineTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        kernel: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe('SVM kernel type (default: \"rbf\")'),
+                        nu: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Upper bound on training errors fraction (default: 0.1)'),
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['ocsvm']).default(alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['hbos']).default(alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
+                    }),
+                    zod.object({
+                        preprocessing: zod
+                            .union([
+                                zod.object({
+                                    diffs_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                        ),
+                                    lags_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                        ),
+                                    smooth_n: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Preprocessing transforms applied before detection'),
+                        threshold: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Anomaly probability threshold (default: 0.9)'),
+                        type: zod.enum(['pca']).default(alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault),
+                        window: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
                             .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['lof']).default(alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
-                nu: zod.number().nullish().describe('Upper bound on training errors fraction (default: 0.1)'),
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['ocsvm']).default(alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
-            zod.object({
-                preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.enum(['pca']).default(alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault),
-                window: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                    ),
-            }),
+                    }),
+                ])
+                .describe('Detector configuration types'),
+            zod.null(),
         ])
-        .describe('Detector configuration types')
-        .nullish(),
+        .optional(),
     calculation_interval: zod
-        .enum(['hourly', 'daily', 'weekly', 'monthly'])
-        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .describe(
+            '\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
+        )
         .optional()
         .describe(
-            'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -1921,29 +2584,51 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).'),
     schedule_restriction: zod
-        .object({
-            blocked_windows: zod
-                .array(
-                    zod.object({
-                        start: zod
-                            .string()
-                            .describe(
-                                'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                            ),
-                        end: zod
-                            .string()
-                            .describe(
-                                'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                            ),
-                    })
-                )
-                .describe(
-                    'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                ),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+        ),
+    investigation_gates_notifications: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+        ),
+    investigation_inconclusive_action: zod
+        .enum(['notify', 'suppress'])
+        .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
+        .optional()
+        .describe(
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 
@@ -1952,7 +2637,7 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1963,7 +2648,7 @@ export const AlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1993,6 +2678,10 @@ export const alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
+export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the detector on.'),
@@ -2004,30 +2693,34 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         zod.union([
                             zod.object({
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                     ),
@@ -2035,36 +2728,40 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .enum(['zscore'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating mean/std (default: 30)'),
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Rolling window size for calculating mean\/std (default: 30)'),
                             }),
                             zod.object({
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                     ),
@@ -2072,307 +2769,345 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .enum(['mad'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
-                                    .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                             }),
                             zod.object({
                                 multiplier: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'
                                     ),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 type: zod
                                     .enum(['iqr'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Rolling window size for calculating quartiles (default: 30)'),
                             }),
                             zod.object({
                                 lower_bound: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Lower bound - values below this are anomalies'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 type: zod
                                     .enum(['threshold'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault),
                                 upper_bound: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Upper bound - values above this are anomalies'),
                             }),
                             zod.object({
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['ecod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['copod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
                                 n_estimators: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Number of trees in the forest (default: 100)'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['isolation_forest'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
-                                method: zod.enum(['largest', 'mean', 'median']).nullish(),
+                                method: zod
+                                    .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                                    .optional()
+                                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                                 n_neighbors: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Number of neighbors to consider (default: 5)'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['knn'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
-                                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
+                                n_bins: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Number of histogram bins (default: 10)'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['hbos'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
                                 n_neighbors: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Number of neighbors for LOF (default: 20)'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['lof'])
@@ -2380,43 +3115,50 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
                                     ),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
-                                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
+                                kernel: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('SVM kernel type (default: \"rbf\")'),
                                 nu: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Upper bound on training errors fraction (default: 0.1)'),
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['ocsvm'])
@@ -2424,38 +3166,42 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault
                                     ),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
                                 preprocessing: zod
-                                    .object({
-                                        diffs_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
-                                            ),
-                                        lags_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
-                                            ),
-                                        smooth_n: zod
-                                            .number()
-                                            .nullish()
-                                            .describe(
-                                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                                            ),
-                                    })
-                                    .nullish(),
+                                    .union([
+                                        zod.object({
+                                            diffs_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'
+                                                ),
+                                            lags_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                                ),
+                                            smooth_n: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
                                     .enum(['pca'])
@@ -2463,8 +3209,8 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault
                                     ),
                                 window: zod
-                                    .number()
-                                    .nullish()
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
@@ -2472,341 +3218,470 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         ])
                     )
                     .describe('Sub-detector configurations (minimum 2)'),
-                operator: zod.enum(['and', 'or']),
+                operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                 type: zod.enum(['ensemble']).default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
             }),
             zod.object({
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                     ),
                 type: zod.enum(['zscore']).default(alertsSimulateCreateBodyDetectorConfigOneTwoTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating mean/std (default: 30)'),
+                window: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Rolling window size for calculating mean\/std (default: 30)'),
             }),
             zod.object({
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                     ),
                 type: zod.enum(['mad']).default(alertsSimulateCreateBodyDetectorConfigOneThreeTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating median/MAD (default: 30)'),
+                window: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Rolling window size for calculating median\/MAD (default: 30)'),
             }),
             zod.object({
                 multiplier: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe('IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['iqr']).default(alertsSimulateCreateBodyDetectorConfigOneFourTypeDefault),
-                window: zod.number().nullish().describe('Rolling window size for calculating quartiles (default: 30)'),
+                window: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Rolling window size for calculating quartiles (default: 30)'),
             }),
             zod.object({
-                lower_bound: zod.number().nullish().describe('Lower bound - values below this are anomalies'),
+                lower_bound: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Lower bound - values below this are anomalies'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['threshold']).default(alertsSimulateCreateBodyDetectorConfigOneFiveTypeDefault),
-                upper_bound: zod.number().nullish().describe('Upper bound - values above this are anomalies'),
+                upper_bound: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Upper bound - values above this are anomalies'),
             }),
             zod.object({
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ecod']).default(alertsSimulateCreateBodyDetectorConfigOneSixTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['copod']).default(alertsSimulateCreateBodyDetectorConfigOneSevenTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
-                n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
+                n_estimators: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Number of trees in the forest (default: 100)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['isolation_forest']).default(alertsSimulateCreateBodyDetectorConfigOneEightTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
-                method: zod.enum(['largest', 'mean', 'median']).nullish(),
-                n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
+                method: zod
+                    .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
+                    .optional()
+                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                n_neighbors: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Number of neighbors to consider (default: 5)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['knn']).default(alertsSimulateCreateBodyDetectorConfigOneNineTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
-                n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
+                n_bins: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Number of histogram bins (default: 10)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['hbos']).default(alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
-                n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
+                n_neighbors: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Number of neighbors for LOF (default: 20)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['lof']).default(alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
-                kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
-                nu: zod.number().nullish().describe('Upper bound on training errors fraction (default: 0.1)'),
+                kernel: zod.union([zod.string(), zod.null()]).optional().describe('SVM kernel type (default: \"rbf\")'),
+                nu: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Upper bound on training errors fraction (default: 0.1)'),
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ocsvm']).default(alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
             zod.object({
                 preprocessing: zod
-                    .object({
-                        diffs_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
-                        lags_n: zod
-                            .number()
-                            .nullish()
-                            .describe('Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'),
-                        smooth_n: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
-                            ),
-                    })
-                    .nullish(),
-                threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
+                    .union([
+                        zod.object({
+                            diffs_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)'),
+                            lags_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Number of lag features. 0 = none, >0 = include n lagged values (default: 0)'
+                                ),
+                            smooth_n: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Preprocessing transforms applied before detection'),
+                threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['pca']).default(alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault),
                 window: zod
-                    .number()
-                    .nullish()
+                    .union([zod.number(), zod.null()])
+                    .optional()
                     .describe(
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
@@ -2817,11 +3692,82 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)
-        .describe('Zero-based index of the series to analyze.'),
+        .describe('Zero-based index of the series to analyze (trends insights only).'),
     date_from: zod
         .string()
         .nullish()
         .describe(
-            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples."
+            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series."
+        ),
+    config: zod
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsSimulateCreateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod
+                            .enum(['FunnelsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod
+                            .enum(['MetricsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })

@@ -3,11 +3,13 @@ import './LemonMarkdown.scss'
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, getLanguage, Language } from 'lib/components/CodeSnippet'
 import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
@@ -27,10 +29,24 @@ export interface LemonMarkdownProps {
     lowKeyHeadings?: boolean
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
+    /**
+     * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
+     * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
+     * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
+     * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
+     * as <img>; every other image is rendered as a plain click-to-open link instead.
+     */
+    disableImages?: boolean
     className?: string
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
     generateHeadingIds?: boolean
+    /**
+     * Optional renderer for ` ```mermaid ` code blocks. When omitted, mermaid fences fall back to a
+     * plain text CodeSnippet — this is the default so the mermaid library only ships in bundles
+     * that opt in (see `LemonMarkdownWithMermaid`).
+     */
+    renderMermaid?: (code: string) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -65,8 +81,10 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -79,8 +97,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
                 if (isBlock) {
-                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     const value = String(children).replace(/\n$/, '')
+                    if (renderMermaid && languageMatch && languageMatch[1].toLowerCase() === 'mermaid') {
+                        return <>{renderMermaid(value)}</>
+                    }
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {value}
@@ -104,6 +125,18 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 }
                 return <span className={className} {...props} />
             },
+            ...(disableImages
+                ? {
+                      img: ({ src, alt }: any): JSX.Element =>
+                          isTrustedPostHogUrl(src) ? (
+                              <img src={src} alt={alt} loading="lazy" />
+                          ) : (
+                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                                  {alt || src}
+                              </Link>
+                          ),
+                  }
+                : {}),
             li: ({ children, node }: any): JSX.Element => {
                 const isTaskItem = node?.properties?.className?.includes('task-list-item')
                 if (isTaskItem) {
@@ -147,12 +180,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
+        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
+    // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
+    // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
+    // line breaks the author intended.
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkMentions]} skipHtml>
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]} skipHtml>
             {children}
         </ReactMarkdown>
     )
@@ -163,8 +199,10 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -172,8 +210,10 @@ function LemonMarkdownComponent({
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
+                disableImages={disableImages}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
+                renderMermaid={renderMermaid}
             >
                 {children}
             </LemonMarkdownRenderer>

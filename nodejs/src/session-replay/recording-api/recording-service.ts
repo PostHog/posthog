@@ -2,11 +2,13 @@ import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { logger, serializeError } from '../../utils/logger'
-import { ValidRetentionPeriods } from '../shared/constants'
-import { createDeletionBlockMetadata } from '../shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger, serializeError } from '~/common/utils/logger'
+import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
+import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+
 import { RecordingApiMetrics } from './metrics'
 import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -44,6 +46,7 @@ export class RecordingService {
         private keyStore: KeyStore,
         private decryptor: RecordingDecryptor,
         private metadataStore?: SessionMetadataStore,
+        private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
         private clickhouse?: ClickHouseClient
     ) {}
@@ -383,12 +386,12 @@ export class RecordingService {
     }
 
     private async emitDeletionEvents(sessionIds: string[], teamId: number): Promise<void> {
-        if (!this.metadataStore) {
-            return
-        }
-        await this.metadataStore.storeSessionBlocks(
-            sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
-        )
+        await Promise.all([
+            this.metadataStore?.storeSessionBlocks(
+                sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
+            ),
+            this.featureStore?.storeDeletionMarkers(sessionIds.map((sessionId) => ({ sessionId, teamId }))),
+        ])
     }
 
     private async deletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {

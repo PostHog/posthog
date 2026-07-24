@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Page size. Defaults to 10.",
+            "type": "number"
+        },
+        "page": {
+            "description": "1-indexed page number. Defaults to 1.",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

@@ -5,7 +5,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -92,7 +93,12 @@ function FunnelTooltipContent({
                     )}
                 </tbody>
             </table>
-            {hasSessionData && <ClickToInspectActors groupTypeLabel="persons" />}
+            {hasSessionData && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <ClickToInspectActors groupTypeLabel="persons" />
+                </>
+            )}
         </div>
     )
 }
