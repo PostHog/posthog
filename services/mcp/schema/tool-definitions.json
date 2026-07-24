@@ -393,6 +393,20 @@
             "readOnlyHint": true
         }
     },
+    "projects-find": {
+        "description": "Find projects by name across ALL organizations you can access, not just the active one. Pass `name` for a case-insensitive substring match, or omit it to list every project. Returns `projects`, each with the project `id` plus its `organization` id and name, so you can `switch-project` (and `switch-organization` if it lives in a different org) instead of guessing or enumerating project ids. If any organization could not be searched, it is listed under `incomplete_organizations` so you can tell an empty result apart from an incomplete search. Use this to resolve a project the user names when you don't already know its id.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Find projects by name across all your organizations.",
+        "title": "Find projects",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "event-definition-update": {
         "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",

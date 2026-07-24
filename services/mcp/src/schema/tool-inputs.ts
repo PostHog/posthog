@@ -420,6 +420,15 @@ export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
+export const ProjectsFindSchema = z.object({
+    name: z
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive substring matched against project names. Omit to list every project across all your organizations.'
+        ),
+})
+
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z

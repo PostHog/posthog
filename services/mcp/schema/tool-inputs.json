@@ -743,6 +743,15 @@
             },
             "required": ["projectId"]
         },
+        "ProjectsFindSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "Case-insensitive substring matched against project names. Omit to list every project across all your organizations.",
+                    "type": "string"
+                }
+            }
+        },
         "PromptListInputSchema": {
             "type": "object",
             "properties": {

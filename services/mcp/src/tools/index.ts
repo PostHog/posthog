@@ -38,6 +38,7 @@ import {
     readDataSchema,
 } from './posthogAiTools'
 // Projects
+import findProjects from './projects/findProjects'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
@@ -69,6 +70,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Projects
     'projects-get': getProjects,
+    'projects-find': findProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
     'property-definition-update': updatePropertyDefinition,

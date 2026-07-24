@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Case-insensitive substring matched against project names. Omit to list every project across all your organizations.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
