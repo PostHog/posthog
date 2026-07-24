@@ -225,16 +225,14 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         assert ("system.information_schema.tables", "certification") not in columns.results
         assert ("system.information_schema.relationships", "confidence") not in columns.results
         assert ("system.information_schema.relationships", "reasoning") not in columns.results
-        assert ("system.information_schema.relationships", "id") not in columns.results
-        assert ("system.information_schema.relationships", "status") not in columns.results
 
-        certifications_listing = execute_hogql_query(
-            "SELECT table_name FROM system.information_schema.tables "
-            "WHERE table_name = 'system.information_schema.certifications'",
+        catalog_tables_listing = execute_hogql_query(
+            "SELECT table_name FROM system.information_schema.tables WHERE table_name IN "
+            "('system.information_schema.certifications', 'system.information_schema.relationship_proposals')",
             team=self.team,
             context=context,
         )
-        assert certifications_listing.results == []
+        assert catalog_tables_listing.results == []
 
         relationships_response = execute_hogql_query(
             "SELECT source_column, target_table, target_column, relationship_kind "
@@ -252,13 +250,9 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             execute_hogql_query(
                 "SELECT confidence FROM system.information_schema.relationships", team=self.team, context=context
             )
-        with pytest.raises(QueryError, match="status"):
-            execute_hogql_query(
-                "SELECT status FROM system.information_schema.relationships", team=self.team, context=context
-            )
         with pytest.raises(QueryError, match="Unknown table"):
             execute_hogql_query(
-                "SELECT id FROM system.information_schema.certifications", team=self.team, context=context
+                "SELECT id FROM system.information_schema.relationship_proposals", team=self.team, context=context
             )
 
     def test_certification_column_on_tables(self) -> None:
@@ -472,18 +466,18 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         proposal.refresh_from_db()
 
         query = (
-            "SELECT confidence, reasoning, id, status FROM system.information_schema.relationships "
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
             "WHERE source_table = 'prov_orders'"
         )
         before = execute_hogql_query(query, team=self.team, context=self._context())
-        assert (0.9, "Reviewed join", str(proposal.id), "accepted") in before.results
+        assert (0.9, "Reviewed join") in before.results
 
         assert proposal.created_join_id is not None
         DataWarehouseJoin.objects.filter(pk=proposal.created_join_id).update(**edit)
 
         after = execute_hogql_query(query, team=self.team, context=self._context())
         assert after.results, "the active join should still be discoverable after an edit"
-        assert all(row == (None, None, None, None) for row in after.results)
+        assert all(row == (None, None) for row in after.results)
 
     def _propose_catalog_relationship(self, source_name: str, target_name: str) -> RelationshipProposal:
         source = self._create_warehouse_table(source_name)
@@ -500,66 +494,72 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             reasoning="Keys overlap",
         )
 
-    def test_rejected_relationship_is_not_query_discoverable(self) -> None:
+    def test_pending_proposal_is_in_review_queue_but_not_in_relationships(self) -> None:
+        proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
+
+        queue = execute_hogql_query(
+            "SELECT id, source_table, source_column, target_table, target_column, confidence, reasoning "
+            "FROM system.information_schema.relationship_proposals WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert queue.results == [
+            (str(proposal.id), "catalog_orders", "id", "catalog_customers", "id", 0.8, "Keys overlap")
+        ]
+
+        # A pending proposal is not a usable join, so it must never appear in the joins table.
+        joins = execute_hogql_query(
+            "SELECT source_table FROM system.information_schema.relationships WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert joins.results == []
+
+    def test_rejected_proposal_is_not_in_review_queue(self) -> None:
         proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
         reject_proposal(proposal, self.user)
 
         response = execute_hogql_query(
-            "SELECT source_column, relationship_kind, confidence, reasoning, id, status "
-            "FROM system.information_schema.relationships "
-            "WHERE source_table = 'catalog_orders' AND target_table = 'catalog_customers'",
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'catalog_orders'",
             team=self.team,
             context=self._context(),
         )
         assert response.results == []
 
-    def test_proposed_relationship_is_discoverable_as_review_queue(self) -> None:
-        proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
-
-        enriched = execute_hogql_query(
-            "SELECT source_column, target_table, target_column, relationship_kind, confidence, reasoning, id, status "
-            "FROM system.information_schema.relationships "
-            "WHERE source_table = 'catalog_orders' AND target_table = 'catalog_customers'",
-            team=self.team,
-            context=self._context(),
-        )
-        assert enriched.results == [
-            ("id", "catalog_customers", "id", "proposed_join", 0.8, "Keys overlap", str(proposal.id), "proposed")
-        ]
-
-        # A base-column projection must not surface the pending proposal — it is not a usable join.
-        base = execute_hogql_query(
-            "SELECT source_table, target_table, relationship_kind "
-            "FROM system.information_schema.relationships "
-            "WHERE source_table = 'catalog_orders' AND target_table = 'catalog_customers'",
-            team=self.team,
-            context=self._context(),
-        )
-        assert base.results == []
-
-    def test_proposed_relationship_hidden_without_data_catalog_access(self) -> None:
+    def test_review_queue_hidden_without_data_catalog_access(self) -> None:
         self._propose_catalog_relationship("gated_orders", "gated_customers")
         AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
         self._enable_access_control()
 
         response = execute_hogql_query(
-            "SELECT id, status FROM system.information_schema.relationships "
-            "WHERE source_table = 'gated_orders' AND status = 'proposed'",
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'gated_orders'",
             team=self.team,
             context=self._context(),
         )
         assert response.results == []
 
     @parameterized.expand([("source", "denied_prop_orders"), ("target", "denied_prop_customers")])
-    def test_proposed_relationship_hidden_when_endpoint_denied(self, _name: str, denied_table_name: str) -> None:
+    def test_review_queue_hides_proposal_when_endpoint_denied(self, _name: str, denied_table_name: str) -> None:
         self._propose_catalog_relationship("denied_prop_orders", "denied_prop_customers")
 
         response = execute_hogql_query(
-            "SELECT id, status FROM system.information_schema.relationships "
-            "WHERE source_table = 'denied_prop_orders' AND status = 'proposed'",
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'denied_prop_orders'",
             team=self.team,
             context=self._context(denied_tables={denied_table_name}),
         )
+        assert response.results == []
+
+    def test_review_queue_loader_failure_returns_empty(self) -> None:
+        self._propose_catalog_relationship("failsoft_orders", "failsoft_customers")
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(RelationshipProposal._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT id FROM system.information_schema.relationship_proposals "
+                "WHERE source_table = 'failsoft_orders'",
+                team=self.team,
+                context=context,
+            )
         assert response.results == []
 
     def test_catalog_metadata_hidden_without_data_catalog_access(self) -> None:
@@ -633,25 +633,16 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             confidence=0.9,
             reasoning="97% key match",
         )
-        accepted = self._accept_relationship(proposal)
+        self._accept_relationship(proposal)
 
         response = execute_hogql_query(
-            "SELECT confidence, reasoning, id, status FROM system.information_schema.relationships "
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
             "WHERE source_table = 'events' AND relationship_kind = 'lazy_join' AND reasoning IS NOT NULL",
             team=self.team,
             context=self._context(),
         )
-        assert response.results == [(0.9, "97% key match", str(accepted.id), "accepted")]
-
-        # Plain built-in lazy joins carry no catalog provenance, so id/status stay NULL.
-        plain = execute_hogql_query(
-            "SELECT id, status FROM system.information_schema.relationships "
-            "WHERE source_table = 'events' AND relationship_kind = 'lazy_join' AND reasoning IS NULL",
-            team=self.team,
-            context=self._context(),
-        )
-        assert plain.results
-        assert all(row == (None, None) for row in plain.results)
+        assert [row[1] for row in response.results] == ["97% key match"]
+        assert response.results[0][0] == 0.9
 
     def test_replacement_join_does_not_inherit_deleted_join_provenance(self) -> None:
         proposal = propose_relationship(
