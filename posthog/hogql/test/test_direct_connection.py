@@ -1,6 +1,12 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql.direct_connection import get_direct_connection_source
+
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -41,3 +47,23 @@ class TestGetDirectConnectionSource(APIBaseTest):
 
         assert resolved is not None
         self.assertEqual(resolved.id, source.id)
+
+    @parameterized.expand(
+        [
+            ("shared_link_user", lambda self: SharedLinkUser(self._enabled_sharing_configuration())),
+            ("synthetic_user", lambda self: SyntheticUser(self.team, "svc-token")),
+        ]
+    )
+    def test_non_user_principal_resolves_source_without_error(self, _name, make_user):
+        # A non-user principal (shared-link viewer, service token) has no RBAC identity; filtering
+        # AccessControl by its non-integer id used to raise TypeError and fail the query closed.
+        # These principals bypass warehouse access control by design, so the source must resolve.
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+
+        resolved = get_direct_connection_source(self.team, str(source.id), user=make_user(self))
+
+        assert resolved is not None
+        self.assertEqual(resolved.id, source.id)
+
+    def _enabled_sharing_configuration(self) -> SharingConfiguration:
+        return SharingConfiguration.objects.create(team=self.team, enabled=True)
