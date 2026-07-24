@@ -9435,6 +9435,48 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_called_once()
 
+    def _signal_report_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        return Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Act on report",
+            description="Act on report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+    @parameterized.expand(
+        [
+            ("under_limit_runs", CodeUsageStatus(False, None, None, False), status.HTTP_200_OK),
+            ("over_limit_still_blocked", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_signal_report_task_bypasses_code_access_but_keeps_usage_backstop(
+        self, _name, gate_return, expected_status, mock_gate, _mock_workflow
+    ):
+        # Self-driving is entitled through the Inbox (`product-autonomy`), not PostHog Code, so a
+        # signal-report task runs with the `tasks` flag off — where a plain task 403s (see
+        # test_run_without_code_access_returns_403_before_usage_check). The usage cost-backstop must
+        # still fire, so an over-limit team is blocked even on the entitlement-bypassed path.
+        self.set_tasks_feature_flag(False)
+        mock_gate.return_value = gate_return
+        task = self._signal_report_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        mock_gate.assert_called_once()
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
 
 class TestGetPosthogCodeUsage(TestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")

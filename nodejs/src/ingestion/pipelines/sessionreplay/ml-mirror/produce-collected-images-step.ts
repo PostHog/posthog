@@ -5,14 +5,18 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 /**
- * The Rust collector dedupes within one message; this bounds cross-message re-produces (the same
- * sprite recurring in every snapshot of a session). Refs are ~60 bytes, so the ceiling is ~6 MB.
- * Duplicates that slip past it are only wasted topic bytes — the consumer's S3 layout is keyed by
- * hash, so re-produces are idempotent.
+ * The Rust collector only dedupes within one message, leaving this as the sole thing between a hot
+ * sprite and one produce per recurrence, so capacity translates directly into scrub-topic volume: a
+ * ref evicted before its next sighting is re-produced and re-scrubbed. Budget ~200 B per entry (the
+ * LRU's bookkeeping dominates the ~60 B ref), so this is ~100 MB against the 8000M mirror container
+ * in https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-mirror/values.yaml,
+ * which also holds the anonymizer's packed image buffers. Overflowing it costs topic bytes rather
+ * than correctness, since the consumer dedupes by ref too.
  */
-const PRODUCED_REF_CACHE_MAX = 100_000
+const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
  * Produce collected original images to the scrub topic as a fire-and-forget side effect, keyed by
@@ -21,9 +25,10 @@ const PRODUCED_REF_CACHE_MAX = 100_000
  * is defined as equivalent to a placeholder for training joins.
  */
 export function createProduceCollectedImagesStep<T extends { collectedImages?: CollectedImage[] }>(
-    outputs: IngestionOutputs<MlImageScrubOutput>
+    outputs: IngestionOutputs<MlImageScrubOutput>,
+    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
-    const producedRefs = new Set<string>()
+    const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
 
     return function produceCollectedImagesStep(input) {
         const images = input.collectedImages
@@ -37,9 +42,6 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
         }
 
-        if (producedRefs.size + fresh.length > PRODUCED_REF_CACHE_MAX) {
-            producedRefs.clear()
-        }
         let bytes = 0
         for (const image of fresh) {
             producedRefs.add(image.ref)

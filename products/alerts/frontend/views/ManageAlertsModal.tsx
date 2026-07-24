@@ -146,8 +146,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Header>
             <LemonModal.Content>
                 <div className="mb-4">
-                    With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...).
+                    With alerts, PostHog monitors your insight at a recurring interval and notifies you when conditions
+                    are met.
                     <br />
                     <Link to={urls.alerts()} target="_blank">
                         View all your alerts here

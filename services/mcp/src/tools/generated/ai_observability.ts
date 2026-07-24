@@ -875,9 +875,9 @@ const llmaPromptList = (): ToolBase<
     },
 })
 
-const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.shape
-)
+const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true })
+    .extend(LlmPromptsNamePartialUpdateBody.shape)
+    .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].unwrap() })
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-update',

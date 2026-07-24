@@ -22275,6 +22275,15 @@ export namespace Schemas {
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
     export interface MinimalFeatureFlag {
@@ -22358,12 +22367,28 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
     }
+
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureSerializerCreateOnlyAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     /**
      * Mixin for serializers to add user access control fields
@@ -22394,6 +22419,13 @@ export namespace Schemas {
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureSerializerCreateOnlyAssignee;
       /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
@@ -25681,6 +25713,59 @@ export namespace Schemas {
       property_group_id: string;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface EventStream {
+      readonly id: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids: readonly string[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * Request body for adding or removing an event-stream member account.
+     */
+    export interface EventStreamMemberWrite {
+      /** UUID of the account to add to or remove from the stream. */
+      account_id: string;
+    }
+
+    /**
+     * Result of posting an event-stream test message to Slack.
+     */
+    export interface EventStreamTestMessage {
+      /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+      readonly channel_id: string;
     }
 
     export interface EventSuggestionsResponse {
@@ -47419,6 +47504,15 @@ export namespace Schemas {
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
     /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type PatchedEarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface PatchedEarlyAccessFeature {
@@ -47448,6 +47542,13 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by?: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee?: PatchedEarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -48023,6 +48124,43 @@ export namespace Schemas {
       property_group_id?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface PatchedEventStream {
+      readonly id?: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids?: readonly string[];
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
