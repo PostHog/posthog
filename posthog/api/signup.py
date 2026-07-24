@@ -439,7 +439,12 @@ class SignupResendInviteViewset(generics.GenericAPIView):
         if invite is not None and is_email_available():
             from posthog.tasks.email import send_invite
 
-            send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
+            # Force a fresh delivery: the original invite email already set MessagingRecord.sent_at,
+            # so re-sending under the same campaign_key would be silently deduped and never arrive.
+            # A unique suffix gives this resend its own record so it actually goes out.
+            send_invite.apply_async(
+                kwargs={"invite_id": str(invite.id), "campaign_key_suffix": uuid_module.uuid4().hex}
+            )
         return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
 
 
