@@ -9,6 +9,7 @@ showTitle: true
 PostHog can show a cookie consent banner on your website, so you don't need a separate consent vendor to stay compliant.
 Visitors' choices are wired straight into PostHog tracking consent: accepting calls `posthog.opt_in_capturing()` and declining calls `posthog.opt_out_capturing()`.
 The banner is styled after the PostHog cookie banner by default, and you can tailor the text, colors, position, and art, including PostHog hedgehog art.
+It can also localize its copy per language, offer a per-category preferences panel, fall back to cookieless analytics on decline, and respect the Global Privacy Control signal.
 
 ## Setup
 
@@ -38,12 +39,33 @@ Use it to gate your other analytics or marketing scripts:
 ```js
 window.addEventListener('posthog:consent', (event) => {
   // event.detail.status is 'accepted' or 'declined'
-  // event.detail.source is 'user' (just clicked) or 'stored' (returning visitor)
-  if (event.detail.status === 'accepted') {
-    // load your other analytics or marketing scripts here
+  // event.detail.source is 'user' (just clicked), 'stored' (returning visitor),
+  // or 'gpc' (auto-declined by Global Privacy Control)
+  // event.detail.categories is { analytics: boolean, marketing: boolean }
+  if (event.detail.categories.marketing) {
+    // load your marketing scripts here
   }
 })
 ```
+
+## Consent options
+
+- **Manage preferences**: adds a link that opens a panel where visitors consent to analytics and marketing cookies separately.
+  Analytics consent controls PostHog tracking; the marketing choice reaches your site through the `posthog:consent` event so you can gate your own scripts.
+- **Cookieless fallback on decline**: instead of stopping tracking entirely, a decline switches posthog-js to in-memory persistence.
+  Nothing is stored on the visitor's device and each page load starts a fresh anonymous session, so you keep privacy-safe traffic counts.
+- **Respect Global Privacy Control** (on by default): visitors whose browser broadcasts the [GPC signal](https://globalprivacycontrol.org/) are treated as declined and never shown the banner.
+  An explicit choice made on your site still takes precedence.
+
+## Languages
+
+Add languages in the **Languages** section to serve translated copy based on the visitor's browser language (`navigator.language`).
+An exact match like `pt-BR` wins over a base-language match like `pt`; fields you leave empty fall back to the default copy.
+
+## Banner analytics
+
+The banner captures its own events into your project — `cookie banner shown`, `cookie banner accepted`, and `cookie banner declined` (with the chosen categories and seconds to decision) — so you can chart accept rates.
+These events go through the normal posthog-js consent gate: nothing is captured from opted-out visitors, so with `opt_out_capturing_by_default: true` the `shown` and `declined` events only arrive when the cookieless fallback is enabled.
 
 ## Removing the "Powered by PostHog" notice
 

@@ -54,6 +54,43 @@ export const PositionEnumApi = {
 } as const
 
 /**
+ * Per-language overrides for the banner copy. Omitted keys fall back to the base
+ * (untranslated) copy for visitors matching this language.
+ */
+export interface CookieBannerTranslationApi {
+    /**
+     * Translated banner headline.
+     * @maxLength 25
+     */
+    title?: string
+    /**
+     * Translated body copy.
+     * @maxLength 200
+     */
+    description?: string
+    /**
+     * Translated accept button label.
+     * @maxLength 11
+     */
+    acceptButtonText?: string
+    /**
+     * Translated decline button label.
+     * @maxLength 11
+     */
+    declineButtonText?: string
+    /**
+     * Translated 'Manage preferences' label.
+     * @maxLength 25
+     */
+    preferencesButtonText?: string
+}
+
+/**
+ * Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy.
+ */
+export type CookieBannerAppearanceApiTranslations = { [key: string]: CookieBannerTranslationApi }
+
+/**
  * Appearance overrides for the banner. Omitted keys fall back to the PostHog-styled defaults
  * (see products/cookie_banner/backend/constants.py) when the banner is delivered.
  */
@@ -122,6 +159,19 @@ export interface CookieBannerAppearanceApi {
     buttonTextColor?: string
     /** Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan. */
     whiteLabel?: boolean
+    /**
+     * Label for the link that opens the consent preferences panel. Defaults to 'Manage preferences'.
+     * @maxLength 25
+     */
+    preferencesButtonText?: string
+    /** Show a 'Manage preferences' panel where visitors can consent to analytics and marketing cookies separately. Category choices are exposed to your site via the posthog:consent event. Defaults to false. */
+    showPreferences?: boolean
+    /** When a visitor declines analytics cookies, keep anonymous cookieless analytics (in-memory persistence, nothing stored on the device) instead of stopping tracking entirely. Defaults to false. */
+    cookielessFallback?: boolean
+    /** Visitors broadcasting the Global Privacy Control signal are treated as declined and never shown the banner. An explicit choice made on your site still takes precedence. Defaults to true. */
+    respectGpc?: boolean
+    /** Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy. */
+    translations?: CookieBannerAppearanceApiTranslations
 }
 
 /**

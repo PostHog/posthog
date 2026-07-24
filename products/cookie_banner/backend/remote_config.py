@@ -10,13 +10,40 @@ from products.cookie_banner.backend.constants import (
     COLOR_KEYS,
     DEFAULT_APPEARANCE,
     HEX_COLOR_REGEX,
+    LANGUAGE_CODE_REGEX,
+    MAX_TEXT_LENGTHS,
+    MAX_TRANSLATION_LANGUAGES,
     POSITIONS,
+    TRANSLATABLE_KEYS,
 )
 from products.cookie_banner.backend.models import CookieBannerConfig
 from products.cookie_banner.backend.site_app_js import build_cookie_banner_js
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+def _sanitize_translations(raw: Any) -> dict[str, dict[str, str]]:
+    """Whitelist translation entries the same way the top-level appearance keys are:
+    the stored JSON is user data and never ships to customer sites unvalidated."""
+    if not isinstance(raw, dict):
+        return {}
+    sanitized: dict[str, dict[str, str]] = {}
+    for language, overrides in raw.items():
+        if len(sanitized) >= MAX_TRANSLATION_LANGUAGES:
+            break
+        if not isinstance(language, str) or not re.match(LANGUAGE_CODE_REGEX, language):
+            continue
+        if not isinstance(overrides, dict):
+            continue
+        entry = {
+            key: value
+            for key, value in overrides.items()
+            if key in TRANSLATABLE_KEYS and isinstance(value, str) and len(value) <= MAX_TEXT_LENGTHS[key]
+        }
+        if entry:
+            sanitized[language] = entry
+    return sanitized
 
 
 def build_cookie_banner_site_app_js(team: "Team") -> Optional[str]:
@@ -45,6 +72,7 @@ def build_cookie_banner_site_app_js(team: "Team") -> Optional[str]:
     for key in COLOR_KEYS:
         if not re.match(HEX_COLOR_REGEX, client_config[key]):
             client_config[key] = DEFAULT_APPEARANCE[key]
+    client_config["translations"] = _sanitize_translations(client_config["translations"])
 
     # Build-time enforcement on top of the API-level check: removing the "Powered by
     # PostHog" notice requires the white labelling entitlement *now*, so a downgraded

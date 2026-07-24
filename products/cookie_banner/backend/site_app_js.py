@@ -1,8 +1,12 @@
 """Static JS runtime for the cookie banner, delivered through the site-apps channel in remote config.
 
 The banner renders inside a Shadow DOM on the customer's site, wires consent into
-posthog-js (`opt_in_capturing` / `opt_out_capturing`), and dispatches a `posthog:consent`
-CustomEvent so customers can gate their other scripts on the visitor's choice.
+posthog-js (`opt_in_capturing` / `opt_out_capturing`, or in-memory persistence when the
+cookieless fallback is enabled), and dispatches a `posthog:consent` CustomEvent — with
+per-category detail (analytics/marketing) — so customers can gate their other scripts on
+the visitor's choice. Visitors broadcasting Global Privacy Control are auto-declined
+without a banner when `respectGpc` is set, and copy is localized from `translations`
+by browser language.
 
 The in-app live preview (products/cookie_banner/frontend/CookieBannerPreview.tsx) is a
 React re-render of this markup — keep the two in sync when changing structure or styles.
@@ -97,6 +101,12 @@ _BANNER_CSS = """
 .actions .decline { background: transparent; border: 1px solid rgba(0, 0, 0, 0.2); }
 .powered { margin-top: 10px; font-size: 11px; opacity: 0.65; }
 .powered a { color: inherit; }
+.prefs-link { background: none; border: none; padding: 0; margin: 0 0 12px; font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; color: inherit; opacity: 0.8; display: block; }
+.banner.bottom-bar .prefs-link { margin-bottom: 0; margin-top: 4px; }
+.prefs { margin: 0 0 12px; }
+.prefs label { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; }
+.prefs .always-on { opacity: 0.65; font-size: 12px; margin-left: auto; }
+.prefs .save-prefs { cursor: pointer; border: none; border-radius: 6px; padding: 6px 12px; font: inherit; font-weight: 600; font-size: 13px; }
 @media (max-width: 640px) {
     .banner.bottom-left, .banner.bottom-right { left: 16px; right: 16px; max-width: none; }
     .banner.bottom-bar { flex-direction: column; align-items: stretch; gap: 12px; }
@@ -109,50 +119,118 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
     var ART = __ART__;
     var CSS = __CSS__;
 
-    function getStoredChoice() {
+    // Localization: apply the visitor's browser-language copy overrides. An exact
+    // tag match (pt-br) beats a base-language match (pt); missing fields keep the
+    // base copy.
+    try {
+        var translations = cfg.translations || {};
+        var visitorLang = (navigator.language || '').toLowerCase();
+        var baseLang = visitorLang.split('-')[0];
+        var langOverrides = null;
+        for (var langKey in translations) {
+            var normalized = langKey.toLowerCase();
+            if (normalized === visitorLang) { langOverrides = translations[langKey]; break; }
+            if (normalized === baseLang && !langOverrides) { langOverrides = translations[langKey]; }
+        }
+        if (langOverrides) {
+            for (var field in langOverrides) {
+                if (typeof langOverrides[field] === 'string') { cfg[field] = langOverrides[field]; }
+            }
+        }
+    } catch (e) {}
+
+    function parseChoice(value) {
+        // Plain 'accepted'/'declined' strings predate per-category consent
+        if (value === 'accepted' || value === 'declined') {
+            var all = value === 'accepted';
+            return { status: value, categories: { analytics: all, marketing: all } };
+        }
         try {
-            var value = window.localStorage.getItem(STORAGE_KEY);
-            if (value === 'accepted' || value === 'declined') { return value; }
-        } catch (e) {}
-        try {
-            var match = document.cookie.match(new RegExp('(?:^|; ?)' + STORAGE_KEY + '=(accepted|declined)'));
-            if (match) { return match[1]; }
+            var parsed = JSON.parse(value);
+            if (parsed && (parsed.status === 'accepted' || parsed.status === 'declined') && parsed.categories) {
+                return {
+                    status: parsed.status,
+                    categories: { analytics: !!parsed.categories.analytics, marketing: !!parsed.categories.marketing }
+                };
+            }
         } catch (e) {}
         return null;
     }
 
-    function storeChoice(status) {
-        try { window.localStorage.setItem(STORAGE_KEY, status); } catch (e) {}
-        try { document.cookie = STORAGE_KEY + '=' + status + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
+    function getStoredChoice() {
+        try {
+            var stored = parseChoice(window.localStorage.getItem(STORAGE_KEY));
+            if (stored) { return stored; }
+        } catch (e) {}
+        try {
+            var match = document.cookie.match(new RegExp('(?:^|; ?)' + STORAGE_KEY + '=([^;]+)'));
+            if (match) { return parseChoice(decodeURIComponent(match[1])); }
+        } catch (e) {}
+        return null;
     }
 
-    function dispatchConsent(status, source) {
+    function storeChoice(choice) {
+        var value = JSON.stringify(choice);
+        try { window.localStorage.setItem(STORAGE_KEY, value); } catch (e) {}
+        try { document.cookie = STORAGE_KEY + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
+    }
+
+    function dispatchConsent(choice, source) {
         try {
-            window.dispatchEvent(new CustomEvent('posthog:consent', { detail: { status: status, source: source } }));
+            window.dispatchEvent(new CustomEvent('posthog:consent', {
+                detail: { status: choice.status, source: source, categories: choice.categories }
+            }));
         } catch (e) {}
     }
 
-    function applyConsent(status) {
+    function applyConsent(choice) {
+        // Idempotent (guarded by has_opted_* / captureEventName: null) because it
+        // runs on every page load once a choice is stored — that re-aligns posthog-js
+        // if its own consent record diverged (cleared SDK storage, rotated project
+        // token) and re-establishes the in-memory cookieless fallback, which never
+        // survives a page load.
         try {
-            if (status === 'accepted') { posthog.opt_in_capturing(); } else { posthog.opt_out_capturing(); }
+            if (!choice.categories.analytics && cfg.cookielessFallback) {
+                // Anonymous cookieless analytics: in-memory persistence stores nothing
+                // on the visitor's device; each page load starts a fresh anonymous id
+                posthog.set_config({ persistence: 'memory' });
+                if (!posthog.has_opted_in_capturing()) { posthog.opt_in_capturing({ captureEventName: null }); }
+            } else if (choice.categories.analytics) {
+                if (!posthog.has_opted_in_capturing()) { posthog.opt_in_capturing({ captureEventName: null }); }
+            } else {
+                if (!posthog.has_opted_out_capturing()) { posthog.opt_out_capturing(); }
+            }
         } catch (e) {}
+    }
+
+    function captureBannerEvent(name, properties) {
+        // posthog-js drops capture calls while the visitor is opted out, so no banner
+        // event leaves the browser without consent (or the cookieless fallback)
+        try { posthog.capture(name, properties); } catch (e) {}
     }
 
     var storedChoice = getStoredChoice();
     if (storedChoice) {
-        try {
-            // Re-align posthog-js when its own consent record diverged from the stored
-            // choice (cleared SDK storage, rotated project token) so a declined visitor
-            // is never tracked and an accepted one never goes dark
-            var aligned = storedChoice === 'accepted' ? posthog.has_opted_in_capturing() : posthog.has_opted_out_capturing();
-            if (!aligned) { applyConsent(storedChoice); }
-        } catch (e) {}
+        applyConsent(storedChoice);
         dispatchConsent(storedChoice, 'stored');
+        return;
+    }
+
+    var gpcSignal = false;
+    try { gpcSignal = !!(cfg.respectGpc && navigator.globalPrivacyControl); } catch (e) {}
+    if (gpcSignal) {
+        // The visitor broadcasts Global Privacy Control: treat as declined without
+        // showing a banner. Nothing is stored, so the signal is re-read every visit,
+        // and an explicit on-site choice (handled above) still takes precedence.
+        var gpcChoice = { status: 'declined', categories: { analytics: false, marketing: false } };
+        applyConsent(gpcChoice);
+        dispatchConsent(gpcChoice, 'gpc');
         return;
     }
 
     function renderBanner() {
         if (document.querySelector('[data-posthog-cookie-banner]')) { return; }
+        var shownAt = Date.now();
         var host = document.createElement('div');
         host.setAttribute('data-posthog-cookie-banner', '');
         // No Shadow DOM, no banner: falling back to the light DOM would leak the
@@ -188,14 +266,75 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         description.textContent = cfg.description;
         content.appendChild(title);
         content.appendChild(description);
-        banner.appendChild(content);
 
-        function choose(status) {
-            storeChoice(status);
-            applyConsent(status);
-            dispatchConsent(status, 'user');
+        function choose(categories) {
+            var choice = { status: categories.analytics ? 'accepted' : 'declined', categories: categories };
+            storeChoice(choice);
+            applyConsent(choice);
+            captureBannerEvent('cookie banner ' + choice.status, {
+                categories: categories,
+                art_style: cfg.artStyle,
+                position: cfg.position,
+                seconds_to_decision: Math.round((Date.now() - shownAt) / 1000)
+            });
+            dispatchConsent(choice, 'user');
             if (host.parentNode) { host.parentNode.removeChild(host); }
         }
+
+        if (cfg.showPreferences) {
+            var prefsLink = document.createElement('button');
+            prefsLink.className = 'prefs-link';
+            prefsLink.type = 'button';
+            prefsLink.textContent = cfg.preferencesButtonText;
+            var prefs = null;
+            prefsLink.addEventListener('click', function () {
+                if (prefs) {
+                    prefs.style.display = prefs.style.display === 'none' ? '' : 'none';
+                    return;
+                }
+                prefs = document.createElement('div');
+                prefs.className = 'prefs';
+                var inputs = {};
+                var categories = [
+                    { key: 'necessary', label: 'Necessary', locked: true },
+                    { key: 'analytics', label: 'Analytics' },
+                    { key: 'marketing', label: 'Marketing' }
+                ];
+                for (var i = 0; i < categories.length; i++) {
+                    var category = categories[i];
+                    var row = document.createElement('label');
+                    var input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.checked = true;
+                    row.appendChild(input);
+                    row.appendChild(document.createTextNode(category.label));
+                    if (category.locked) {
+                        input.disabled = true;
+                        var note = document.createElement('span');
+                        note.className = 'always-on';
+                        note.textContent = 'Always on';
+                        row.appendChild(note);
+                    } else {
+                        inputs[category.key] = input;
+                    }
+                    prefs.appendChild(row);
+                }
+                var savePrefs = document.createElement('button');
+                savePrefs.className = 'save-prefs';
+                savePrefs.type = 'button';
+                savePrefs.textContent = 'Save';
+                savePrefs.style.backgroundColor = cfg.buttonColor;
+                savePrefs.style.color = cfg.buttonTextColor;
+                savePrefs.addEventListener('click', function () {
+                    choose({ analytics: inputs.analytics.checked, marketing: inputs.marketing.checked });
+                });
+                prefs.appendChild(savePrefs);
+                content.appendChild(prefs);
+            });
+            content.appendChild(prefsLink);
+        }
+
+        banner.appendChild(content);
 
         // Buttons and the powered-by notice share a wrapper so the notice always sits
         // underneath the buttons, including in the bottom-bar row layout
@@ -211,7 +350,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         accept.textContent = cfg.acceptButtonText;
         accept.style.backgroundColor = cfg.buttonColor;
         accept.style.color = cfg.buttonTextColor;
-        accept.addEventListener('click', function () { choose('accepted'); });
+        accept.addEventListener('click', function () { choose({ analytics: true, marketing: true }); });
         actions.appendChild(accept);
 
         var decline = document.createElement('button');
@@ -220,7 +359,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         decline.textContent = cfg.declineButtonText;
         decline.style.color = cfg.textColor;
         decline.style.borderColor = cfg.textColor;
-        decline.addEventListener('click', function () { choose('declined'); });
+        decline.addEventListener('click', function () { choose({ analytics: false, marketing: false }); });
         actions.appendChild(decline);
 
         trailing.appendChild(actions);
@@ -241,6 +380,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
 
         root.appendChild(banner);
         document.body.appendChild(host);
+        captureBannerEvent('cookie banner shown', { art_style: cfg.artStyle, position: cfg.position });
     }
 
     if (document.body) {

@@ -8,6 +8,7 @@ export const DEFAULT_APPEARANCE: Required<CookieBannerAppearanceApi> = {
         'We use cookies to understand how you use our site and to improve your experience. You can accept or decline analytics cookies below.',
     acceptButtonText: 'Accept',
     declineButtonText: 'Decline',
+    preferencesButtonText: 'Manage preferences',
     artStyle: 'posthog-logo',
     position: 'bottom-right',
     backgroundColor: '#eeefe9',
@@ -15,7 +16,36 @@ export const DEFAULT_APPEARANCE: Required<CookieBannerAppearanceApi> = {
     buttonColor: '#f54e00',
     buttonTextColor: '#ffffff',
     whiteLabel: false,
+    showPreferences: false,
+    cookielessFallback: false,
+    respectGpc: true,
+    translations: {},
 }
+
+// Options for the "Add language" picker. Any ISO 639 code is valid on the API —
+// this is just the friendly shortlist.
+export const LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+    { value: 'de', label: 'German' },
+    { value: 'fr', label: 'French' },
+    { value: 'es', label: 'Spanish' },
+    { value: 'it', label: 'Italian' },
+    { value: 'pt', label: 'Portuguese' },
+    { value: 'pt-BR', label: 'Portuguese (Brazil)' },
+    { value: 'nl', label: 'Dutch' },
+    { value: 'sv', label: 'Swedish' },
+    { value: 'da', label: 'Danish' },
+    { value: 'nb', label: 'Norwegian' },
+    { value: 'fi', label: 'Finnish' },
+    { value: 'pl', label: 'Polish' },
+    { value: 'cs', label: 'Czech' },
+    { value: 'tr', label: 'Turkish' },
+    { value: 'ja', label: 'Japanese' },
+    { value: 'ko', label: 'Korean' },
+    { value: 'zh', label: 'Chinese' },
+    { value: 'hi', label: 'Hindi' },
+    { value: 'ar', label: 'Arabic' },
+    { value: 'en', label: 'English' },
+]
 
 export const ART_STYLE_LABELS: Record<Required<CookieBannerAppearanceApi>['artStyle'], string> = {
     none: 'No art',

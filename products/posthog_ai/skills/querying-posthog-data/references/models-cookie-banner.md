@@ -10,7 +10,7 @@ Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key
 `team_id` | integer | NOT NULL | Team this banner belongs to
 `enabled` | boolean | NOT NULL | Whether the banner is served to the website via remote config
-`appearance` | jsonb | NOT NULL | Appearance overrides: `title`, `description`, `acceptButtonText`, `declineButtonText`, `artStyle` (`none`, `posthog-logo`, `posthog-logomark-light`, `hedgehog-builder`, `hedgehog-business`, `hedgehog-hogzilla`, `hedgehog-robot`, `hedgehog-mobile`, `hedgehog-zen`, `hedgehog-lens`, `hedgehog-town-crier`, `hedgehog-wizard`, `hedgehog-legal`), `position` (`bottom-left`, `bottom-right`, `bottom-bar`), `backgroundColor`, `textColor`, `buttonColor`, `buttonTextColor`, `whiteLabel`
+`appearance` | jsonb | NOT NULL | Appearance overrides: `title`, `description`, `acceptButtonText`, `declineButtonText`, `preferencesButtonText`, `artStyle` (`none`, `posthog-logo`, `posthog-logomark-light`, `hedgehog-builder`, `hedgehog-business`, `hedgehog-hogzilla`, `hedgehog-robot`, `hedgehog-mobile`, `hedgehog-zen`, `hedgehog-lens`, `hedgehog-town-crier`, `hedgehog-wizard`, `hedgehog-legal`), `position` (`bottom-left`, `bottom-right`, `bottom-bar`), `backgroundColor`, `textColor`, `buttonColor`, `buttonTextColor`, `whiteLabel`, `showPreferences` (per-category consent panel), `cookielessFallback` (anonymous in-memory analytics on decline), `respectGpc` (auto-decline on the Global Privacy Control signal, default true), `translations` (per-language copy overrides keyed by ISO 639 code)
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
 

@@ -27,6 +27,14 @@ class TestCookieBannerAppearanceValidation(SimpleTestCase):
             ("description_too_long", {"description": "a" * 201}),
             ("accept_button_text_too_long", {"acceptButtonText": "a" * 12}),
             ("decline_button_text_too_long", {"declineButtonText": "a" * 12}),
+            ("preferences_button_text_too_long", {"preferencesButtonText": "a" * 26}),
+            ("invalid_language_code", {"translations": {"deutsch": {"title": "Hallo"}}}),
+            ("translated_title_too_long", {"translations": {"de": {"title": "a" * 26}}}),
+            ("translation_not_an_object", {"translations": {"de": "Hallo"}}),
+            (
+                "too_many_languages",
+                {"translations": {f"a{chr(ord('a') + i)}": {"title": "x"} for i in range(21)}},
+            ),
         ]
     )
     def test_rejects_invalid_appearance(self, _name: str, appearance: dict) -> None:
@@ -55,6 +63,24 @@ class TestCookieBannerAppearanceValidation(SimpleTestCase):
         serializer = _serializer({"title": "Hi", "onload": "alert(1)"})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["appearance"] == {"title": "Hi"}
+
+    def test_translations_accepted_and_unknown_keys_stripped(self) -> None:
+        serializer = _serializer(
+            {
+                "showPreferences": True,
+                "cookielessFallback": True,
+                "respectGpc": False,
+                "translations": {
+                    "de": {"title": "Wir verwenden Cookies", "backgroundColor": "#000000"},
+                    "pt-BR": {"acceptButtonText": "Aceitar"},
+                },
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        translations = serializer.validated_data["appearance"]["translations"]
+        # Only copy fields survive: a translation must not be able to override colors or art
+        assert translations["de"] == {"title": "Wir verwenden Cookies"}
+        assert translations["pt-BR"] == {"acceptButtonText": "Aceitar"}
 
     def test_white_label_requires_entitlement(self) -> None:
         serializer = _serializer({"whiteLabel": True}, white_labelling_available=False)

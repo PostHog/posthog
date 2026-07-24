@@ -33,6 +33,17 @@ export const cookieBannerCreateBodyAppearanceOneButtonColorRegExp = new RegExp(
 export const cookieBannerCreateBodyAppearanceOneButtonTextColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
 )
+export const cookieBannerCreateBodyAppearanceOnePreferencesButtonTextMax = 25
+
+export const cookieBannerCreateBodyAppearanceOneTranslationsTitleMax = 25
+
+export const cookieBannerCreateBodyAppearanceOneTranslationsDescriptionMax = 200
+
+export const cookieBannerCreateBodyAppearanceOneTranslationsAcceptButtonTextMax = 11
+
+export const cookieBannerCreateBodyAppearanceOneTranslationsDeclineButtonTextMax = 11
+
+export const cookieBannerCreateBodyAppearanceOneTranslationsPreferencesButtonTextMax = 25
 
 export const CookieBannerCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the banner is served to your website. Defaults to false.'),
@@ -116,6 +127,70 @@ export const CookieBannerCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan."
                 ),
+            preferencesButtonText: zod
+                .string()
+                .max(cookieBannerCreateBodyAppearanceOnePreferencesButtonTextMax)
+                .optional()
+                .describe(
+                    "Label for the link that opens the consent preferences panel. Defaults to 'Manage preferences'."
+                ),
+            showPreferences: zod
+                .boolean()
+                .optional()
+                .describe(
+                    "Show a 'Manage preferences' panel where visitors can consent to analytics and marketing cookies separately. Category choices are exposed to your site via the posthog:consent event. Defaults to false."
+                ),
+            cookielessFallback: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'When a visitor declines analytics cookies, keep anonymous cookieless analytics (in-memory persistence, nothing stored on the device) instead of stopping tracking entirely. Defaults to false.'
+                ),
+            respectGpc: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'Visitors broadcasting the Global Privacy Control signal are treated as declined and never shown the banner. An explicit choice made on your site still takes precedence. Defaults to true.'
+                ),
+            translations: zod
+                .record(
+                    zod.string(),
+                    zod
+                        .object({
+                            title: zod
+                                .string()
+                                .max(cookieBannerCreateBodyAppearanceOneTranslationsTitleMax)
+                                .optional()
+                                .describe('Translated banner headline.'),
+                            description: zod
+                                .string()
+                                .max(cookieBannerCreateBodyAppearanceOneTranslationsDescriptionMax)
+                                .optional()
+                                .describe('Translated body copy.'),
+                            acceptButtonText: zod
+                                .string()
+                                .max(cookieBannerCreateBodyAppearanceOneTranslationsAcceptButtonTextMax)
+                                .optional()
+                                .describe('Translated accept button label.'),
+                            declineButtonText: zod
+                                .string()
+                                .max(cookieBannerCreateBodyAppearanceOneTranslationsDeclineButtonTextMax)
+                                .optional()
+                                .describe('Translated decline button label.'),
+                            preferencesButtonText: zod
+                                .string()
+                                .max(cookieBannerCreateBodyAppearanceOneTranslationsPreferencesButtonTextMax)
+                                .optional()
+                                .describe("Translated 'Manage preferences' label."),
+                        })
+                        .describe(
+                            'Per-language overrides for the banner copy. Omitted keys fall back to the base\n(untranslated) copy for visitors matching this language.'
+                        )
+                )
+                .optional()
+                .describe(
+                    "Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy."
+                ),
         })
         .describe(
             'Appearance overrides for the banner. Omitted keys fall back to the PostHog-styled defaults\n(see products\/cookie_banner\/backend\/constants.py) when the banner is delivered.'
@@ -148,6 +223,17 @@ export const cookieBannerUpdateBodyAppearanceOneButtonColorRegExp = new RegExp(
 export const cookieBannerUpdateBodyAppearanceOneButtonTextColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
 )
+export const cookieBannerUpdateBodyAppearanceOnePreferencesButtonTextMax = 25
+
+export const cookieBannerUpdateBodyAppearanceOneTranslationsTitleMax = 25
+
+export const cookieBannerUpdateBodyAppearanceOneTranslationsDescriptionMax = 200
+
+export const cookieBannerUpdateBodyAppearanceOneTranslationsAcceptButtonTextMax = 11
+
+export const cookieBannerUpdateBodyAppearanceOneTranslationsDeclineButtonTextMax = 11
+
+export const cookieBannerUpdateBodyAppearanceOneTranslationsPreferencesButtonTextMax = 25
 
 export const CookieBannerUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the banner is served to your website. Defaults to false.'),
@@ -231,6 +317,70 @@ export const CookieBannerUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan."
                 ),
+            preferencesButtonText: zod
+                .string()
+                .max(cookieBannerUpdateBodyAppearanceOnePreferencesButtonTextMax)
+                .optional()
+                .describe(
+                    "Label for the link that opens the consent preferences panel. Defaults to 'Manage preferences'."
+                ),
+            showPreferences: zod
+                .boolean()
+                .optional()
+                .describe(
+                    "Show a 'Manage preferences' panel where visitors can consent to analytics and marketing cookies separately. Category choices are exposed to your site via the posthog:consent event. Defaults to false."
+                ),
+            cookielessFallback: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'When a visitor declines analytics cookies, keep anonymous cookieless analytics (in-memory persistence, nothing stored on the device) instead of stopping tracking entirely. Defaults to false.'
+                ),
+            respectGpc: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'Visitors broadcasting the Global Privacy Control signal are treated as declined and never shown the banner. An explicit choice made on your site still takes precedence. Defaults to true.'
+                ),
+            translations: zod
+                .record(
+                    zod.string(),
+                    zod
+                        .object({
+                            title: zod
+                                .string()
+                                .max(cookieBannerUpdateBodyAppearanceOneTranslationsTitleMax)
+                                .optional()
+                                .describe('Translated banner headline.'),
+                            description: zod
+                                .string()
+                                .max(cookieBannerUpdateBodyAppearanceOneTranslationsDescriptionMax)
+                                .optional()
+                                .describe('Translated body copy.'),
+                            acceptButtonText: zod
+                                .string()
+                                .max(cookieBannerUpdateBodyAppearanceOneTranslationsAcceptButtonTextMax)
+                                .optional()
+                                .describe('Translated accept button label.'),
+                            declineButtonText: zod
+                                .string()
+                                .max(cookieBannerUpdateBodyAppearanceOneTranslationsDeclineButtonTextMax)
+                                .optional()
+                                .describe('Translated decline button label.'),
+                            preferencesButtonText: zod
+                                .string()
+                                .max(cookieBannerUpdateBodyAppearanceOneTranslationsPreferencesButtonTextMax)
+                                .optional()
+                                .describe("Translated 'Manage preferences' label."),
+                        })
+                        .describe(
+                            'Per-language overrides for the banner copy. Omitted keys fall back to the base\n(untranslated) copy for visitors matching this language.'
+                        )
+                )
+                .optional()
+                .describe(
+                    "Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy."
+                ),
         })
         .describe(
             'Appearance overrides for the banner. Omitted keys fall back to the PostHog-styled defaults\n(see products\/cookie_banner\/backend\/constants.py) when the banner is delivered.'
@@ -263,6 +413,17 @@ export const cookieBannerPartialUpdateBodyAppearanceOneButtonColorRegExp = new R
 export const cookieBannerPartialUpdateBodyAppearanceOneButtonTextColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
 )
+export const cookieBannerPartialUpdateBodyAppearanceOnePreferencesButtonTextMax = 25
+
+export const cookieBannerPartialUpdateBodyAppearanceOneTranslationsTitleMax = 25
+
+export const cookieBannerPartialUpdateBodyAppearanceOneTranslationsDescriptionMax = 200
+
+export const cookieBannerPartialUpdateBodyAppearanceOneTranslationsAcceptButtonTextMax = 11
+
+export const cookieBannerPartialUpdateBodyAppearanceOneTranslationsDeclineButtonTextMax = 11
+
+export const cookieBannerPartialUpdateBodyAppearanceOneTranslationsPreferencesButtonTextMax = 25
 
 export const CookieBannerPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the banner is served to your website. Defaults to false.'),
@@ -345,6 +506,70 @@ export const CookieBannerPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     "Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan."
+                ),
+            preferencesButtonText: zod
+                .string()
+                .max(cookieBannerPartialUpdateBodyAppearanceOnePreferencesButtonTextMax)
+                .optional()
+                .describe(
+                    "Label for the link that opens the consent preferences panel. Defaults to 'Manage preferences'."
+                ),
+            showPreferences: zod
+                .boolean()
+                .optional()
+                .describe(
+                    "Show a 'Manage preferences' panel where visitors can consent to analytics and marketing cookies separately. Category choices are exposed to your site via the posthog:consent event. Defaults to false."
+                ),
+            cookielessFallback: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'When a visitor declines analytics cookies, keep anonymous cookieless analytics (in-memory persistence, nothing stored on the device) instead of stopping tracking entirely. Defaults to false.'
+                ),
+            respectGpc: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'Visitors broadcasting the Global Privacy Control signal are treated as declined and never shown the banner. An explicit choice made on your site still takes precedence. Defaults to true.'
+                ),
+            translations: zod
+                .record(
+                    zod.string(),
+                    zod
+                        .object({
+                            title: zod
+                                .string()
+                                .max(cookieBannerPartialUpdateBodyAppearanceOneTranslationsTitleMax)
+                                .optional()
+                                .describe('Translated banner headline.'),
+                            description: zod
+                                .string()
+                                .max(cookieBannerPartialUpdateBodyAppearanceOneTranslationsDescriptionMax)
+                                .optional()
+                                .describe('Translated body copy.'),
+                            acceptButtonText: zod
+                                .string()
+                                .max(cookieBannerPartialUpdateBodyAppearanceOneTranslationsAcceptButtonTextMax)
+                                .optional()
+                                .describe('Translated accept button label.'),
+                            declineButtonText: zod
+                                .string()
+                                .max(cookieBannerPartialUpdateBodyAppearanceOneTranslationsDeclineButtonTextMax)
+                                .optional()
+                                .describe('Translated decline button label.'),
+                            preferencesButtonText: zod
+                                .string()
+                                .max(cookieBannerPartialUpdateBodyAppearanceOneTranslationsPreferencesButtonTextMax)
+                                .optional()
+                                .describe("Translated 'Manage preferences' label."),
+                        })
+                        .describe(
+                            'Per-language overrides for the banner copy. Omitted keys fall back to the base\n(untranslated) copy for visitors matching this language.'
+                        )
+                )
+                .optional()
+                .describe(
+                    "Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy."
                 ),
         })
         .describe(

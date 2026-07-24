@@ -1,5 +1,6 @@
 """DRF serializers for cookie_banner."""
 
+import re
 from typing import Any
 
 from django.db import IntegrityError
@@ -9,7 +10,14 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 
-from products.cookie_banner.backend.constants import ART_STYLES, HEX_COLOR_REGEX, MAX_TEXT_LENGTHS, POSITIONS
+from products.cookie_banner.backend.constants import (
+    ART_STYLES,
+    HEX_COLOR_REGEX,
+    LANGUAGE_CODE_REGEX,
+    MAX_TEXT_LENGTHS,
+    MAX_TRANSLATION_LANGUAGES,
+    POSITIONS,
+)
 from products.cookie_banner.backend.models import CookieBannerConfig
 
 _ALREADY_EXISTS_ERROR = "A cookie banner already exists for this project. Update the existing one instead."
@@ -21,6 +29,37 @@ def _color_field(help_text: str) -> serializers.RegexField:
         required=False,
         help_text=help_text,
         error_messages={"invalid": "Must be a hex color, e.g. #f54e00"},
+    )
+
+
+class CookieBannerTranslationSerializer(serializers.Serializer):
+    """Per-language overrides for the banner copy. Omitted keys fall back to the base
+    (untranslated) copy for visitors matching this language."""
+
+    title = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["title"],
+        help_text="Translated banner headline.",
+    )
+    description = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["description"],
+        help_text="Translated body copy.",
+    )
+    acceptButtonText = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["acceptButtonText"],
+        help_text="Translated accept button label.",
+    )
+    declineButtonText = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["declineButtonText"],
+        help_text="Translated decline button label.",
+    )
+    preferencesButtonText = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["preferencesButtonText"],
+        help_text="Translated 'Manage preferences' label.",
     )
 
 
@@ -66,6 +105,38 @@ class CookieBannerAppearanceSerializer(serializers.Serializer):
         required=False,
         help_text="Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan.",
     )
+    preferencesButtonText = serializers.CharField(
+        required=False,
+        max_length=MAX_TEXT_LENGTHS["preferencesButtonText"],
+        help_text="Label for the link that opens the consent preferences panel. Defaults to 'Manage preferences'.",
+    )
+    showPreferences = serializers.BooleanField(
+        required=False,
+        help_text="Show a 'Manage preferences' panel where visitors can consent to analytics and marketing cookies separately. Category choices are exposed to your site via the posthog:consent event. Defaults to false.",
+    )
+    cookielessFallback = serializers.BooleanField(
+        required=False,
+        help_text="When a visitor declines analytics cookies, keep anonymous cookieless analytics (in-memory persistence, nothing stored on the device) instead of stopping tracking entirely. Defaults to false.",
+    )
+    respectGpc = serializers.BooleanField(
+        required=False,
+        help_text="Visitors broadcasting the Global Privacy Control signal are treated as declined and never shown the banner. An explicit choice made on your site still takes precedence. Defaults to true.",
+    )
+    translations = serializers.DictField(
+        child=CookieBannerTranslationSerializer(),
+        required=False,
+        help_text="Per-language copy overrides keyed by ISO 639 language code (e.g. 'de', 'pt-BR'). The banner picks the visitor's browser language, falling back to the base copy.",
+    )
+
+    def validate_translations(self, value: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        if len(value) > MAX_TRANSLATION_LANGUAGES:
+            raise serializers.ValidationError(f"At most {MAX_TRANSLATION_LANGUAGES} languages are supported.")
+        for language in value:
+            if not re.match(LANGUAGE_CODE_REGEX, language):
+                raise serializers.ValidationError(
+                    f"'{language}' is not a valid language code. Use an ISO 639 code like 'de' or 'pt-BR'."
+                )
+        return value
 
 
 class CookieBannerConfigSerializer(serializers.ModelSerializer):

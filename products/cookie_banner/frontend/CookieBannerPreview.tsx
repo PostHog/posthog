@@ -28,6 +28,11 @@ export function CookieBannerPreview({ appearance }: { appearance: Required<Cooki
             <div className={isBar ? 'flex-1' : ''}>
                 <p className="font-semibold text-base m-0 mb-1">{appearance.title}</p>
                 <p className={isBar ? 'm-0' : 'm-0 mb-3'}>{appearance.description}</p>
+                {appearance.showPreferences && (
+                    <span className={`block text-xs underline opacity-80 ${isBar ? 'mt-1' : 'mb-3 -mt-2'}`}>
+                        {appearance.preferencesButtonText}
+                    </span>
+                )}
             </div>
             {/* Buttons and the powered-by notice share a wrapper so the notice always sits
                 underneath the buttons, including in the bottom-bar row layout */}
