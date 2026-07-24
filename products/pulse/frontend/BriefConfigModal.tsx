@@ -13,7 +13,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pulseLogic } from './pulseLogic'
 
 export function BriefConfigModal(): JSX.Element {
-    const { configModalOpen, editingConfig, isConfigFormSubmitting } = useValues(pulseLogic)
+    const { configModalOpen, editingConfig, isConfigFormSubmitting, writeConfigsDisabledReason } = useValues(pulseLogic)
     const { closeConfigModal, submitConfigForm } = useActions(pulseLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
@@ -30,7 +30,12 @@ export function BriefConfigModal(): JSX.Element {
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" loading={isConfigFormSubmitting} onClick={submitConfigForm}>
+                    <LemonButton
+                        type="primary"
+                        loading={isConfigFormSubmitting}
+                        disabledReason={writeConfigsDisabledReason}
+                        onClick={submitConfigForm}
+                    >
                         {editingConfig ? 'Save' : 'Create'}
                     </LemonButton>
                 </>
