@@ -1066,14 +1066,14 @@ def replace_loop_skill_bundles(
         # Central-directory metadata only — nothing is decompressed here.
         try:
             with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
-                entries = archive.infolist()
+                archive_entries = archive.infolist()
         except zipfile.BadZipFile:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
-        if len(entries) > MAX_LOOP_SKILL_BUNDLE_FILES:
+        if len(archive_entries) > MAX_LOOP_SKILL_BUNDLE_FILES:
             raise LoopValidationError(
                 f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
             )
-        uncompressed_total = sum(entry.file_size for entry in entries)
+        uncompressed_total = sum(entry.file_size for entry in archive_entries)
         if uncompressed_total > MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES:
             raise LoopValidationError(
                 f"Skill bundle for '{bundle['skill_name']}' expands to more than "
