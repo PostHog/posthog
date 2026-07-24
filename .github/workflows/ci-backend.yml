@@ -315,6 +315,9 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+                        # Exec command reference templates - feed generate-exec-docs.ts
+                        - 'services/mcp/src/templates/sections/**/*'
+                        - 'services/mcp/schema/exec-command-reference.md'
 
     detect-snapshot-mode:
         name: Detect snapshot mode

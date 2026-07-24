@@ -34,6 +34,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         # that land in the generated trees — a config-only edit silently invalidates them.
         ".oxfmtrc.json",
         ".oxlintrc.json",
+        "services/mcp/src/templates/sections/*",
     ),
     "build:grammar": ("posthog/hogql/grammar/*",),
     "build:taxonomy-json": ("posthog/taxonomy/*",),
