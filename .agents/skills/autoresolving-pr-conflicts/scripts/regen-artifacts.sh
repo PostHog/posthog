@@ -30,8 +30,20 @@ case "$cmd" in
                 -o -path './frontend/src/generated/*' \
                 -o -path './products/*/frontend/generated/*' \) -print0
         ) | while IFS= read -r -d '' f; do
-            mkdir -p "$dest/$(dirname "$f")"
-            cp "$src/$f" "$dest/$f"
+            rel=${f#./}
+            path=$dest
+            old_ifs=$IFS
+            IFS=/
+            for part in $rel; do
+                path="$path/$part"
+                if [ -L "$path" ]; then
+                    echo "refusing import: $path is a symlink" >&2
+                    exit 1
+                fi
+            done
+            IFS=$old_ifs
+            mkdir -p "$dest/$(dirname "$rel")"
+            cp "$src/$f" "$dest/$rel"
         done
         ;;
     *)
