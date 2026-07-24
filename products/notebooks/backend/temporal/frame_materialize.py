@@ -11,9 +11,12 @@ turns it into a 302 to a presigned GET.
 Load protection mirrors the Celery async path (`process_query_task`): a Redis Lua
 concurrency limiter gates activity starts (global + per-team), slot exhaustion and
 ClickHouse overload raise retryable errors, and Temporal's retry policy provides the
-exponential backoff with a hard schedule-to-close deadline. ClickHouse `priority` is
-deliberately not set: every other query runs at priority 0 (unprioritized), so a nonzero
-value here would participate in a scheduling class of one.
+exponential backoff with a hard schedule-to-close deadline. Queries run on the OFFLINE
+pool (batch exports' home) as the dedicated `notebooks` ClickHouse user, so a whale
+materialization contends with batch work rather than interactive queries, and the user's
+server-side profile/quota is a ceiling no application bug can exceed. ClickHouse
+`priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
+so a nonzero value here would participate in a scheduling class of one.
 """
 
 import time
@@ -40,6 +43,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -130,6 +134,10 @@ _TRANSIENT_MID_STREAM_CODES = frozenset({209, 210, 394})
 FRAME_MATERIALIZATIONS_STARTED_COUNTER = Counter(
     "posthog_notebooks_frame_materializations_started",
     "Number of notebook frame materialize activity attempts started.",
+    # Both fallbacks (default creds, online URL) are deliberate and silent, so the labels
+    # are the only signal distinguishing "dedicated user on the offline pool engaged"
+    # from "provisioning gap, still running as default against interactive nodes".
+    labelnames=["ch_user", "pool"],
 )
 FRAME_MATERIALIZATIONS_FINISHED_COUNTER = Counter(
     "posthog_notebooks_frame_materializations_finished",
@@ -382,6 +390,13 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
         if lookup_attempt:
             time.sleep(_QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
         try:
+            # Deliberately the default CH principal, not the notebooks user: recovery must
+            # not share fate with the failing subject (a quota/grant condition that killed
+            # the query would reject its own diagnosis too, silently turning terminal
+            # failures into whale re-executions). Batch exports run this exact lookup as
+            # the default user against offline-executed queries, so both the grants and
+            # the clusterAllReplicas topology are production-proven. It's three LIMIT 1
+            # metadata reads on the failure path — pool placement is irrelevant.
             rows = sync_execute(
                 """
                 SELECT exception_code, exception
@@ -394,7 +409,10 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
                 """,
                 {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
             )
-        except Exception:
+        except Exception as exc:
+            # A broken lookup silently downgrades error classification (deterministic
+            # failures become retries), so it must be visible even though it can't raise.
+            logger.warning("notebook_frame_query_log_lookup_failed", ch_query_id=ch_query_id, error=str(exc))
             return None
         if rows:
             return int(rows[0][0]), str(rows[0][1])
@@ -407,7 +425,13 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     Raises on failure so Temporal retries per policy; user-safe HogQL errors are written
     to the query status here (terminal — retrying can't fix a bad query) before raising.
     """
-    FRAME_MATERIALIZATIONS_STARTED_COUNTER.inc()
+    # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
+    # bug can exceed); falls back to the default credentials where not provisioned.
+    ch_user, ch_password = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
+        ch_user="notebooks" if ch_user != settings.CLICKHOUSE_USER else "default",
+        pool="offline" if settings.CLICKHOUSE_OFFLINE_HTTP_URL != settings.CLICKHOUSE_HTTP_URL else "online",
+    ).inc()
     manager = QueryStatusManager(inputs.query_id, inputs.team_id)
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.filter(id=inputs.user_id).first() if inputs.user_id else None
@@ -439,12 +463,19 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         # system.query_log to recover the real error.
         ch_query_id = f"{inputs.query_id}_{attempt}"
         client = ClickHouseClient(
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
+            # The offline pool (batch exports' home): a whale materialization must not
+            # contend with interactive queries. Falls back to the online URL where no
+            # offline cluster exists (EU, self-hosted, dev/test).
+            url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
+            user=ch_user,
+            password=ch_password,
             database=settings.CLICKHOUSE_DATABASE,
             output_format_arrow_string_as_string="true",
             cancel_http_readonly_queries_on_client_close=1,
+            # sync_execute's offline hygiene: without this, distributed subqueries of a
+            # saturated offline query hedge onto online replicas — bleeding the whale back
+            # into the interactive pool this move exists to protect.
+            use_hedged_requests="0",
             max_result_bytes=_MAX_RESULT_BYTES,
             result_overflow_mode="throw",
         )

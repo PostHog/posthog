@@ -70,6 +70,8 @@ class ClickHouseUser(StrEnum):
     META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
+    # Notebook frame materializations (Temporal worker streaming to the object store)
+    NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"

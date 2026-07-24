@@ -119,14 +119,16 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Resource governance — not hammering ClickHouse
 
-Materialization is **user-facing** — someone is waiting on their cell — so it belongs on the ONLINE pool with
-interactive queries (OFFLINE is where batch exports, usage reports, and cohort calculations run, with
-explicitly accepted latency variance and failure rates; a user-waiting query must not queue behind those).
-The risk is different: a single materialization can be far more expensive than an insight query, an
-**uncapped whale in a pool tuned for bounded queries**. The governance goal is therefore not relocation but
-making the whale impossible. Note the cap that matters is not the row count — an insight query with
-`LIMIT 50000` can still scan billions of rows; cost is bounded by execution time, bytes read, memory,
-and threads.
+Materialization runs on the **OFFLINE pool** (batch exports' home), as a **dedicated `notebooks` ClickHouse
+user**. An earlier draft argued for ONLINE — someone is waiting on their cell — but the query itself is
+batch-shaped: a 500k-row streaming pull with minutes-scale deadlines (the kernel's object-delivery poll
+already tolerates 11 minutes), far closer to a batch export than to an insight query. The decisive risk runs
+the other way: a single materialization can be far more expensive than an insight query, an **uncapped whale
+in a pool tuned for bounded queries** — so it contends with batch work, whose latency variance the async flow
+absorbs, instead of degrading interactive latency. Where no offline cluster exists (EU, self-hosted, dev/test)
+the offline URL falls back to the online one, and the remaining levers below still bound the whale. Note the
+cap that matters is not the row count — an insight query with `LIMIT 50000` can still scan billions of rows;
+cost is bounded by execution time, bytes read, memory, and threads.
 
 Layered levers:
 
@@ -140,24 +142,25 @@ Layered levers:
   for tier 1 (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
   `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
   to throttle the S3 write rate.
-- **Scheduler priority, not pool exile.** CH's `priority` setting could let materialization run ONLINE while
-  yielding CPU to interactive queries under genuine contention. Phase 1 deliberately does not set it:
-  everything else runs unprioritized (0), so a nonzero value would form a scheduling class of one — revisit
-  if the cluster ever adopts priorities broadly.
+- **No scheduler priority.** CH's `priority` setting could make materialization yield CPU to other offline
+  work under genuine contention. Phase 1 deliberately does not set it: everything else runs unprioritized
+  (0), so a nonzero value would form a scheduling class of one — revisit if the cluster ever adopts
+  priorities broadly.
 - **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
   watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
 - **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
   phase 1 adds the Redis-Lua concurrency slots (global 10, per-team 2) acquired at Temporal activity start.
   The refs resolver already minimizes demand — only frames the code actually reads are materialized.
-- **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
-  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
-  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
-  application bug can exceed.
+- **Dedicated ClickHouse user as the backstop (shipped).** The repo already splits traffic across CH users
+  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. Materializations run as
+  `ClickHouseUser.NOTEBOOKS` (credentials from `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD`,
+  falling back to the default user where not provisioned), so the user gets profile limits, QUOTAs, and
+  `max_concurrent_queries_for_user` — a hard server-enforced ceiling no application bug can exceed.
 - **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
   long-term this is the strongest lever.
-- **Escalation path.** If notebooks' share of online capacity becomes meaningful, the router already supports
-  product-specific pools (`Workload.ENDPOINTS` is precedent) — a dedicated notebooks pool with online-grade
-  latency is the growth answer, decided with data rather than up front.
+- **Escalation path.** If notebooks' share of offline capacity becomes meaningful (or batch-export contention
+  starts hurting frame latency), the router already supports product-specific pools (`Workload.ENDPOINTS` is
+  precedent) — a dedicated notebooks pool is the growth answer, decided with data rather than up front.
 
 The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
 query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
@@ -181,9 +184,11 @@ The **object key** lands in `QueryStatus` instead of rows, and the status endpoi
 A frame key is a slot holding the query's current result, not an immutable blob: `query_hash` is
 `sha256(user_id + wrapped query)` with no freshness component, and dedup only joins **in-flight**
 materializations — a completed status is never served as a cache. Every re-run therefore re-executes against
-ClickHouse and atomically overwrites the same key, which is exactly why a re-run after new events lands always
-returns fresh rows in this phase (a reader holding a presign across an overwrite gets one complete object or
-the other, never torn bytes).
+ClickHouse and atomically overwrites the same key, so a re-run after new events lands returns fresh rows
+modulo offline replica lag — materialization reads the OFFLINE pool, which can trail ingestion further than
+the online nodes the inline path reads, so a frame can briefly miss rows an inline preview of the same query
+just showed (batch exports accept the same window). A reader holding a presign across an overwrite gets one
+complete object or the other, never torn bytes.
 One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
 `Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
 credential-free request instead of auto-following.
@@ -205,6 +210,24 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
 - Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
   kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
   makes every download fail (loud, not silent).
+- Provision the `notebooks` ClickHouse user, **in this order**: create and verify the user server-side first
+  (a `SELECT 1` as the user), then set `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD` on the
+  general-purpose Temporal worker fleet — env vars pointing at a not-yet-created user (or a rotated password;
+  creds are cached per worker process, rotation needs a fleet restart) fail every materialization with a
+  generic retried auth error, a hard outage rather than a fallback. The user spec, since HogQL fans out to
+  distributed tables (remote legs authenticate as the initiating user via the interserver secret): exists on
+  **every** node of the `posthog` cluster, SELECT grants mirroring the app user (including data-warehouse
+  table functions), a profile with `readonly = 2` — `readonly = 1` rejects the per-query SETTINGS/HTTP params
+  this path sends — and no setting constraints below the app-side caps; prefer per-query `max_memory_usage`
+  over `..._for_user` so a `MEMORY_LIMIT_EXCEEDED` stays attributable to the offending query, and leave QUOTA
+  headroom since a shared-user quota breach reads as a (wrong) "narrow your query" message to whichever
+  tenant trips it. Deliberately fail-open: until provisioned, the flow runs as the default CH user
+  (dev/self-hosted parity) — the `ch_user` label on `posthog_notebooks_frame_materializations_started` is the
+  signal that the dedicated user actually engaged.
+- Confirm `CLICKHOUSE_OFFLINE_CLUSTER_HOST` is set on the **general-purpose** Temporal worker fleet (US) —
+  batch exports prove offline routing on _their_ deployment, not this one, and an unset host silently
+  falls back to the online URL, no-opping the pool isolation. The `pool` label on the started counter
+  verifies routing from metrics.
 - Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
   Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
   mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
@@ -226,8 +249,8 @@ Two decisions locked in for this phase:
   CH query = one upload — but the materialize workflow runs on the **shared** general-purpose Temporal queue,
   so queue slots alone don't cap notebooks. The shipped throttle is the Redis-Lua concurrency limiter
   (the `process_query_task` mechanism): slots acquired at activity start, global 10 / per-team 2, bounding CH
-  concurrency, worker memory, and S3 parallelism with one knob — no dedicated CH user needed for v1 (that
-  stays as hardening), and a dedicated notebooks task queue stays a later infra option. Throttling moves load
+  concurrency, worker memory, and S3 parallelism with one knob — the dedicated `notebooks` CH user is the
+  server-side backstop behind it, and a dedicated notebooks task queue stays a later infra option. Throttling moves load
   in time (retry backoff), never above the cap; the real amplification risk is impatient re-runs, and the
   async manager's `cache_key` dedup (`get_running_query_by_cache_key`) closes it: enqueue with
   `cache_key = notebook-frame:{team}:{sha256(user_id + query)}` (user-scoped, so differently-permissioned
@@ -244,7 +267,8 @@ Why phase 1 streams from the worker instead of starting here:
 - **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
   at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
   and splice it into a raw `INSERT ... SELECT` executed outside the runner; batch exports does this safely,
-  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a ride-along.
+  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a
+  ride-along — the phase-2 security notes below break down what it entails.
 - **Credentials.** Workers already hold object-storage credentials; the CH-side write needs the cluster's IAM
   role extended to the notebooks prefix (see open questions) and local CH → SeaweedFS config.
 - **Load placement.** Worker streaming actually puts _less_ work on ClickHouse — CH only executes and streams
@@ -253,6 +277,67 @@ Why phase 1 streams from the worker instead of starting here:
 - **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
   double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
   MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
+
+_Phase-2 security notes (splice analysis, 2026-07) — read before building the CH-side write:_
+
+The statement is `INSERT INTO FUNCTION s3('<url>/<key>', '<creds?>', 'ArrowStream') PARTITION BY rand() % N
+<printed SELECT ... SETTINGS ...>` — three trust zones: the prefix (our code, our metadata), the printed
+SELECT (user HogQL via the guarded printer), and the parameters (server-side `param_*` binding). Two facts
+cap the risk: the printed SELECT is already the trusted-executable artifact (executed verbatim today, and
+already spliced once into `DESCRIBE TABLE (...)`), and ClickHouse refuses multi-statement execution over both
+HTTP and native protocols — realistic injection is clause-level corruption of the prefix, not stacked
+statements. Issue classes, by zone:
+
+- **The new injection surface is our own s3() arguments, not the user's query.** Today the object key is an
+  inert boto3 API argument; in phase 2 it sits inside a SQL string literal in the most privileged statement
+  we run. Key segments are safe today (int team id, hex digest, `[A-Za-z0-9_-]+`-validated short id), but
+  that makes charset validation load-bearing forever — someone relaxing the short-id charset later turns a
+  cosmetic change into SQL injection. Manual escaping is subtler than it looks: the batch-exports builder
+  (`get_s3_function_call`) quote-doubles credentials but not the URL/folder, and quote-doubling alone
+  mishandles a value ending in `\` — both fine there only because the inputs have known charsets.
+- **Assembly-context grammar bugs.** The printer must run without `output_format` (a trailing
+  `FORMAT ArrowStream` is invalid inside `INSERT ... SELECT`; the object format comes from the s3() arg);
+  the printer's trailing `SETTINGS` must merge with INSERT-level settings (`s3_truncate_on_insert`) since two
+  SETTINGS clauses are a syntax error; WITH-leading and UNION-set shapes interact with `PARTITION BY`
+  placement, and the tempting `SELECT * FROM (<printed>)` wrap breaks the settings clause (invalid in a
+  subquery), forcing settings-hoisting string surgery. Most failures are fail-safe syntax errors — but every
+  workaround is string surgery on printer output, which is where the risk concentrates.
+- **The parameter channel must survive.** `param_hogql_val_N` server-side binding works for INSERT SELECT
+  unchanged; an implementation that inlines values client-side reintroduces classic injection for every
+  user literal.
+- **Privilege amplification is the deepest issue and is not about splicing — but it is narrower than it
+  first looks, because `readonly` and GRANTs are independent layers.** An INSERT is a write statement even
+  into a table function, so `readonly = 2` is off the table: the writer identity needs `readonly = 0`.
+  That does NOT mean it can write ClickHouse: `INSERT` privileges are per-table and `s3()` is gated by its
+  own source grant, so the right shape is `readonly = 0` with a grant set of SELECT on the HogQL-reachable
+  tables, `GRANT S3 ON *.*`, `CREATE TEMPORARY TABLE`, and **zero** INSERT/ALTER/CREATE/DROP/TRUNCATE on
+  any database or table — a user that physically cannot mutate CH state yet can run
+  `INSERT INTO FUNCTION s3`. The `readonly` downgrade then costs only defense-in-depth redundancy, not
+  authorization. What grants cannot close: `GRANT S3` is source-level, not resource-level — no per-user
+  "only this bucket" exists, and a holder can call `s3('https://anywhere/...', key, secret)` with **inline
+  attacker credentials**, bypassing our IAM entirely. That residual exfiltration channel is fenced
+  server-side, not per-user: `remote_url_allow_hosts` pinned to our storage endpoints (verify it covers
+  `s3()` on our CH version), plus confining the write-capable identity to the one materialize code path
+  while everything else notebook-shaped stays on a read-only user. With allowlist + minimal grants, the
+  blast radius of a hypothetical printer bug shrinks from "exfiltrate anywhere" to "write malformed objects
+  into our own lifecycle-TTL'd frames prefix" — integrity, not confidentiality. One tempting dead end,
+  preempted: an admin-created `ENGINE = S3` table (plain table-scoped INSERT grant, no S3 source grant, no
+  URL in SQL at all) fails on schema — engine tables are fixed-schema and every frame carries its own
+  arbitrary column set, which is exactly why `INSERT INTO FUNCTION s3` (per-statement schema inference) is
+  the only shape that fits.
+
+The playbook, if/when built: keep the URL out of the statement via a named collection pinned to bucket +
+`notebooks/frames/` prefix (only a charset-validated **and** escaped `filename` override in SQL — validation
+as policy, escaping as defense in depth; also keeps credentials out of `system.query_log` and error text);
+build the INSERT wrapper as a printer-level construct rather than post-hoc string surgery, with a shape-matrix
+test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; preserve
+server-side param binding; give the writer identity the minimal-grant shape above (`readonly = 0`, no
+table-write grants, S3 source grant) confined to the materialize path; pin `remote_url_allow_hosts` to our
+storage endpoints; scope the CH-side credentials write-only to the notebooks prefix. Verdict: the splice is a
+contained engineering problem with a known playbook and its own security review, and the table-mutation half
+of the amplification is fully closable through grants; what is permanent is the S3-egress capability itself —
+containable to our-own-bucket blast radius via the host allowlist, never eliminable — and that residual is
+what must be consciously accepted.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
