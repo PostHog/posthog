@@ -76,6 +76,12 @@ class MySQLPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "mysql"
     DIALECT_LABEL: ClassVar[str] = "MySQL"
 
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        # MySQL has no BY NAME set operators; refuse rather than emit SQL the engine rejects.
+        if set_operator.endswith(" BY NAME"):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+        super()._assert_set_operator_supported(set_operator)
+
     def __init__(
         self,
         context: HogQLContext,
