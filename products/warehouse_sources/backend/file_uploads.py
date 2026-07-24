@@ -112,12 +112,18 @@ def _dedupe_excel_headers(header: tuple) -> list[str]:
     position) and repeated names get a ``_2``/``_3`` suffix, so the Parquet schema has valid, distinct
     columns for ClickHouse."""
     names: list[str] = []
-    seen: dict[str, int] = {}
+    used: set[str] = set()
     for index, value in enumerate(header):
-        name = str(value).strip() if value is not None and str(value).strip() else f"column_{index + 1}"
-        count = seen.get(name, 0)
-        seen[name] = count + 1
-        names.append(name if count == 0 else f"{name}_{count + 1}")
+        base = str(value).strip() if value is not None and str(value).strip() else f"column_{index + 1}"
+        name = base
+        suffix = 2
+        # A suffixed fallback (e.g. "A_2") can itself collide with a literal "A_2" earlier in the row,
+        # so keep bumping the suffix until the name is actually unused rather than trusting a per-base count.
+        while name in used:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        used.add(name)
+        names.append(name)
     return names
 
 

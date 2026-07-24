@@ -485,12 +485,29 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
 # throttles only limit personal-API-key requests, so a session user could hammer these from the UI
 # unthrottled. PersonalApiKeyOrUserRateThrottle covers both auth methods; the rates are generous for
 # a person uploading files but catch a scripted loop.
-class FileUploadBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+class _FileUploadRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Base for the file-upload throttles. Keys the bucket per authenticated user rather than per
+    team, so one member's burst can't drain a shared team budget and lock everyone else out. The
+    inherited get_cache_key falls back to team_id for session/OAuth/body-key auth — fine for the
+    per-project query throttles, but these limits are meant to bound a single person's uploads."""
+
+    def get_cache_key(self, request, view):
+        api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+        if api_key is not None:
+            ident: str | int = hash_key_value(api_key[0])
+        elif request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class FileUploadBurstThrottle(_FileUploadRateThrottle):
     scope = "file_upload_burst"
     rate = "30/minute"
 
 
-class FileUploadSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+class FileUploadSustainedThrottle(_FileUploadRateThrottle):
     scope = "file_upload_sustained"
     rate = "200/hour"
 

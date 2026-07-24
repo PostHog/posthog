@@ -1,7 +1,7 @@
 import io
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
@@ -404,3 +404,14 @@ class TestFileUploadThrottling(SimpleTestCase):
         viewset.action = "list"
         throttle_types = {type(t) for t in viewset.get_throttles()}
         assert FileUploadBurstThrottle not in throttle_types
+
+    def test_cache_key_is_per_user_not_per_team(self) -> None:
+        # Two session members of the same team must land in separate buckets. The inherited
+        # team-first key would collide them, letting one member's burst lock out the whole team.
+        throttle = FileUploadBurstThrottle()
+        with patch("posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=None):
+            key_a = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
+            key_b = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=2)), view=None)
+        assert key_a != key_b
+        assert key_a.endswith("1")
+        assert key_b.endswith("2")

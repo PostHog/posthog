@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.file_uploads import (
     ExcelConversionError,
+    _dedupe_excel_headers,
     excel_stored_filename,
     excel_to_parquet_bytes,
 )
@@ -36,6 +37,22 @@ class TestExcelStoredFilename(SimpleTestCase):
     )
     def test_maps_to_parquet_name(self, original: str, expected: str) -> None:
         assert excel_stored_filename(original) == expected
+
+
+class TestDedupeExcelHeaders(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank_cells_become_positional", (None, "", "  "), ["column_1", "column_2", "column_3"]),
+            ("repeats_get_suffixes", ("a", "a", "a"), ["a", "a_2", "a_3"]),
+            # A suffixed fallback must not collide with a literal name already in the row: naive
+            # per-base counting turns this into ["A", "A_2", "A_2"], which Parquet/ClickHouse reject.
+            ("suffix_avoids_existing_name", ("A", "A_2", "A"), ["A", "A_2", "A_3"]),
+        ]
+    )
+    def test_produces_unique_names(self, _name: str, header: tuple, expected: list[str]) -> None:
+        result = _dedupe_excel_headers(header)
+        assert result == expected
+        assert len(set(result)) == len(result)
 
 
 class TestExcelToParquet(SimpleTestCase):
