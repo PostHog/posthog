@@ -59,6 +59,15 @@ if E2E_TESTING:
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
 SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
 
+# When serving Max conversation SSE over ASGI, per-chunk payload (de)serialization
+# (pydantic `model_dump_json`, `pickle.loads`) is CPU-bound and runs on the single event
+# loop that also answers the liveness probe. On by default: offloads that work to a
+# thread pool (`asyncio.to_thread`) so the loop stays responsive under streaming load.
+# Kept as an env-driven opt-out so it can be disabled without a deploy.
+MAX_AI_STREAM_OFFLOAD_SERIALIZATION: bool = get_from_env(
+    "MAX_AI_STREAM_OFFLOAD_SERIALIZATION", True, type_cast=str_to_bool
+)
+
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
