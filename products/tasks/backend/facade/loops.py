@@ -595,7 +595,7 @@ def _authorize_update(loop: Loop, user: User | None, validated_data: dict) -> No
             return
         raise LoopPermissionError(
             "Only the loop owner may change identity-bearing configuration (instructions, "
-            "repositories, connectors, behaviors, model config, or triggers)."
+            "repositories, connectors, behaviors, model config, triggers, or skill bundles)."
         )
 
 
@@ -1001,6 +1001,10 @@ MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 10 * 1024 * 1024
 # wedge each scheduled run; these mirror the client bundler's own build-time caps.
 MAX_LOOP_SKILL_BUNDLE_FILES = 1000
 MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
+# Aggregate expansion ceiling across every bundle in one replace. The sandbox extracts
+# the whole set on every fire, so without this a loop could legitimately carry
+# MAX_LOOP_SKILL_BUNDLES * 30MB of highly-compressible content and inflate ~300MB per run.
+MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES = 60 * 1024 * 1024
 # Ceiling on the zip central directory itself, checked from the trailer before ZipFile
 # parses it. This is what actually bounds parse-time ZipInfo allocation (zipfile walks
 # the directory by size, not by the forgeable entry-count field). 300KB comfortably fits
@@ -1014,30 +1018,36 @@ def _zip_trailer(content_bytes: bytes) -> tuple[int, int] | None:
     end-of-central-directory trailer, without materializing per-entry metadata. Mirrors
     how `zipfile` locates the trailer (last well-formed record within the max 64KB
     comment window), so the values validated here are the ones `ZipFile` will use.
-    Returns None when no trailer is found. The directory SIZE is the load-bearing
-    number: `ZipFile.infolist()` walks exactly that many directory bytes (one ZipInfo
-    per record, each at least 46 bytes) and ignores the count field, so bounding the
-    size bounds parse-time allocation even when the count field lies. Zip64 archives
-    report sentinel maxima in both fields, which exceed the caps and are rejected."""
+    Returns None when no trailer is found. Like `zipfile._EndRecData`, only the LAST
+    signature occurrence is considered — retrying earlier ones would both diverge from
+    what ZipFile will parse and let a tail stuffed with fake signatures force repeated
+    64KB scans. A last occurrence that fails validation falls through to ZipFile, which
+    rejects the archive as bad. The directory SIZE is the load-bearing number:
+    `ZipFile.infolist()` walks exactly that many directory bytes (one ZipInfo per
+    record, each at least 46 bytes) and ignores the count field, so bounding the size
+    bounds parse-time allocation even when the count field lies. Zip64 archives report
+    sentinel maxima in both fields, which exceed the caps and are rejected."""
     eocd_size = 22
     tail = content_bytes[-(eocd_size + 65535) :]
     offset = tail.rfind(b"PK\x05\x06")
-    while offset != -1:
-        record = tail[offset:]
-        if len(record) >= eocd_size:
-            comment_length = int.from_bytes(record[20:22], "little")
-            if len(record) == eocd_size + comment_length:
-                entry_count = int.from_bytes(record[10:12], "little")
-                central_dir_size = int.from_bytes(record[12:16], "little")
-                return entry_count, central_dir_size
-        offset = tail.rfind(b"PK\x05\x06", 0, offset)
-    return None
+    if offset == -1:
+        return None
+    record = tail[offset:]
+    if len(record) < eocd_size:
+        return None
+    comment_length = int.from_bytes(record[20:22], "little")
+    if len(record) != eocd_size + comment_length:
+        return None
+    entry_count = int.from_bytes(record[10:12], "little")
+    central_dir_size = int.from_bytes(record[12:16], "little")
+    return entry_count, central_dir_size
 
 
 def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
     """Best-effort removal of loop skill bundle objects. Failures are logged, not raised:
     a leaked object is recoverable garbage, while failing the caller's operation over
-    cleanup is not."""
+    cleanup is not. Only for objects nothing references (this request's own discarded
+    uploads); superseded objects go through `_expire_skill_bundle_objects` instead."""
     if not paths:
         return
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -1049,6 +1059,25 @@ def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
             "loop.skill_bundle_cleanup_failed",
             extra={"loop_id": str(loop_id), "paths": paths, "error": str(exc)},
         )
+
+
+def _expire_skill_bundle_objects(loop_id: UUID, team_id: int, paths: list[str]) -> None:
+    """Retire superseded bundle objects via a short retention tag rather than deleting
+    them outright: a fire that committed just before this write may still be running its
+    post-commit S3 copy from these paths, and an immediate delete would fail that run
+    for no reason. The lifecycle rule reaps them after the grace day."""
+    if not paths:
+        return
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    for path in paths:
+        try:
+            object_storage.tag(path, {"ttl_days": "1", "team_id": str(team_id)})
+        except Exception as exc:
+            logger.warning(
+                "loop.skill_bundle_expire_failed",
+                extra={"loop_id": str(loop_id), "path": path, "error": str(exc)},
+            )
 
 
 def replace_loop_skill_bundles(
@@ -1082,6 +1111,7 @@ def replace_loop_skill_bundles(
     _authorize_update(loop, user, {"skill_bundles": bundles})
 
     decoded: list[tuple[dict, bytes]] = []
+    total_uncompressed = 0
     for bundle in bundles:
         try:
             content_bytes = base64.b64decode(bundle["content_base64"], validate=True)
@@ -1126,6 +1156,12 @@ def replace_loop_skill_bundles(
                 f"Skill bundle for '{bundle['skill_name']}' expands to more than "
                 f"{MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES // (1024 * 1024)}MB."
             )
+        total_uncompressed += uncompressed_total
+        if total_uncompressed > MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES:
+            raise LoopValidationError(
+                "The loop's skill bundles together expand to more than "
+                f"{MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES // (1024 * 1024)}MB."
+            )
         decoded.append((bundle, content_bytes))
 
     prefix = loop.get_skill_bundle_s3_prefix()
@@ -1159,7 +1195,7 @@ def replace_loop_skill_bundles(
                         "skill_name": bundle["skill_name"],
                         "skill_source": bundle["skill_source"],
                         "content_sha256": bundle["content_sha256"],
-                        "bundle_format": "zip",
+                        "bundle_format": bundle["bundle_format"],
                         "schema_version": 1,
                     },
                 }
@@ -1208,8 +1244,8 @@ def replace_loop_skill_bundles(
         raise denied
 
     new_paths = {entry["storage_path"] for entry in entries}
-    _delete_skill_bundle_objects(
-        loop.id, [path for path in previous_paths if path.startswith(prefix) and path not in new_paths]
+    _expire_skill_bundle_objects(
+        loop.id, loop.team_id, [path for path in previous_paths if path.startswith(prefix) and path not in new_paths]
     )
 
     loop.refresh_from_db()
@@ -1245,8 +1281,7 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
         locked.deleted = True
         locked.skill_bundles = []
         locked.save(update_fields=["deleted", "skill_bundles", "updated_at"])
-    loop.deleted = True
-    _delete_skill_bundle_objects(loop.id, bundle_paths)
+    _expire_skill_bundle_objects(loop.id, loop.team_id, bundle_paths)
     loop_service.delete_loop_schedules(loop)
     return True
 

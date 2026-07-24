@@ -294,7 +294,10 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
         self.assertEqual(cleared.json()["skill_bundles"], [])
         self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
-        mock_delete.assert_called_once_with([first_storage_path])
+        # Superseded objects are expired via a grace-period tag, not deleted outright —
+        # an in-flight fire may still be copying from them.
+        mock_delete.assert_not_called()
+        mock_tag.assert_any_call(first_storage_path, {"ttl_days": "1", "team_id": str(self.team.id)})
 
     @patch("posthog.storage.object_storage.write")
     def test_replace_rejects_a_sha_mismatch(self, mock_write):
@@ -384,6 +387,21 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertIn("contains more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES", 1500)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_bundles_that_together_expand_past_the_cap(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        bundles = [
+            self._bundle_payload(name="first", content=self._zip_bytes({"SKILL.md": "x" * 1024})),
+            self._bundle_payload(name="second", content=self._zip_bytes({"SKILL.md": "y" * 1024})),
+        ]
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": bundles}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("together expand", response.json()["detail"])
         mock_write.assert_not_called()
 
     @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES", 10)
@@ -494,7 +512,8 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         deleted = self.owner_client.delete(self._loop_url(loop["id"]))
 
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
-        mock_delete.assert_called_once_with([stored_path])
+        mock_delete.assert_not_called()
+        mock_tag.assert_any_call(stored_path, {"ttl_days": "1", "team_id": str(self.team.id)})
         row = Loop.objects.unscoped().get(id=loop["id"])
         self.assertTrue(row.deleted)
         self.assertEqual(row.skill_bundles, [])

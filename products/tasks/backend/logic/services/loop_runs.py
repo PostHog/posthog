@@ -533,6 +533,36 @@ def _seed_skill_bundles_and_dispatch(
     )
 
 
+def ensure_loop_skill_bundles_seeded(task_run: TaskRun) -> bool:
+    """Idempotently seed a loop run's skill bundles ahead of an out-of-band dispatch.
+
+    The orphaned-QUEUED reconciler recovers runs whose create-time ``on_commit`` callback
+    was lost — the same callback that seeds skill bundles — so re-dispatching without this
+    check would silently start the run with its skills missing. Returns False when seeding
+    was needed but failed; the caller must not dispatch (the next sweep retries)."""
+    task = task_run.task
+    if task.origin_product != Task.OriginProduct.LOOP or task.loop_id is None:
+        return True
+    # No ambient team scope on reconciler/Celery paths, same as Loop._get_before_update.
+    loop = Loop.objects.unscoped().filter(pk=task.loop_id).first()
+    if loop is None or not loop.skill_bundles:
+        return True
+    already_seeded = any(
+        isinstance(entry, dict) and entry.get("type") == "skill_bundle" for entry in (task_run.artifacts or [])
+    )
+    if already_seeded:
+        return True
+    try:
+        _seed_skill_bundle_artifacts(loop, task_run)
+    except Exception:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"loop_id": str(loop.id), "task_run_id": str(task_run.id)},
+        )
+        return False
+    return True
+
+
 def _seed_skill_bundle_artifacts(loop: Loop, task_run: TaskRun) -> None:
     """Copy the loop's stored skill bundles into the new run: S3 objects under the run's
     artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
