@@ -24,15 +24,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonSegmentedButton,
-    LemonSkeleton,
-    LemonTag,
-    Spinner,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
@@ -50,6 +42,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { SlackIntegration } from 'scenes/integrations/components/SlackIntegration'
@@ -270,7 +263,7 @@ function ProjectFactsBar(): JSX.Element | null {
     const region = preflight?.region === Region.DEV ? 'DEV' : (preflight?.region ?? 'local')
 
     return (
-        <>
+        <div className="flex flex-col gap-1">
             <ProjectFactChip
                 label="Project token"
                 value={currentTeam.api_token}
@@ -278,23 +271,32 @@ function ProjectFactsBar(): JSX.Element | null {
                 copyThing="project token"
                 action="copy_project_token"
             />
-            <ProjectFactChip
-                label="Project ID"
-                value={String(currentTeam.id)}
-                copyTooltip="Copy project ID"
-                copyThing="project ID"
-                action="copy_project_id"
-            />
-            <ProjectFactChip
-                label="Region"
-                value={apiHostOrigin()}
-                display={region}
-                mono={false}
-                copyTooltip={`Copy API host: ${apiHostOrigin()}`}
-                copyThing="API host"
-                action="copy_api_host"
-            />
-        </>
+            <div className="text-xs text-muted flex items-center gap-1">
+                <span
+                    className="cursor-pointer hover:text-primary"
+                    title="Copy project ID"
+                    onClick={() => {
+                        captureQuickstartAction('copy_project_id')
+                        void copyToClipboard(String(currentTeam.id), 'project ID')
+                    }}
+                    data-attr="quickstart-copy-project-id"
+                >
+                    Project ID {currentTeam.id}
+                </span>
+                <span>·</span>
+                <span
+                    className="cursor-pointer hover:text-primary"
+                    title={`Copy API host: ${apiHostOrigin()}`}
+                    onClick={() => {
+                        captureQuickstartAction('copy_api_host')
+                        void copyToClipboard(apiHostOrigin(), 'API host')
+                    }}
+                    data-attr="quickstart-copy-api-host"
+                >
+                    Region {region}
+                </span>
+            </div>
+        </div>
     )
 }
 
@@ -1516,9 +1518,29 @@ function QuickstartHeroAnswerCard(): JSX.Element | null {
     )
 }
 
-// Lean quickstart version of the wizard install switcher. Same rules as onboarding's
-// WizardInstallOptions (a cloud run pins the view to its progress; a failed run falls back
-// to the command), plus manual per-tool setup as a third mode.
+type QuickstartInstallMode = 'cloud' | 'local' | 'manual'
+
+const INSTALL_MODE_CARDS: { value: QuickstartInstallMode; title: string; description: string }[] = [
+    {
+        value: 'cloud',
+        title: 'Agent opens a pull request',
+        description: 'We run the setup agent on your repo. Review the PR and merge it.',
+    },
+    {
+        value: 'local',
+        title: 'Agent runs in your terminal',
+        description: 'One command. It edits your code locally and you commit.',
+    },
+    {
+        value: 'manual',
+        title: 'Install it yourself',
+        description: 'Follow the SDK guide for your framework.',
+    },
+]
+
+// The install decision as radio cards: all three options visible and self-describing, since a
+// first-time user makes this choice exactly once. Same rules as onboarding's WizardInstallOptions:
+// a cloud run pins the view to its progress; a failed run falls back to the command.
 function QuickstartInstallSwitcher(): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -1526,79 +1548,78 @@ function QuickstartInstallSwitcher(): JSX.Element {
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
     const { featuredProducts } = useValues(quickstartLogic)
     const { openToolSetupModal } = useActions(quickstartLogic)
-    const [mode, setMode] = useState<'cloud' | 'local' | 'manual'>('cloud')
 
     const offerCloud = cloudRunEnabled && isCloudOrDev
+    const [mode, setMode] = useState<QuickstartInstallMode>(offerCloud ? 'cloud' : 'local')
     const cloudRunPinned = !!activeCloudRun
-    const effectiveMode = cloudRunPinned ? 'cloud' : offerCloud ? mode : mode === 'cloud' ? 'local' : mode
+    const effectiveMode: QuickstartInstallMode = cloudRunPinned ? 'cloud' : mode
     const runItYourself = (): void => {
         clearActiveCloudRun()
         setMode('local')
     }
-    const switchDisabledReason = cloudRunPinned ? 'A cloud run is in progress.' : undefined
 
-    const manualBlock = (
-        <div className="flex flex-wrap gap-2">
-            {featuredProducts.map((product) => (
-                <LemonButton
-                    key={product.key}
-                    type="secondary"
-                    size="small"
-                    icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
-                    onClick={() => {
-                        captureQuickstartAction('set_up_product', product.key, { source: 'focused_install' })
-                        openToolSetupModal(product.key)
-                    }}
-                    data-attr={`quickstart-focused-setup-${product.key}`}
-                >
-                    {product.name}
-                </LemonButton>
-            ))}
-        </div>
-    )
+    const cards = INSTALL_MODE_CARDS.filter((card) => card.value !== 'cloud' || offerCloud)
 
     return (
-        <div className="flex flex-col gap-3 items-start">
-            <LemonSegmentedButton
-                size="small"
-                value={effectiveMode}
-                onChange={(value) => {
-                    if (value !== effectiveMode) {
-                        captureQuickstartAction('install_mode_selected', undefined, { mode: value })
-                    }
-                    setMode(value)
-                }}
-                options={[
-                    ...(offerCloud
-                        ? [
-                              {
-                                  value: 'cloud' as const,
-                                  label: 'Open a pull request',
-                                  'data-attr': 'quickstart-wizard-mode-cloud',
-                              },
-                          ]
-                        : []),
-                    {
-                        value: 'local' as const,
-                        label: offerCloud ? 'Run it yourself' : 'Run the wizard',
-                        disabledReason: switchDisabledReason,
-                        'data-attr': 'quickstart-wizard-mode-local',
-                    },
-                    {
-                        value: 'manual' as const,
-                        label: 'Install manually',
-                        disabledReason: switchDisabledReason,
-                        'data-attr': 'quickstart-wizard-mode-manual',
-                    },
-                ]}
-            />
+        <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-3" role="radiogroup">
+                {cards.map((card) => {
+                    const selected = effectiveMode === card.value
+                    const disabled = cloudRunPinned && card.value !== 'cloud'
+                    return (
+                        <button
+                            key={card.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={disabled}
+                            title={disabled ? 'A cloud run is in progress.' : undefined}
+                            className={cn(
+                                'text-left rounded border p-3 bg-bg-light transition-colors',
+                                selected ? 'border-accent' : 'hover:border-secondary',
+                                disabled && 'opacity-50 cursor-not-allowed'
+                            )}
+                            onClick={() => {
+                                if (card.value !== effectiveMode) {
+                                    captureQuickstartAction('install_mode_selected', undefined, {
+                                        mode: card.value,
+                                    })
+                                }
+                                setMode(card.value)
+                            }}
+                            data-attr={`quickstart-wizard-mode-${card.value}`}
+                        >
+                            <div className="font-semibold text-sm">{card.title}</div>
+                            <div className="text-secondary text-xs mt-1">{card.description}</div>
+                        </button>
+                    )
+                })}
+            </div>
             <div className="w-full">
                 {effectiveMode === 'cloud' ? (
                     <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
                 ) : effectiveMode === 'local' ? (
                     <WizardCommandBlock hideHog align="start" />
                 ) : (
-                    manualBlock
+                    <div className="flex flex-wrap gap-2">
+                        {featuredProducts.map((product) => (
+                            <LemonButton
+                                key={product.key}
+                                type="secondary"
+                                size="small"
+                                icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
+                                onClick={() => {
+                                    captureQuickstartAction('set_up_product', product.key, {
+                                        source: 'focused_install',
+                                    })
+                                    openToolSetupModal(product.key)
+                                }}
+                                data-attr={`quickstart-focused-setup-${product.key}`}
+                            >
+                                {product.name}
+                            </LemonButton>
+                        ))}
+                    </div>
                 )}
             </div>
         </div>
@@ -1616,9 +1637,8 @@ function QuickstartFocusedInstall(): JSX.Element {
             <div>
                 <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
                 <p className="text-secondary mb-0">
-                    Install the PostHog SDK to start sending data. The setup wizard is an agent that reads your codebase
-                    and writes the integration for you. It can open a pull request on your repo, or you can run it in
-                    your terminal. You can also install manually for a specific tool.
+                    Install the PostHog SDK to start sending data. The setup agent can write the integration for you, or
+                    you can install it yourself.
                 </p>
             </div>
 
