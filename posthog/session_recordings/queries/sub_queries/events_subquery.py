@@ -52,6 +52,15 @@ def _event_session_id_field() -> ast.Field:
     return ast.Field(chain=["properties", "$session_id"])
 
 
+def _event_session_id_group_key() -> ast.Alias:
+    # Grouping directly by `properties.$session_id` makes the ClickHouse analyzer name the
+    # group-by key column after the materialized read (which contains `$session_id`). Across a
+    # GlobalIn distributed (Remote) boundary that identifier gets quoted inconsistently on the two
+    # sides, so the query fails with NOT_FOUND_COLUMN_IN_BLOCK. Aliasing the key to a plain
+    # identifier keeps the special-character column shard-local and quotes consistently everywhere.
+    return ast.Alias(alias="session_id", expr=_event_session_id_field())
+
+
 def get_negative_entity_properties(
     entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
 ) -> list[AnyPropertyFilter]:
@@ -509,7 +518,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
-            group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
+            group_by=[_event_session_id_group_key(), ast.Field(chain=["uuid"])],
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:
@@ -527,7 +536,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_expr=[ast.Field(chain=["uuid"]), ast.Call(name="any", args=[ast.Field(chain=["timestamp"])])],
             where_expr=self.wrapped_with_query_operand(exprs=select_exprs),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
-            group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
+            group_by=[_event_session_id_group_key(), ast.Field(chain=["uuid"])],
             limit_expr=ast.Constant(value=10000),
         )
 
