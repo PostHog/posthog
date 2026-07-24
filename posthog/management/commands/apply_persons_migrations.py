@@ -35,6 +35,11 @@ HOBBY_SKIP_MIGRATIONS = {
 
 TRACKING_TABLE = "_persons_migrations_applied"
 
+# Serializes concurrent runners (e.g. multiple instances during a deploy) so that only one
+# applies migrations at a time. Without it, runners read a stale snapshot of applied migrations
+# and collide on both the initial-schema DDL and the tracking-table INSERT.
+ADVISORY_LOCK_KEY = "posthog_apply_persons_migrations"
+
 
 def _ensure_tracking_table(cursor) -> None:
     cursor.execute(f"""
@@ -71,7 +76,18 @@ def _get_sqlx_applied_versions(cursor) -> set[str]:
 
 
 def _record_migration(cursor, filename: str) -> None:
-    cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
+    cursor.execute(
+        f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s) ON CONFLICT (filename) DO NOTHING",
+        [filename],
+    )
+
+
+def _acquire_advisory_lock(cursor) -> None:
+    cursor.execute("SELECT pg_advisory_lock(hashtext(%s)::bigint)", [ADVISORY_LOCK_KEY])
+
+
+def _release_advisory_lock(cursor) -> None:
+    cursor.execute("SELECT pg_advisory_unlock(hashtext(%s)::bigint)", [ADVISORY_LOCK_KEY])
 
 
 def _ensure_database_exists(persons_url: str) -> None:
@@ -155,45 +171,55 @@ class Command(BaseCommand):
         already_applied_count = 0
 
         with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            # Hold a session-level advisory lock across the whole loop so concurrent runners
+            # apply migrations one at a time instead of racing on the schema DDL and tracking rows.
             if not dry_run:
-                _ensure_tracking_table(cursor)
-            already_applied = _get_applied_migrations(cursor) if not dry_run else set()
+                _acquire_advisory_lock(cursor)
+            try:
+                if not dry_run:
+                    _ensure_tracking_table(cursor)
+                # Read applied migrations only after taking the lock, so we see any rows a prior
+                # runner committed while we were waiting rather than a stale startup snapshot.
+                already_applied = _get_applied_migrations(cursor) if not dry_run else set()
 
-            # Bridge sqlx tracking: migrations already applied by sqlx should
-            # not be re-applied. sqlx stores the version prefix as a bigint.
-            sqlx_versions = _get_sqlx_applied_versions(cursor) if not dry_run else set()
+                # Bridge sqlx tracking: migrations already applied by sqlx should
+                # not be re-applied. sqlx stores the version prefix as a bigint.
+                sqlx_versions = _get_sqlx_applied_versions(cursor) if not dry_run else set()
 
-            for sql_file in sql_files:
-                if hobby and sql_file.name in HOBBY_SKIP_MIGRATIONS:
-                    self.stdout.write(f"  Skipping {sql_file.name} (partitioning)")
-                    skipped_count += 1
-                    continue
+                for sql_file in sql_files:
+                    if hobby and sql_file.name in HOBBY_SKIP_MIGRATIONS:
+                        self.stdout.write(f"  Skipping {sql_file.name} (partitioning)")
+                        skipped_count += 1
+                        continue
 
-                if sql_file.name in already_applied:
-                    already_applied_count += 1
-                    continue
+                    if sql_file.name in already_applied:
+                        already_applied_count += 1
+                        continue
 
-                # Extract version prefix (e.g. "20250923000001" from "20250923000001_initial_persons_schema.sql")
-                version_prefix = sql_file.stem.split("_", 1)[0]
-                if version_prefix in sqlx_versions:
-                    # sqlx already ran this migration; record it in our tracking table
-                    if not dry_run:
+                    # Extract version prefix (e.g. "20250923000001" from "20250923000001_initial_persons_schema.sql")
+                    version_prefix = sql_file.stem.split("_", 1)[0]
+                    if version_prefix in sqlx_versions:
+                        # sqlx already ran this migration; record it in our tracking table
+                        if not dry_run:
+                            _record_migration(cursor, sql_file.name)
+                        self.stdout.write(f"  Bridged from sqlx: {sql_file.name}")
+                        already_applied_count += 1
+                        continue
+
+                    if dry_run:
+                        self.stdout.write(f"  Would apply: {sql_file.name}")
+                        applied_count += 1
+                        continue
+
+                    sql_content = sql_file.read_text()
+                    self.stdout.write(f"  Applying {sql_file.name}...")
+                    with conn.transaction():
+                        cursor.execute(sql_content)
                         _record_migration(cursor, sql_file.name)
-                    self.stdout.write(f"  Bridged from sqlx: {sql_file.name}")
-                    already_applied_count += 1
-                    continue
-
-                if dry_run:
-                    self.stdout.write(f"  Would apply: {sql_file.name}")
                     applied_count += 1
-                    continue
-
-                sql_content = sql_file.read_text()
-                self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
-                    cursor.execute(sql_content)
-                    _record_migration(cursor, sql_file.name)
-                applied_count += 1
+            finally:
+                if not dry_run:
+                    _release_advisory_lock(cursor)
 
         action = "Would apply" if dry_run else "Applied"
         self.stdout.write(
