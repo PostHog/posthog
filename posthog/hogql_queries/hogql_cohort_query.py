@@ -274,7 +274,9 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(),
+            # OR conditions print as UNION DISTINCT of ORDER BY-ed branches, which loses dedup on
+            # ClickHouse 26.3.x (see HogQLGlobalSettings.optimize_distinct_in_order).
+            settings=HogQLGlobalSettings(optimize_distinct_in_order=False),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:

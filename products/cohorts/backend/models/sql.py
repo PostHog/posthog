@@ -38,13 +38,16 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(versio
 
 # Continually ensure that all previous version rows are deleted and insert persons that match the criteria
 # optimize_aggregation_in_order = 1 is necessary to avoid oom'ing for our biggest clients
+# optimize_distinct_in_order = 0 works around UNION DISTINCT returning duplicates on ClickHouse 26.3.x
+# when branches are sorted (see HogQLGlobalSettings.optimize_distinct_in_order); the embedded
+# {cohort_filter} has its own trailing SETTINGS trimmed, so the workaround must live on this INSERT.
 RECALCULATE_COHORT_BY_ID = """
 INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
     {cohort_filter}
 ) as person
-SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
+SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto', optimize_distinct_in_order = 0
 """
 
 # NOTE: Group by version id to ensure that signs are summed between corresponding rows.
