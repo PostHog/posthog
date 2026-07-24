@@ -1,10 +1,6 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
-from django.conf import settings
-from django.utils import timezone
-
-from asgiref.sync import sync_to_async
 from langchain_core.messages import (
     AIMessage,
     HumanMessage as LangchainHumanMessage,
@@ -30,52 +26,8 @@ class TicketCommand(SlashCommand):
 
     _window_manager = AnthropicConversationCompactionManager()
 
-    async def _is_organization_new(self) -> bool:
-        """Check if the organization was created less than 3 months ago."""
-        # `self._team.organization` is a FK access that hits the DB when not prefetched,
-        # so it must be wrapped to be safe inside this async context.
-        org_created_at = await sync_to_async(lambda: self._team.organization.created_at)()
-        if not org_created_at:
-            return False
-        months_since_creation = (timezone.now() - org_created_at).days / 30
-        return months_since_creation < 3
-
-    async def _can_create_ticket(self) -> bool:
-        """Check if the organization's subscription allows ticket creation."""
-        # Enable ticket creation in local dev
-        if settings.DEBUG:
-            return True
-
-        if await self._is_organization_new():
-            return True
-
-        return await self._has_paid_plan_or_active_trial()
-
-    async def _has_paid_plan_or_active_trial(self) -> bool:
-        """
-        Check the plan tier derived from the organization's synced billing entitlements.
-
-        `available_product_features` is kept up to date by every billing load, and active
-        trials grant the trial plan's features, so a non-free tier means a paid or custom
-        subscription or an active trial. Reading it locally keeps the slow billing service
-        API out of the conversation turn. Organizations with no synced entitlements are
-        denied, so missing data fails closed.
-        """
-        # `self._team.organization` is a FK access that hits the DB when not prefetched,
-        # so it must be wrapped to be safe inside this async context.
-        return await sync_to_async(lambda: self._team.organization.get_plan_tier() != "free")()
-
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
-        if not await self._can_create_ticket():
-            return PartialAssistantState(
-                messages=[
-                    AssistantMessage(
-                        content="The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help. If your issue is about billing, you can always contact our support team through the in-app help panel.",
-                        id=str(uuid4()),
-                    )
-                ]
-            )
-
+        # Eligibility is enforced client-side (canCreateSupportTicket), like the support panel and its widget endpoint.
         if self._is_first_message(state):
             return PartialAssistantState(
                 messages=[
