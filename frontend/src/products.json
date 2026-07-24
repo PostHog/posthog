@@ -240,13 +240,7 @@
             "type": "user_interview",
             "intents": ["user_interviews"]
         },
-        {
-            "path": "Visual review",
-            "category": "Unreleased",
-            "iconType": null,
-            "type": null,
-            "intents": ["visual_review"]
-        },
+        { "path": "Visual review", "category": "Tools", "iconType": null, "type": null, "intents": ["visual_review"] },
         {
             "path": "Web analytics",
             "category": "Analytics",

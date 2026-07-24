@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { VisualReviewIntro } from '../components/VisualReviewIntro'
 import { visualReviewIndexSceneLogic } from './visualReviewIndexSceneLogic'
 
 export const scene: SceneExport = {
@@ -42,15 +43,14 @@ export function VisualReviewIndexScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-            <div className="max-w-2xl">
-                <p className="text-muted">
-                    No visual review repos yet. Connect one from <Link to={urls.visualReviewSettings()}>Settings</Link>{' '}
-                    to get started.
-                </p>
-                <LemonButton type="primary" to={urls.visualReviewSettings()}>
-                    Open settings
-                </LemonButton>
-            </div>
+            <VisualReviewIntro
+                isEmpty
+                actionElementOverride={
+                    <LemonButton type="primary" to={urls.visualReviewSettings()}>
+                        Open settings
+                    </LemonButton>
+                }
+            />
         </SceneContent>
     )
 }
