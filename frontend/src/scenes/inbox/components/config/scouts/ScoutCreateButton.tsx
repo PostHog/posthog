@@ -43,7 +43,7 @@ export function ScoutCreateButton({
     const { runningChatPrompt } = useValues(scoutFleetLogic)
     const isStartingAiTask = runningChatPrompt === SCOUT_AUTHOR_PROMPT
     const anotherChatTaskIsStarting = runningChatPrompt !== null && !isStartingAiTask
-    const manualDisabledReason = getAccessControlDisabledReason(
+    const creationDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmSkill,
         AccessControlLevel.Editor
     )
@@ -55,7 +55,9 @@ export function ScoutCreateButton({
                 size={size}
                 icon={<IconSparkles />}
                 loading={isStartingAiTask}
-                disabledReason={anotherChatTaskIsStarting ? 'Starting another task…' : undefined}
+                disabledReason={
+                    anotherChatTaskIsStarting ? 'Starting another task…' : (creationDisabledReason ?? undefined)
+                }
                 onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Create scout with AI')}
                 sideAction={{
                     icon: <IconChevronDown />,
@@ -68,7 +70,7 @@ export function ScoutCreateButton({
                                 fullWidth
                                 size={size}
                                 icon={<IconPlus />}
-                                disabledReason={manualDisabledReason}
+                                disabledReason={creationDisabledReason}
                                 onClick={() => setIsManualModalOpen(true)}
                             >
                                 Create manually

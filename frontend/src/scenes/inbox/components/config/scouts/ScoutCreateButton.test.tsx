@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -15,11 +17,16 @@ jest.mock('./ScoutCreateModal', () => ({
     ScoutCreateModal: () => <div>Manual scout form</div>,
 }))
 
+const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jest.MockedFunction<
+    typeof getAccessControlDisabledReason
+>
+
 describe('ScoutCreateButton', () => {
     let createdTaskDescriptions: string[]
 
     beforeEach(() => {
         createdTaskDescriptions = []
+        mockGetAccessControlDisabledReason.mockReturnValue(null)
         useMocks({
             get: {
                 '/api/projects/:team/signals/scout/configs/': [],
@@ -64,6 +71,16 @@ describe('ScoutCreateButton', () => {
         fireEvent.click(await findByText('Create manually'))
 
         expect(await findByText('Manual scout form')).toBeTruthy()
+        expect(createdTaskDescriptions).toEqual([])
+    })
+
+    it('does not start AI authoring without skill editor access', () => {
+        mockGetAccessControlDisabledReason.mockReturnValue('Requires editor access')
+        const { getByText } = render(<ScoutCreateButton />)
+        const createButton = getByText('Create scout with AI').closest<HTMLButtonElement>('button')
+
+        expect(createButton?.getAttribute('aria-disabled')).toBe('true')
+        fireEvent.click(createButton!)
         expect(createdTaskDescriptions).toEqual([])
     })
 })

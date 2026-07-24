@@ -81,6 +81,7 @@ describe('scoutCreateModalLogic', () => {
             name: 'signals-scout-checkout-failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
+            dailyTime: '09:00',
             config: {
                 enabled: false,
                 emit: false,
@@ -125,6 +126,7 @@ describe('scoutCreateModalLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             scoutCreateForm: expect.objectContaining({
+                dailyTime: '14:45',
                 config: {
                     enabled: true,
                     emit: true,
@@ -146,6 +148,34 @@ describe('scoutCreateModalLogic', () => {
                 },
             })
         )
+    })
+
+    it('does not submit a daily schedule without a run time', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'daily-scout-without-time',
+            initialValues: {
+                name: 'signals-scout-checkout-failures',
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateScheduleMode(SCOUT_DAILY_AT_SCHEDULE_MODE)
+        logic.actions.setScoutCreateDailyTime('')
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({ dailyTime: '' }),
+            scoutCreateFormValidationErrors: expect.objectContaining({ dailyTime: 'Run time is required' }),
+        })
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).not.toHaveBeenCalled()
+        expect(onCreated).not.toHaveBeenCalled()
+        expect(onClose).not.toHaveBeenCalled()
     })
 
     it('keeps the form open and surfaces a conflicting scout name', async () => {

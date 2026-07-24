@@ -30,6 +30,7 @@ type ScoutCreateConfigFormValues = Required<
 
 export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
     config: ScoutCreateConfigFormValues
+    dailyTime: string
 }
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
@@ -47,6 +48,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
     name: SIGNALS_SCOUT_SKILL_PREFIX,
     description: '',
     body: '',
+    dailyTime: DEFAULT_SCOUT_DAILY_TIME,
     config: {
         enabled: true,
         emit: true,
@@ -56,14 +58,20 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
 }
 
 export function getScoutCreateFormValues(initialValues?: ScoutCreateInitialValues): ScoutCreateFormValues {
+    const config = {
+        ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
+        ...initialValues?.config,
+    }
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...initialValues,
-        config: {
-            ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
-            ...initialValues?.config,
-        },
+        config,
+        dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
     }
+}
+
+function isValidScoutDailyTime(dailyTime: string): boolean {
+    return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
 }
 
 function scoutNameError(name: string): string | undefined {
@@ -166,7 +174,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     forms(({ props: logicProps, actions, values }) => ({
         scoutCreateForm: {
             defaults: getScoutCreateFormValues(logicProps.initialValues),
-            errors: ({ name, description, body, config }) => ({
+            errors: ({ name, description, body, config, dailyTime }) => ({
                 name: scoutNameError(name),
                 description: !description.trim()
                     ? 'Description is required'
@@ -174,6 +182,10 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                       ? `Description must be ${SKILL_DESCRIPTION_MAX_LENGTH} characters or fewer`
                       : undefined,
                 body: !body.trim() ? 'Instructions are required' : undefined,
+                dailyTime:
+                    dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
+                        ? 'Run time is required'
+                        : undefined,
                 config:
                     !Number.isFinite(config.run_interval_minutes) ||
                     config.run_interval_minutes < 30 ||
@@ -189,10 +201,10 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
 
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        ...formValues,
                         name: formValues.name.trim(),
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
+                        config: formValues.config,
                     })
 
                     actions.resetScoutCreateForm()
@@ -221,9 +233,11 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 return
             }
             if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE) {
-                const dailyTime =
-                    dailyCronToTime(values.scoutCreateForm.config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME
+                const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
+                    ? values.scoutCreateForm.dailyTime
+                    : DEFAULT_SCOUT_DAILY_TIME
                 actions.setScoutCreateFormValues({
+                    dailyTime,
                     config: {
                         ...values.scoutCreateForm.config,
                         run_cron_schedule: timeToDailyCron(dailyTime),
@@ -245,10 +259,12 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             })
         },
         setScoutCreateDailyTime: ({ dailyTime }) => {
-            if (!/^\d{2}:\d{2}$/.test(dailyTime)) {
+            if (!isValidScoutDailyTime(dailyTime)) {
+                actions.setScoutCreateFormValues({ dailyTime })
                 return
             }
             actions.setScoutCreateFormValues({
+                dailyTime,
                 config: {
                     ...values.scoutCreateForm.config,
                     run_cron_schedule: timeToDailyCron(dailyTime),

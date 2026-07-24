@@ -15,8 +15,6 @@ import {
     scoutCreateModalLogic,
 } from '../../../logics/scoutCreateModalLogic'
 import {
-    dailyCronToTime,
-    DEFAULT_SCOUT_DAILY_TIME,
     getScoutScheduleMode,
     getScoutScheduleOptions,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
@@ -41,7 +39,6 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
     const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
-    const dailyTime = dailyCronToTime(scoutCreateForm.config.run_cron_schedule)
 
     const handleClose = (): void => {
         if (isScoutCreateFormSubmitting) {
@@ -55,6 +52,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
         scoutCreateFormValidationErrors.body,
+        scoutCreateFormValidationErrors.dailyTime,
         scoutCreateFormValidationErrors.config?.run_interval_minutes,
     ].find((error): error is string => typeof error === 'string')
 
@@ -156,15 +154,10 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ? (
                             <LemonField.Pure label="Run time" help={`Uses the project timezone (${projectTimezone})`}>
                                 <LemonInput
-                                    key={scoutCreateForm.config.run_cron_schedule ?? 'unset'}
                                     type="time"
                                     step={60}
-                                    defaultValue={dailyTime ?? DEFAULT_SCOUT_DAILY_TIME}
-                                    onBlur={(event) => {
-                                        if (event.currentTarget.value) {
-                                            setScoutCreateDailyTime(event.currentTarget.value)
-                                        }
-                                    }}
+                                    value={scoutCreateForm.dailyTime}
+                                    onChange={setScoutCreateDailyTime}
                                 />
                             </LemonField.Pure>
                         ) : null}
