@@ -829,9 +829,16 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     569: ErrorCodeMeta("MULTIPLE_COLUMNS_SERIALIZED_TO_SAME_PROTOBUF_FIELD"),
     570: ErrorCodeMeta("DATA_TYPE_INCOMPATIBLE_WITH_PROTOBUF_FIELD"),
     571: ErrorCodeMeta("DATABASE_REPLICATION_FAILED"),
+    # Optimizer exceeded its max iteration passes — the plan is too large for ClickHouse to optimize.
+    # This is a property of the query shape, not a server fault, so it's user-safe and classifies as a
+    # USER_ERROR: returned to the user as a 4xx and kept out of error tracking. The user's workaround is
+    # to narrow the query's scope. We also raise query_plan_max_optimizations_to_apply in execute.py so
+    # most of these plans finish instead of hitting the limit at all.
     572: ErrorCodeMeta(
-        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
-    ),  # optimizer exceeded max iteration passes
+        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS",
+        user_safe="This query is too complex to run. Try reducing its scope, for example by shortening the "
+        "date range or removing breakdowns.",
+    ),
     573: ErrorCodeMeta("EPOLL_ERROR"),
     574: ErrorCodeMeta("DISTRIBUTED_TOO_MANY_PENDING_BYTES"),
     575: ErrorCodeMeta("UNKNOWN_SNAPSHOT"),

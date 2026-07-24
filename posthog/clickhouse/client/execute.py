@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, CLICKHOUSE_QUERY_PLAN_MAX_OPTIMIZATIONS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -217,6 +217,9 @@ def default_settings() -> dict:
         # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
         "max_query_size": 1048576,
+        # Raise the optimizer-pass ceiling above ClickHouse's default of 10000 so large generated HogQL
+        # plans finish instead of aborting with code 572 (TOO_MANY_QUERY_PLAN_OPTIMIZATIONS).
+        "query_plan_max_optimizations_to_apply": CLICKHOUSE_QUERY_PLAN_MAX_OPTIMIZATIONS,
     }
 
 
