@@ -259,8 +259,9 @@ class EmailConnectView(APIView):
                     logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
                     return Response(
                         {
-                            "error": "This domain cannot be registered for sending. "
-                            "It may already be claimed by another account."
+                            "error": "This domain couldn't be set up for sending. "
+                            "It may still be attached to an earlier setup attempt. "
+                            "Contact support and we'll reset it for you."
                         },
                         status=400,
                     )
