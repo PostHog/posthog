@@ -33,6 +33,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
 from posthog.redis import get_client
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -259,10 +260,12 @@ def _fetch_event_properties(team: Team, inputs: IssueCreatedWorkflowInputs) -> d
     return _fetch_event_properties_from_clickhouse(team, inputs)
 
 
-def _embedding_unavailable_error(inputs: IssueCreatedWorkflowInputs, reason: str, message: str) -> ApplicationError:
+def _embedding_unavailable_error(
+    inputs: IssueCreatedWorkflowInputs, reason: str, message: str
+) -> NonReportableApplicationError:
     # A short embedding-service outage is expected and already tolerated — the workflow retries then
-    # fails open. Log and count it here so the outage is still observable, but leave capture to the
-    # caller, which does not surface this as an error-tracking issue.
+    # fails open. Log and count it here so the outage is still observable, and raise it as a
+    # NonReportableError so the activity interceptor drops it instead of filing an error-tracking issue.
     ERROR_TRACKING_EMBEDDING_UNAVAILABLE.labels(reason=reason).inc()
     logger.warning(
         "error_tracking_issue_created_embedding_unavailable",
@@ -270,7 +273,7 @@ def _embedding_unavailable_error(inputs: IssueCreatedWorkflowInputs, reason: str
         issue_id=inputs.issue_id,
         reason=reason,
     )
-    return ApplicationError(message, type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE)
+    return NonReportableApplicationError(message, type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE)
 
 
 def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
