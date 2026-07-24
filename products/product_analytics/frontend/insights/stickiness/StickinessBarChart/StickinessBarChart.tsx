@@ -50,7 +50,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -58,7 +57,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         interval,
         yAxisScaleType,
         getTrendsColor,
-        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
@@ -97,13 +95,13 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+                // instead of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, getLabel, quillLegendEnabled]
+        [indexedResults, getTrendsColor, getLabel]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useChartConfig(

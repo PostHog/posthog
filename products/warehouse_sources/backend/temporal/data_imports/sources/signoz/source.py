@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SigNozSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.signoz import SigNozSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://signoz.io/api-reference/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -103,6 +104,7 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -124,7 +126,11 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
         return schemas
 
     def validate_credentials(
-        self, config: SigNozSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SigNozSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_signoz_credentials(config.host, config.api_key, schema_name=schema_name, team_id=team_id)
 

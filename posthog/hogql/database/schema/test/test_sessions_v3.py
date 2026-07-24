@@ -27,6 +27,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 @snapshot_clickhouse_queries
 class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
     snapshot_replace_all_numbers = True
 
     def __execute(
@@ -817,6 +818,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             ["Organic Social"],
             ["Organic Video"],
             ["Organic Shopping"],
+            ["AI"],
             ["Push"],
             ["SMS"],
             ["Audio"],

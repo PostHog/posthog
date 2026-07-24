@@ -1,0 +1,19 @@
+{% comment %}
+Danger-zone action button for admin change pages. The submit button posts the surrounding
+admin form to action_url via formaction — a nested <form> here would be dropped by the
+browser, so it rides the change form instead (formnovalidate skips its field validation).
+Include from a readonly display method with action_url / button_label / confirm_message /
+notice in context.
+{% endcomment %}
+<button type="submit"
+        formaction="{{ action_url }}"
+        formmethod="post"
+        formnovalidate
+        class="button"
+        style="background: #ba2121; color: #fff;"
+        onclick="return confirm('{{ confirm_message|escapejs }}');">
+    {{ button_label }}
+</button>
+<p class="help" style="margin-top: 8px; max-width: 40em; color: #ba2121;">
+    {{ notice }}
+</p>

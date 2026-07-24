@@ -14,7 +14,7 @@ import {
 } from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
-import { TileOverridesWarning } from './TileOverridesWarning'
+import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverridesWarning'
 
 function getInsightType(query: Node | null): InsightTypeMetadata {
     if (query?.kind) {
@@ -30,6 +30,7 @@ export function TopHeading({
     query,
     lastRefresh,
     hasTileOverrides,
+    ignoresDashboardFilters,
     resolvedDateRange,
     showInsightType = true,
     showDate = true,
@@ -39,6 +40,7 @@ export function TopHeading({
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
+    ignoresDashboardFilters?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
     showDate?: boolean
@@ -85,6 +87,7 @@ export function TopHeading({
             {/* Freshness clock lives in the date row — without a date it would hold the row open on its own. */}
             {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
+            {ignoresDashboardFilters ? <IgnoresDashboardFiltersNotice /> : null}
         </CardTopHeadingRow>
     )
 }

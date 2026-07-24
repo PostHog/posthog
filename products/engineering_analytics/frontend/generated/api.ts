@@ -13,6 +13,8 @@ import type {
     BrokenTestsResultApi,
     CICardSummaryApi,
     CIFailureLogsApi,
+    CISignalsConfigApi,
+    CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
@@ -31,6 +33,9 @@ import type {
     EngineeringAnalyticsRepoRunActivityParams,
     EngineeringAnalyticsResolveBranchParams,
     EngineeringAnalyticsRunFailureLogsParams,
+    EngineeringAnalyticsTeamCiActivityParams,
+    EngineeringAnalyticsTeamCiHealthParams,
+    EngineeringAnalyticsTeamMergeTrendParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
@@ -48,6 +53,9 @@ import type {
     QuarantineRequestResultApi,
     RepoOverviewApi,
     RunFailureLogsApi,
+    TeamCIActivityApi,
+    TeamCIHealthListApi,
+    TeamMergeTrendApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -120,6 +128,43 @@ export const engineeringAnalyticsBrokenTests = async (
     return apiMutator<BrokenTestsResultApi>(getEngineeringAnalyticsBrokenTestsUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiSignalsConfigRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/ci-signals-config/`
+}
+
+/**
+ * Return the atomic CI Signals configuration and aggregate GitHub warehouse sync status.
+ */
+export const engineeringAnalyticsCiSignalsConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CISignalsConfigApi> => {
+    return apiMutator<CISignalsConfigApi>(getEngineeringAnalyticsCiSignalsConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiSignalsConfigUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/ci-signals-config/`
+}
+
+/**
+ * Enable or disable all CI signal detectors in one transaction.
+ */
+export const engineeringAnalyticsCiSignalsConfigUpdate = async (
+    projectId: string,
+    cISignalsConfigUpdateApi: CISignalsConfigUpdateApi,
+    options?: RequestInit
+): Promise<CISignalsConfigApi> => {
+    return apiMutator<CISignalsConfigApi>(getEngineeringAnalyticsCiSignalsConfigUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cISignalsConfigUpdateApi),
     })
 }
 
@@ -239,7 +284,7 @@ export const getEngineeringAnalyticsFlakyTestsUrl = (
 }
 
 /**
- * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const engineeringAnalyticsFlakyTests = async (
     projectId: string,
@@ -636,13 +681,112 @@ export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
 }
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const engineeringAnalyticsSources = async (
     projectId: string,
     options?: RequestInit
 ): Promise<GitHubSourceApi[]> => {
     return apiMutator<GitHubSourceApi[]>(getEngineeringAnalyticsSourcesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiActivityUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_activity/`
+}
+
+/**
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = runs where an owned test failed, errored, or a retry recovered it. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ */
+export const engineeringAnalyticsTeamCiActivity = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams,
+    options?: RequestInit
+): Promise<TeamCIActivityApi> => {
+    return apiMutator<TeamCIActivityApi>(getEngineeringAnalyticsTeamCiActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiHealthUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_health/`
+}
+
+/**
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ */
+export const engineeringAnalyticsTeamCiHealth = async (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams,
+    options?: RequestInit
+): Promise<TeamCIHealthListApi> => {
+    return apiMutator<TeamCIHealthListApi>(getEngineeringAnalyticsTeamCiHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamMergeTrendUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_merge_trend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_merge_trend/`
+}
+
+/**
+ * One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs the team's members merged each day (PR author login → GitHub org team membership). Team-level aggregates only, never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
+ */
+export const engineeringAnalyticsTeamMergeTrend = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams,
+    options?: RequestInit
+): Promise<TeamMergeTrendApi> => {
+    return apiMutator<TeamMergeTrendApi>(getEngineeringAnalyticsTeamMergeTrendUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

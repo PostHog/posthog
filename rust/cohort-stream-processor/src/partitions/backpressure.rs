@@ -1,24 +1,32 @@
-//! The events consume loop's per-partition holdover of un-dispatched events, kept broker-free so its
-//! transitions are unit-testable in isolation.
-//!
-//! A partition holds a non-empty entry in [`pending`](Backpressure::pending) **iff** its events could
-//! not be dispatched, so [`held_partitions`](Backpressure::held_partitions) (`pending.keys()`) is
-//! exactly the paused target. Applying and re-asserting that target on the consumer is owned by the
-//! pauser task (`run_pauser_loop`), not this struct.
+//! Per-partition holdover of un-dispatched messages, kept broker-free so its transitions are
+//! unit-testable. A partition has an entry **iff** its messages could not be dispatched, so
+//! `pending.keys()` is exactly the paused target; the pauser task owns applying it. Instantiated
+//! by the events consumer ([`Backpressure`]) and the seed consumer.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::partitions::shuffle_message::ShuffleMessage;
 
-/// Held events per held partition for the events consume loop. Never keeps an empty holdover, so
-/// `pending.keys()` is exactly the paused target.
-#[derive(Debug, Default)]
-pub struct Backpressure {
-    /// Un-dispatched events per held partition, coalesced in offset order.
-    pending: HashMap<i32, Vec<ShuffleMessage>>,
+/// The events consume loop's holdover.
+pub type Backpressure = PartitionHoldover<ShuffleMessage>;
+
+/// Held messages per held partition. Never keeps an empty holdover, so `pending.keys()` is exactly
+/// the paused target.
+#[derive(Debug)]
+pub struct PartitionHoldover<T> {
+    /// Un-dispatched messages per held partition, coalesced in offset order.
+    pending: HashMap<i32, Vec<T>>,
 }
 
-impl Backpressure {
+impl<T> Default for PartitionHoldover<T> {
+    fn default() -> Self {
+        Self {
+            pending: HashMap::new(),
+        }
+    }
+}
+
+impl<T> PartitionHoldover<T> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -30,21 +38,21 @@ impl Backpressure {
             .retain(|partition, _| owned.contains(partition));
     }
 
-    /// Take the whole holdover for a retry-flush, emptying `pending`; the caller re-[`absorb`](Self::absorb)s
-    /// whatever stays full.
-    pub fn take_held(&mut self) -> Vec<(i32, Vec<ShuffleMessage>)> {
+    /// Take the whole holdover for a retry-flush, emptying `pending`; the caller
+    /// re-[`absorb`](Self::absorb)s whatever stays full.
+    pub fn take_held(&mut self) -> Vec<(i32, Vec<T>)> {
         std::mem::take(&mut self.pending).into_iter().collect()
     }
 
-    /// Partitions with an outstanding holdover: the paused target, and the set fresh events must queue
-    /// behind rather than leapfrog.
+    /// Partitions with an outstanding holdover: the paused target, and the set fresh messages must
+    /// queue behind rather than leapfrog.
     pub fn held_partitions(&self) -> HashSet<i32> {
         self.pending.keys().copied().collect()
     }
 
-    /// Append un-dispatched events to their partition's holdover in offset order. Empty batches are
-    /// skipped, so a present entry always means a non-empty holdover.
-    pub fn absorb(&mut self, full: HashMap<i32, Vec<ShuffleMessage>>) {
+    /// Append un-dispatched messages to their partition's holdover in offset order. Empty batches
+    /// are skipped, so a present entry always means a non-empty holdover.
+    pub fn absorb(&mut self, full: HashMap<i32, Vec<T>>) {
         for (partition, mut messages) in full {
             if messages.is_empty() {
                 continue;
@@ -61,8 +69,8 @@ impl Backpressure {
         self.pending.len()
     }
 
-    /// Total events held across all held partitions. Feeds the `pending_held_events` gauge.
-    pub fn held_event_count(&self) -> usize {
+    /// Total messages held across all held partitions. Feeds the `pending_held_events` gauge.
+    pub fn held_message_count(&self) -> usize {
         self.pending.values().map(Vec::len).sum()
     }
 }
@@ -90,6 +98,7 @@ mod tests {
                 redirect_hops: 0,
             }),
             cse_offset,
+            broker_ts_ms: None,
         }
     }
 
@@ -158,12 +167,12 @@ mod tests {
     }
 
     #[test]
-    fn held_event_count_sums_across_partitions() {
+    fn held_message_count_sums_across_partitions() {
         let mut bp = Backpressure::new();
         bp.absorb(HashMap::from([
             (5, vec![event(10), event(11)]),
             (6, vec![event(20)]),
         ]));
-        assert_eq!(bp.held_event_count(), 3);
+        assert_eq!(bp.held_message_count(), 3);
     }
 }

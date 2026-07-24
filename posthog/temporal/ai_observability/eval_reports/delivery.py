@@ -7,12 +7,17 @@ email HTML body and Slack Block Kit payloads from that shape.
 
 import re
 from datetime import UTC, datetime
+from urllib.parse import quote, urlencode
 
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
+from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    Citation,
+    EvalReportContent,
+    EvalReportMetrics,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +44,9 @@ _OUTCOME_LABELS = {
     "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
 }
 
+type CitationMap = dict[str, tuple[str, str | None]]
+_SAFE_CITATION_LABEL_RE = re.compile(r"^[A-Za-z0-9._~-]{1,8}$")
+
 
 def _inline_email_styles(html: str) -> str:
     """Add inline styles to HTML elements for email client compatibility."""
@@ -61,47 +69,69 @@ def _format_period_for_display(iso_str: str) -> str:
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
-def _build_citation_map(citations: list) -> dict[str, str]:
-    """Build a generation_id → trace_id lookup from structured citations."""
-    return {c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id}
+def _build_citation_map(citations: list[Citation]) -> CitationMap:
+    """Map each cited ID to its trace and optional focused generation."""
+    citation_map: CitationMap = {}
+    for citation in citations:
+        if citation.generation_id and citation.trace_id:
+            citation_map[citation.generation_id] = (citation.trace_id, citation.generation_id)
+        elif citation.trace_id:
+            citation_map[citation.trace_id] = (citation.trace_id, None)
+    return citation_map
 
 
-def _make_trace_link(project_id: int, generation_id: str, trace_id: str) -> str:
-    """Build the trace URL for a cited generation."""
+def _make_trace_link(project_id: int, trace_id: str, generation_id: str | None) -> str:
+    """Build a trace URL, optionally focused on a cited generation."""
     from posthog.utils import absolute_uri
 
-    return absolute_uri(f"/project/{project_id}/ai-observability/traces/{trace_id}?event={generation_id}")
+    # kea-router decodes the pathname once before matching, so preserve an encoded layer for the scene.
+    encoded_trace_id = quote(quote(trace_id, safe=""), safe="")
+    path = f"/project/{project_id}/ai-observability/traces/{encoded_trace_id}"
+    if generation_id:
+        path = f"{path}?{urlencode({'event': generation_id})}"
+    return absolute_uri(path)
 
 
-def _linkify_citations(text: str, project_id: int, citation_map: dict[str, str]) -> str:
-    """Replace cited generation IDs with clickable markdown links.
+def _citation_link_label(cited_id: str, generation_id: str | None) -> str:
+    """Keep arbitrary IDs from breaking the generated Markdown link label."""
+    preview = cited_id[:8]
+    if _SAFE_CITATION_LABEL_RE.fullmatch(preview):
+        return f"{preview}..."
+    return "generation" if generation_id else "trace"
+
+
+def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
+    """Replace cited generation or trace IDs with clickable markdown links.
 
     Uses the structured citation map (from add_citation calls) rather than
     scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
     Handles common LLM formatting wrappers (backticks, angle brackets).
 
     Two-phase approach avoids double-replacement: first swap every occurrence
-    of each gen_id to a unique placeholder, then replace placeholders with the
-    actual markdown links. This prevents gen_ids inside URLs from being matched.
+    of each cited ID to a unique placeholder, then replace placeholders with the
+    actual markdown links. This prevents cited IDs inside URLs from being matched.
     """
     if not citation_map:
         return text
 
-    # Phase 1: replace all occurrences of each gen_id with a placeholder.
+    # Phase 1: replace all occurrences of each cited ID with a placeholder.
     placeholders: dict[str, str] = {}
-    for i, gen_id in enumerate(citation_map):
+    for i, cited_id in enumerate(citation_map):
         placeholder = f"\x00CITE{i}\x00"
-        placeholders[placeholder] = gen_id
+        placeholders[placeholder] = cited_id
+        _, generation_id = citation_map[cited_id]
 
-        for wrapper in [f"`` `{gen_id}` ``", f"`{gen_id}`", f"<{gen_id}>"]:
+        for wrapper in [f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>"]:
             text = text.replace(wrapper, placeholder)
-        text = text.replace(gen_id, placeholder)
+        if generation_id:
+            text = text.replace(cited_id, placeholder)
 
     # Phase 2: replace placeholders with markdown links.
-    for placeholder, gen_id in placeholders.items():
-        trace_id = citation_map[gen_id]
-        link = _make_trace_link(project_id, gen_id, trace_id)
-        text = text.replace(placeholder, f"[{gen_id[:8]}...]({link})")
+    for placeholder, cited_id in placeholders.items():
+        trace_id, generation_id = citation_map[cited_id]
+        link = _make_trace_link(project_id, trace_id, generation_id)
+        label = _citation_link_label(cited_id, generation_id)
+        text = text.replace(placeholder, f"[{label}]({link})")
 
     return text
 
@@ -191,7 +221,7 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
     return blocks
 
 
-def _render_section_html(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
+def _render_section_html(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
     content_with_links = _linkify_citations(content, project_id, citation_map)
@@ -200,7 +230,7 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
     return f"<h2>{title}</h2>\n{html_content}\n"
 
 
-def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
+def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
     content = _linkify_citations(content, project_id, citation_map)

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconHeartPlus, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconGraph, IconHeartPlus, IconLinear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -148,6 +148,7 @@ export function SourcesList(): JSX.Element {
         pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
         healthChecksConfig,
+        anomalyInvestigationConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
@@ -155,6 +156,7 @@ export function SourcesList(): JSX.Element {
         isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
         isHealthChecksToggling,
+        isAnomalyInvestigationToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -163,6 +165,7 @@ export function SourcesList(): JSX.Element {
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
         toggleHealthChecks,
+        toggleAnomalyInvestigation,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -222,6 +225,16 @@ export function SourcesList(): JSX.Element {
             />
 
             <Source
+                icon={<IconGraph className="size-5 text-accent" />}
+                title="PostHog Product Analytics"
+                description="Anomalies in your tracked metrics, investigated automatically → Signals"
+                variant="available"
+                checked={!!anomalyInvestigationConfig?.enabled}
+                loading={isAnomalyInvestigationToggling}
+                onToggle={() => toggleAnomalyInvestigation()}
+            />
+
+            <Source
                 icon={<img className="size-5" src={iconZendesk} />}
                 title="Zendesk"
                 description="Incoming support tickets → Signals"
@@ -229,7 +242,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!zendeskTicketsConfig?.enabled}
                 loading={isZendeskTicketsToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Zendesk')}
+                onToggle={() => initiateDataWarehouseSourceToggle('zendesk')}
             />
 
             <Source
@@ -240,7 +253,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!linearIssuesConfig?.enabled}
                 loading={isLinearIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Linear')}
+                onToggle={() => initiateDataWarehouseSourceToggle('linear')}
             />
 
             <Source
@@ -251,7 +264,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!githubIssuesConfig?.enabled}
                 loading={isGithubIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Github')}
+                onToggle={() => initiateDataWarehouseSourceToggle('github')}
             />
 
             <Source
@@ -262,7 +275,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!pgAnalyzeIssuesConfig?.enabled}
                 loading={isPgAnalyzeIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('PgAnalyze')}
+                onToggle={() => initiateDataWarehouseSourceToggle('pganalyze')}
             />
 
             <Source

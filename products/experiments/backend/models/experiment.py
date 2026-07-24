@@ -17,6 +17,7 @@ from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
 )
+from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, experiment_rule_from_filters
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -141,6 +142,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # Latest flag-cleanup Code task opened when this experiment ended. A bare UUID, not a FK —
     # tasks is an isolated product, so details are read through its facade.
     flag_cleanup_task_id = models.UUIDField(null=True, blank=True)
+
+    # GitHub repository (`org/repo`) holding this experiment's flag code, used for the
+    # flag-cleanup PR. When null, cleanup falls back to the team's only cached repo and
+    # is skipped when the team has several — never inferred.
+    repository = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_experiment"
@@ -316,13 +322,15 @@ def flag_has_live_experiment(feature_flag_id: int) -> bool:
     return _live_experiments_for_flag(feature_flag_id).exists()
 
 
-def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
-    """Return the `holdout` field for a feature flag's filters."""
-    if not holdout_id or not filters:
-        return {"holdout": None}
-    return {
-        "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
-    }
+def get_experiment_rule(experiment: Experiment) -> ExperimentRuleConfig:
+    """The experiment's normalized rule config — the single home for experiment-to-rule resolution.
+
+    A v1 flag hosting an experiment is one implicit experiment rule, so this reads the
+    whole linked flag through the flag-side derivation. When the rule-level flag model
+    lands, this resolves the flag rule carrying this experiment's id instead — consumers
+    are untouched.
+    """
+    return experiment_rule_from_filters(experiment.feature_flag.filters or {})
 
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
@@ -369,6 +377,12 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+    @property
+    def exclusion_percentage(self) -> float | None:
+        # Only the first release-condition group's rollout_percentage is denormalized onto
+        # linked flags as the holdout's exclusion percentage (see the holdout API help text).
+        return self.filters[0]["rollout_percentage"] if self.filters else None
 
 
 class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
@@ -503,13 +517,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     total_metrics = models.PositiveIntegerField(default=0)
+
     metric_errors = models.JSONField(default=dict)
-    # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
+    metric_retries = models.JSONField(default=dict)
     metric_uuids = models.JSONField(default=list)
 
-    # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric
-    # (including retries) uses this value so all metrics cover the same window and retries overwrite rather than
-    # orphan rows. Exposed by the API serializer as the data freshness cutoff for the run's results.
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

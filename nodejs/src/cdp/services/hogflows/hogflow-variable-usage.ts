@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
@@ -7,20 +7,34 @@ import { logger } from '~/common/utils/logger'
 
 import { actionIdForLogging } from './hogflow-utils'
 
+// Deliberately unlabelled: the metric answers "how common are variable misses fleet-wide" (it
+// sizes the publish-time lint work); which flow/step/variable missed is in the warn log, where
+// unbounded cardinality belongs.
 const counterMissingVariableReference = new Counter({
     name: 'cdp_hogflow_missing_variable_reference',
     help: 'A workflow step referenced a variable that is not set for the run, so it renders empty',
-    labelNames: ['hog_flow_id'],
+})
+
+// The scan runs on every fresh entry into a function step, so its cost has to stay observable.
+const histogramVariableScanDuration = new Histogram({
+    name: 'cdp_hogflow_variable_scan_duration_seconds',
+    help: 'Time spent scanning a step config for workflow variable references',
+    buckets: [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
 })
 
 // Both templating modes reference workflow variables textually: `{variables.foo}` (hog) and
-// `{{ variables.foo }}` (liquid), plus the bracket form `variables['my-var']`. A regex scan over
-// the raw template strings covers both without parsing either language. Compiled hog bytecode
-// never matches (it stores 'variables' and the key as separate string constants), so scanning a
-// whole config is safe.
+// `{{ variables.foo }}` (liquid), plus the bracket form `variables['my-var']`.  A regex scan over
+// the raw template strings covers both without parsing either language.
 const DOT_REFERENCE_REGEX = /\bvariables\.([A-Za-z_$][A-Za-z0-9_$]*)/g
 // Whitespace allowed around the brackets and quotes - liquid accepts `variables[ 'x' ]`
 const BRACKET_REFERENCE_REGEX = /\bvariables\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g
+
+// Compiled hog output carried alongside the template strings. Never scanned: it's by far the
+// bulkiest part of a config (hundreds of elements per input), references in it are stored as
+// separate string constants that can't match the regexes, and a liquid/template string embedded
+// verbatim as a bytecode constant would be a false positive - the executor renders from the
+// template, not from that constant.
+const SKIPPED_KEYS = new Set(['bytecode', 'transpiled'])
 
 const collectReferences = (value: unknown, into: Set<string>): void => {
     if (typeof value === 'string') {
@@ -36,7 +50,11 @@ const collectReferences = (value: unknown, into: Set<string>): void => {
         return
     }
     if (value && typeof value === 'object') {
-        Object.values(value).forEach((item) => collectReferences(item, into))
+        Object.entries(value).forEach(([key, item]) => {
+            if (!SKIPPED_KEYS.has(key)) {
+                collectReferences(item, into)
+            }
+        })
     }
 }
 
@@ -68,10 +86,12 @@ export function observeMissingVariableReferences(
     action: HogFlowAction,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
 ): void {
+    const stopTimer = histogramVariableScanDuration.startTimer()
     const missing = findMissingVariableReferences(
         action.config as { inputs?: unknown; mappings?: unknown },
         invocation.state.variables
     )
+    stopTimer()
     if (missing.length === 0) {
         return
     }
@@ -87,5 +107,5 @@ export function observeMissingVariableReferences(
         actionId: action.id,
         missing,
     })
-    counterMissingVariableReference.labels({ hog_flow_id: invocation.hogFlow.id }).inc()
+    counterMissingVariableReference.inc()
 }

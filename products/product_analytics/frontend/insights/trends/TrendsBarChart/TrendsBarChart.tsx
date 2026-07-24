@@ -122,7 +122,6 @@ export function TrendsBarChart({
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
-    const quillLegendEnabled = !isAggregated && !!legendConfig
     const isPercentStackView = !isAggregated && !!showPercentStackView && !!supportsPercentStackView
     // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
     // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
@@ -173,9 +172,9 @@ export function TrendsBarChart({
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
             getColor: getTrendsColor,
-            // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-            // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-            getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+            // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+            // instead of being dropped here, so the legend can restore them.
+            getHidden: undefined,
             getLabel,
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
@@ -195,7 +194,6 @@ export function TrendsBarChart({
         getAggregatedDisplayLabel,
         getLabel,
         applyMultipleYAxes,
-        quillLegendEnabled,
     ])
 
     const valueLabelFormatter = useCallback(

@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 
@@ -23,7 +24,7 @@ PERSON_DISTINCT_ID_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
     ),
-    "person_id": StringDatabaseField(
+    "person_id": UUIDDatabaseField(
         name="person_id",
         nullable=False,
         description="Corrected person this distinct_id now resolves to; matches `persons.id`.",

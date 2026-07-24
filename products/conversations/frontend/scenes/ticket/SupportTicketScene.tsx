@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -21,21 +22,15 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
-import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import {
-    type Ticket,
-    type TicketPriority,
-    type TicketStatus,
-    priorityOptions,
-    statusOptionsWithoutAll,
-} from '../../types'
+import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -45,6 +40,18 @@ import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
+
+// The list's filters / saved view ride along in the ticket page's query string
+// (the ticket row carries them through on navigation). Rebuild the list URL from
+// them so the back arrow returns to the view the user came from rather than the
+// unfiltered ticket list.
+export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb {
+    return {
+        name: 'Ticket list',
+        path: combineUrl(urls.supportTickets(), searchParams).url,
+        key: 'supportTickets',
+    }
+}
 
 export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
@@ -57,13 +64,12 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new', id: ticketId || 'new' }),
 }
 
-// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
-function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
-    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
-        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
-    }
-    return undefined
-}
+// The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
+const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
+    { value: 'pending', statusLabel: 'pending' },
+    { value: 'on_hold', statusLabel: 'on hold' },
+    { value: 'resolved', statusLabel: 'resolved' },
+]
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
@@ -86,8 +92,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
+        unsavedTicketChanges,
+        ticketUpdating,
         draftContent,
         draftIsPrivate,
+        draftModeEnabled,
+        replyRecipientDescription,
         snoozedUntil,
         knowledgeGaps,
         knowledgeGapsLoading,
@@ -95,6 +105,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         latestAiMessage,
         feedbackByMessageId,
     } = useValues(logic)
+    // The list's filters / saved view ride along in this page's query string
+    // (the ticket row carries them through on navigation). Preserve them on the
+    // back arrow so it returns to the view the user came from rather than the
+    // unfiltered ticket list (see ticketListBackTo).
+    const { searchParams } = useValues(router)
     const {
         setStatus,
         setPriority,
@@ -106,6 +121,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
     } = useActions(logic)
@@ -194,11 +210,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }
                 description=""
                 resourceType={{ type: 'conversation' }}
-                forceBackTo={{
-                    name: 'Ticket list',
-                    path: urls.supportTickets(),
-                    key: 'supportTickets',
-                }}
+                forceBackTo={ticketListBackTo(searchParams)}
             />
 
             <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
@@ -216,6 +228,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        channel={ticket?.channel_source}
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
@@ -223,6 +236,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        draftMode={draftModeEnabled}
+                        onDraftModeChange={setDraftModeEnabled}
+                        sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
+                        sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
@@ -276,6 +294,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                   }
                                         }
                                         withIcon
+                                        withCopyEmailButton
                                         withComposeTicketButton
                                     />
                                     <IdentityBadge verified={ticket.identity_verified} />
@@ -407,23 +426,35 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     dropdownMatchSelectWidth={false}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-start">
                                 <span className="text-muted-alt">Assignee</span>
-                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
-                                    {(resolvedAssignee, isOpen) => (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            active={isOpen}
-                                            sideIcon={<IconChevronDown />}
-                                        >
-                                            <span className="flex items-center gap-1">
-                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
-                                            </span>
-                                        </LemonButton>
-                                    )}
-                                </AssigneeSelect>
+                                <div className="flex flex-col items-end gap-1">
+                                    {user?.id != null &&
+                                        !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
+                                            <LemonButton
+                                                size="xxsmall"
+                                                type="tertiary"
+                                                onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                            >
+                                                <span className="text-accent">Assign to me</span>
+                                            </LemonButton>
+                                        )}
+                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                        {(resolvedAssignee, isOpen) => (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                active={isOpen}
+                                                sideIcon={<IconChevronDown />}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                                </span>
+                                            </LemonButton>
+                                        )}
+                                    </AssigneeSelect>
+                                </div>
                             </div>
                             {ticket?.sla_due_at && (
                                 <div className="flex justify-between items-center">
@@ -451,6 +482,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
+
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -460,6 +492,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     type="primary"
                                     size="small"
                                     onClick={() => updateTicket()}
+                                    loading={ticketUpdating}
                                     disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
                                 >
                                     Save changes
@@ -469,8 +502,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     </LemonCard>
 
                     {/* Related Groups Panel */}
-                    {person?.uuid && (
-                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    {(person?.uuid || ticket?.organization_id) && (
+                        <RelatedGroupsPanel
+                            personUuid={person?.uuid}
+                            organizationId={ticket?.organization_id}
+                            organizationIdSource={ticket?.organization_id_source}
+                        />
                     )}
 
                     {/* Staff Actions Panel */}
@@ -512,6 +549,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                personDistinctIds={person?.distinct_ids}
                             />
                         </>
                     )}

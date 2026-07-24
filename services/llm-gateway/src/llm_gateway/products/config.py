@@ -220,6 +220,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
+    # Server-side security review before a custom sandbox image is built. The Django worker mints a
+    # short-lived OAuth token carrying the internal provenance marker; personal API keys and normal
+    # Code OAuth tokens cannot spend this unbilled product's budget.
+    "custom_image_scans": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"@cf/zai-org/glm-5.2"}),
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
@@ -256,6 +266,27 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
+    ),
+    # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
+    # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
+    # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
+    # short-lived server-minted OAuth token under the shared sandbox app — hence the app allowlist.
+    # allow_api_keys stays True only for the digest's server-side calls (the shared key never
+    # enters a sandbox); it can flip off once the digest mints tokens too.
+    # Deliberately unbilled, same posture as review_hog/conversations: reviews and digests are work
+    # done by PostHog, not customer-billable usage, and the worker attributes spend per customer team
+    # via the team_id header — a credit_bucket here would silently charge customer AI credits for it.
+    # The trade-off (any personal API key can reach an unbilled route) is shared by every
+    # key-accessible unbilled product in this table and is bounded by the model pins.
+    # requires_server_credential closes the OAuth side of that class: reviewer tokens are minted
+    # server-side with the internal marker, so a user's own Code OAuth token can't ride this route
+    # around the posthog_code free-tier gate.
+    "stamphog": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
+        requires_server_credential=True,
     ),
 }
 
@@ -388,10 +419,10 @@ def check_product_access(
     # shared server-side gateway key still works here. Gated behind the same flag as the
     # free-tier gate so it stays inert until the Code billing cutover.
     if (
-        settings.posthog_code_model_gate_enabled
-        and config.requires_server_credential
+        config.requires_server_credential
         and is_oauth
         and INTERNAL_RUN_SCOPE not in (scopes or [])
+        and (settings.posthog_code_model_gate_enabled or resolved_product == "custom_image_scans")
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 

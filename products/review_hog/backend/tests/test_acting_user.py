@@ -33,12 +33,12 @@ class TestResolveActingUser(BaseTest):
 
     def test_settings_default_when_user_has_no_row(self) -> None:
         # No settings row → the resolve result carries the defaults (labeled reviews on, inbox
-        # reviews off, should_fix), so the gates and publish behave as before this feature for
-        # users who never opened the UI.
+        # reviews off, consider), so every validated finding publishes for users who never opened
+        # the UI.
         result = _resolve_acting_user(self.team.id, "octocat", None)
         assert result.review_labeled_prs is True
         assert result.review_inbox_prs is False
-        assert result.urgency_threshold == "should_fix"
+        assert result.urgency_threshold == "consider"
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved settings must reach the workflow — if resolve stops loading any of them,
@@ -85,6 +85,22 @@ class TestResolveActingUser(BaseTest):
         )
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
         assert as_default.review_labeled_prs is True
+
+    def test_urgency_threshold_follows_personal_sources_but_never_a_borrowed_default_user(self) -> None:
+        # The publish-gate twin of the opt-out rule above: the run user's saved must_fix threshold
+        # must not decide what lands on someone ELSE's PR — a default-resolved run gates at the
+        # built-in default. Personal resolutions (author, requester override) keep the saved value.
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX
+        )
+        as_author = _resolve_acting_user(self.team.id, "octocat", None, trigger_source=TRIGGER_LABEL)
+        assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
+        as_override = _resolve_acting_user(self.team.id, "ghost", self.user.id, trigger_source=TRIGGER_LABEL)
+        assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
+        as_default = _resolve_acting_user(
+            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+        )
+        assert (as_default.resolved_from, as_default.urgency_threshold) == ("default", "consider")
 
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
         # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.

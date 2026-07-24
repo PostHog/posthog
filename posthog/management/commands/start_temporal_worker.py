@@ -187,9 +187,16 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
-from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
+from products.engineering_analytics.backend.facade.temporal import (
+    CI_SIGNALS_ACTIVITIES,
+    CI_SIGNALS_WORKFLOWS,
+    JOB_LOGS_ACTIVITIES,
+    JOB_LOGS_WORKFLOWS,
+)
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
 from products.experiments.backend.temporal import (
@@ -210,10 +217,15 @@ from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
 )
+from products.pulse.backend.temporal.registry import (
+    ACTIVITIES as PULSE_ACTIVITIES,
+    WORKFLOWS as PULSE_WORKFLOWS,
+)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
@@ -226,6 +238,10 @@ from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
+from products.stamphog.backend.facade.temporal import (
+    ACTIVITIES as STAMPHOG_ACTIVITIES,
+    WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -234,6 +250,8 @@ from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
     METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+    PERSON_PROPERTY_BACKFILL_WORKFLOWS,
     PERSON_PROPERTY_SYNC_ACTIVITIES,
     PERSON_PROPERTY_SYNC_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -269,8 +287,14 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS + PERSON_PROPERTY_SYNC_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES + PERSON_PROPERTY_SYNC_ACTIVITIES,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS
+        + SEMANTIC_ENRICHMENT_WORKFLOWS
+        + PERSON_PROPERTY_SYNC_WORKFLOWS
+        + PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES
+        + SEMANTIC_ENRICHMENT_ACTIVITIES
+        + PERSON_PROPERTY_SYNC_ACTIVITIES
+        + PERSON_PROPERTY_BACKFILL_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -295,6 +319,7 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
         + JOB_LOGS_WORKFLOWS
+        + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
         + SIGNUP_ENRICHMENT_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
@@ -314,6 +339,7 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
+        + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
         + SIGNUP_ENRICHMENT_ACTIVITIES,
     ),
@@ -342,8 +368,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + PULSE_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -449,6 +475,11 @@ _task_queue_specs = [
         ERROR_TRACKING_ACTIVITIES,
     ),
     (
+        settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
+        ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
+        ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    ),
+    (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
@@ -457,6 +488,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.STAMPHOG_TASK_QUEUE,
+        STAMPHOG_WORKFLOWS,
+        STAMPHOG_ACTIVITIES,
     ),
 ]
 
@@ -686,7 +722,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            configure_logger(loop=loop)
+            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
                 host=temporal_host,

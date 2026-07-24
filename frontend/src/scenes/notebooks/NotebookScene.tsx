@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
@@ -141,11 +141,13 @@ export function NotebookScene(): JSX.Element {
                     {!sceneMenuBarEnabled && <NotebookMenu shortId={notebookId} />}
 
                     {!sceneMenuBarEnabled && (
-                        <NotebookKernelInfoButton
-                            type="secondary"
-                            size="small"
-                            onBeforeShowKernelInfo={() => setIsMarkdownSourceOpen(false)}
-                        />
+                        <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                            <NotebookKernelInfoButton
+                                type="secondary"
+                                size="small"
+                                onBeforeShowKernelInfo={() => setIsMarkdownSourceOpen(false)}
+                            />
+                        </BindLogic>
                     )}
                     {!sceneMenuBarEnabled && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
                     {!sceneMenuBarEnabled && (

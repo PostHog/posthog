@@ -293,6 +293,10 @@ type CommitDocumentOptions = {
     /** Set when the commit applies a remote merge: the notebook version being merged in.
      * Remote caret pings already at this version reflect the change and must not be remapped. */
     remoteMergeVersion?: number
+    /** Structural edits (e.g. a Tab indent) look like text edits to the differ, so they would
+     * otherwise fold into an adjacent typing run and stop being independently undoable. Pass
+     * false to force a discrete undo step. */
+    coalesce?: boolean
 }
 
 type RemoteCaretAnchor = {
@@ -1098,7 +1102,8 @@ function MarkdownNotebookEditor({
         (
             previousDocument: NotebookDocument,
             nextDocument: NotebookDocument,
-            historyOperations?: NotebookOperation[]
+            historyOperations?: NotebookOperation[],
+            coalesce: boolean = true
         ): void => {
             const inverseOps = historyOperations ?? diffNotebookDocuments(nextDocument, previousDocument)
             if (!inverseOps.length) {
@@ -1107,8 +1112,10 @@ function MarkdownNotebookEditor({
 
             const now = Date.now()
             const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            // A non-coalescing entry stays its own undo step: it never folds into the previous
+            // entry, and a null coalesceNodeId keeps the next typing run from folding into it.
             const coalesceNodeId =
-                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+                coalesce && onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
             const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
             if (
                 coalesceNodeId &&
@@ -1153,7 +1160,12 @@ function MarkdownNotebookEditor({
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if (options.addToHistory ?? true) {
-                pushHistoryEntry(previousDocument, editableDocument, options.historyOperations)
+                pushHistoryEntry(
+                    previousDocument,
+                    editableDocument,
+                    options.historyOperations,
+                    options.coalesce ?? true
+                )
             }
             // Rendered remote carets ride along with the text they sit in.
             mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
@@ -1802,12 +1814,17 @@ function MarkdownNotebookEditor({
                 start: offset,
                 end: offset,
             }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.map((currentNode) =>
-                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
-                ),
-            })
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                },
+                // A Tab indent must be its own undo step, not folded into the typing run that
+                // preceded it — otherwise Cmd+Z can't undo just the accidental indent.
+                { coalesce: false }
+            )
             return true
         },
         [commitDocument]

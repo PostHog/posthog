@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolCatalog } from '@/hono/tool-catalog'
+import { ToolCatalog, toMcpInputSchema } from '@/hono/tool-catalog'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 type FakeDefinition = {
@@ -100,6 +100,44 @@ describe('ToolCatalog', () => {
 
     beforeEach(async () => {
         catalog = new ToolCatalog()
+    })
+
+    describe('toMcpInputSchema', () => {
+        // GitHub Copilot Chat rejects tools whose inputSchema has a root union
+        // keyword ("object has unsupported top-level schema keyword 'anyOf'"),
+        // so polymorphic request bodies must advertise as one flat object.
+        it('flattens a top-level union of object variants into a single object schema', () => {
+            const union = z.union([
+                z.object({
+                    model: z.enum(['events']),
+                    file: z.object({ format: z.string() }),
+                    include: z.array(z.string()).optional(),
+                }),
+                z.object({
+                    model: z.enum(['persons']),
+                    file: z.object({ format: z.string() }),
+                }),
+            ]) as unknown as ZodObjectAny
+
+            const result = toMcpInputSchema(union) as Record<string, unknown>
+
+            expect(result.anyOf).toBeUndefined()
+            expect(result.oneOf).toBeUndefined()
+            expect(result.type).toBe('object')
+            const properties = result.properties as Record<string, Record<string, unknown>>
+            expect(properties.model!.enum).toEqual(['events', 'persons'])
+            expect(Object.keys(properties)).toEqual(['model', 'file', 'include'])
+            // `include` only exists on one variant, so it must not be required.
+            expect(result.required).toEqual(['model', 'file'])
+        })
+
+        it('keeps a root type of object when union variants are not all objects', () => {
+            const union = z.union([z.object({ a: z.string() }), z.string()]) as unknown as ZodObjectAny
+
+            const result = toMcpInputSchema(union) as Record<string, unknown>
+
+            expect(result.type).toBe('object')
+        })
     })
 
     describe('warmup', () => {

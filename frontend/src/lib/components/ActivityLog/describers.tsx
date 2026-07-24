@@ -38,6 +38,8 @@ import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescribe
 
 import { ActivityScope } from '~/types'
 
+import { promptActivityDescriber } from 'products/ai_observability/frontend/prompts/promptActivityDescriber'
+import { promptLabelActivityDescriber } from 'products/ai_observability/frontend/prompts/promptLabelActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/components/activityDescriptions'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
@@ -129,6 +131,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return ticketActivityDescriber
         case ActivityScope.SIGNAL_SCOUT_CONFIG:
             return signalScoutConfigActivityDescriber
+        case ActivityScope.LLM_PROMPT:
+            return promptActivityDescriber
+        case ActivityScope.LLM_PROMPT_LABEL:
+            return promptLabelActivityDescriber
         default:
             return defaultDescriber
     }

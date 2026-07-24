@@ -39,11 +39,11 @@ function ExportButton({
     const { dataUrl } = useValues(logic)
     const { startHeatmapExport } = useActions(exportsLogic)
 
-    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
+    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters, heightOverride } = useValues(
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -56,7 +56,7 @@ function ExportButton({
             startHeatmapExport({
                 heatmap_url: dataUrl,
                 width: iframeWidth,
-                height: iframeHeight,
+                height: heightOverride,
                 heatmap_color_palette: heatmapColorPalette,
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
@@ -101,6 +101,11 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
         useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
+
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <>
@@ -168,7 +173,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             disabledReason={
                                                 !displayUrl && !dataUrl && !hasValidReplayIframeData
                                                     ? 'Select a URL first'
-                                                    : undefined
+                                                    : toolbarAccessDisabledReason
                                             }
                                             size="small"
                                             data-attr="heatmaps-open-in-toolbar"

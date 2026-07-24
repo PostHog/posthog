@@ -113,6 +113,31 @@ def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -
     return bool(groups) and all(group.get(marker_key) is True for group in groups)
 
 
+def replace_variant_distribution(current_filters: dict, variants: list[dict]) -> dict:
+    """Rebuild ``multivariate.variants`` from ``variants``, leaving every other filters key untouched.
+
+    A caller that only owns the variant distribution — e.g. web experiments syncing
+    variant rollout percentages — carries ``groups`` (release conditions), ``payloads``,
+    aggregation index, and anything else over as-is, so it can't accidentally drop flag
+    configuration it doesn't know about. ``variants`` are deepcopied so the returned
+    filters never alias the caller's dicts.
+    """
+    return {**current_filters, "multivariate": {"variants": deepcopy(variants)}}
+
+
+def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:
+    """Set (or clear) the flag-level ``holdout`` object on the filters.
+
+    Takes plain values — the caller resolves them from its own holdout concept, so the
+    flag product learns none. Without a holdout id or a usable exclusion percentage the
+    ``holdout`` key is written as None (not removed), so a previously attached holdout
+    is detached by the same write.
+    """
+    if not holdout_id or exclusion_percentage is None:
+        return {**current_filters, "holdout": None}
+    return {**current_filters, "holdout": {"id": holdout_id, "exclusion_percentage": exclusion_percentage}}
+
+
 def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestrictionBlocker | None:
     """Why the flag's release groups can't be reversibly narrowed to a person cohort, or None.
 

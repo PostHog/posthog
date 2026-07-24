@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import worker from '@/index'
 
+import { createMockKV } from './helpers'
+
 const mockEnv = {
     AUTH_KV: {} as KVNamespace,
 }
@@ -47,6 +49,29 @@ describe('router', () => {
         const response = await worker.fetch(request, mockEnv)
         expect(response.status).toBe(expectedStatus)
         expect(response.headers.get('content-type')).toContain(expectedContentType)
+    })
+
+    it.each([
+        'state',
+        'client_id',
+        'redirect_uri',
+        'response_type',
+        'scope',
+        'code_challenge',
+        'code_challenge_method',
+    ])('rejects duplicate %s on /oauth/authorize before the handler runs', async (param) => {
+        const kv = createMockKV()
+        const request = new Request(
+            `https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code&${param}=first&${param}=second&_region=us`
+        )
+        const response = await worker.fetch(request, { AUTH_KV: kv })
+
+        expect(response.status).toBe(400)
+        const data = (await response.json()) as Record<string, unknown>
+        expect(data.error).toBe('invalid_request')
+        expect(data.error_description).toBe(`Duplicate ${param} parameter is not allowed`)
+        // Rejected at the router before the handler, so nothing is keyed in KV.
+        expect(vi.mocked(kv.put)).not.toHaveBeenCalled()
     })
 
     it('returns 404 for unknown paths', async () => {

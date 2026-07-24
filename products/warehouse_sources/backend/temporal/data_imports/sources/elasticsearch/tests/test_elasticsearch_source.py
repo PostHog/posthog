@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     ElasticsearchSource,
     _auth_from_config,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
     ElasticsearchAuthMethodConfig,
     ElasticsearchSourceConfig,
 )

@@ -7,6 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
@@ -65,7 +66,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                         View PR
                     </LemonButton>
                 )}
-                {!isLatestRunInProgress && !isLatestRunCompleted && (
+                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
                     <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
                         {runButtonText}
                     </LemonButton>

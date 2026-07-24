@@ -66,7 +66,7 @@ RUN npm install -g yarn pnpm typescript ts-node nodemon
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -105,9 +105,11 @@ RUN set -eux; \
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
 # Install rtk (https://github.com/rtk-ai/rtk), a proxy that compresses the output of
-# common dev commands before it reaches the model. The agent auto-detects it on PATH
-# and routes eligible Bash commands through it; POSTHOG_RTK=0 (set per run from the
-# task processing context) opts a run out.
+# common dev commands before it reaches the model. Claude runs auto-detect it on PATH
+# and route eligible Bash commands through it via a PreToolUse rewrite hook; Codex has
+# no command-rewrite channel, so its runs are told to prefix eligible commands in the
+# developer instructions instead. POSTHOG_RTK=0 (set per run from the task processing
+# context) opts a run out of both.
 ARG RTK_VERSION=0.43.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -129,13 +131,15 @@ RUN set -eux; \
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so each build pulls @latest
+# Set up /scripts as a Node.js project and install @posthog/agent.
+# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
+# PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
+    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.

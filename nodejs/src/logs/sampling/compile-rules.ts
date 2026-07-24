@@ -12,6 +12,13 @@ import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-mat
  */
 export const MAX_FILTER_GROUP_NODES = 256
 
+/**
+ * Aggregate cap on leaf filter values (a value array counts as its length).
+ * Kept in sync with `MAX_FILTER_GROUP_LEAF_VALUES` in
+ * `products/logs/backend/presentation/filter_group_validation.py`.
+ */
+export const MAX_FILTER_GROUP_LEAF_VALUES = 256
+
 export type SamplingRuleRow = {
     id: string
     rule_type: string
@@ -105,7 +112,7 @@ function parseRateLimitFromConfig(
  * Earlier shapes may have stored the bare inner group. Accept either; reject
  * anything that doesn't look like a group.
  */
-function parseFilterGroup(raw: unknown): FilterGroupNode | null {
+export function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (!raw || typeof raw !== 'object') {
         return null
     }
@@ -139,12 +146,36 @@ function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (filterGroupNodeCount(parsed) > MAX_FILTER_GROUP_NODES) {
         return null
     }
+    // And bound leaf VALUES — one `exact`/`in` leaf carrying a huge value array
+    // is a single node but costs O(values) per record in matchExact. Matches
+    // MAX_FILTER_GROUP_LEAF_VALUES in filter_group_validation.py.
+    if (filterGroupLeafValueCount(parsed) > MAX_FILTER_GROUP_LEAF_VALUES) {
+        return null
+    }
     // Walk the tree once and stamp pre-compiled regex onto each regex leaf so
     // the per-record hot path doesn't allocate a fresh `RegExp` per match.
     // Legacy `pathDropPatterns` already follow this pattern; this brings the
     // filter-group path in line.
     compileRegexLeavesInPlace(parsed)
     return parsed
+}
+
+function filterGroupLeafValueCount(node: FilterGroupNode | PropertyFilterLeaf): number {
+    const maybe = node as { type?: unknown; values?: unknown; value?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        if (Array.isArray(maybe.value)) {
+            return maybe.value.length
+        }
+        return maybe.value === undefined || maybe.value === null ? 0 : 1
+    }
+    let total = 0
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        total += filterGroupLeafValueCount(child)
+        if (total > MAX_FILTER_GROUP_LEAF_VALUES) {
+            return total
+        }
+    }
+    return total
 }
 
 function filterGroupNodeCount(node: FilterGroupNode | PropertyFilterLeaf): number {

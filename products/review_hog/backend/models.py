@@ -45,6 +45,11 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     acting_user = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    # The PR author's GitHub login, refreshed from the fetched metadata every turn. Powers the
+    # "For you" scope's authored-PRs match (compared case-insensitively against the viewer's linked
+    # GitHub login) — a teammate-triggered review of your PR lands under THEIR acting_user, so
+    # without this the findings would be invisible to you. Null until a post-column turn stamps it.
+    author_login = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     run_count = models.IntegerField(default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -54,6 +59,12 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # turn START. Read paths pairing stats/links with the completed turn's findings anchor here, so an
     # in-flight or crashed turn's metadata never splices onto the previous turn's findings.
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
+    # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
+    # so the detail view buckets published vs held-back findings truthfully even when the acting
+    # user's settings later change. Null for pre-column turns (readers fall back to the viewer's
+    # own setting as an approximation).
+    run_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
     # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
@@ -69,7 +80,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual"); stamped on create only.
+    # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -291,8 +302,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.SHOULD_FIX,
-        db_default=UrgencyThreshold.SHOULD_FIX.value,
+        default=UrgencyThreshold.CONSIDER,
+        db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RaygunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun import (
     RaygunResumeConfig,
     raygun_source,
@@ -47,6 +50,9 @@ Grant the token these read scopes for the tables you want to sync:
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://raygun.com/documentation/product-guides/raygun-api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -72,26 +78,18 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh —
+        # no endpoint declares incremental fields, so none support incremental/append sync.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RaygunSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RaygunSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_token(config.personal_access_token)
         if is_valid:
@@ -121,8 +119,10 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         return raygun_source(
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Raygun endpoint is full refresh
         )
 
     @property

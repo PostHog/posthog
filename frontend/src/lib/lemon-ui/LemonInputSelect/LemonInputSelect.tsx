@@ -13,6 +13,7 @@ import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
@@ -1121,7 +1122,7 @@ function DraggableValueSnack<T = string>({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
                 {...attributes}
-                className="inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
+                className={`inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded ${CLICK_OUTSIDE_BLOCK_CLASS}`}
             >
                 <span
                     className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"
@@ -1220,7 +1221,9 @@ function ValueSnacks<T = string>({
                     title={option?.label}
                     onClose={onClose ? () => onClose(value) : undefined}
                     onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
-                    className="cursor-text"
+                    // Snacks live in the input's prefix (outside floating-ui's reference node), so a click on the
+                    // remove button reads as an outside press and dismisses/blurs the field before the click lands.
+                    className={`cursor-text ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 >
                     {option?.labelComponent ?? option?.label}
                 </LemonSnack>

@@ -519,6 +519,14 @@ class TestZendeskImportBatchActivity(BaseTest):
         assert rich_content is not None
         image_nodes = [n for n in rich_content["content"] if n.get("type") == "image"]
         self.assertEqual(image_nodes[0]["attrs"]["src"], "https://media.posthog.test/shot.png")
+        # The comment body must survive alongside the image, not be dropped from rich_content.
+        body_text = "".join(
+            c.get("text", "")
+            for n in rich_content["content"]
+            if n.get("type") == "paragraph"
+            for c in n.get("content", [])
+        )
+        self.assertIn("see image", body_text)
         content = stored.content
         assert content is not None
         self.assertIn("https://media.posthog.test/shot.png", content)

@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -10,13 +12,22 @@ from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2, build_direct_session_id_in_pushdown
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS,
+    SessionMinTimestampWhereClauseExtractorV2,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
 from posthog.models import EventDefinition
+from posthog.models.utils import uuid7
+from posthog.schema_enums import SessionsV2JoinMode
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -429,6 +440,8 @@ SELECT
 
 
 class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
+
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
@@ -445,9 +458,17 @@ class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
         pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
         return pretty
 
+    def assert_printed_matches_snapshot(self, actual: str) -> None:
+        generalized_sql = self.generalize_sql(actual)
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
+            assert generalized_sql == self.snapshot(name="new_events_schema")
+            return
+        assert generalized_sql == self.snapshot
+
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_join_with_events(self):
         actual = self.print_query(
@@ -462,7 +483,7 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_union(self):
         actual = self.print_query(
@@ -474,7 +495,7 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_breakdown(self):
         actual = self.print_query(
@@ -518,7 +539,7 @@ WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024
 GROUP BY day_start,
          breakdown_value"""
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_replay_query(self):
         actual = self.print_query(
@@ -531,7 +552,7 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_urls_in_sessions_in_timestamp_query(self):
         actual = self.print_query(
@@ -544,7 +565,7 @@ from sessions
 where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_select_query_alias_type_does_not_crash(self):
         # Regression test: queries with aliased subqueries should not crash when
@@ -564,7 +585,7 @@ FROM (
 WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -572,6 +593,7 @@ class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
     # Tests for the sessionIdPushdown modifier — see
     # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
 
+    allow_dual_schema_snapshots = True
     snapshot: Any
 
     def print_query(self, query: str, pushdown: bool) -> str:
@@ -589,6 +611,14 @@ class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
         if prepared_ast is None:
             return ""
         return print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+
+    def assert_printed_matches_snapshot(self, actual: str) -> None:
+        generalized_sql = self.generalize_sql(actual)
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
+            assert generalized_sql == self.snapshot(name="new_events_schema")
+            return
+        assert generalized_sql == self.snapshot
 
     @parameterized.expand([("with_pushdown", True), ("without_pushdown", False)])
     def test_experiment_shape(self, _name: str, pushdown: bool):
@@ -612,7 +642,7 @@ WHERE events.event = '$pageview'
             "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
         )
         assert has_in_pushdown == pushdown, f"Expected pushdown={pushdown} in:\n{actual}"
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_pushdown_noop_for_sessions_only_query(self):
         # A standalone sessions query has no events source to push down from — pushdown
@@ -715,6 +745,321 @@ WHERE events.timestamp >= '2026-03-27 00:00:00'
             assert "or(" in in_subquery, f"Expected OR preserved in IN; got:\n{in_subquery}"
         else:
             assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"
+
+
+class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Locks build_direct_session_id_in_pushdown, the rewrite behind the web
+    # analytics session-id-set fast path. It is keyed on the sessionIdPushdown
+    # modifier, which teams can persist in team.modifiers — so ANY HogQL query
+    # with a matching shape (SQL editor included) can hit it. These tests pin:
+    # (a) it fires only for the exact supported shape, (b) it moves the id filter
+    # instead of copying it, and (c) it never changes query results.
+
+    ID_SUBQUERY_SHAPE = (
+        "SELECT $start_timestamp FROM sessions "
+        "WHERE session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')"
+    )
+
+    def print_query(self, query: str, pushdown: bool, version: SessionTableVersion = SessionTableVersion.V2) -> str:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = version
+        modifiers.sessionIdPushdown = pushdown
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        assert prepared_ast is not None
+        return " ".join(print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True).split())
+
+    def test_rewrites_id_subquery_below_group_by_exactly_once(self):
+        sql = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True)
+        assert sql.count("globalIn(raw_sessions.session_id_v7") == 1, sql
+        # Moved, not copied: a retained outer copy of the id subquery makes
+        # ClickHouse run the identical filtered-events scan a second time.
+        assert sql.count("FROM events") == 1, sql
+
+    def test_session_id_v7_subquery_skips_uuid_cast(self):
+        sql = self.print_query("SELECT $start_timestamp FROM sessions WHERE session_id_v7 IN (SELECT 1)", pushdown=True)
+        assert "globalIn(raw_sessions.session_id_v7" in sql, sql
+        # session_id_v7 is already UInt128 — wrapping it in the string→UUID cast
+        # would NULL out every id and silently return zero sessions.
+        assert "accurateCastOrNull" not in sql, sql
+
+    @parameterized.expand(
+        [
+            ("literal_list", "SELECT $start_timestamp FROM sessions WHERE session_id IN ('a', 'b')", True),
+            (
+                "not_in_subquery",
+                "SELECT $start_timestamp FROM sessions "
+                "WHERE session_id NOT IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+                True,
+            ),
+            (
+                "or_nested",
+                "SELECT $start_timestamp FROM sessions "
+                "WHERE session_id IN (SELECT $session_id FROM events WHERE event = '$pageview') "
+                "OR $start_timestamp > '2026-01-01'",
+                True,
+            ),
+            ("modifier_off", ID_SUBQUERY_SHAPE, False),
+        ]
+    )
+    def test_unsupported_shapes_are_not_rewritten(self, _name: str, query: str, pushdown: bool):
+        sql = self.print_query(query, pushdown=pushdown)
+        assert "globalIn(raw_sessions.session_id_v7" not in sql, sql
+
+    def test_multi_column_subquery_fails_open_without_neutralizing(self):
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionIdPushdown = True
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+        )
+        node = resolve_types(
+            parse("SELECT session_id FROM sessions WHERE session_id IN (SELECT $session_id, event FROM events)"),
+            context,
+            dialect="clickhouse",
+        )
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        where_before = clone_expr(node.where, clear_types=True, clear_locations=True)
+        assert context.database is not None
+        sessions_table = context.database.get_table("sessions")
+        assert isinstance(sessions_table, SessionsTableV2)
+
+        assert build_direct_session_id_in_pushdown(node, context, sessions_table) is None
+        # Fail-open must leave the original predicate intact — neutralizing it
+        # without returning a replacement would drop the filter entirely.
+        where_after = node.where
+        assert where_after is not None
+        assert clone_expr(where_after, clear_types=True, clear_locations=True) == where_before
+
+    @parameterized.expand(
+        [
+            # Another table's session_id-named column must never be hijacked:
+            # rewriting it would silently drop the user's filter and apply a
+            # different one to the sessions subquery instead.
+            (
+                "events_property_named_session_id",
+                "SELECT s.$start_timestamp FROM sessions s JOIN events e ON e.$session_id = s.session_id "
+                "WHERE e.properties.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+            (
+                "replay_table_session_id",
+                "SELECT r.session_id FROM session_replay_events r LEFT JOIN sessions s ON s.session_id = r.session_id "
+                "WHERE r.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+            # A sessions self-join makes ownership ambiguous (lazy expansion
+            # processes occurrences one at a time against the same node), so the
+            # rewrite must skip entirely rather than push a's filter into b.
+            (
+                "sessions_self_join",
+                "SELECT a.session_id FROM sessions a CROSS JOIN sessions b "
+                "WHERE a.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+        ]
+    )
+    def test_other_tables_and_self_joins_are_not_hijacked(self, _name: str, query: str):
+        with_pushdown = self.print_query(query, pushdown=True)
+        without_pushdown = self.print_query(query, pushdown=False)
+        assert with_pushdown == without_pushdown
+
+    def test_v3_sessions_are_not_rewritten(self):
+        with_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True, version=SessionTableVersion.V3)
+        without_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=False, version=SessionTableVersion.V3)
+        assert with_pushdown == without_pushdown
+
+    def test_pushdown_preserves_results_for_direct_sessions_query(self):
+        # The SQL-editor safety proof: a team that persists sessionIdPushdown in
+        # team.modifiers gets this rewrite on every matching query, so the modifier
+        # must never change which rows come back — including for malformed
+        # (non-UUID) session ids, which the cast drops from the pushed set exactly
+        # like the un-pushed filter leaves them unmatched.
+        matching_session = str(uuid7("2026-03-27"))
+        other_session = str(uuid7("2026-03-28"))
+        for session_id, distinct_id, timestamp, url in [
+            (matching_session, "d1", "2026-03-27T10:00:00Z", "/a"),
+            (other_session, "d2", "2026-03-28T10:00:00Z", "/b"),
+            ("not-a-uuid", "d3", "2026-03-27T11:00:00Z", "/a"),
+            # Uppercase UUID: casts to the same UUID value as other_session, but
+            # the un-rewritten predicate is a byte-exact string comparison against
+            # the canonical lowercase sessions.session_id — so it must not match
+            # under the pushdown either.
+            (other_session.upper(), "d4", "2026-03-28T11:00:00Z", "/a"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$current_url": url},
+            )
+
+        query = (
+            "SELECT session_id FROM sessions "
+            "WHERE session_id IN (SELECT $session_id FROM events WHERE properties.$current_url = '/a') "
+            "ORDER BY session_id"
+        )
+        results = {}
+        for pushdown in (True, False):
+            modifiers = create_default_modifiers_for_team(self.team)
+            modifiers.sessionTableVersion = SessionTableVersion.V2
+            modifiers.sessionIdPushdown = pushdown
+            response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+            results[pushdown] = response.results
+            # Guard against this test passing vacuously: the rewrite fails open,
+            # so also pin that the pushed shape actually executed (and only when
+            # the modifier is on).
+            assert response.clickhouse is not None
+            assert ("globalIn(raw_sessions.session_id_v7" in response.clickhouse) == pushdown
+
+        assert results[True] == results[False]
+        assert results[True] == [(matching_session,)]
+
+
+class TestSessionIdLiteralPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Locks build_session_id_literal_pushdown_predicate: literal $session_id filters on the
+    # events side must reach the raw_sessions join subquery, and only for the exact shapes below.
+
+    SESSION_A = "0195331e-a9f4-7d10-b04a-c9a24e0f1b17"
+    SESSION_B = "01953321-3966-73b3-9de3-b1a1c9b78de5"
+
+    # filters on the SELECT alias, exactly like the frontend's buildPropertiesQuery output
+    REPLAY_LIST_SHAPE = (
+        "SELECT $session_id AS session_id, any(events.session.$entry_current_url) AS entry_url "
+        "FROM events "
+        f"WHERE session_id IN ('{SESSION_A}', '{SESSION_B}') "
+        "AND timestamp >= '2026-03-27 00:00:00' AND timestamp <= '2026-03-31 23:59:59' "
+        "GROUP BY session_id"
+    )
+
+    def print_query(self, query: str, join_mode: SessionsV2JoinMode = SessionsV2JoinMode.UUID) -> str:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionsV2JoinMode = join_mode
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        assert prepared_ast is not None
+        return " ".join(print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True).split())
+
+    @parameterized.expand(
+        [
+            ("in_list", REPLAY_LIST_SHAPE),
+            (
+                "eq_single_value",
+                "SELECT $session_id AS session_id, any(events.session.$entry_pathname) AS entry "
+                f"FROM events WHERE $session_id = '{SESSION_A}' GROUP BY session_id",
+            ),
+        ]
+    )
+    def test_literal_filter_is_pushed_into_join_subquery(self, _name: str, query: str):
+        sql = self.print_query(query)
+        assert "in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull(" in sql, sql
+        # the literal push must not add a second events scan
+        assert sql.count("FROM events") == 1, sql
+
+    @parameterized.expand(
+        [
+            # not a hard constraint; pushing would drop the other branch's sessions
+            (
+                "or_nested",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id IN ('{SESSION_A}') OR event = '$pageview' GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            (
+                "not_in",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id NOT IN ('{SESSION_A}') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # same all-valid-UUIDs gate as the printer's $session_id_uuid rewrite
+            (
+                "mixed_non_uuid_values",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id IN ('{SESSION_A}', 'not-a-uuid') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # subquery id sets stay behind the sessionIdPushdown modifier (off here)
+            (
+                "subquery_rhs",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                "WHERE $session_id IN (SELECT $session_id FROM events WHERE event = '$pageview') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # a self-join's other occurrence must not be hijacked
+            (
+                "other_events_occurrence",
+                "SELECT e1.$session_id AS sid, any(e1.session.$entry_pathname) AS entry "
+                "FROM events e1 JOIN events e2 ON e1.uuid = e2.uuid "
+                f"WHERE e2.$session_id IN ('{SESSION_A}') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # the uint128 push only applies to UUID join mode
+            ("string_join_mode", REPLAY_LIST_SHAPE, SessionsV2JoinMode.STRING),
+        ]
+    )
+    def test_unsupported_shapes_are_not_pushed(self, _name: str, query: str, join_mode: SessionsV2JoinMode):
+        sql = self.print_query(query, join_mode=join_mode)
+        assert "in(raw_sessions.session_id_v7, tuple(" not in sql, sql
+        assert "globalIn(raw_sessions.session_id_v7" not in sql, sql
+
+    def test_oversized_id_list_is_not_pushed(self):
+        ids = ", ".join(f"'{uuid7()}'" for _ in range(SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS + 1))
+        query = (
+            "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry "
+            f"FROM events WHERE $session_id IN ({ids}) GROUP BY sid"
+        )
+        sql = self.print_query(query)
+        assert "in(raw_sessions.session_id_v7, tuple(" not in sql
+
+    def test_pushdown_preserves_join_results(self):
+        session_a = str(uuid7("2026-03-27"))
+        session_b = str(uuid7("2026-03-28"))
+        session_c = str(uuid7("2026-03-28"))
+        for session_id, distinct_id, timestamp, url in [
+            (session_a, "d1", "2026-03-27T10:00:00Z", "https://example.com/a"),
+            (session_b, "d2", "2026-03-28T10:00:00Z", "https://example.com/b"),
+            (session_c, "d3", "2026-03-28T11:00:00Z", "https://example.com/c"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$current_url": url},
+            )
+
+        query = (
+            "SELECT $session_id AS session_id, any(events.session.$entry_current_url) AS entry_url "
+            "FROM events "
+            f"WHERE $session_id IN ('{session_a}', '{session_b}') "
+            "GROUP BY session_id ORDER BY session_id"
+        )
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.UUID
+        response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+
+        # guard against passing vacuously: the pushed shape must actually execute
+        assert response.clickhouse is not None
+        assert "in(raw_sessions.session_id_v7, tuple(" in response.clickhouse
+
+        # a conversion bug in the pushed id set would surface as NULL entry urls
+        expected = sorted([(session_a, "https://example.com/a"), (session_b, "https://example.com/b")])
+        assert response.results == expected
 
 
 class TestSessionPropertyPreAggregationV2(ClickhouseTestMixin, APIBaseTest):

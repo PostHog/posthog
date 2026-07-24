@@ -126,6 +126,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "The incremental field configured for this table doesn't exist in the data the source returns. "
         "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
     ),
+    # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
+    # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
+    # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry
+    # replays the same failure. Already non-retryable for SQL sources; declare it here so REST and
+    # managed sources stop retrying too.
+    "Source column type changed": (
+        "A column's type changed in your source and no longer fits the type we stored. We can't widen "
+        "an existing column in place — please reset and fully re-sync this table to adopt the new type."
+    ),
 }
 
 
@@ -498,7 +507,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             elif incremental_or_append:
@@ -506,14 +515,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             else:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
 
@@ -583,17 +593,26 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Fire-and-forget, started by name because it runs on a different task queue (see
             # person_property_sync_job.py). Gated up front (like signals) to avoid a no-op child per sync.
             if source_type is not None and schema_name is not None and person_property_sync_enabled:
+                person_property_sync_inputs = PersonPropertySyncActivityInputs(
+                    team_id=inputs.team_id,
+                    schema_id=inputs.external_data_schema_id,
+                    source_id=inputs.external_data_source_id,
+                    job_id=job_id,
+                    source_type=source_type,
+                    schema_name=schema_name,
+                    last_synced_at=last_synced_at,
+                )
+                # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
+                # S3 prefix that only its own child consumes. A per-schema id would coalesce a
+                # concurrent job's child (WorkflowAlreadyStartedError) and silently drop that job's
+                # staged delta — swept as abandoned days later, so those person-property updates were
+                # lost. Per-job children can safely run concurrently for one schema: the folder-based
+                # snapshot (_write_snapshot_hashes) is concurrency-safe by design. Gated by the
+                # person_property_sync_enabled activity field (defaults False for old histories),
+                # matching the emit-signals sibling above.
                 await workflow.start_child_workflow(
                     "sync-warehouse-person-properties",
-                    PersonPropertySyncActivityInputs(
-                        team_id=inputs.team_id,
-                        schema_id=inputs.external_data_schema_id,
-                        source_id=inputs.external_data_source_id,
-                        job_id=job_id,
-                        source_type=source_type,
-                        schema_name=schema_name,
-                        last_synced_at=last_synced_at,
-                    ),
+                    person_property_sync_inputs,
                     id=f"sync-warehouse-person-properties-{job_id}",
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,

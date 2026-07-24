@@ -74,7 +74,7 @@ class Command(BaseCommand):
                             unfixable_count += 1
 
             if modified:
-                flag.filters = filters
+                flag.filters = filters  # nosemgrep: feature-flags-no-raw-filters-access -- data-repair command that fixes the filters JSON itself
                 flags_to_update.append(flag)
 
         if live_run and flags_to_update:

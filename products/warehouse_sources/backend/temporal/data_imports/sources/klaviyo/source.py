@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -13,14 +14,24 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
+    KlaviyoSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2024_10_15,
+    KLAVIYO_API_VERSION_2026_07_15,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
     KlaviyoResumeConfig,
     klaviyo_source,
@@ -36,9 +47,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
-    supported_versions = ("2024-10-15",)
-    default_version = "2024-10-15"
+    supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)
+    default_version = KLAVIYO_API_VERSION_2026_07_15
     api_docs_url = "https://developers.klaviyo.com"
+    # Klaviyo retires a revision two years after release, falling forward / returning 410 thereafter.
+    deprecated_versions = (VersionDeprecation(version=KLAVIYO_API_VERSION_2024_10_15, sunset_at=date(2026, 10, 15)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -107,6 +120,7 @@ Make sure to grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
@@ -121,7 +135,9 @@ Make sure to grant the following read permissions:
                 return (
                     "Maps which profiles belong to which list as {list_id, profile_id, joined_group_at} rows. "
                     "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
-                    "reflected on a full refresh"
+                    "reflected on a full refresh. List membership is not the same as subscription: check the "
+                    "$consent array in the profiles table's properties column to see which channels (sms, "
+                    "email, push) a profile is currently subscribed to"
                 )
             return None
 
@@ -144,9 +160,13 @@ Make sure to grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: KlaviyoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KlaviyoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_klaviyo_credentials(config.api_key):
+        if validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Klaviyo API key"
@@ -165,6 +185,7 @@ Make sure to grant the following read permissions:
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

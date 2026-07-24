@@ -1,6 +1,8 @@
+import re
 import json
 import time
 import datetime
+import unicodedata
 from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -807,12 +809,31 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
+# Characters an email client or manual entry can inject around/within the code without the
+# user seeing them: whitespace, the zero-width family, word joiner, BOM, soft hyphen, and the
+# hyphen someone types when grouping the code as "123-456".
+_CODE_NOISE_RE = re.compile(r"[\s\u200b-\u200d\u2060\ufeff\u00ad-]")
+
+
 class CodeBasedVerificationSerializer(serializers.Serializer):
-    code = serializers.CharField(help_text="The 6-digit verification code emailed to the user.")
+    code = serializers.CharField(
+        help_text="The 6-digit verification code emailed to the user. Whitespace, invisible characters, "
+        "and grouping hyphens are removed and compatibility digits (e.g. fullwidth) are folded to ASCII, "
+        "so a copy-pasted code still verifies; anything that isn't then exactly 6 digits is rejected."
+    )
     email = serializers.EmailField(
         required=False,
         help_text="Email the code was sent to. Informational; the pending login session identifies the user.",
     )
+
+    def validate_code(self, value: str) -> str:
+        # Fold compatibility forms (fullwidth digits become ASCII) then drop the noise an email client
+        # or manual grouping injects. Require exactly 6 digits so malformed input is rejected outright
+        # rather than mining digits out of arbitrary text.
+        cleaned = _CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise serializers.ValidationError("Enter the 6-digit code from your email.")
+        return cleaned
 
 
 class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
@@ -851,7 +872,9 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 code="too_many_attempts",
             )
 
-        code = request.data.get("code")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
             user = User.objects.get(pk=user_id, is_active=True)

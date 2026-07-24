@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TypedDict, TypeVar
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -36,7 +37,6 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
-from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -53,6 +53,10 @@ class ReviewerContent(TypedDict):
     github_login: str
     github_name: str | None
     relevant_commits: list[dict]
+    reason: str | None
+    # True for entries injected by the scout owner guardrail (editor-controlled `LLMSkillOwner`).
+    # These route the report but are never eligible to select the autostart task identity.
+    is_skill_owner: bool
 
 
 _PRIORITY_RANK: dict[Priority, int] = {
@@ -84,15 +88,46 @@ def _report_meets_team_autostart_threshold(report_priority: Priority, team_defau
     return _priority_rank(report_priority) <= _priority_rank(team_default_priority)
 
 
+# Reports (e.g. the MCP tool-calls scout's category reports) that define a measurable
+# optimization target end their summary with a "Fix loop metric" section; its presence flips the
+# implementation task from a one-shot fix into an iterate-until-the-metric-moves loop.
+FIX_LOOP_METRIC_MARKER = "fix loop metric"
+
+
+def _fix_loop_instructions(summary: str) -> str:
+    if FIX_LOOP_METRIC_MARKER not in summary.lower():
+        return ""
+    return (
+        "This report defines a fix-loop metric (its 'Fix loop metric' section above: the measurement "
+        "query or steps, the current baseline, and the goal direction). Treat that metric as an "
+        "autoresearch target rather than a one-shot fix: reproduce the baseline with the given "
+        "measurement steps before changing anything, then iterate — hypothesize, implement, validate "
+        "against the repo's tests and the failing examples the report cites — until the evidence says "
+        "the metric will move in the goal direction, not merely that a plausible change exists. If "
+        "validation shows the metric unmoved, try the next hypothesis instead of stopping at one "
+        "attempt. The metric must improve because the underlying behavior genuinely improves — never "
+        "by masking errors, swallowing exceptions, loosening validation, or changing how the metric is "
+        "measured. In the PR description record the baseline, the expected post-fix value, and how you "
+        "validated the change; include before/after evidence (screenshots, or a short recording where "
+        "the behavior is visual). Evidence must be safe for the target repository's visibility: show "
+        "only aggregate metric outputs (rates, counts, percentiles) or synthetic/local reproductions — "
+        "never raw telemetry rows, error messages, intent strings, or identifiers (distinct_id, "
+        "session id, email, account names), which can expose real users or customers. Images attached "
+        "to a PR are publicly and permanently readable when the repository is public, so when in "
+        "doubt, state the number instead of screenshotting the surface that produced it.\n\n"
+    )
+
+
 def _build_autostart_task_description(
-    *, report_id: str, summary: str, repository: str, priority: PriorityAssessment | None
+    *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
     return (
         f"{summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
+        f"{_fix_loop_instructions(summary)}"
         "Address the symptom described above — not merely an adjacent issue you notice nearby. "
         "Investigate the root cause, implement the fix, and open a PR if appropriate. "
         "If your change fixes something related but does not change what the user actually observed, "
@@ -112,9 +147,9 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        "When opening the PR, include this report deep link in the description footer, "
+        "When opening the PR, include this report link in the description footer, "
         "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
-        f"from [an inbox report]({report_deep_link}).' - "
+        f"from [this inbox report]({report_link}).' - "
         "so the human reviewer can jump straight to it."
     )
 
@@ -262,19 +297,28 @@ def _resolve_autostart_assignee(
     reviewer at all — it runs as the triggering user (see `_resolve_triggering_user`), so a user
     can't name a colleague and have the agent run under that colleague's identity.
 
+    Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: the scout
+    owner guardrail injects them from an editor-controlled `LLMSkillOwner`, so treating them as a
+    trusted commit-authorship signal would let a skill editor name a privileged teammate as owner
+    and have the implementation agent mint an OAuth session under that teammate. They still route
+    the report (they remain in the artefact); they just can't be the runner.
+
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
+    # Owner-injected entries never select the task identity (see docstring). Filter before resolving
+    # so their logins aren't even looked up as candidates.
+    identity_candidates = [r for r in reviewers_content if not r.get("is_skill_owner")]
     login_to_user = resolve_org_github_login_to_users(
-        team_id, (str(r["github_login"]) for r in reviewers_content if r.get("github_login"))
+        team_id, (str(r["github_login"]) for r in identity_candidates if r.get("github_login"))
     )
     report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to org members, preserving reviewer order (most relevant first).
     candidate_users: list[User] = []
-    for reviewer in reviewers_content:
+    for reviewer in identity_candidates:
         login = reviewer.get("github_login")
         if not login:
             continue
@@ -491,7 +535,7 @@ async def maybe_autostart_implementation_task(
         report_id=report_id,
         title=title,
         description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
+            report_id=report_id, team_id=team_id, summary=summary, repository=repository, priority=priority
         ),
         user_id=task_user.id,
         repository=repository,
@@ -550,6 +594,8 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     github_login=str(entry["github_login"]),
                     github_name=entry.get("github_name"),
                     relevant_commits=entry.get("relevant_commits") or [],
+                    reason=entry.get("reason"),
+                    is_skill_owner=bool(entry.get("is_skill_owner")),
                 )
             )
     return reviewers, editor_user_id

@@ -25,7 +25,7 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
     const { setSidebarOpen } = useActions(playerSettingsLogic)
 
     // Only surface the chip when something experiment-related happened *in this recording*.
-    // Enrollments carried over from earlier sessions have nothing visible to watch, so they
+    // Enrollments without an in-session exposure event have nothing visible to watch, so they
     // live in the overview sidebar rather than cluttering the player header.
     if (seenCount === 0) {
         return null
@@ -62,7 +62,7 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
                 <Tooltip
                     title={`Enrolled in ${enrolledCount} experiment${
                         enrolledCount === 1 ? '' : 's'
-                    }, carried over from earlier sessions. Click to view.`}
+                    } without an exposure event in this recording. Click to view.`}
                 >
                     <LemonTag type="muted" onClick={openOverview} forceClickable>
                         Enrolled in {enrolledCount} experiment{enrolledCount === 1 ? '' : 's'}

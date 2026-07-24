@@ -1,12 +1,28 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+
+/** A minimal review detail: only the fields the drawer selectors read. */
+function reviewDetail(id: string, runUrgencyThreshold: string | null): Record<string, any> {
+    return {
+        id,
+        published: false,
+        run_urgency_threshold: runUrgencyThreshold,
+        findings: [
+            { title: 'blocker', effective_priority: 'must_fix' },
+            { title: 'recommended', effective_priority: 'should_fix' },
+        ],
+        dismissed_findings: [],
+    }
+}
 
 // More project-wide reviews than the API's maximum limit, so both "Show more" growth and its
 // ceiling are reachable.
@@ -41,6 +57,12 @@ describe('reviewHogSettingsLogic', () => {
                 '/api/projects/:team_id/review_hog/blind_spots/': () => [200, []],
                 '/api/projects/:team_id/review_hog/validators/': () => [200, []],
             },
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    202,
+                    { workflow_id: 'wf-1', status: 'started' },
+                ],
+            },
         })
         // The scope reducers persist; without this a prior test's explicit choice leaks over.
         localStorage.clear()
@@ -66,6 +88,137 @@ describe('reviewHogSettingsLogic', () => {
         // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
         // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
+    })
+
+    it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
+        logic.mount()
+        // Consume the mount-time auto-default so its loadRecentReviews can't satisfy the assertion below.
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions([
+                'submitTriggerReview',
+                'startTriggeredReviewWatch',
+                'loadRecentReviews',
+                'submitTriggerReviewFinished',
+            ])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '' })
+        // The report row is created seconds after the 202; the watch keeps the list polling until
+        // it appears — without it the poll only arms when another review is already running.
+        expect(logic.values.awaitingTriggeredReview).toBe(true)
+    })
+
+    it('a repeat submit while a request is in flight does not start a second review', async () => {
+        // The disabled button can't stop an Enter keypress in the input, so the listener must drop
+        // repeats itself — without the guard each keypress POSTs another trigger.
+        let triggerCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => {
+                    triggerCalls++
+                    return [202, { workflow_id: 'wf-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        logic.actions.submitTriggerReview()
+        logic.actions.submitTriggerReview()
+        await expectLogic(logic).toDispatchActions(['submitTriggerReviewFinished'])
+
+        expect(triggerCalls).toBe(1)
+    })
+
+    it('an already-reviewed PR informs without arming the watch', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    200,
+                    { workflow_id: '', status: 'already_reviewed' },
+                ],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        // Arming the watch here would poll for two minutes waiting for a run that never starts.
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
+    })
+
+    it('a rejected trigger resets the in-flight flag and keeps the input for correction', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    403,
+                    { error: "ReviewHog reviews can't be started from this project yet" },
+                ],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions(['submitTriggerReview', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['loadRecentReviews', 'startTriggeredReviewWatch'])
+            .toMatchValues({
+                triggeringReview: false,
+                triggerPrUrl: 'https://github.com/PostHog/posthog.com/pull/1',
+                awaitingTriggeredReview: false,
+            })
+    })
+
+    it('the scope switch rescopes the effectiveness stats along with the list', async () => {
+        // The page-level switch must move the stat cards and the reviews list together — dropping
+        // the stats reload from the scope listeners (or the scope param from the request) would
+        // show one scope's list over the other scope's numbers, the exact confusion the switch
+        // exists to fix.
+        const statsScopes: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': ({ request }) => {
+                    statsScopes.push(new URL(request.url).searchParams.get('scope'))
+                    return [200, { report_count: 0, perspectives: [] }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentReviewsSuccess', 'applyDefaultReviewsScope', 'loadRecentReviewsSuccess'])
+            .toFinishAllListeners()
+        // The mount-time auto-default to Entire project already rescoped the stats.
+        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
+
+        logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
+        // Old data drops synchronously so neither the cards nor the list ever show the other
+        // scope's content — even if the reload were to fail.
+        expect(logic.values.perspectiveStats).toBeNull()
+        expect(logic.values.recentReviews).toBeNull()
+        await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
+        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Mine)
     })
 
     it('respects an explicit scope choice even when that scope is empty', async () => {
@@ -115,6 +268,93 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.showMoreReviews()
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         await expectLogic(logic).toMatchValues({ reviewsLimit: REVIEWS_PAGE_SIZE })
+    })
+
+    it('buckets drawer findings by the stored run threshold, with the viewer proxy only for old rows', async () => {
+        // The run gated at must_fix while the viewer's own setting (mocked above) is should_fix.
+        // Bucketing by the viewer's setting would show the held-back should_fix finding as
+        // published — the exact lie the stored snapshot exists to fix.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-stamped/': () => [
+                    200,
+                    reviewDetail('r-stamped', 'must_fix'),
+                ],
+                '/api/projects/:team_id/review_hog/reviews/r-old/': () => [200, reviewDetail('r-old', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        logic.actions.openReviewDetailById('r-stamped')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+        expect(logic.values.reviewFindingsSplit?.published.map((f) => f.title)).toEqual(['blocker'])
+        expect(logic.values.reviewFindingsSplit?.belowThreshold.map((f) => f.title)).toEqual(['recommended'])
+
+        // A pre-column row (null stored threshold) keeps the old viewer-settings approximation.
+        logic.actions.openReviewDetailById('r-old')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+        expect(logic.values.reviewFindingsSplit?.published.map((f) => f.title)).toEqual(['blocker', 'recommended'])
+        expect(logic.values.reviewFindingsSplit?.belowThreshold).toEqual([])
+    })
+
+    it('opens a review from ?review= and mirrors drawer state back to the URL', async () => {
+        // ?review=<report id> is a permanent public contract: PR status comments bake this exact
+        // param into their "View them in PostHog" links, so renaming the param or dropping the URL
+        // sync silently dead-ends every held-back-findings link already posted to GitHub.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-9/': () => [200, reviewDetail('r-9', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess'])
+
+        router.actions.push(urls.codeReview(), { review: 'r-9' })
+        await expectLogic(logic)
+            .toDispatchActions(['openReviewDetailById', 'loadReviewDetailSuccess'])
+            // No list row on a deep link — the drawer must render from the loaded detail alone.
+            .toMatchValues({ reviewDrawerOpen: true, openedReview: null })
+        expect(logic.values.reviewDetail?.id).toBe('r-9')
+
+        // A repeat location event for the same review (e.g. the open's own URL write-back) must not
+        // re-dispatch into the already-open drawer and reload the detail forever.
+        await expectLogic(logic, () =>
+            router.actions.push(urls.codeReview(), { review: 'r-9' })
+        ).toNotHaveDispatchedActions(['openReviewDetailById'])
+
+        // Closing removes the param in place (replace, not push), so back doesn't reopen the drawer.
+        logic.actions.closeReviewDrawer()
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+        expect(router.values.searchParams.review).toBeUndefined()
+
+        // And navigation that drops the param closes an open drawer — the URL and the visible
+        // report must never disagree.
+        router.actions.push(urls.codeReview(), { review: 'r-9' })
+        await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
+        router.actions.push(urls.codeReview(), {})
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('closes a deep-linked drawer when the review fails to load', async () => {
+        // A stale ?review= link (deleted report, wrong project) has no list row to fall back on —
+        // without the failure path the drawer would sit open on skeletons forever.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-gone/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess'])
+
+        router.actions.push(urls.codeReview(), { review: 'r-gone' })
+        await expectLogic(logic).toDispatchActions([
+            'openReviewDetailById',
+            'loadReviewDetailFailure',
+            'closeReviewDrawer',
+        ])
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+        expect(router.values.searchParams.review).toBeUndefined()
     })
 
     it('stops "Show more" at the API\'s maximum limit', async () => {

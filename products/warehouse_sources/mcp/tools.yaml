@@ -27,8 +27,9 @@ tools:
             credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
             the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
             call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
-            single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth
-            tokens into the chat.
+            single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must
+            be filled by the same user this session authenticates as. Never ask the user to paste raw database
+            passwords, API keys, or OAuth tokens into the chat.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -81,12 +82,13 @@ tools:
         list: true
         title: List stored source credentials awaiting setup
         description: >
-            List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been
-            consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets
-            themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page,
-            take the newest credential_id for the source type and call 'data-warehouse-source-setup' with
-            {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as
-            setup consumes them — and expire after 24 hours if never used.
+            List credentials the authenticated user stored via the 'data-warehouse-source-connect-link' page that
+            haven't been consumed yet. Only credentials this user created are visible — a teammate's stored credentials
+            cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) —
+            never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished
+            the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
+            with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
+            soon as setup consumes them — and expire after 24 hours if never used.
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -252,9 +254,12 @@ tools:
         title: List direct-query connections
         description: >
             List external data sources that can be used as a connectionId when running execute-sql against an external
-            source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each
-            — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this
-            to discover valid connectionId values.
+            source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources
+            that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine,
+            source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live
+            queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works.
+            Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried.
+            Use this to discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -454,6 +459,9 @@ tools:
             gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy
             (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is
             already running. Safe to retry after a failure. Returns {success, schemas_reset}.
+    external-data-sources-resume-cdc-create:
+        operation: external_data_sources_resume_cdc_create
+        enabled: false
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true

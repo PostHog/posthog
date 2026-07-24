@@ -28,15 +28,21 @@ analysis will be performed. This ensures findings are fully independent.
 Determine the base branch. If the user provided `$ARGUMENTS`, use that as the base branch.
 Otherwise, default to `master`.
 
-Run these commands to collect context:
+Create a run directory **outside the repository** (session scratchpad or `mktemp -d` — never
+inside the repo), then collect context into it:
 
 ```bash
-git diff <base>...HEAD --name-only
-git diff <base>...HEAD
-git log <base>...HEAD --oneline
+RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qa-team-XXXXXX")"
+mkdir -p "$RUN_DIR/personas" "$RUN_DIR/claimed"
+git diff <base>...HEAD --name-only > "$RUN_DIR/files.txt"
+git log <base>...HEAD --oneline > "$RUN_DIR/commits.txt"
+git diff <base>...HEAD > "$RUN_DIR/diff.patch"
 ```
 
-Store the full diff, changed file list, and commit messages. These will be passed to each agent.
+The run directory holds the persona queue, the claim script, and the generated launch
+scripts (Step 3); the diff is baked into the shared agent prompt by the build script,
+without passing through the model (see Step 3 for why). Keep `diff.patch` on disk — the
+build script reads it, and oversized diffs fall back to it at review time.
 
 If there are no changes, inform the user and stop.
 
@@ -65,15 +71,35 @@ compatibility) until at least 4 specialists are active.
 **Always launch both generalist agents** (`generalist-a` and `generalist-b`) regardless of
 file classification. They review all changes.
 
-### Step 3: Launch parallel review agents
+### Step 3: Launch the review agents (cache-aware protocol)
 
-Launch all relevant agents **simultaneously** using the Agent tool.
+**Why this protocol exists:** every agent request carries a large fixed prefix (system
+prompt, tools, project context, and the user prompt) that is prompt-cached **only when the
+prompt is byte-identical across agents**. Prompt caching is strict-prefix based: one
+divergent character anywhere in the prompt forces the entire prefix — tens of thousands of
+tokens — to be re-ingested at full price by every agent. Four rules follow:
 
-**CRITICAL:** Launch ALL agents in a single message with multiple Agent tool calls so they
-run in true parallel. Do NOT launch them sequentially.
+1. **Every agent gets the same prompt, byte for byte — including the full diff.** The
+   diff inside the identical prompt is part of the shared cached prefix, so followers
+   ingest it at cache-read prices instead of each re-paying write prices for a
+   file-read tool result.
+2. **The launch scripts are built by a shipped build tool, never typed by the
+   orchestrator.** `scripts/build_launch_scripts.js` JSON-encodes the prompt (diff
+   included) into two Workflow script files, so the diff never passes through the model
+   as output tokens and the two scripts' prompts cannot drift apart by a stray byte.
+3. **Per-agent divergence (the persona) arrives via a tool result, not the prompt.** Each
+   agent's first action is to run a claim script that atomically assigns it a persona.
+   Tool results come after the shared prefix, so they don't break the cache. Never deliver
+   the persona as a follow-up message to a completed agent — resuming a finished agent
+   rebuilds its request from scratch and misses the cache entirely.
+4. **Stagger the launch.** The first reviewer launches alone; its persona claim appearing
+   in `claimed/` is the signal that its first request finished and the shared prefix is
+   cached. Only then do the remaining reviewers launch in parallel and read it. A
+   simultaneous cold launch makes every agent write the prefix instead of reading it
+   (measured: two agents launched together each wrote the full ~42k tokens).
 
 **CRITICAL — Agent independence:** Each agent must operate in total isolation. Do NOT
-include any of the following in any agent's prompt:
+include any of the following in the shared prompt or in any persona file:
 
 - Names, codenames, or descriptions of other agents
 - The number of agents being launched
@@ -82,76 +108,39 @@ include any of the following in any agent's prompt:
 - Any reference to a "team" of reviewers
 
 Each agent believes it is the sole reviewer. This ensures fully independent findings.
+(The persona queue on disk necessarily contains the other personas; the shared prompt
+forbids agents from inspecting the run directory, which preserves independence in
+practice.)
 
-#### Specialist agent prompt template
+#### 3a. Write the persona files
 
-For each specialist agent (security, database, reliability, performance, frontend,
-compatibility, data-integrity, copy), build the prompt from these parts:
+Write one file per selected agent to `$RUN_DIR/personas/`, named with a numeric prefix so
+claim order is deterministic (`01-generalist-a.md`, `02-generalist-b.md`, `03-security.md`,
+`04-database.md`, ...). The generalists come first because they run in every review, so
+reviewer 1 — the agent that warms the shared cache — is always the same persona
+regardless of which specialists the diff selects. The number of persona files must equal
+the number of reviewers you will launch — the build script derives the launch count from
+this directory.
 
-1. **Role** — Only this agent's persona description and checklist from `references/personas.md`
-2. **Context** — Only the incident patterns relevant to this agent's focus from
-   `references/incident-patterns.md`. Omit for the copy agent.
-3. **Diff material** — Changed files, commit messages, and the full diff
+For each **specialist** (security, database, reliability, performance, frontend,
+compatibility, data-integrity, copy), the file contains:
 
 ```text
-You are a code reviewer specializing in {FOCUS_AREA}.
+Your assigned review focus: {FOCUS_AREA}
 
 ## Your expertise
 {PERSONA_DESCRIPTION_AND_CHECKLIST from references/personas.md — this agent's section only}
 
 ## Known failure patterns
 {RELEVANT_PATTERNS from references/incident-patterns.md — only patterns matching
-this agent's focus area. Omit this entire section for the copy agent.}
-
-## Code changes to review
-
-### Changed files
-{FILE_LIST}
-
-### Commit messages
-{COMMIT_LOG}
-
-### Full diff
-{FULL_DIFF}
-
-## Instructions
-
-1. Read the full diff carefully. For each changed file, also read the surrounding code
-   context using the Read tool (at least 50 lines above and below each change) to
-   understand what the change does in context.
-
-2. Apply your review checklist systematically. For each item, determine if the change
-   introduces a risk.
-
-3. Produce your review in this EXACT format:
-
-**Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
-
-**Findings:**
-
-For each finding:
-- **[SEVERITY]** `file:line` — Description of the issue
-  - Why it matters: {explanation referencing known failure patterns if applicable}
-  - Suggestion: {specific fix or mitigation}
-
-If no findings: "No issues found in my focus area."
-
-**Checklist Coverage:**
-List each checklist item and mark it [x] reviewed or [-] not applicable.
-
-**Summary:**
-One paragraph summarizing your overall assessment.
+this agent's focus area. Omit this entire section for the copy persona.}
 ```
 
-#### Generalist agent prompt template
-
-Always launch both generalist agents (`generalist-a` and `generalist-b`). Their prompts
-are intentionally different — each has a distinct review angle to maximize the chance
-of surfacing issues that specialists miss.
-
-**Generalist A** — reviews from a "new team member" perspective:
+Always include both **generalist** personas. Generalist A (fresh-eyes senior engineer):
 
 ```text
+Your assigned review focus: general correctness and safety
+
 You are a senior software engineer reviewing this code change for the first time.
 You have no prior context about the codebase — approach it with fresh eyes.
 
@@ -164,46 +153,14 @@ Focus on things that would concern you if you saw this code in a pull request:
 - Are there any "that looks wrong" moments?
 
 Do NOT focus on style, formatting, or minor nits. Focus on correctness and safety.
-
-## Code changes to review
-
-### Changed files
-{FILE_LIST}
-
-### Commit messages
-{COMMIT_LOG}
-
-### Full diff
-{FULL_DIFF}
-
-## Instructions
-
-1. Read the full diff carefully. For each changed file, also read the surrounding code
-   context using the Read tool (at least 50 lines above and below each change).
-
-2. Think about what could go wrong. Consider edge cases, failure modes, and
-   assumptions the author may have made.
-
-3. Produce your review in this EXACT format:
-
-**Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
-
-**Findings:**
-
-For each finding:
-- **[SEVERITY]** `file:line` — Description of the issue
-  - Why it matters: {explanation}
-  - Suggestion: {specific fix or mitigation}
-
-If no findings: "No issues found."
-
-**Summary:**
-One paragraph summarizing your overall assessment.
+This focus has no formal checklist — omit the Checklist Coverage section from your review.
 ```
 
-**Generalist B** — reviews from an "adversarial tester" perspective:
+Generalist B (adversarial tester):
 
 ```text
+Your assigned review focus: breakability
+
 You are a QA engineer who tries to break things. Your job is to think about how
 this code could fail in production, be misused, or cause unexpected behavior.
 
@@ -217,41 +174,66 @@ edge-case dataset. For each change, ask:
 - What if a developer misunderstands this code and extends it incorrectly?
 
 Do NOT focus on style or readability. Focus on breakability.
-
-## Code changes to review
-
-### Changed files
-{FILE_LIST}
-
-### Commit messages
-{COMMIT_LOG}
-
-### Full diff
-{FULL_DIFF}
-
-## Instructions
-
-1. Read the full diff carefully. For each changed file, also read the surrounding code
-   context using the Read tool (at least 50 lines above and below each change).
-
-2. Try to find ways to break it. Think adversarially.
-
-3. Produce your review in this EXACT format:
-
-**Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
-
-**Findings:**
-
-For each finding:
-- **[SEVERITY]** `file:line` — Description of the issue
-  - Why it matters: {explanation}
-  - Suggestion: {specific fix or mitigation}
-
-If no findings: "No issues found."
-
-**Summary:**
-One paragraph summarizing your overall assessment.
+This focus has no formal checklist — omit the Checklist Coverage section from your review.
 ```
+
+#### 3b. Install the claim script and build the launch scripts
+
+Both live in this skill's `scripts/` directory — copy the claim script into the run
+directory, then build the two Workflow launch scripts from the run directory's contents:
+
+```bash
+SKILL_DIR="<this skill's base directory>"
+cp "$SKILL_DIR/scripts/claim_persona.sh" "$RUN_DIR/"
+node "$SKILL_DIR/scripts/build_launch_scripts.js" "$RUN_DIR"
+```
+
+`claim_persona.sh` atomically hands each caller the next unclaimed persona (`mv` is
+atomic, so concurrent agents each win a distinct one). `build_launch_scripts.js`
+JSON-encodes the shared review prompt — claim instruction, changed files, commit
+messages, and the full diff (or a read-from-disk instruction when the diff exceeds
+~200 KB) — into `$RUN_DIR/launch_first.js` and `$RUN_DIR/launch_rest.js`, sizing the
+parallel fan-out from the persona count. The prompt text itself lives in the build
+script; do not re-type or edit the generated files.
+
+#### 3c. Launch in two phases
+
+1. Invoke the Workflow tool with `{scriptPath: "$RUN_DIR/launch_first.js"}`. It launches
+   reviewer 1 alone, in the background.
+2. Poll for reviewer 1's persona claim — the signal that its **first request** completed
+   (~15 seconds in) and the shared prefix (diff included) is cached:
+
+   ```bash
+   timeout 120 bash -c 'until [ -n "$(ls -A '"$RUN_DIR"'/claimed)" ]; do sleep 1; done'
+   ```
+
+   Do NOT wait for the first workflow run to complete — reviewer 1 keeps reviewing while
+   the rest launch, so all reviewers run concurrently apart from this brief warm-up
+   window. If the poll times out, first check whether the `launch_first` run errored,
+   then continue and note in the final report that the run proceeded uncached — a cache
+   miss costs money, not correctness, but it should be attributable.
+
+3. Invoke the Workflow tool with `{scriptPath: "$RUN_DIR/launch_rest.js"}`. It launches
+   the remaining reviewers in parallel; each reads the cached prefix reviewer 1 wrote.
+4. Both workflow runs return `{ reviews: [...] }` as they complete — collect both for
+   Step 4. Failed reviewers appear as explicit `REVIEWER FAILED: ...` sentinel entries,
+   never as silently missing reviews.
+5. **Reconcile before synthesizing:** `personas/` must be empty and the number of
+   collected reviews (sentinels included) must equal the persona count. On a mismatch,
+   name the unclaimed or unreviewed personas in the report — or relaunch a single agent
+   for the leftovers — rather than presenting partial coverage as a complete review.
+   (Known limitation: a claim is not idempotent — an agent that reruns the claim consumes
+   a second persona and starves a later reviewer; the reconciliation step is what catches
+   this.)
+
+After the report is written, best-effort clean up the run directory (`rm -rf "$RUN_DIR"`)
+— it contains the full diff on disk and has no further use.
+
+**Fallback:** if the Workflow tool is unavailable, launch agents directly with the Agent
+tool using one shared prompt that references the run-dir files instead of embedding the
+diff (`Read $RUN_DIR/diff.patch` etc. — hand-typing the diff N times costs more than the
+cache saves). Launch the first agent, run the same `claimed/` poll as above, then launch
+the rest in a single message in parallel.
 
 ### Step 4: Synthesize the report
 
@@ -375,7 +357,7 @@ in the `Agents` column and carry higher confidence.
 
 ### Persona Definitions
 
-- **`references/personas.md`** -- Full persona descriptions, context, and review checklists for specialist agents (not used for generalists — they have their own prompts)
+- **`references/personas.md`** -- Full persona descriptions, context, and review checklists for specialist agents (not used for generalists — their persona files are defined inline in Step 3a)
 
 ### Incident Patterns
 

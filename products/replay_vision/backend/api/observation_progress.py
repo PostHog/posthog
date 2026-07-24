@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -33,16 +34,22 @@ def _sse_event(label: str, data: str) -> str:
     return f"event: {label}\ndata: {data}\n\n"
 
 
+@dataclass(frozen=True)
+class _ObservationState:
+    status: str
+    workflow_id: str
+
+
 @database_sync_to_async
-def _read_observation_state(observation_id: UUID, team_id: int) -> tuple[str, str] | None:
-    """Returns (status, workflow_id), or None if the row vanished. Team-scoped: the caller already
+def _read_observation_state(observation_id: UUID, team_id: int) -> _ObservationState | None:
+    """Returns the observation's live state, or None if the row vanished. Team-scoped: the caller already
     authorized this observation via get_object(), but the query stays tenant-scoped per the IDOR rule."""
     row = (
         ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
         .values_list("status", "workflow_id")
         .first()
     )
-    return None if row is None else (row[0], row[1])
+    return None if row is None else _ObservationState(status=row[0], workflow_id=row[1])
 
 
 def _fallback_progress(status: str) -> ObservationProgress:
@@ -119,7 +126,7 @@ async def stream_observation_progress(observation: ReplayObservation) -> AsyncGe
             if state is None:
                 yield _sse_event("observation-error", "Observation not found")
                 return
-            status, workflow_id = state
+            status, workflow_id = state.status, state.workflow_id
             if status in _TERMINAL_STATUSES:
                 yield _sse_event("observation-complete", json.dumps({"status": status}))
                 return

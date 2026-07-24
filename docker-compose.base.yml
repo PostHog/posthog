@@ -400,7 +400,7 @@ services:
         restart: on-failure
         environment:
             ADDRESS: '0.0.0.0:3000'
-            KAFKA_TOPIC: 'events_plugin_ingestion'
+            KAFKA_TOPIC: 'ai_events_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events

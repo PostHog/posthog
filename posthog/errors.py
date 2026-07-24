@@ -135,6 +135,9 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "TABLE_IS_READ_ONLY":
+        # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
+        return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -210,14 +213,6 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
-class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
-    pass
-
-
-class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
-    pass
-
-
 class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
@@ -225,6 +220,10 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
 
+    pass
+
+
+class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
     pass
 
 
@@ -265,7 +264,7 @@ class CHQueryErrorTooManyBytes(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+class CHQueryErrorCannotParseUuid(ExposedCHQueryError):
     pass
 
 
@@ -1000,9 +999,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
+# Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
 CH_TRANSIENT_ERRORS = (
-    CHQueryErrorTooManySimultaneousQueries,
-    CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
+    ClickHouseAtCapacity,
 )

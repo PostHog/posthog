@@ -74,6 +74,22 @@ describe('findMissingVariableReferences', () => {
             expected: [],
         },
         {
+            name: 'bytecode is not scanned even when a constant embeds matching text',
+            config: {
+                inputs: {
+                    subject: {
+                        value: 'plain text',
+                        // A template string carried verbatim as a bytecode constant: the executor
+                        // renders from `value`, so this must not be reported
+                        bytecode: ['_H', 1, 32, 'Your code: {{ variables.ghost }}'],
+                        transpiled: 'return `${variables.spectre}`',
+                    },
+                },
+            },
+            variables: {},
+            expected: [],
+        },
+        {
             name: 'multiple missing references come back sorted and unique',
             config: {
                 inputs: {

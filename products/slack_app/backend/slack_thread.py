@@ -7,6 +7,8 @@ from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
+
 logger = structlog.get_logger(__name__)
 
 PROGRESS_MESSAGE_MARKER = "Working on task..."
@@ -193,7 +195,7 @@ class SlackThreadHandler:
         if first_task_id and first_task_title:
             chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
         if first_markdown_text:
-            for piece in _split_markdown_text(first_markdown_text):
+            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return None
@@ -230,7 +232,7 @@ class SlackThreadHandler:
                 continue
             chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
         if markdown_text:
-            for piece in _split_markdown_text(markdown_text):
+            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(markdown_text)):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return
@@ -260,7 +262,7 @@ class SlackThreadHandler:
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
         if final_markdown:
-            for piece in _split_markdown_text(final_markdown):
+            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(final_markdown)):
                 final_chunks.append({"type": "markdown_text", "text": piece})
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.

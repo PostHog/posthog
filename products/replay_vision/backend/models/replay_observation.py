@@ -65,6 +65,11 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
+    created_task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="PostHog Task minted from this observation's finding. Repeat create_task calls return this id instead of creating a duplicate.",
+    )
 
     triggered_by = models.CharField(
         max_length=16,

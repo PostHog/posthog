@@ -653,16 +653,16 @@ describe('driver runSession', () => {
             expect(rows[0].state).toBe('queued')
         })
 
-        // ── Proxy-mode gating (large connection: >40 tools → helper tools) ──
+        // ── Proxy-mode gating (large connection: >50 tools → helper tools) ──
         // A connection past the inline budget exposes only `<prefix>__call_tool`
         // / `explore_tools` / `get_tool_schema`; the underlying tool is named in
-        // the `call_tool` args. Build a 42-tool fake MCP so `decideMcpExposure`
+        // the `call_tool` args. Build a 52-tool fake MCP so `decideMcpExposure`
         // picks proxy mode, with one tool (`promote`) the author gated `approve`.
         const manyTools = (gated: string): Record<string, { description: string; result: unknown }> => {
             const tools: Record<string, { description: string; result: unknown }> = {
                 [gated]: { description: 'gated tool', result: { promoted: true } },
             }
-            for (let i = 0; i < 42; i++) {
+            for (let i = 0; i < 52; i++) {
                 tools[`tool_${i}`] = { description: `tool ${i}`, result: { ok: true } }
             }
             return tools

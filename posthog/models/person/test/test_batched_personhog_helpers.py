@@ -281,7 +281,7 @@ class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
 
                 assert len(result) == n_persons
                 for i in range(n_persons):
-                    assert result[i + 1] == [f"d{i}"]
+                    assert [d.id for d in result[i + 1]] == [f"d{i}"]
                 fake.assert_called("get_distinct_ids_for_persons", times=expected_calls)
 
     def test_empty_input(self):
@@ -322,7 +322,7 @@ class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
 
             result = _batched_get_distinct_ids_for_persons(1, [1, 999])
 
-            assert result[1] == ["d1"]
+            assert [d.id for d in result[1]] == ["d1"]
             assert result[999] == []
 
 

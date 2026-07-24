@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MentionSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
+    MentionSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.mention import (
     MentionResumeConfig,
     mention_source,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1.19",)
+    default_version = "1.19"
+    api_docs_url = "https://dev.mention.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -90,6 +95,7 @@ You can create an access token by registering an API application at [dev.mention
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — mentions expose a `since_id` cursor, but it orders
         # by fetch recency rather than a timestamp, and it could not be verified against a live
@@ -109,7 +115,11 @@ You can create an access token by registering an API application at [dev.mention
         return schemas
 
     def validate_credentials(
-        self, config: MentionSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MentionSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The access token is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.access_token)

@@ -5,11 +5,6 @@ on:
         branches:
             - master
     pull_request:
-    # Required so `Dagster Tests Pass` (a required status check) reports on merge
-    # queue entries — without it the queue would wait for the check until timeout.
-    # The jobs themselves skip on merge_group (the suite already runs in full on
-    # every PR) and the aggregator treats skipped as success.
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -48,7 +43,6 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Validate dagster path filter coverage
-        if: github.event_name != 'merge_group'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -64,7 +58,6 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run dagster checks
-        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
@@ -120,6 +113,7 @@ jobs:
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
+                        - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
@@ -138,7 +132,15 @@ jobs:
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
-                        - 'products/warehouse_sources/backend/**/*.py'
+                        # warehouse_sources is deliberately narrower than the other product
+                        # globs: DAGs import only backend.types and the facade, and the product
+                        # holds 850+ source connector dirs no DAG can reach — a whole-backend
+                        # glob would run this suite on every new-source PR. models/** is kept
+                        # because facade.models re-exports flow through it. Mirrors the
+                        # product's turbo.json backend:contract-check surface.
+                        - 'products/warehouse_sources/backend/types.py'
+                        - 'products/warehouse_sources/backend/facade/**/*.py'
+                        - 'products/warehouse_sources/backend/models/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
@@ -248,7 +250,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -358,7 +360,11 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — falling through to full migrate"
+                      python manage.py migrate
+                      exit 0
+                  fi
                   gunzip -c .postgres-backups/schema-latest.sql.gz | \
                     docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
 
@@ -423,10 +429,12 @@ jobs:
                   path: junit-*.xml
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
+            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
+            # this upload skips.
             - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               continue-on-error: true
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:

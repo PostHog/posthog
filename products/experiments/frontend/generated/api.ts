@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
@@ -22,6 +23,7 @@ import type {
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
     ExperimentWriteApi,
+    ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
@@ -403,6 +405,45 @@ export const experimentsDestroy = async (projectId: string, id: number, options?
     })
 }
 
+export const getExperimentsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/activity/`
+}
+
+/**
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const experimentsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getExperimentsActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/archive/`
 }
@@ -755,8 +796,9 @@ export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
 /**
  * Reset an experiment back to draft state.
  *
- * Clears start/end dates, conclusion, and archived flag. The feature
- * flag is left unchanged — users continue to see their assigned variants.
+ * Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+ * task pointer. The feature flag is left unchanged — users continue to see
+ * their assigned variants.
  *
  * Previously collected events still exist but won't be included in
  * results unless the start date is manually adjusted after re-launch.
@@ -969,36 +1011,6 @@ export const experimentsCreateFromPromptCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createFromPromptInputApi),
-    })
-}
-
-export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
-}
-
-/**
- * Returns a paginated list of feature flags eligible for use in experiments.
- *
- * Eligible flags must:
- * - Be multivariate with 2 to 20 variants
- *
- * Query parameters:
- * - search: Filter by flag key or name (case insensitive)
- * - limit: Number of results per page (default: 20)
- * - offset: Pagination offset (default: 0)
- * - active: Filter by active status ("true" or "false")
- * - created_by_id: Filter by creator user ID
- * - order: Sort order field
- * - evaluation_runtime: Filter by evaluation runtime
- * - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
- */
-export const experimentsEligibleFeatureFlagsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsEligibleFeatureFlagsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 

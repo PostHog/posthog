@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enforce_2fa": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately."
+        },
+        "id": {
+            "description": "Organization ID. If omitted, targets the active organization.",
+            "type": "string"
+        }
+    },
+    "required": ["enforce_2fa"],
+    "type": "object"
+}

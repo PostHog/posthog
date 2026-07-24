@@ -12,14 +12,18 @@ HCL=posthog/clickhouse/hcl
 
 map_env() { case "$1" in local-multi) echo local ;; *) echo "$1" ;; esac; }
 
-rc=0
+rc=0; checked=0; skipped=0
 for g in "$HCL"/golden/*/*.hcl; do                       # per-env-dir goldens
   [ -e "$g" ] || continue                                # no per-env goldens yet (pre-conversion)
   env=$(basename "$(dirname "$g")"); role=$(basename "$g" .hcl)
   old="$HCL/.legacy/golden/$(map_env "$env")-$role.hcl"  # legacy flat golden
-  [ -f "$old" ] || continue                              # new coverage, no parity target
+  if [ ! -f "$old" ]; then                               # new coverage with no legacy counterpart
+    echo "SKIP $env/$role — no legacy golden ($(basename "$old"))"; skipped=$((skipped + 1)); continue
+  fi
   out=$("$HCL/bin/hclexp" diff -left "$old" -right "$g")
-  [ "$out" = "no differences" ] || { echo "PARITY FAIL: $env/$role"; echo "$out"; rc=1; }
+  if [ "$out" = "no differences" ]; then checked=$((checked + 1)); else echo "PARITY FAIL: $env/$role"; echo "$out"; rc=1; fi
 done
-[ "$rc" -eq 0 ] && echo "compare-old: all per-env goldens match the legacy snapshot"
+# Report skips explicitly so a missing or mis-mapped legacy file surfaces as an
+# unexpected skip rather than a silent pass.
+[ "$rc" -eq 0 ] && echo "compare-old: $checked goldens match the legacy snapshot, $skipped skipped (no legacy target)"
 exit $rc

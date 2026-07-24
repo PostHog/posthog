@@ -6,7 +6,7 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { useWizardCommand } from '../SetupWizardBanner'
+import { useWizardCommand } from '../useWizardCommand'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
 import { WizardFrameworkBadges } from './WizardModeShell'
