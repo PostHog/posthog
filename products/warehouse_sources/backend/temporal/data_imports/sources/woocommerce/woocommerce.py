@@ -1,4 +1,5 @@
 import dataclasses
+from base64 import b64encode
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -27,6 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
 WOOCOMMERCE_API_BASE_PATH = "/wp-json/wc/v3"
 # WooCommerce caps `per_page` at 100.
 DEFAULT_PER_PAGE = 100
+# Managed WordPress hosts and security layers (Cloudflare, Wordfence, and similar WAFs)
+# frequently block the default `python-requests` User-Agent outright, returning a 403
+# before the request ever reaches WooCommerce. Identify ourselves with a stable,
+# non-default agent so those layers let legitimate sync traffic through.
+WOOCOMMERCE_USER_AGENT = "PostHog Data Warehouse (WooCommerce source; +https://posthog.com)"
 
 
 @dataclasses.dataclass
@@ -103,7 +110,38 @@ def _make_guarded_session(team_id: int, redact_values: tuple[str, ...] = ()) -> 
     adapter = _HostGuardedAdapter(team_id, max_retries=DEFAULT_RETRY, redact_values=redact_values)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
+    session.headers["User-Agent"] = WOOCOMMERCE_USER_AGENT
     return session
+
+
+class WooCommerceAuth(AuthConfigBase):
+    """WooCommerce consumer key/secret auth with a query-string fallback.
+
+    WooCommerce authenticates the consumer key/secret over HTTPS via an HTTP Basic
+    `Authorization` header, but documents that some hosts strip that header (which
+    surfaces as a "Consumer key is missing" 401). To survive those hosts we also send
+    the credentials as query-string parameters, which WooCommerce accepts over HTTPS —
+    whichever the server preserves authenticates the request. The store URL is always
+    normalized to HTTPS, so the credentials never travel over plaintext.
+    """
+
+    def __init__(self, consumer_key: str, consumer_secret: str) -> None:
+        self.consumer_key = consumer_key
+        self.consumer_secret = consumer_secret
+
+    def __call__(self, request: PreparedRequest) -> PreparedRequest:
+        encoded = b64encode(f"{self.consumer_key}:{self.consumer_secret}".encode()).decode()
+        request.headers["Authorization"] = f"Basic {encoded}"
+        request.prepare_url(
+            request.url,
+            {"consumer_key": self.consumer_key, "consumer_secret": self.consumer_secret},
+        )
+        return request
+
+    def secret_values(self) -> tuple[str, ...]:
+        # Both land in the request URL (query-string fallback), so redact both from logs
+        # and raised exception messages — not just the secret.
+        return tuple(value for value in (self.consumer_secret, self.consumer_key) if value)
 
 
 def _to_woocommerce_datetime(value: Any) -> Optional[str]:
@@ -226,11 +264,7 @@ def woocommerce_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": _base_url(store_url),
-            "auth": {
-                "type": "http_basic",
-                "username": consumer_key,
-                "password": consumer_secret,
-            },
+            "auth": WooCommerceAuth(consumer_key, consumer_secret),
             "paginator": WooCommercePaginator(),
             # Re-vet every hop (redirects included) so a redirect to an internal host can't
             # smuggle the credential past the up-front `_assert_host_safe` check.
@@ -279,7 +313,9 @@ def validate_credentials(store_url: str, consumer_key: str, consumer_secret: str
         response = _make_guarded_session(team_id, redact_values=(consumer_key, consumer_secret)).get(
             f"{_base_url(store_url)}/products",
             params={"per_page": 1},
-            auth=(consumer_key, consumer_secret),
+            # Same auth the sync uses (Basic header + query-string fallback) so the probe
+            # doesn't pass under one auth path and then fail at sync time under another.
+            auth=WooCommerceAuth(consumer_key, consumer_secret),
             timeout=30,
         )
     except Exception:

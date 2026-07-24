@@ -59,9 +59,20 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # WooCommerce's own auth and permission failures return 401 (e.g. a bad key or a key
+        # without Read scope). A 403 on the REST API almost always comes from an upstream layer
+        # — a WAF, CDN, or security plugin — blocking the request before it reaches WooCommerce,
+        # so point users at that rather than blaming their key.
         return {
-            "401 Client Error": "WooCommerce authentication failed. Please check your consumer key and secret.",
-            "403 Client Error": "WooCommerce authentication failed or the API key lacks read permission for this resource.",
+            "401 Client Error": (
+                "WooCommerce rejected the request. Check your consumer key and secret are correct "
+                "and have Read permission for this store."
+            ),
+            "403 Client Error": (
+                "The request to your WooCommerce store was blocked before it reached WooCommerce, "
+                "usually by a firewall, CDN, or security plugin. Allow requests to the store's REST "
+                "API (/wp-json/wc/v3) and try again."
+            ),
         }
 
     def get_schemas(
@@ -92,16 +103,24 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         if status == 200:
             return True, None
 
-        # A valid key may legitimately lack read scope for the probe endpoint. Accept that at
-        # source-create time; sync-time 403s are caught by `get_non_retryable_errors`.
+        # A 403 on the probe endpoint is almost always an upstream block (WAF/CDN/security
+        # plugin), not the key itself, and can be endpoint-specific. Don't fail source creation
+        # on it — let the source be created and surface any real block per-schema at sync time
+        # via `get_non_retryable_errors`.
         if status == 403 and schema_name is None:
             return True, None
 
         if status == 403:
-            return False, "WooCommerce API key lacks read permission for this resource. Please check the key scope."
+            return False, (
+                "The request to your WooCommerce store was blocked before it reached WooCommerce, "
+                "usually by a firewall, CDN, or security plugin. Allow requests to the store's REST API."
+            )
 
         if status == 401:
-            return False, "WooCommerce authentication failed. Please check your consumer key and secret."
+            return False, (
+                "WooCommerce rejected the request. Check your consumer key and secret are correct "
+                "and have Read permission for this store."
+            )
 
         return False, "Could not connect to your WooCommerce store. Please check the store URL."
 
