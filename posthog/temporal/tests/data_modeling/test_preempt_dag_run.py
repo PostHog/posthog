@@ -1,13 +1,17 @@
 import uuid
+import datetime as dt
 
 import pytest
 import unittest.mock
+
+from django.utils import timezone
 
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities.preempt_dag_run import (
+    ABANDONED_ERROR,
     PREEMPTED_ERROR,
     PreemptDAGRunInputs,
     preempt_dag_run_activity,
@@ -50,6 +54,30 @@ async def tier_jobs(ateam):
     }
 
 
+async def _run_activity(team_id: int, node_ids: list[str] | None) -> tuple[list[str], unittest.mock.MagicMock]:
+    """Run the activity against a stubbed Temporal client, recording which workflows it cancelled."""
+    cancelled: list[str] = []
+    handle = unittest.mock.MagicMock()
+    handle.cancel = unittest.mock.AsyncMock()
+
+    def get_workflow_handle(workflow_id: str) -> unittest.mock.MagicMock:
+        cancelled.append(workflow_id)
+        return handle
+
+    client = unittest.mock.MagicMock()
+    client.get_workflow_handle = unittest.mock.MagicMock(side_effect=get_workflow_handle)
+
+    with unittest.mock.patch(
+        "posthog.temporal.data_modeling.activities.preempt_dag_run.async_connect",
+        unittest.mock.AsyncMock(return_value=client),
+    ):
+        await ActivityEnvironment().run(
+            preempt_dag_run_activity,
+            PreemptDAGRunInputs(team_id=team_id, dag_id=DAG_ID, node_ids=node_ids),
+        )
+    return cancelled, handle
+
+
 @pytest.mark.parametrize(
     "node_ids,expected_preempted",
     [
@@ -70,25 +98,7 @@ async def test_preempt_is_scoped_to_the_tiers_own_nodes(
     ateam,
     tier_jobs,
 ) -> None:
-    cancelled: list[str] = []
-    handle = unittest.mock.MagicMock()
-    handle.cancel = unittest.mock.AsyncMock()
-
-    def get_workflow_handle(workflow_id: str) -> unittest.mock.MagicMock:
-        cancelled.append(workflow_id)
-        return handle
-
-    client = unittest.mock.MagicMock()
-    client.get_workflow_handle = unittest.mock.MagicMock(side_effect=get_workflow_handle)
-
-    with unittest.mock.patch(
-        "posthog.temporal.data_modeling.activities.preempt_dag_run.async_connect",
-        unittest.mock.AsyncMock(return_value=client),
-    ):
-        await ActivityEnvironment().run(
-            preempt_dag_run_activity,
-            PreemptDAGRunInputs(team_id=ateam.pk, dag_id=DAG_ID, node_ids=node_ids),
-        )
+    cancelled, handle = await _run_activity(ateam.pk, node_ids)
 
     for node_id, job in tier_jobs.items():
         await database_sync_to_async(job.refresh_from_db)()
@@ -105,3 +115,47 @@ async def test_preempt_is_scoped_to_the_tiers_own_nodes(
     assert sorted(cancelled) == sorted(tier_jobs[node_id].workflow_id for node_id in expected_preempted)
     assert not {PARENT_HOURLY, PARENT_QUARTER_HOURLY} & set(cancelled)
     assert handle.cancel.await_count == len(expected_preempted)
+
+
+# Absolute ages, deliberately not derived from STALE_RUNNING_JOB_AGE — offsets from the constant
+# would track any change to it and could never fail. A week is past any defensible threshold
+# (activities cap at 20 minutes); a minute is unambiguously still live.
+@pytest.mark.parametrize(
+    "age,expect_reaped",
+    [
+        pytest.param(dt.timedelta(days=7), True, id="abandoned_row_is_reaped"),
+        pytest.param(dt.timedelta(minutes=1), False, id="live_foreign_job_is_left_alone"),
+    ],
+)
+async def test_rows_outside_our_nodes_are_reaped_only_once_their_workflow_is_gone(
+    age: dt.timedelta,
+    expect_reaped: bool,
+    ateam,
+    tier_jobs,
+) -> None:
+    # A node in no tier: nothing ever "owns" it, so if ownership gated cleanup its row would
+    # stay Running forever and the UI would show it perpetually materializing.
+    orphan_node = "44444444-4444-4444-4444-444444444444"
+    orphan = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        status=DataModelingJobStatus.RUNNING,
+        workflow_id=f"materialize-view-{DAG_ID}-{orphan_node}-2026-01-01T00:00:00",
+        parent_workflow_id=PARENT_HOURLY,
+    )
+    # updated_at is auto_now, so age it with a queryset update rather than a save.
+    await database_sync_to_async(DataModelingJob.objects.filter(id=orphan.id).update)(updated_at=timezone.now() - age)
+
+    cancelled, _handle = await _run_activity(ateam.pk, [NODE_QUARTER_HOURLY])
+
+    await database_sync_to_async(orphan.refresh_from_db)()
+    if expect_reaped:
+        assert orphan.status == DataModelingJobStatus.FAILED
+        assert orphan.error == ABANDONED_ERROR
+    else:
+        assert orphan.status == DataModelingJobStatus.RUNNING
+        assert orphan.error is None
+
+    # Reaping only marks the row. There is no live workflow left to cancel, and cancelling on
+    # another tier's behalf is precisely what this activity must not do.
+    assert orphan.workflow_id not in cancelled
+    assert cancelled == [tier_jobs[NODE_QUARTER_HOURLY].workflow_id]
