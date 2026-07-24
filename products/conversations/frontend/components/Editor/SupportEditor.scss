@@ -50,6 +50,84 @@
     }
 }
 
+// Block node styling for standard rich text (lists, headings, blockquotes, rules,
+// strikethrough). Tailwind's preflight resets list markers and heading sizes, so
+// these have to be restored explicitly, matching the LemonMarkdown/RichMarkdownEditor
+// pattern used elsewhere.
+@mixin rich-text-block-styles {
+    ul,
+    ol {
+        padding-left: 1.5em;
+
+        li {
+            display: list-item;
+
+            p {
+                margin-bottom: 0;
+            }
+        }
+    }
+
+    ul {
+        list-style-type: disc;
+    }
+
+    ol {
+        list-style-type: decimal;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        margin: 0.5em 0 0.25em;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+
+    h1 {
+        font-size: 1.25em;
+    }
+
+    h2 {
+        font-size: 1.125em;
+    }
+
+    h3 {
+        font-size: 1em;
+    }
+
+    h4,
+    h5,
+    h6 {
+        font-size: 0.875em;
+    }
+
+    blockquote {
+        padding: 0.25em 0.75em;
+        margin: 0.5em 0;
+        color: var(--color-text-secondary);
+        border-left: 3px solid var(--border);
+
+        p:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    hr {
+        margin: 1em 0;
+        border: none;
+        border-top: 1px solid var(--border);
+    }
+
+    s,
+    del {
+        text-decoration: line-through;
+    }
+}
+
 .SupportEditor {
     .SupportEditor__content {
         display: flex;
@@ -99,6 +177,7 @@
 
     @include inline-code-styles;
     @include code-block-styles;
+    @include rich-text-block-styles;
 }
 
 .SupportRichContentPreview {
@@ -132,4 +211,5 @@
 
     @include inline-code-styles;
     @include code-block-styles;
+    @include rich-text-block-styles;
 }
