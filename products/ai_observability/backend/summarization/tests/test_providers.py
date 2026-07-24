@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from rest_framework import exceptions
 
-from products.ai_observability.backend.summarization.constants import SUMMARIZATION_TIMEOUT
+from products.ai_observability.backend.summarization.constants import (
+    EVALUATION_SUMMARY_CHUNK_SIZE,
+    SUMMARIZATION_TIMEOUT,
+)
 from products.ai_observability.backend.summarization.llm.evaluation_summary import summarize_evaluation_runs
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -201,3 +204,35 @@ class TestSummarizeEvaluationRuns:
         # timeout moved off the client constructor onto the per-call create()
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
+
+    def test_large_run_set_is_chunked_and_merged(self, valid_evaluation_summary_json):
+        # A single call over hundreds of runs trips the ai-gateway's ~30s timeout, so runs
+        # above the chunk size are summarized concurrently and merged. Guards against
+        # regressing to one big call (all runs in a single prompt).
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = valid_evaluation_summary_json
+
+        run_count = EVALUATION_SUMMARY_CHUNK_SIZE * 2 + 1
+        runs = [{"generation_id": f"g{i}", "result": i % 2 == 0, "reasoning": "r"} for i in range(run_count)]
+
+        with patch(
+            "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
+        ) as mock_builder:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_builder.return_value = mock_client
+
+            result = asyncio.run(
+                summarize_evaluation_runs(
+                    evaluation_runs=runs,
+                    team_id=1,
+                    model=OpenAIModel.GPT_4_1_MINI,
+                )
+            )
+
+        # 3 chunk summaries (ceil(101 / 50)) + 1 merge call, none carrying every run.
+        assert mock_client.chat.completions.create.call_count == 4
+        # Statistics are ground truth over the full input, not the merge call's LLM output.
+        assert result.statistics.total_analyzed == run_count
+        assert result.statistics.pass_count == sum(1 for r in runs if r["result"] is True)
