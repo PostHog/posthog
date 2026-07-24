@@ -133,6 +133,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `fetch_page`/`fetch_search`/`_post_chunk`/`fetch_data` all tag transient statuses
+        # (429, 5xx, unrecognised non-standard 4xx) and truncated JSON bodies with this marker
+        # once their own tenacity retries (5 attempts, exponential backoff) are exhausted.
+        # Temporal retrying the whole activity is self-recovering, so don't track it as a bug.
+        return {"(retryable)"}
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():
