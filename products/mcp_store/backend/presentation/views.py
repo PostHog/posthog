@@ -1960,12 +1960,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             "consumed_at__isnull": True,
         }
         if dev_mode:
-            # Code's dev callback crosses into the system browser, which does
-            # not share the API client's local PostHog session.
-            state_filters["created_by__isnull"] = False
-            logger.info("OAuth redirect: allowing callback without user binding in dev mode")
+            ownership_filter = Q(install_source="posthog-code", created_by__isnull=False)
+            if is_authenticated:
+                ownership_filter |= Q(created_by=request.user)
         else:
-            state_filters["created_by"] = request.user
+            ownership_filter = Q(created_by=request.user)
 
         with transaction.atomic():
             # Lock only the oauth_state row. `template` is nullable, so the
@@ -1974,12 +1973,22 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
                 .select_related("installation", "template")
-                .filter(**state_filters)
+                .filter(ownership_filter, **state_filters)
                 .first()
             )
             if not oauth_state or oauth_state.expires_at <= now:
                 logger.warning("OAuth redirect: state missing, expired, or owned by a different user")
                 return None
+
+            request_user_id = getattr(request.user, "id", None)
+            if (
+                dev_mode
+                and oauth_state.install_source == "posthog-code"
+                and oauth_state.created_by_id != request_user_id
+            ):
+                # Code's dev callback crosses into the system browser, which
+                # does not share the API client's local PostHog session.
+                logger.info("OAuth redirect: allowing PostHog Code callback without user binding in dev mode")
 
             oauth_state.consumed_at = now
             oauth_state.save(update_fields=["consumed_at", "updated_at"])

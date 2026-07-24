@@ -1804,6 +1804,30 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_callback_rejects_anonymous_posthog_consumer_in_dev(self, mock_post, _allow, _is_dev):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        installation = self._create_installation()
+        state_token = "anonymous-posthog-dev-callback"
+        self._create_oauth_state(installation, state_token, pkce_verifier="v", install_source="posthog")
+
+        browser_client = APIClient()
+        response = browser_client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "code"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_post.assert_not_called()
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.consumed_at is None
+        installation.refresh_from_db()
+        assert not (installation.sensitive_configuration or {}).get("access_token")
+
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
     def test_callback_accepts_anonymous_consumer_in_dev(self, mock_post, _allow, _is_dev):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -1831,7 +1855,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation.refresh_from_db()
         assert installation.sensitive_configuration["access_token"] == "tok"
 
-    def test_callback_rejects_state_for_different_authenticated_user(self):
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
+    def test_callback_rejects_state_for_different_authenticated_user(self, _is_dev):
         """State created by user A cannot be consumed by user B in the same browser.
 
         Covers the scenario where the victim IS logged into PostHog but as a
@@ -1848,7 +1873,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         victim_client.force_login(victim_user)
         response = victim_client.get(
             "/api/mcp_store/oauth_redirect/",
-            {"state": state_token, "code": "victim-auth-code"},
+            {"state": state_token, "error": "access_denied"},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
