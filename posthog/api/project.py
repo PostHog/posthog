@@ -149,7 +149,6 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
     user_access_control = context.get("user_access_control")
     old_config = {
         "events": [event.model_dump() for event in (team.revenue_analytics_config.events or [])],
-        "goals": [goal.model_dump() for goal in (team.revenue_analytics_config.goals or [])],
         "filter_test_accounts": team.revenue_analytics_config.filter_test_accounts,
     }
 
@@ -166,7 +165,6 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
 
     new_config = {
         "events": validated_data.get("events", []),
-        "goals": validated_data.get("goals", []),
         "filter_test_accounts": validated_data.get("filter_test_accounts", False),
     }
 

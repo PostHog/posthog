@@ -195,7 +195,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
 
 # Applied at fire time when a loop leaves its model unset ("" / None): a blank
 # model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops.
+# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
     RuntimeAdapter.CODEX.value: "gpt-5",

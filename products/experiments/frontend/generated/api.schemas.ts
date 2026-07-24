@@ -1455,6 +1455,12 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1568,6 +1574,12 @@ export interface ExperimentApi {
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1677,6 +1689,12 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1693,6 +1711,73 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 export interface ArchiveExperimentApi {
@@ -1766,7 +1851,7 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
-    /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
     can_view_task: boolean
 }
 
@@ -2288,6 +2373,19 @@ export const ExperimentsListStatus = {
     Running: 'running',
     Stopped: 'stopped',
 } as const
+
+export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**

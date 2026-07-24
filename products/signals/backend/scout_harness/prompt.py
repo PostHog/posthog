@@ -449,16 +449,26 @@ def _render_tail(sections: list[str], *, schema_json: str) -> str:
 
 
 def _skill_authors_line(authors: list[SkillAuthor]) -> str:
-    """Run-identity line naming the custom skill's creator and recent editors, or empty.
+    """Run-identity line naming the humans who own the skill, or empty.
 
-    Version rows only record who published each version, so without this line a scout that
-    reads its own (latest) version via `skill-get` sees the last editor's name and would route
-    ownership there — e.g. a bulk cleanup pass over every custom scout makes the cleaner look
-    like the owner of all of them. Resolving authorship server-side also spares the scout a
-    tool call per version; a long-lived skill can carry hundreds.
+    Prefers the explicit owner set (role="owner"), which is stable across edits. Only when a skill
+    has no explicit owners does this fall back to the version-history reconstruction (creator +
+    recent editors) — there, version rows record only who published each version, so without this
+    line a scout reading its own (latest) version via `skill-get` sees the last editor's name and
+    would route ownership there (a bulk cleanup pass over every custom scout would make the cleaner
+    look like the owner of all of them). Resolving server-side also spares the scout a tool call per
+    version; a long-lived skill can carry hundreds.
     """
     if not authors:
         return ""
+    owners = [a for a in authors if a.role == "owner"]
+    if owners:
+        owned = ", ".join(f"{a.name} ({a.email})" for a in owners)
+        return (
+            f"\n- **skill owners**: {owned} — the humans who own your skill body. "
+            "When a report needs someone who owns this scout (a self-improvement report especially), "
+            "route to them — unless your skill body defines its own reviewer routing, which takes precedence."
+        )
     parts = []
     creator = next((a for a in authors if a.role == "creator"), None)
     if creator is not None:

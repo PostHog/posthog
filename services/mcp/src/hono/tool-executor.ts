@@ -28,8 +28,6 @@ import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
-import type { SkillCatalogService } from './skill-catalog-service'
-import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -46,16 +44,10 @@ interface ExecMetricState {
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
-    private readonly skillCatalogService: SkillCatalogService | undefined
 
-    constructor(
-        catalog: ToolCatalog,
-        instructionsBuilder: InstructionsBuilder,
-        skillCatalogService?: SkillCatalogService
-    ) {
+    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
-        this.skillCatalogService = skillCatalogService
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -414,20 +406,14 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(state),
+            this.instructionsBuilder.buildExecToolDescription(),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
-                    state,
-                    this.skillCatalogService?.getCatalog()
-                ),
-                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
-                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
-                    : undefined,
+                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
             }
         )
 

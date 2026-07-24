@@ -59,6 +59,7 @@ from posthog.scopes import (
     get_oauth_scopes_supported,
     get_scope_descriptions,
     narrow_scopes_to_ceiling,
+    resolve_ceiling,
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
@@ -436,16 +437,29 @@ class OAuthValidator(OAuth2Validator):
         The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
         using the required/optional split can request its optional scopes too.
         Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
-        and the hand-rolled provisioning mint paths share one implementation. The
-        only `/authorize`-specific bit kept here is mutating `request.scopes` when
-        the client omits `scope=`, so oauthlib doesn't fall back to just `["openid"]`
-        from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
-        PostHog Desktop CLI) but not on the provisioning paths — see the flag.
+        and the hand-rolled provisioning mint paths share one implementation. Two
+        `/authorize`-specific mutations of `request.scopes` live here:
+        - the client omitting `scope=`, so oauthlib doesn't fall back to just
+          `["openid"]` from `DEFAULT_SCOPES`.
+        - a `*` request against a *seeded* (non-empty) ceiling, narrowed down to the
+          resolved ceiling rather than rejected. This keeps legacy first-party
+          clients still sending `*` signing in once a ceiling is seeded, granting
+          strictly less than the empty-ceiling `*` grandfathering below. The token
+          response carries the actual (narrowed) `scope`, so this stays spec-valid.
+
+        `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
+        Desktop CLI) but never on the provisioning paths — see the flag.
         """
         app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+            return True
+        ceiling = resolve_ceiling(app_scopes)
+        if ceiling is not None and "*" in requested:
+            # `*` is never grantable under an explicit ceiling, even if the ceiling itself
+            # lists it — mirrors the guard in `scopes_within_ceiling`/`scopes_outside_ceiling`.
+            request.scopes = sorted((ceiling - {"*"}) | (requested & ALWAYS_ALLOWED_SCOPES))
             return True
         return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
@@ -952,6 +966,26 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 **({"cimd_url": application.cimd_metadata_url} if application.is_cimd_client else {}),
             },
         )
+
+        # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
+        # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
+        if (
+            "*" in (request.query_params.get("scope") or "").split()
+            and resolve_ceiling(application.ceiling_scopes) is not None
+        ):
+            posthoganalytics.capture(
+                distinct_id=str(request.user.distinct_id),
+                event="oauth_wildcard_scopes_narrowed",
+                properties={
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": registration_type,
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                    "narrowed_scope_count": len(scopes),
+                    **(get_region_info() or {}),
+                },
+            )
 
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
