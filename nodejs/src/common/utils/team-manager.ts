@@ -134,13 +134,11 @@ export class TeamManager {
                 t.logs_settings,
                 t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
-                COALESCE(
-                    (SELECT minimal_flag_called_events FROM feature_flags_teamfeatureflagsconfig WHERE team_id = t.id),
-                    false
-                ) AS minimal_flag_called_events,
+                COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
+            LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
             WHERE t.id = ANY($1) OR t.api_token = ANY($2)
             `,
             [teamIds, tokens],
