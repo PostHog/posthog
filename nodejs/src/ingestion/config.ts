@@ -121,6 +121,13 @@ export type IngestionConsumerConfig = {
     // (idle worker capacity) or the worker rejects with HTTP 503.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
+    // Bounded gather() tuning, shared by every pipeline that coalesces chunks
+    // with a bounded (non-barrier) gather — see GatherOptions. maxWaitMs bounds
+    // how long a chunk keeps accumulating while upstream work is in flight;
+    // minItems emits as soon as that many results have accumulated.
+    INGESTION_GATHER_MAX_WAIT_MS: number
+    INGESTION_GATHER_MIN_ITEMS: number
+
     // Feed-order sentinel (ingestion API server only): checks that each
     // routing key's messages enter the pipeline in Kafka offset order. The
     // Rust consumer's sentinels have their own flag
@@ -271,6 +278,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
+        INGESTION_GATHER_MAX_WAIT_MS: 50,
+        INGESTION_GATHER_MIN_ITEMS: 1000,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
 

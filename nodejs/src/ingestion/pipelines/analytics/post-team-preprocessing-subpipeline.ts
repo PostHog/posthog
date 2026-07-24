@@ -25,6 +25,7 @@ import {
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
+import { GatherOptions } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsChunkStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep'
@@ -57,6 +58,8 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     flagCalledPersonlessDefaultTeams: string
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
+    /** Bounded gather tuning, sourced from `INGESTION_GATHER_MAX_WAIT_MS` / `INGESTION_GATHER_MIN_ITEMS`. */
+    gatherOptions: GatherOptions
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -84,6 +87,7 @@ export function createPostTeamPreprocessingSubpipeline<
         flagCalledPersonlessDefaultTeams,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        gatherOptions,
     } = config
 
     return (
@@ -99,11 +103,15 @@ export function createPostTeamPreprocessingSubpipeline<
                     .pipe(createDropOldEventsStep())
                     .pipe(createApplyEventFiltersStep(eventFilterManager))
             )
-            // We want to call cookieless with the whole batch at once.
+            // Coalesce into large chunks so cookieless & co. batch their I/O.
+            // Bounded (not a barrier): the chunk steps below batch for
+            // efficiency only, so events that already cleared validation wait
+            // at most maxWaitMs behind other in-flight batches
+            // (concurrentBatches > 1 on the ingestion API).
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
             // are captured with $posthog_cookieless distinct ID and rewritten here).
             // Any steps that depend on the final distinct ID must run after this step.
-            .gather()
+            .gather(gatherOptions)
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             // Rate-limit only cookieless events using the hashed distinct_id assigned by the
             // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
