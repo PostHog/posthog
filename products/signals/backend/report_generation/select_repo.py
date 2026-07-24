@@ -1,11 +1,12 @@
 """Repository selection for Signals reports.
 
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
-Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
-(LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
-into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
-fallback, so the shared module's operational-vs-semantic distinction has
-nowhere to land; `summary.py` treats `repository=None` as
+Renders `SignalData` to text and collapses `RepoSelectionRejectedError`
+(LLM hallucination), `RepoSelectionUnavailableError` (no eligible repos), and
+`GitHubIntegrationError` (GitHub can't list the team's repos and there's no
+cached snapshot) into `RepoSelectionResult(repository=None, ...)` — Signals has
+no picker fallback, so the shared module's operational-vs-semantic distinction
+has nowhere to land; `summary.py` treats `repository=None` as
 ``REQUIRES_HUMAN_INPUT``.
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
@@ -60,10 +62,11 @@ async def select_repository_for_team(
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
-    — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
-    "no match / requires human input".
+    signals or a custom agent's initial prompt). Rejection (LLM hallucination), unavailability
+    (no eligible repos), and GitHub integration errors (can't list the team's repos, no cached
+    snapshot) all collapse into ``RepoSelectionResult(repository=None, ...)`` — Signals/custom
+    agents have no picker fallback, so callers treat ``repository=None`` as "no match / requires
+    human input".
     """
     # Resolved at the single repo-selection chokepoint so both callers (custom agent +
     # report flow) pick it up.
@@ -103,6 +106,15 @@ async def select_repository_for_team(
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
         return RepoSelectionResult(repository=None, reason=exc.reason)
+    except GitHubIntegrationError as exc:
+        # GitHub couldn't list the team's repos (installation suspended/uninstalled, token expired,
+        # permissions revoked, rate-limited) and there's no cached snapshot to fall back on. Without
+        # a picker fallback, collapse into a null result rather than crashing the whole report run.
+        logger.warning("repo selection: GitHub integration error, treating as no match: %s", exc)
+        return RepoSelectionResult(
+            repository=None,
+            reason="Could not list this team's GitHub repositories (integration unavailable).",
+        )
 
 
 async def select_repository_for_report(
