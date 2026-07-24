@@ -1,18 +1,14 @@
 import io
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
-import pandas as pd
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.rate_limit import FileUploadBurstThrottle, FileUploadSustainedThrottle
-
-from products.data_warehouse.backend.presentation.views.table import TableViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -87,42 +83,6 @@ class TestWarehouseTableUploadFile(APIBaseTest):
         assert written_path == f"test-bucket/file_uploads/team_{self.team.pk}/{body['upload_id']}/data.csv"
         assert self.s3.written[written_path] == b"a,b\n1,2\n"
 
-    def test_xlsx_is_converted_to_parquet_and_stored(self) -> None:
-        # ClickHouse can't read Excel, so the endpoint converts the workbook to Parquet and reports
-        # 'parquet' + a .parquet name. Returning 'xlsx' here would make create_from_upload 400.
-        xlsx = io.BytesIO()
-        pd.DataFrame({"id": [1, 2], "total": [10, 20]}).to_excel(xlsx, index=False, engine="openpyxl")
-
-        response = self._upload(
-            file=SimpleUploadedFile(
-                "report.xlsx",
-                xlsx.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ),
-            file_format="xlsx",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        body = response.json()
-        assert body["file_format"] == "parquet"
-        assert body["filename"] == "report.parquet"
-
-        [written_path] = self.s3.written
-        assert written_path == f"test-bucket/file_uploads/team_{self.team.pk}/{body['upload_id']}/report.parquet"
-        restored = pd.read_parquet(io.BytesIO(self.s3.written[written_path]))
-        assert list(restored.columns) == ["id", "total"]
-        assert restored["id"].tolist() == [1, 2]
-
-    def test_invalid_xlsx_is_rejected_without_storing_anything(self) -> None:
-        response = self._upload(
-            file=SimpleUploadedFile("bad.xlsx", b"not really a workbook", content_type="application/octet-stream"),
-            file_format="xlsx",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Excel" in response.json()["message"]
-        assert self.s3.written == {}
-
     def test_filename_cannot_escape_the_team_prefix(self) -> None:
         response = self._upload(
             file=SimpleUploadedFile("../../secrets.csv", b"a\n1\n", content_type="text/csv"),
@@ -136,7 +96,7 @@ class TestWarehouseTableUploadFile(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unsupported_format", "tsv", "Invalid format"),
+            ("unsupported_format", "xlsx", "Invalid format"),
             ("empty_format", "", "Invalid format"),
         ]
     )
@@ -388,40 +348,3 @@ class TestWarehouseTableDeleteRemovesHostedFile(APIBaseTest):
         status_code, removed = self._delete(second)
         assert status_code == status.HTTP_204_NO_CONTENT
         assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]
-
-
-class TestFileUploadThrottling(SimpleTestCase):
-    @parameterized.expand(["upload_file", "create_from_upload", "file"])
-    def test_upload_actions_use_the_dedicated_throttle(self, action: str) -> None:
-        # The default throttles skip session users, so the heavy upload actions must carry their own
-        # per-user/key limit — dropping this reopens the DoS gap.
-        viewset = TableViewSet()
-        viewset.action = action
-        assert {type(t) for t in viewset.get_throttles()} == {FileUploadBurstThrottle, FileUploadSustainedThrottle}
-
-    def test_other_actions_keep_the_default_throttles(self) -> None:
-        viewset = TableViewSet()
-        viewset.action = "list"
-        throttle_types = {type(t) for t in viewset.get_throttles()}
-        assert FileUploadBurstThrottle not in throttle_types
-
-    def test_cache_key_is_per_user_across_auth_methods(self) -> None:
-        # The key must bound one person regardless of auth method: two members of the same team land
-        # in separate buckets (the inherited team key would collide them and let one lock out the
-        # team), while one user's session and personal-API-key requests share a bucket (the inherited
-        # per-key hash would give each minted key its own independent budget — a throttle bypass).
-        throttle = FileUploadBurstThrottle()
-        key_user_1 = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
-        key_user_2 = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=2)), view=None)
-        # A personal-API-key request authenticates as the key's owner; the key it was minted with must
-        # not open a fresh budget, or a user could rotate keys past the limit. Even with a key present,
-        # the bucket stays keyed on user.pk.
-        with patch(
-            "posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=("secret", "source")
-        ):
-            key_user_1_via_key = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
-
-        assert key_user_1 != key_user_2
-        assert key_user_1 == key_user_1_via_key
-        assert key_user_1.endswith("1")
-        assert key_user_2.endswith("2")

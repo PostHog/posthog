@@ -20,7 +20,6 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.rate_limit import FileUploadBurstThrottle, FileUploadSustainedThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
@@ -28,16 +27,10 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_TO_TABLE_FORMAT,
-    FORMAT_PARQUET,
-    FORMAT_XLSX,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
-    UPLOAD_ACCEPTED_FORMATS,
-    ExcelConversionError,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
-    excel_stored_filename,
-    excel_to_parquet_bytes,
     hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.facade.hogql import (
@@ -327,13 +320,7 @@ class FileUploadResponseSerializer(serializers.Serializer):
         help_text="Id of the stored upload. Pass it to create_from_upload to build the table."
     )
     filename = serializers.CharField(help_text="Sanitized name the file was stored under.")
-    file_format = serializers.ChoiceField(
-        choices=SUPPORTED_FILE_FORMATS,
-        help_text=(
-            "Format the stored file is read as: 'csv', 'json', or 'parquet'. An uploaded 'xlsx' is "
-            "converted to Parquet, so this reports 'parquet'. Pass it back to create_from_upload."
-        ),
-    )
+    file_format = serializers.CharField(help_text="Format the file will be read as: 'csv', 'json', or 'parquet'.")
     size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
 
 
@@ -364,14 +351,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
-
-    def get_throttles(self):
-        # The file-upload actions convert/introspect the file synchronously in the web worker (Excel
-        # conversion, then a ClickHouse schema read on create) — far heavier than a normal write. The
-        # default throttles don't cover session users, so gate these on a dedicated per-user/key limit.
-        if self.action in ("upload_file", "create_from_upload", "file"):
-            return [FileUploadBurstThrottle(), FileUploadSustainedThrottle()]
-        return super().get_throttles()
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -526,11 +505,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     "file": {"type": "string", "format": "binary", "description": "The file to upload."},
                     "file_format": {
                         "type": "string",
-                        "enum": list(UPLOAD_ACCEPTED_FORMATS),
-                        "description": (
-                            "How the file will be read when the table is created. 'xlsx' is converted "
-                            "to Parquet on upload, so the response reports 'parquet'."
-                        ),
+                        "enum": list(SUPPORTED_FILE_FORMATS),
+                        "description": "How the file will be read when the table is created.",
                     },
                 },
                 "required": ["file", "file_format"],
@@ -588,10 +564,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         file = request.FILES["file"]
 
         file_format = request.data.get("file_format")
-        if file_format not in UPLOAD_ACCEPTED_FORMATS:
+        if file_format not in SUPPORTED_FILE_FORMATS:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid format. Must be one of: {', '.join(UPLOAD_ACCEPTED_FORMATS)}"},
+                data={"message": f"Invalid format. Must be one of: {', '.join(SUPPORTED_FILE_FORMATS)}"},
             )
 
         if file.size > MAX_FILE_UPLOAD_SIZE_BYTES:
@@ -609,40 +585,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         if not safe_filename or safe_filename.startswith("."):
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
 
-        # Excel can't be read in place by ClickHouse, so convert the workbook's first sheet to Parquet
-        # here and store that. Everything downstream (the stored object, the table) is then Parquet;
-        # create_from_upload never sees Excel. Other formats stream to storage untouched.
-        if file_format == FORMAT_XLSX:
-            try:
-                parquet_bytes = excel_to_parquet_bytes(file.read())
-            except ExcelConversionError as e:
-                return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-            except Exception as e:
-                capture_exception(e)
-                return response.Response(
-                    status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to convert the Excel file."}
-                )
-            stored_bytes: bytes | None = parquet_bytes
-            stored_filename = excel_stored_filename(safe_filename)
-            stored_format = FORMAT_PARQUET
-            stored_size = len(parquet_bytes)
-        else:
-            stored_bytes = None
-            stored_filename = safe_filename
-            stored_format = file_format
-            stored_size = file.size
-
         upload_id = uuid.uuid4()
-        path = build_file_upload_s3_path(self.team_id, str(upload_id), stored_filename)
+        path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
 
         try:
             s3 = get_s3_client()
             with s3.open(path, "wb") as destination:
-                if stored_bytes is not None:
-                    destination.write(stored_bytes)
-                else:
-                    for chunk in file.chunks():
-                        destination.write(chunk)
+                for chunk in file.chunks():
+                    destination.write(chunk)
         except Exception as e:
             capture_exception(e)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
@@ -652,9 +602,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             data=FileUploadResponseSerializer(
                 {
                     "upload_id": upload_id,
-                    "filename": stored_filename,
-                    "file_format": stored_format,
-                    "size_bytes": stored_size,
+                    "filename": safe_filename,
+                    "file_format": file_format,
+                    "size_bytes": file.size,
                 }
             ).data,
         )

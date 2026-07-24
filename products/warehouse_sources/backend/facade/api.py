@@ -21,17 +21,11 @@ from uuid import UUID
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_TO_TABLE_FORMAT,
-    FORMAT_PARQUET,
-    FORMAT_XLSX,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
-    UPLOAD_ACCEPTED_FORMATS,
-    ExcelConversionError,
     build_file_upload_s3_key,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
-    excel_stored_filename,
-    excel_to_parquet_bytes,
     hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
@@ -71,17 +65,11 @@ __all__ = [
     "validate_warehouse_table_url_pattern",
     # file-upload storage contract
     "FILE_FORMAT_TO_TABLE_FORMAT",
-    "FORMAT_PARQUET",
-    "FORMAT_XLSX",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
-    "UPLOAD_ACCEPTED_FORMATS",
-    "ExcelConversionError",
     "build_file_upload_s3_key",
     "build_file_upload_s3_path",
     "build_file_upload_url_pattern",
-    "excel_stored_filename",
-    "excel_to_parquet_bytes",
     "hosted_upload_s3_path",
 ]
 

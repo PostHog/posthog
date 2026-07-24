@@ -480,38 +480,6 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
-# Self-managed file uploads do heavy synchronous work per request — Excel→Parquet conversion, plus a
-# ClickHouse schema read on create — much more than a normal write. The default Burst/Sustained
-# throttles only limit personal-API-key requests, so a session user could hammer these from the UI
-# unthrottled. PersonalApiKeyOrUserRateThrottle covers both auth methods; the rates are generous for
-# a person uploading files but catch a scripted loop.
-class _FileUploadRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Base for the file-upload throttles. Keys the bucket per authenticated user rather than per
-    team or per key, so these limits bound a single person's uploads across every auth method they
-    use. The inherited get_cache_key keys by team_id (session/OAuth/body-key auth) or by API-key
-    hash (personal key auth) — fine for the per-project query throttles, but here the team key lets
-    one member drain a shared budget and lock the team out, and the per-key hash lets one person mint
-    several keys for several independent budgets. A personal API key authenticates as its owner, so
-    request.user.pk covers key requests too; only unauthenticated requests fall back to the IP."""
-
-    def get_cache_key(self, request, view):
-        if request.user and request.user.is_authenticated:
-            ident: str | int = request.user.pk
-        else:
-            ident = self.get_ident(request)
-        return self.cache_format % {"scope": self.scope, "ident": ident}
-
-
-class FileUploadBurstThrottle(_FileUploadRateThrottle):
-    scope = "file_upload_burst"
-    rate = "30/minute"
-
-
-class FileUploadSustainedThrottle(_FileUploadRateThrottle):
-    scope = "file_upload_sustained"
-    rate = "200/hour"
-
-
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
