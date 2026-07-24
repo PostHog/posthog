@@ -116,6 +116,7 @@ the row lists both.
 | canny                            | HTTP                        | requests                                                        | ✅                          |
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
+| cast_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
 | chargebee                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
@@ -798,7 +799,6 @@ doesn't conflict with concurrent PRs.
 - captivate
 - cart_com
 - cashfree
-- cast_ai
 - castor_edc
 - catchpoint
 - cdc_open_data
