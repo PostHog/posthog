@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -728,10 +729,24 @@ export function buildAggregateQuery(
     return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
 }
 
+// Builds a COALESCE that tries each display-name property in order, falling back
+// to the distinct_id when none are set. Mirrors get_person_name on the backend so
+// the respondent label is resolved in the same query row, rather than depending on
+// a follow-up person lookup that can fail or lag.
+export function buildPersonDisplayNameExpression(
+    personDisplayNameProperties: string[] = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+): string {
+    const propertyExpressions = personDisplayNameProperties.map(
+        (prop) => `toString(person.properties.\`${prop.replace(/`/g, '')}\`)`
+    )
+    return `coalesce(${[...propertyExpressions, 'toString(events.distinct_id)'].join(', ')})`
+}
+
 export function buildOpenEndedQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
     dateRange?: SurveyDateRange | null,
+    personDisplayNameProperties: string[] = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
     limit: number = 50000
 ): { query: string; columnMap: OpenEndedColumnMap } | null {
     const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
@@ -761,11 +776,16 @@ export function buildOpenEndedQuery(
         return null
     }
 
+    const personDisplayNameExpr = buildPersonDisplayNameExpression(personDisplayNameProperties)
+
+    // person_display_name is appended last so the response/distinct_id/timestamp/session_id
+    // column indices stay stable for callers that read by position.
     const query = `SELECT
             ${openColumns.join(',\n')},
             events.distinct_id,
             events.timestamp,
-            events.properties.$session_id
+            events.properties.$session_id,
+            ${personDisplayNameExpr} AS person_display_name
         FROM events
         WHERE event = '${SurveyEventName.SENT}'
             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'

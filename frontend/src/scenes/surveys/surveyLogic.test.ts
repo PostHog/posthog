@@ -2353,6 +2353,47 @@ describe('processOpenEndedResults', () => {
         })
     })
 
+    // Columns for the open path: [response, distinct_id, timestamp, session_id, person_display_name]
+    it.each([
+        ['a property value distinct from the distinct_id', 'jane@example.com', 'jane@example.com'],
+        // No display-name property at query time: the query COALESCEs to the distinct_id, which we drop.
+        ['a value equal to the distinct_id (query fallback)', 'user123', undefined],
+    ])('resolves the open-text respondent name from %s', (_desc, personDisplayNameColumn, expected) => {
+        const questions = [{ id: 'open-q1', type: SurveyQuestionType.Open as const, question: 'Tell us more' }]
+        const columnMap: OpenEndedColumnMap = {
+            'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
+        }
+        const rows = [['Great product!', 'user123', '2024-01-15T10:30:00Z', 'session-abc', personDisplayNameColumn]]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const openData = result['open-q1'] as OpenQuestionProcessedResponses
+
+        expect(openData.data[0].personDisplayName).toBe(expected)
+    })
+
+    it('resolves the respondent name on the open-choice ("Other") path', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        // Same column layout as the open path: person_display_name is the 5th column.
+        const rows = [['Something custom', 'user2', '2024-01-15T11:00:00Z', 'session-1', 'sam@example.com']]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        expect(choiceData.data[0].label).toBe('Something custom')
+        expect(choiceData.data[0].personDisplayName).toBe('sam@example.com')
+    })
+
     it('collects non-predefined "Other" text from single choice with hasOpenChoice', () => {
         const questions = [
             {
