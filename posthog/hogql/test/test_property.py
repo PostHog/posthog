@@ -1531,6 +1531,13 @@ class TestProperty(BaseTest):
         with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
 
+    @parameterized.expand([("in", "in"), ("not_in", "not_in")])
+    def test_property_to_expr_in_operator_requires_list(self, _name: str, operator: str):
+        # A scalar value for IN/NOT IN is malformed user input, so it must surface as a
+        # user-facing QueryError (4xx), not a bare Exception captured as a 500.
+        with self.assertRaisesMessage(QueryError, "IN and NOT IN operators require a list of values"):
+            self._property_to_expr({"type": "event", "key": "browser", "operator": operator, "value": "Chrome"})
+
     @parameterized.expand(
         [
             ("trailing_backslash", "^abc\\"),
