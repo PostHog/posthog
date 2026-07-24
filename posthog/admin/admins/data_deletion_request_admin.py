@@ -46,16 +46,17 @@ CRITERIA_FIELDS = {
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
-def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> None:
+def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> bool:
     """Post to the review channel when a request is submitted for ClickHouse Team approval.
 
-    No-op when the webhook isn't configured. Failures are logged, never raised — a flaky
-    Slack POST must not roll back or block the admin submit response.
+    Returns True when the channel was notified or no webhook is configured (nothing to do), and
+    False when a configured webhook POST failed — the caller surfaces that so the operator can
+    post the request manually. Never raises: a flaky Slack POST must not roll back the submit.
     """
     webhook_url = settings.DATA_DELETION_SLACK_WEBHOOK_URL
     if not webhook_url:
         logger.info("data_deletion_slack_not_configured", request_id=str(obj.pk))
-        return
+        return True
 
     # The email local part is usually the submitter's Slack handle, so render it as a mention.
     # A plain "@handle" won't hard-ping without the Slack member id, but it lets a reviewer spot
@@ -84,6 +85,7 @@ def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> 
     try:
         response = requests.post(webhook_url, json={"blocks": blocks}, timeout=10)
         response.raise_for_status()
+        return True
     except requests.RequestException as e:
         # str(e) would include the webhook URL (a secret) — log only safe fields.
         logger.warning(
@@ -92,6 +94,7 @@ def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> 
             error_type=type(e).__name__,
             status_code=getattr(e.response, "status_code", None),
         )
+        return False
 
 
 PERSON_REMOVAL_FIELDS = (
@@ -685,8 +688,14 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             # Only requests needing human approval land in the review channel; auto-approve
             # candidates are handled by the sweep job and would just be noise there.
             change_url = request.build_absolute_uri(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-            notify_slack_pending_review(obj, change_url)
-            messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
+            if notify_slack_pending_review(obj, change_url):
+                messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
+            else:
+                messages.warning(
+                    request,
+                    "Request submitted and is now pending ClickHouse Team approval, but notifying the review "
+                    "channel on Slack failed. Please post the request link in the channel manually.",
+                )
         else:
             messages.success(
                 request,
