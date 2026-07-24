@@ -64,7 +64,7 @@ After drafting, re-read and cut anything that's there to sound good rather than 
 
 ### Errors and empty states point to a next step
 
-Say what happened and the next action. Never leave the user staring at a failure with nothing to do.
+Say what happened and give the next action. Don't stop at reporting that something failed.
 
 - ❌ "Something went wrong."
 - ✅ "Couldn't load your insights. Refresh the page, and if it keeps happening contact support."

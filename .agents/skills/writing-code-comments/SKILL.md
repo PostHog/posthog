@@ -3,7 +3,7 @@ name: writing-code-comments
 description: >
   Gates whether a code comment should exist and forces the ones that stay to explain why, not what.
   Use ALWAYS before writing or editing a comment in any language (Python, TypeScript, Go, Rust, SQL), and when reviewing a diff that adds comments.
-  Kills the comment types that clutter this codebase: narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), commented-out code, and redundant docstrings.
+  Removes the comment types that clutter the codebase: narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), commented-out code, and redundant docstrings.
   Keeps the ones that earn their place: a non-obvious why, a warning about a non-local consequence, a pointer to context a future reader can't reconstruct.
   Not for user-facing copy (see `/writing-user-facing-copy`) or commit messages.
 ---
@@ -65,10 +65,10 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 
 - **Default to one line.** If a comment needs a paragraph, consider whether the code should be simpler first.
 - **Explain why, not what.** The what is in the code.
-- **Preserve existing comments when moving or refactoring code**, unless the change makes them wrong. Don't drop a hard-won why just because you're relocating the function.
-- **Write plainly.** The same anti-tells as prose apply: no punchy one-liners, no editorializing, no em-dashes. A comment is for the next engineer, not an audience.
+- **Preserve existing comments when moving or refactoring code**, unless the change makes them wrong. Don't drop an existing why just because you're relocating the function.
+- **Write plainly.** The same anti-tells as prose apply: no punchy one-liners, no editorializing, no em-dashes. Write the comment for the next engineer who has to change this code.
 - **Match the surrounding density.** Don't add a comment to every line of a file that had none; don't strip a well-commented module bare.
 
 ## When you're tempted to comment
 
-Try, in order: (1) a better name, (2) a smaller function, (3) a type. Reach for a comment only when none of those can carry the meaning, which is exactly when a comment is worth its keep.
+Try, in order: (1) a better name, (2) a smaller function, (3) a type. Reach for a comment only when none of those can carry the meaning.
