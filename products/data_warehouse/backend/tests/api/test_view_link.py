@@ -342,6 +342,30 @@ class TestViewLinkQuery(APIBaseTest):
         expected_ids = {str(join1.id), str(join2.id), str(join3.id)}
         self.assertEqual(join_ids, expected_ids)
 
+    def test_list_returns_raw_table_names_when_database_fails(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="uuid",
+            joining_table_name="stripe_table_1",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        with patch(
+            f"{VIEW_LINK_PATH}.Database.create_for",
+            side_effect=Exception("simulated database build failure"),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+
+        self.assertEqual(response.status_code, 200)
+        view_links = response.json()
+        self.assertEqual(len(view_links["results"]), 1)
+        join = view_links["results"][0]
+        self.assertEqual(join["source_table_name"], "events")
+        self.assertEqual(join["joining_table_name"], "stripe_table_1")
+
 
 def _mock_execute_hogql_side_effect(*args, **kwargs):
     """Helper to minimize side effects of mocking, just avoiding the query execution itself."""
