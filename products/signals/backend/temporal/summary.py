@@ -66,8 +66,12 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
 ) -> None:
     properties: dict = {
+        # team_id is emitted as a property (not just as distinct_id/groups) so failures can be
+        # sliced by team directly in the event stream without joining through the group.
+        "team_id": team.id,
         "report_id": report_id,
         "signal_count": signal_count,
         "run_count": run_count,
@@ -77,6 +81,12 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    # Only the exception class name is emitted — never the raw error string. Failure messages
+    # (safety-judge explanations over signal content, sandbox agent output) can carry customer
+    # data or secrets, and this capture runs under the internal analytics key, outside the
+    # report's team-scoped data boundary. The full message stays on the SignalReport row.
+    if error_type is not None:
+        properties["error_type"] = error_type
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -96,6 +106,24 @@ def _capture_report_event(
             event=event,
             report_id=report_id,
         )
+
+
+def _failure_label(exc: BaseException) -> str:
+    """Stable exception-class label for a workflow failure.
+
+    Temporal wraps activity failures in ActivityError with the real error on `.cause`; for
+    application failures that cause is an ApplicationError whose `.type` preserves the original
+    exception class name across the boundary. Unwrap so failures group by their true type
+    (timeout / sandbox / provider error) instead of all collapsing to "ActivityError".
+    """
+    cause = getattr(exc, "cause", None)
+    # ApplicationError.type is the original class name; TimeoutError.type is an enum, so guard on str.
+    app_type = getattr(cause, "type", None)
+    if isinstance(app_type, str) and app_type:
+        return app_type
+    if cause is not None:
+        return type(cause).__name__
+    return type(exc).__name__
 
 
 @dataclass
@@ -388,6 +416,10 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     error=str(e),
                     failure_reason="agentic_activity_error",
+                    # Capture the (unwrapped) exception class so the agentic_activity_error
+                    # catch-all can be split into distinct failure modes (LLM rate-limit, sandbox,
+                    # timeout, …) from event data alone, without narrowing the except itself.
+                    error_type=_failure_label(e),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -537,6 +569,7 @@ class MarkReportFailedInput:
     report_id: str
     error: str
     failure_reason: str | None = None
+    error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
 
@@ -583,6 +616,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        error_type=input.error_type,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",

@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+import temporalio.exceptions as temporal_ex
+
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -10,6 +12,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
     ResetReportToPotentialInput,
+    _failure_label,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -19,6 +22,44 @@ from products.signals.backend.temporal.summary import (
 from products.signals.backend.temporal.types import RERESEARCH_MAX_SIGNALS
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
+
+
+def _activity_error(cause: BaseException) -> temporal_ex.ActivityError:
+    err = temporal_ex.ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_agentic_report_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        # Temporal wraps activity failures in ActivityError; the label must reflect the real cause,
+        # not the "ActivityError" wrapper, or the failure-mode split is useless.
+        (
+            _activity_error(temporal_ex.ApplicationError("rate limited", type="AnthropicRateLimitError")),
+            "AnthropicRateLimitError",
+        ),
+        (
+            _activity_error(
+                temporal_ex.TimeoutError(
+                    "timed out", type=temporal_ex.TimeoutType.START_TO_CLOSE, last_heartbeat_details=None
+                )
+            ),
+            "TimeoutError",
+        ),
+        (ValueError("boom"), "ValueError"),
+    ],
+)
+def test_failure_label_unwraps_temporal_cause(exc, expected):
+    assert _failure_label(exc) == expected
 
 
 @pytest.mark.asyncio
@@ -59,6 +100,7 @@ async def test_started_and_ready_fire_expected_captures(ateam):
     assert [e["event"] for e in events] == ["signal_report_started", "signal_report_completed"]
     for e in events:
         assert e["distinct_id"] == str(ateam.uuid)
+        assert e["properties"]["team_id"] == ateam.id
         assert e["properties"]["report_id"] == report_id
         assert e["properties"]["signal_count"] == 2
         assert e["properties"]["source_products"] == source_products
@@ -70,7 +112,14 @@ async def test_started_and_ready_fire_expected_captures(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_fires_completed_with_failure_reason(ateam):
+@pytest.mark.parametrize(
+    "error,failure_reason,error_type",
+    [
+        ("Failed safety review: contains PII", "safety_judge_rejected", None),
+        ("Sandbox agent leaked sk-secret-abc123", "agentic_activity_error", "TimeoutError"),
+    ],
+)
+async def test_failed_fires_completed_with_error_detail(ateam, error, failure_reason, error_type):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -84,8 +133,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
             MarkReportFailedInput(
                 team_id=ateam.id,
                 report_id=report_id,
-                error="Failed safety review: contains PII",
-                failure_reason="safety_judge_rejected",
+                error=error,
+                failure_reason=failure_reason,
+                error_type=error_type,
                 signal_count=3,
                 source_products=["zendesk"],
             )
@@ -93,12 +143,19 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
 
     pipeline_calls = [call for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
     assert len(pipeline_calls) == 1
-    kwargs = pipeline_calls[0].kwargs
-    assert kwargs["event"] == "signal_report_completed"
-    assert kwargs["properties"]["result"] == "failed"
-    assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
-    assert kwargs["properties"]["signal_count"] == 3
-    assert kwargs["properties"]["source_products"] == ["zendesk"]
+    props = pipeline_calls[0].kwargs["properties"]
+    assert pipeline_calls[0].kwargs["event"] == "signal_report_completed"
+    assert props["result"] == "failed"
+    assert props["failure_reason"] == failure_reason
+    assert props["signal_count"] == 3
+    assert props["source_products"] == ["zendesk"]
+    # team_id + the exception class make a failure spike triageable from event data alone.
+    assert props["team_id"] == ateam.id
+    assert props.get("error_type") == error_type
+    # The raw error string can carry signal content or secrets; it must never reach telemetry
+    # under the internal analytics key — only the exception class name is safe to emit.
+    assert "error_message" not in props
+    assert not any(error in str(v) for v in props.values())
 
 
 @pytest.mark.asyncio
