@@ -197,6 +197,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
+- `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 
 **Invoke when in the area:**
 
