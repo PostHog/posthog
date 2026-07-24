@@ -24,6 +24,7 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     PolymorphicProxySerializer,
     extend_schema,
     extend_schema_field,
@@ -40,6 +41,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
@@ -75,6 +77,16 @@ from products.feature_flags.backend.api.feature_flag import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
+from products.surveys.backend.load_detection import (
+    MAX_LOOKBACK_DAYS,
+    MAX_OVERLOAD_THRESHOLD,
+    MAX_WINDOW_SECONDS,
+    MIN_LOOKBACK_DAYS,
+    MIN_OVERLOAD_THRESHOLD,
+    MIN_WINDOW_SECONDS,
+    detect_survey_load,
+    resolve_load_detector_config,
+)
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -747,6 +759,96 @@ class SurveyResponsesListSerializer(serializers.Serializer):
     )
     limit = serializers.IntegerField(help_text="The limit applied to this query (echoed back for pagination).")
     offset = serializers.IntegerField(help_text="The offset applied to this query (echoed back for pagination).")
+
+
+class SurveyLoadDetectorQuerySerializer(serializers.Serializer):
+    window_seconds = serializers.IntegerField(
+        required=False,
+        min_value=MIN_WINDOW_SECONDS,
+        max_value=MAX_WINDOW_SECONDS,
+        help_text=(
+            "Rolling window size in seconds. Surveys shown to the same user within this window count "
+            "towards their survey load. Defaults to the team's saved configuration (86400 = 24h if unset)."
+        ),
+    )
+    overload_threshold = serializers.IntegerField(
+        required=False,
+        min_value=MIN_OVERLOAD_THRESHOLD,
+        max_value=MAX_OVERLOAD_THRESHOLD,
+        help_text=(
+            "Number of distinct surveys shown within one rolling window at which a user counts as "
+            "overloaded. Defaults to the team's saved configuration (2 if unset)."
+        ),
+    )
+    lookback_days = serializers.IntegerField(
+        required=False,
+        min_value=MIN_LOOKBACK_DAYS,
+        max_value=MAX_LOOKBACK_DAYS,
+        help_text=(
+            "How many days of survey display history to analyze, ending now. Defaults to the team's "
+            "saved configuration (30 if unset)."
+        ),
+    )
+
+
+class SurveyLoadDetectorConfigSerializer(serializers.Serializer):
+    window_seconds = serializers.IntegerField(help_text="Rolling window size in seconds used to group survey displays.")
+    overload_threshold = serializers.IntegerField(
+        help_text="Distinct surveys shown within one window at which a user counts as overloaded."
+    )
+    lookback_days = serializers.IntegerField(help_text="Days of survey display history analyzed.")
+
+
+class SurveyLoadDetectorSummarySerializer(serializers.Serializer):
+    users_shown = serializers.IntegerField(help_text="Unique users shown at least one survey in the analyzed period.")
+    overloaded_users = serializers.IntegerField(
+        help_text="Unique users shown at least `overload_threshold` distinct surveys within one rolling window."
+    )
+    overloaded_users_rate = serializers.FloatField(
+        help_text="Percentage (0-100) of users shown surveys who were overloaded."
+    )
+
+
+class SurveyLoadDetectorOverlapSerializer(serializers.Serializer):
+    survey_id_1 = serializers.CharField(help_text="ID of the first survey in the overlapping pair.")
+    survey_name_1 = serializers.CharField(
+        allow_null=True, help_text="Name of the first survey. Null when the survey no longer exists."
+    )
+    survey_id_2 = serializers.CharField(help_text="ID of the second survey in the overlapping pair.")
+    survey_name_2 = serializers.CharField(
+        allow_null=True, help_text="Name of the second survey. Null when the survey no longer exists."
+    )
+    users_affected = serializers.IntegerField(help_text="Unique users shown both surveys within one rolling window.")
+
+
+class SurveyLoadDetectorSurveySerializer(serializers.Serializer):
+    survey_id = serializers.CharField(help_text="Survey ID.")
+    survey_name = serializers.CharField(
+        allow_null=True, help_text="Survey name. Null when the survey no longer exists."
+    )
+    users_shown = serializers.IntegerField(help_text="Unique users shown this survey in the analyzed period.")
+    times_shown = serializers.IntegerField(help_text="Total number of times this survey was displayed.")
+    overloaded_users_shown = serializers.IntegerField(help_text="Unique overloaded users who were shown this survey.")
+    overloaded_users_rate = serializers.FloatField(
+        help_text="Percentage (0-100) of this survey's viewers who were overloaded."
+    )
+    dismissal_rate = serializers.FloatField(help_text="Percentage (0-100) of this survey's viewers who dismissed it.")
+    response_rate = serializers.FloatField(help_text="Percentage (0-100) of this survey's viewers who responded to it.")
+
+
+class SurveyLoadDetectorResponseSerializer(serializers.Serializer):
+    config = SurveyLoadDetectorConfigSerializer(help_text="Effective configuration used for this analysis.")
+    date_from = serializers.DateTimeField(help_text="Start of the analyzed period (UTC).")
+    date_to = serializers.DateTimeField(help_text="End of the analyzed period (UTC).")
+    summary = SurveyLoadDetectorSummarySerializer(help_text="Aggregate survey load figures for the period.")
+    overlaps = SurveyLoadDetectorOverlapSerializer(
+        many=True,
+        help_text="Survey pairs shown to the same users within one rolling window, ordered by users affected.",
+    )
+    surveys = SurveyLoadDetectorSurveySerializer(
+        many=True,
+        help_text="Per-survey contribution to survey load, ordered by overloaded users shown.",
+    )
 
 
 class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -2736,6 +2838,27 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         response_data = self._get_survey_stats(date_from, date_to)
         return Response(response_data)
+
+    @validated_request(
+        query_serializer=SurveyLoadDetectorQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SurveyLoadDetectorResponseSerializer,
+                description="Survey load analysis for the project.",
+            )
+        },
+        summary="Detect survey overload",
+        description=(
+            "Analyze `survey shown` events to find users who were shown too many surveys too close together. "
+            "A user counts as overloaded when at least `overload_threshold` distinct surveys were shown to them "
+            "within one rolling window of `window_seconds`. Thresholds default to the values saved in the team's "
+            "survey configuration (`survey_config.load_detector`) and can be overridden per request."
+        ),
+    )
+    @action(methods=["GET"], detail=False, url_path="load_detector", required_scopes=["survey:read"])
+    def load_detector(self, request: ValidatedRequest, **kwargs) -> Response:
+        config = resolve_load_detector_config(self.team, overrides=request.validated_query_data)
+        return Response(detect_survey_load(team=self.team, config=config))
 
     @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

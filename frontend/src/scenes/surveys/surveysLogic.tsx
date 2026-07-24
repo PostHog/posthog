@@ -34,6 +34,7 @@ export enum SurveysTabs {
     Active = 'active',
     Yours = 'yours',
     Archived = 'archived',
+    LoadDetector = 'load-detector',
     Notifications = 'notifications',
     History = 'history',
     Settings = 'settings',
