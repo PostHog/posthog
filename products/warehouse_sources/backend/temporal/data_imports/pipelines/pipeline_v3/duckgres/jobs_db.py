@@ -62,6 +62,13 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
 ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
 
 
+def is_eligibility_query_timeout(error: BaseException) -> bool:
+    """True when ``error`` is a query cancellation, the expected shape of
+    ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS tripping under a slow/loaded queue DB.
+    Callers should skip the tick and retry rather than report it as a defect."""
+    return isinstance(error, psycopg.errors.QueryCanceled)
+
+
 @asynccontextmanager
 async def _statement_timeout(conn: psycopg.AsyncConnection[Any], timeout_ms: int) -> AsyncIterator[None]:
     """Bound the wrapped query with a server-side ``statement_timeout``.

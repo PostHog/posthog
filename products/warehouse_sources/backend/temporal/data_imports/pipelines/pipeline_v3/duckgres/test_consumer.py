@@ -426,7 +426,9 @@ class TestDuckgresEnablementGating:
         # The eligibility-CTE maintenance queries are statement-timeout bounded;
         # a timeout (or any transient queue-DB error) must be swallowed so the
         # poll loop is neither wedged nor crashed — the planner is skipped and
-        # nothing is claimed this tick, and the next poll just retries.
+        # nothing is claimed this tick, and the next poll just retries. It's
+        # also the expected shape of that bound tripping under load, so it
+        # must not be reported to error tracking as a defect.
         adapter = DuckgresBatchConsumerAdapter()
         adapter._team_ids = [1, 2]
         adapter._team_ids_fetched_at = time.monotonic()
@@ -445,6 +447,9 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
             ) as mock_planner,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.capture_exception",
+            ) as mock_capture,
         ):
             batches = await adapter.fetch_and_lock(
                 conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
@@ -453,6 +458,43 @@ class TestDuckgresEnablementGating:
         assert batches == []
         mock_planner.assert_not_called()
         mock_fetch.assert_not_called()
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fetch_reports_unexpected_maintenance_query_error(self):
+        # A genuine, unexpected maintenance-query failure (not the queue DB's
+        # own statement timeout) must still be swallowed to protect the poll
+        # loop, but is worth surfacing to error tracking as a real defect.
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1, 2]
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.supersede_replaced_runs",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("unexpected queue db failure"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+            ) as mock_planner,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.capture_exception",
+            ) as mock_capture,
+        ):
+            batches = await adapter.fetch_and_lock(
+                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+            )
+
+        assert batches == []
+        mock_planner.assert_not_called()
+        mock_fetch.assert_not_called()
+        mock_capture.assert_called_once()
 
 
 class TestMidClaimRetire:
