@@ -30,7 +30,7 @@ function createMockContext(opts: {
             return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
-            return { limit: DEFAULT_LIMIT, ...opts.blastRadius }
+            return { limit: DEFAULT_LIMIT, confirm_token: 'tok-preview', ...opts.blastRadius }
         }
         if (method === 'POST' && path.endsWith('/batch_jobs/')) {
             return { id: 'batch-1', status: 'queued' }
@@ -78,7 +78,8 @@ describe('workflows batch handlers', () => {
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
                 body: { filters: BATCH_FILTERS },
             })
-            expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT })
+            // confirm_token must surface to the agent: it is a required workflows-run-batch input.
+            expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })
         })
     })
 
