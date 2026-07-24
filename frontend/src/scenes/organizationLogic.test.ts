@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { AppContext } from '../types'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
@@ -58,6 +60,43 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
+        })
+    })
+
+    describe('lifecycle redirects', () => {
+        const mountWithOrg = (org: Record<string, unknown>): void => {
+            // Mirror production for a deactivated / pending-deletion org: there is no current team,
+            // so navigation paths stay un-prefixed (no /project/<id>) and the guards can compare them
+            // against the bare lifecycle URLs.
+            initKeaTests(false)
+            window.POSTHOG_APP_CONTEXT = {
+                current_team: null,
+                current_user: { organization: { id: 'WXYZ', ...org } },
+            } as unknown as AppContext
+            logic = organizationLogic()
+            logic.mount()
+        }
+
+        it('routes a pending-deletion org to the pending deletion page', async () => {
+            mountWithOrg({ is_pending_deletion: true })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            router.actions.push(urls.settings())
+            expect(router.values.location.pathname).toBe(urls.organizationPendingDeletion())
+        })
+
+        it('routes an inactive org to the deactivated page', async () => {
+            mountWithOrg({ is_active: false })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            router.actions.push(urls.settings())
+            expect(router.values.location.pathname).toBe(urls.organizationDeactivated())
+        })
+
+        it('keeps a pending-deletion AND inactive org on the pending deletion page without looping', async () => {
+            // Regression: both guards used to fight each other and ping-pong until the call stack overflowed.
+            mountWithOrg({ is_pending_deletion: true, is_active: false })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            router.actions.push(urls.organizationDeactivated())
+            expect(router.values.location.pathname).toBe(urls.organizationPendingDeletion())
         })
     })
 
