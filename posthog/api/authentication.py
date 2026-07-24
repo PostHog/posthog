@@ -979,7 +979,11 @@ class PasswordResetSerializer(serializers.Serializer):
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
-            send_password_reset(user.id, token)
+            # Dispatch off the request path (like the admin reset action does) so the existent
+            # and non-existent branches take the same time, closing a timing side-channel that
+            # would otherwise let anyone enumerate which emails have accounts despite the
+            # uniform 204 response.
+            send_password_reset.delay(user.id, token)
 
         return True
 
