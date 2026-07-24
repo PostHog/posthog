@@ -49,6 +49,8 @@ It does not expose that credential to other members or expose the internal task 
 
 Signed gateway tokens are valid for six hours and are checked against the current team, fixed catalog identity, pause state, product settings, and billing availability on every request.
 Revoked and cross-team server IDs return not found without contacting an upstream server.
+Catalog and proxy requests share per-agent burst and sustained rate limits that match member MCP proxy requests.
+One agent cannot consume another agent's allowance, including when they share an egress IP.
 
 The sandbox's human OAuth token is marked as a built-in-agent token.
 That token cannot access the MCP Store member or administration APIs, and it cannot create or control generic tasks.

@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.signing import SignatureExpired
 from django.db import connection
 from django.http import HttpResponse
@@ -1230,6 +1231,49 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         assert client.get("/api/mcp_store/gateway/servers/").status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [
+            ("catalog", "GET", "/api/mcp_store/gateway/servers/", status.HTTP_200_OK),
+            (
+                "proxy",
+                "POST",
+                "/api/mcp_store/gateway/servers/00000000-0000-0000-0000-000000000001/proxy/",
+                status.HTTP_404_NOT_FOUND,
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
+    def test_agent_gateway_rate_limits_are_scoped_per_service_account(
+        self, _name: str, method: str, url: str, allowed_status: int, _mock_is_limited
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        accounts = sync_built_in_agents(self.team)
+        primary_account = next(account for account in accounts if account.handle == "posthog-ai")
+        secondary_account = next(account for account in accounts if account.handle == "posthog-scout")
+        primary_client = self._agent_client(primary_account)
+        secondary_client = self._agent_client(secondary_account)
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with (
+            patch(
+                "products.mcp_store.backend.presentation.agent_views.MCPGatewayAgentBurstThrottle.rate",
+                "1/minute",
+            ),
+            patch(
+                "products.mcp_store.backend.presentation.agent_views.MCPGatewayAgentSustainedThrottle.rate",
+                "1/minute",
+            ),
+        ):
+            first_response = primary_client.generic(method, url, REMOTE_ADDR="192.0.2.1")
+            throttled_response = primary_client.generic(method, url, REMOTE_ADDR="192.0.2.2")
+            secondary_response = secondary_client.generic(method, url, REMOTE_ADDR="192.0.2.1")
+
+        assert first_response.status_code == allowed_status
+        assert throttled_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert secondary_response.status_code == allowed_status
 
     @parameterized.expand(
         [

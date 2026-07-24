@@ -28,6 +28,10 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.views import APIView
+
+from posthog.rate_limit import MCPProxyBurstThrottle, MCPProxySustainedThrottle
 
 from ..agents import resolve_gateway_agent_token
 from ..gateway import installation_for_agent_access
@@ -37,6 +41,24 @@ from ..proxy import proxy_mcp_request, validate_installation_auth
 from .views import MCPProxyRenderer
 
 logger = structlog.get_logger(__name__)
+
+
+class _MCPGatewayAgentThrottle(SimpleRateThrottle):
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        account = request.auth
+        if not isinstance(account, MCPServiceAccount):
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": account.id}
+
+
+class MCPGatewayAgentBurstThrottle(_MCPGatewayAgentThrottle):
+    scope = "mcp_gateway_agent_burst"
+    rate = MCPProxyBurstThrottle.rate
+
+
+class MCPGatewayAgentSustainedThrottle(_MCPGatewayAgentThrottle):
+    scope = "mcp_gateway_agent_sustained"
+    rate = MCPProxySustainedThrottle.rate
 
 
 class GatewayAgentAuthentication(BaseAuthentication):
@@ -73,6 +95,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
 
     authentication_classes = [GatewayAgentAuthentication]
     permission_classes = [GatewayAgentPermission]
+    throttle_classes = [MCPGatewayAgentBurstThrottle, MCPGatewayAgentSustainedThrottle]
 
     def _accessible_server_access(self, account: MCPServiceAccount) -> list[MCPServiceAccountServerAccess]:
         return list(
