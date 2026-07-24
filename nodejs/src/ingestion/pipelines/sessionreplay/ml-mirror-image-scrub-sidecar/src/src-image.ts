@@ -18,6 +18,9 @@ export interface Src {
     data: Buffer
     W: number
     H: number
+    /** From the header sharp already read, so reporting the corpus mix costs nothing. */
+    format: string
+    inputPixels: number
 }
 
 export async function decodeSrc(input: Buffer): Promise<Src> {
@@ -36,7 +39,13 @@ export async function decodeSrc(input: Buffer): Promise<Src> {
         .flatten({ background: '#fff' })
         .raw()
         .toBuffer({ resolveWithObject: true })
-    return { data, W: info.width, H: info.height }
+    return {
+        data,
+        W: info.width,
+        H: info.height,
+        format: meta.format ?? 'unknown',
+        inputPixels: meta.width * meta.height,
+    }
 }
 
 /** A fresh sharp pipeline over the already-decoded raw pixels (no PNG decode). */

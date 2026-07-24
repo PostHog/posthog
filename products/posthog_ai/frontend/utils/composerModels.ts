@@ -14,6 +14,7 @@ export interface ComposerEffortOption {
 // intentionally absent. Add new Claude models here as they ship.
 export const COMPOSER_MODELS: ComposerModelOption[] = [
     { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+    { value: 'claude-opus-5', label: 'Claude Opus 5' },
     { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
 ]
 
@@ -32,6 +33,13 @@ const EFFORT_LABELS: Record<ReasoningEffortEnumApi, string> = {
 // xhigh/max are only offered for models that support them.
 const EFFORTS_BY_MODEL: Record<string, ReasoningEffortEnumApi[]> = {
     'claude-opus-4-8': [
+        ReasoningEffortEnumApi.Low,
+        ReasoningEffortEnumApi.Medium,
+        ReasoningEffortEnumApi.High,
+        ReasoningEffortEnumApi.Xhigh,
+        ReasoningEffortEnumApi.Max,
+    ],
+    'claude-opus-5': [
         ReasoningEffortEnumApi.Low,
         ReasoningEffortEnumApi.Medium,
         ReasoningEffortEnumApi.High,

@@ -23,6 +23,8 @@ import { AlertType } from '../types'
 
 interface AlertListItemProps {
     alert: AlertType
+    destinationCount?: number
+    destinationsLoading?: boolean
     onClick: () => void
     redesigned: boolean
 }
@@ -66,10 +68,18 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
     )
 }
 
-export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps): JSX.Element {
-    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0)
-
+export function AlertListItem({
+    alert,
+    destinationCount = 0,
+    destinationsLoading = false,
+    onClick,
+    redesigned,
+}: AlertListItemProps): JSX.Element {
     if (redesigned) {
+        const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, destinationCount)
+        if (destinationsLoading) {
+            summary.notifies = 'Loading…'
+        }
         return (
             <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
                 <AlertSummaryBanner
@@ -116,7 +126,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, alertsLoading } = useValues(logic)
+    const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
     const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
@@ -146,8 +156,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Header>
             <LemonModal.Content>
                 <div className="mb-4">
-                    With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...).
+                    With alerts, PostHog monitors your insight at a recurring interval and notifies you when conditions
+                    are met.
                     <br />
                     <Link to={urls.alerts()} target="_blank">
                         View all your alerts here
@@ -168,6 +178,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
+                                destinationCount={alertDestinationCounts[alert.id] ?? 0}
+                                destinationsLoading={alertDestinationCountsLoading}
                                 onClick={() => openAlert(alert.id)}
                                 redesigned={redesigned}
                             />

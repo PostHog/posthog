@@ -54,6 +54,7 @@ const DEFAULT_TEAM: Team = {
     heatmaps_opt_in: null,
     ingested_event: true,
     person_display_name_properties: [],
+    minimal_flag_called_events: false,
     person_processing_opt_out: null,
     test_account_filters: [],
     timezone: 'UTC',

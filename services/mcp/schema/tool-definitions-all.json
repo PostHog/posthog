@@ -5763,7 +5763,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). Results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -5791,7 +5791,7 @@
         }
     },
     "llma-evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "description": "Get a specific AI observability evaluation by its UUID. Requires the evaluation `id` (UUID) as a parameter — if you don't have it, call llma-evaluation-list first to look it up by name. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation",
@@ -5805,7 +5805,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. `provider` is required and must be exactly one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -5960,7 +5960,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Partially update an AI observability evaluation. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned.",
+        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID) — if you don't have it, call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -6016,7 +6016,7 @@
         }
     },
     "llma-prompt-get": {
-        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
+        "description": "Get a specific LLM prompt by name. Requires `prompt_name`, the prompt's exact name — call\nllma-prompt-list to discover valid names; an unknown or guessed name returns a 404.\nUses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get prompt",
@@ -6072,7 +6072,7 @@
         }
     },
     "llma-prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided. Pass 'version_description' with a short note on what changed and why —\nit is shown in the prompt's version history.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided. 'base_version' is required — call llma-prompt-get first and pass its current\nversion number as 'base_version'; a stale base_version fails with a 409 conflict. Pass\n'version_description' with a short note on what changed and why — it is shown in the prompt's\nversion history.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update prompt",

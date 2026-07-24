@@ -1,7 +1,9 @@
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
@@ -10,7 +12,7 @@ use crate::cohorts::cohort_models::{
     Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty,
 };
 use crate::database::get_connection_with_metrics;
-use crate::metrics::consts::COHORT_UNSUPPORTED_FILTER_COUNTER;
+use crate::metrics::consts::{COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
@@ -23,6 +25,32 @@ use common_types::TeamId;
 /// extraction. The cohort UI tops out at 3-4 levels; this generous bound guards the hot
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
+
+/// Cohorts already warned about by `record_malformed_cohort_filter`, so a persistently
+/// malformed cohort on the hot `/flags` path logs its identifying context once per
+/// process lifetime instead of flooding logs on every request.
+static WARNED_MALFORMED_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
+
+/// Logs and counts a cohort whose filters failed dependency extraction or evaluation
+/// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
+/// structural error surfaced by `traverse_filters`/`InnerCohortProperty::evaluate`).
+///
+/// The counter is unlabeled (cardinality), so this log is the only place the cohort
+/// and team ids are recorded; it's deduped per cohort so it stays visible at `warn`
+/// without flooding logs when the same cohort keeps failing.
+fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
+    common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
+
+    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
+    if warned.insert((team_id, cohort_id)) {
+        tracing::warn!(
+            cohort_id,
+            team_id,
+            "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
+        );
+    }
+}
 
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
 const COHORT_COLUMNS: &str = r#"
@@ -147,7 +175,9 @@ impl Cohort {
             })?;
 
         let mut dependencies = HashSet::new();
-        Self::traverse_filters(&cohort_property.properties, &mut dependencies)?;
+        Self::traverse_filters(&cohort_property.properties, &mut dependencies).inspect_err(
+            |_| record_malformed_cohort_filter(self.id, self.team_id, "dependency extraction"),
+        )?;
         Ok(dependencies)
     }
 
@@ -415,6 +445,7 @@ fn evaluate_single_cohort(
     cohort_property
         .properties
         .evaluate(target_properties, evaluation_results, team_timezone)
+        .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
 pub fn evaluate_dynamic_cohorts(
@@ -1557,5 +1588,115 @@ mod tests {
             evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
             Err(FlagError::CohortFiltersParsingError)
         ));
+    }
+
+    #[test]
+    fn test_cohort_with_between_leaf_parses_and_evaluates() {
+        // A person-property leaf with the `between` operator (valid in the cohort UI
+        // and HogQL, but previously unknown to this evaluator) must parse as a real
+        // filter and evaluate with inclusive bounds — not fall through to
+        // MalformedKnownType and fail the whole cohort with CohortFiltersParsingError.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{"key": "tenant_id", "type": "person", "value": [70000, 80000],
+                                    "operator": "between", "negation": false}]
+                    }]
+                }
+            }),
+        );
+
+        let dependencies = cohort
+            .extract_dependencies()
+            .expect("a between leaf must not fail cohort dependency extraction");
+        assert!(dependencies.is_empty());
+
+        let cohorts = vec![cohort];
+        let test_cases = [
+            (Some(json!(70000)), true),   // inclusive lower bound
+            (Some(json!(80000)), true),   // inclusive upper bound
+            (Some(json!(75000)), true),   // inside range
+            (Some(json!("75000")), true), // string number coerces
+            (Some(json!(90000)), false),  // outside range
+            (None, false),                // missing property
+        ];
+        for (tenant_id, expected) in test_cases {
+            let target_properties = match &tenant_id {
+                Some(value) => HashMap::from([("tenant_id".to_string(), value.clone())]),
+                None => HashMap::new(),
+            };
+            let result =
+                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC)
+                    .unwrap();
+            assert_eq!(
+                result, expected,
+                "tenant_id={tenant_id:?} should evaluate to {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cohort_with_malformed_between_value_is_non_match_not_parse_error() {
+        // A between leaf with a malformed value (not a two-element array) deserializes
+        // as a regular filter and resolves to a non-match during evaluation, rather
+        // than failing the whole cohort parse.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{"key": "tenant_id", "type": "person", "value": [1, 2, 3],
+                                    "operator": "between", "negation": false}]
+                    }]
+                }
+            }),
+        );
+
+        assert!(cohort.extract_dependencies().unwrap().is_empty());
+
+        let cohorts = vec![cohort];
+        let target_properties = HashMap::from([("tenant_id".to_string(), json!(2))]);
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            Ok(false)
+        ));
+    }
+
+    #[test]
+    fn test_cohort_with_min_operator_alias_evaluates_as_gte() {
+        // Legacy `min`/`max` operator aliases are only normalized to gte/lte on the
+        // flag write path; cohort filters can still carry them and must evaluate.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{"key": "seats", "type": "person", "value": "30",
+                                    "operator": "min", "negation": false}]
+                    }]
+                }
+            }),
+        );
+
+        let cohorts = vec![cohort];
+        let test_cases = [(json!(40), true), (json!(30), true), (json!(20), false)];
+        for (seats, expected) in test_cases {
+            let target_properties = HashMap::from([("seats".to_string(), seats.clone())]);
+            let result =
+                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC)
+                    .unwrap();
+            assert_eq!(
+                result, expected,
+                "seats={seats} should evaluate to {expected}"
+            );
+        }
     }
 }

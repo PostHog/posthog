@@ -1161,7 +1161,7 @@ async fn e2e_update_produces_to_local_kafka() {
 
 // ============================================================
 // Test 8: PG fallback on cache miss
-// Requires local Postgres with posthog_person data.
+// Requires local Postgres.
 // ============================================================
 
 #[tokio::test]
@@ -1169,18 +1169,25 @@ async fn pg_fallback_loads_person_on_cache_miss() {
     let cancel = CancellationToken::new();
     let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
 
-    // Find a real person in the local DB to query
+    // Seed a person under this test's own team id. Sampling an arbitrary
+    // existing row instead would race concurrently-running tests that
+    // delete their transient rows between our sample and the fallback read.
     let pool = common::create_persons_pool().await;
-    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
-        .fetch_optional(&pool)
+    let team_id: i32 = 99_061;
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
         .await
         .unwrap();
-
-    let Some((person_id, team_id)) = row else {
-        println!("No persons in posthog_person, skipping PG fallback test");
-        cancel.cancel();
-        return;
-    };
+    let (person_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id)
+         VALUES (now(), '{\"plan\": \"pro\"}'::jsonb, false, gen_random_uuid(), 1, $1)
+         RETURNING id",
+    )
+    .bind(team_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     // Warm the key's own partition (the cache is empty — no persons seeded)
     let partition = partition_for_person(team_id as i64, person_id, NUM_PARTITIONS);
@@ -1208,6 +1215,11 @@ async fn pg_fallback_loads_person_on_cache_miss() {
         "person should be cached after PG fallback"
     );
 
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     cancel.cancel();
 }
 
@@ -1298,18 +1310,24 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let cancel = CancellationToken::new();
     let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
 
-    // Find a real person to update
+    // Seed a person under this test's own team id (see the cache-miss
+    // test above for why sampling an arbitrary row is not safe).
     let pool = common::create_persons_pool().await;
-    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
-        .fetch_optional(&pool)
+    let team_id: i32 = 99_062;
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
         .await
         .unwrap();
-
-    let Some((person_id, team_id)) = row else {
-        println!("No persons in posthog_person, skipping PG fallback update test");
-        cancel.cancel();
-        return;
-    };
+    let (person_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id)
+         VALUES (now(), '{\"plan\": \"pro\"}'::jsonb, false, gen_random_uuid(), 1, $1)
+         RETURNING id",
+    )
+    .bind(team_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     let partition = partition_for_person(team_id as i64, person_id, NUM_PARTITIONS);
     cache.create_partition(partition);
@@ -1343,6 +1361,11 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let props: serde_json::Value = serde_json::from_slice(&updated_person.properties).unwrap();
     assert_eq!(props["pg_fallback_test"], "it_works");
 
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     cancel.cancel();
 }
 
