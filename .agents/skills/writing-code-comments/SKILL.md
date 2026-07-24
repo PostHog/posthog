@@ -18,7 +18,7 @@ Before writing a comment, answer:
 
 > **What does this tell a future reader that the code itself doesn't?**
 
-If the answer is "it restates what the code does", delete it and let the code speak. Rename the variable or extract a function instead.
+If the answer is "it restates what the code does", delete it. Rename the variable or extract a function instead.
 
 A comment worth keeping answers a *why* the code can't:
 
