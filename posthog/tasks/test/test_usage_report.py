@@ -40,6 +40,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.traces.spans import TABLE_NAME as TRACE_SPANS_LOCAL_TABLE
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Project, Team
@@ -3256,6 +3257,101 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             for sdk, expected in per_sdk.items():
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
+
+    def _trace_spans_json(self, team_id: int, span_count: int, batch_bytes: int, batch_record_count: int) -> str:
+        # The Kafka MV copies batch-level headers verbatim onto every row of a batch, so every span
+        # row carries the whole batch's bytes_uncompressed/record_count.
+        lines = ""
+        for _ in range(span_count):
+            lines += (
+                json.dumps(
+                    {
+                        "uuid": str(uuid4()),
+                        "team_id": team_id,
+                        "trace_id": str(uuid4()),
+                        "span_id": str(uuid4()),
+                        "timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "end_time": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "observed_timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        # TTL is on original_expiry_timestamp against the real (unfrozen) clock;
+                        # rows born expired vanish, so pin it far in the future.
+                        "original_expiry_timestamp": "2999-01-01 00:00:00",
+                        "service_name": "test-service",
+                        "_bytes_uncompressed": batch_bytes,
+                        "_record_count": batch_record_count,
+                    }
+                )
+                + "\n"
+            )
+        return lines
+
+    @parameterized.expand(
+        [
+            # One 4-span batch: each row carries the batch's 4000 bytes, so a naive SUM would report
+            # 16000. Dividing by _record_count per row must recover the true 4000.
+            (
+                "multi_span_batch_dedups_bytes",
+                [(4, 4_000, 4)],
+                {
+                    "apm_tracing_bytes_in_period": 4_000,
+                    "apm_tracing_spans_in_period": 4,
+                    "apm_tracing_mb_in_period": 0,
+                },
+            ),
+            # Batches of one span each: bytes are simply summed.
+            (
+                "single_span_batches",
+                [(1, 500, 1), (1, 500, 1), (1, 500, 1)],
+                {
+                    "apm_tracing_bytes_in_period": 1_500,
+                    "apm_tracing_spans_in_period": 3,
+                    "apm_tracing_mb_in_period": 0,
+                },
+            ),
+            # MB is floored to whole decimal MB like logs_mb_in_period.
+            (
+                "mb_floors_decimal_megabytes",
+                [(2, 2_500_000, 2)],
+                {
+                    "apm_tracing_bytes_in_period": 2_500_000,
+                    "apm_tracing_spans_in_period": 2,
+                    "apm_tracing_mb_in_period": 2,
+                },
+            ),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_apm_tracing_usage_metrics(
+        self,
+        _name: str,
+        batches: list[tuple[int, int, int]],
+        expected: dict[str, int],
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
+
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {TRACE_SPANS_LOCAL_TABLE}")
+
+        lines = ""
+        for span_count, batch_bytes, batch_record_count in batches:
+            lines += self._trace_spans_json(self.org_1_team_1.id, span_count, batch_bytes, batch_record_count)
+        sync_execute(f"INSERT INTO trace_spans_distributed FORMAT JSONEachRow\n{lines}")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        # Only org_1_team_1 has spans, so the org-level rollup equals that single team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
 
 
 @freeze_time("2022-01-10T10:00:00Z")
