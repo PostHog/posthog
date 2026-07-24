@@ -6,7 +6,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -54,7 +54,7 @@ def publish_persisted_review(
     repo: str,
     pr_number: int,
     token: str,
-    published_priorities: set[IssuePriority],
+    urgency_threshold: IssuePriority,
     installation_id: str | None = None,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
@@ -64,7 +64,10 @@ def publish_persisted_review(
     already published (so a re-trigger / re-run can't double-post or re-fire the one-time promo),
     rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
     the published-head watermark only on a real post (a no-op turn must not block a later publish at
-    the same head). Reads the DB, so callers run it off the event loop.
+    the same head). `urgency_threshold` gates which findings publish and is snapshotted on the report
+    with the watermark, so outcome classification later reconstructs the published set from the
+    threshold that actually gated it, not the user's live setting. Reads the DB, so callers run it off
+    the event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
@@ -84,12 +87,13 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
-        published_priorities=published_priorities,
+        published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
     )
     if outcome.posted:
         report.published_head_sha = head_sha
-        report.save(update_fields=["published_head_sha", "updated_at"])
+        report.published_urgency_threshold = urgency_threshold.value
+        report.save(update_fields=["published_head_sha", "published_urgency_threshold", "updated_at"])
     return outcome
 
 

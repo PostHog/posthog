@@ -97,6 +97,35 @@ class ValidationVerdict(BaseModel):
         return v
 
 
+class FindingOutcomeArtefact(BaseModel):
+    """Content for a `finding_outcome` artefact: the classified fate of one published finding.
+
+    Written by the outcome-telemetry batch after the PR merged, one row per published finding,
+    *before* the finding's event is emitted. Presence means the outcome is decided and is never
+    re-decided: an interrupted sweep re-emits from these rows, and the report only leaves the sweep
+    once `ReviewReport.outcomes_emitted_at` (the emission completion marker) is stamped.
+    """
+
+    issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
+    run_index: int = Field(description="The review turn whose published head was compared against the merge.")
+    outcome: Literal["addressed", "reacted", "ignored"] = Field(description="The finding's classified fate.")
+    method: Literal["judge_confirmed", "judge_rejected", "comment_reply", "comment_reaction", "no_signal"] = Field(
+        description="Which signal decided the outcome."
+    )
+    reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
+    final_head: str = Field(description="The PR branch tip at merge (the compare head).")
+    judge_model: str | None = Field(
+        default=None, description="Model that judged whether the change addressed the finding, when the judge ran."
+    )
+
+    @field_validator("issue_key", "reviewed_head", "final_head")
+    @classmethod
+    def fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 class ChunkSetArtefact(BaseModel):
     """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
 
@@ -158,12 +187,19 @@ ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefa
 ReviewWorkingStateContent = (
     ChunkSetArtefact | PerspectiveSelectionArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
 )
-ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
+ReviewArtefactContent = (
+    ReviewIssueFinding
+    | ValidationVerdict
+    | FindingOutcomeArtefact
+    | ReviewLogArtefactContent
+    | ReviewWorkingStateContent
+)
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
     "validation_verdict": ValidationVerdict,
+    "finding_outcome": FindingOutcomeArtefact,
     "task_run": TaskRunArtefact,
     "commit": Commit,
     "code_reference": CodeReference,

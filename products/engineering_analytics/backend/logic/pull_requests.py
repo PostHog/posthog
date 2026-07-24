@@ -9,6 +9,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
+    MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -26,6 +27,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
 from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
+from products.engineering_analytics.backend.logic.queries.merged_pull_requests import query_merged_pull_requests
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_author_workflow_costs, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
@@ -103,3 +105,10 @@ def build_pull_request_list(
 ) -> PullRequestList:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
     return query_pull_request_list(curated=curated, date_from=parsed_from, author=author)
+
+
+def build_merged_pull_requests(
+    *, curated: CuratedGitHubSource, repo: str, since: datetime, numbers: list[int] | None = None
+) -> list[MergedPullRequest]:
+    owner, name = _require_repo(repo)
+    return query_merged_pull_requests(curated=curated, repo_owner=owner, repo_name=name, since=since, numbers=numbers)

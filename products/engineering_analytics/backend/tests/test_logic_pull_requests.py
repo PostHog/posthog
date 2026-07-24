@@ -753,3 +753,50 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         assert cost.llm_spend is not None
         assert cost.llm_spend.generations == 1
         assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+
+class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
+    """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
+    `since` in the scoped repo surface, each with its branch-tip head SHA. Skips when object storage
+    is unreachable."""
+
+    def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                # merged within the window -> returned, carrying its branch-tip head SHA
+                _pr_row(20, "alice", "closed", 0, _ago(7), merged_at=_ago(5), head_sha="sha20"),
+                # open / never merged -> excluded by merged_at IS NOT NULL
+                _pr_row(21, "bob", "open", 0, _ago(3), head_sha="sha21"),
+                # merged before the cutoff -> excluded by merged_at >= since
+                _pr_row(22, "carol", "closed", 0, _ago(40), merged_at=_ago(30), head_sha="sha22"),
+                # merged in-window but a different repo -> excluded by the repo scope
+                _pr_row(
+                    23, "dave", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha23", full_name="PostHog/other"
+                ),
+                # merged in-window -> returned unless a `numbers` scope excludes it
+                _pr_row(24, "erin", "closed", 0, _ago(2), merged_at=_ago(1), head_sha="sha24"),
+                # merged in-window but the snapshot carries no branch-tip SHA -> excluded; a NULL
+                # would otherwise fail MergedPullRequest's non-null contract and crash the batch,
+                # and an empty SHA is useless to callers (it feeds a GitHub compare)
+                _pr_row(25, "faye", "closed", 0, _ago(2), merged_at=_ago(1), head_sha=""),
+            ],
+        )
+        # workflow_runs is required for the source to resolve, though this read only touches PRs.
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(3001, "CI", "sha20", "completed", "success", _ago(5), _ago(5), pr_number=20)],
+        )
+
+        since = timezone.now() - timedelta(days=10)
+        merged = api.list_recently_merged_pull_requests(team=self.team, repository="PostHog/posthog", since=since)
+        assert [(pr.number, pr.head_sha) for pr in merged] == [(24, "sha24"), (20, "sha20")]
+
+        # `numbers` scopes the lookup to the PRs a caller is waiting on, so a high-merge-volume repo
+        # can't push them past the query's row ceiling.
+        scoped = api.list_recently_merged_pull_requests(
+            team=self.team, repository="PostHog/posthog", since=since, numbers=[20]
+        )
+        assert [pr.number for pr in scoped] == [20]

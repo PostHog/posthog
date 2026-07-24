@@ -120,7 +120,11 @@ class TestPublishIdempotency(BaseTest):
         # The resolved installation id must reach the GitHub calls — dropping it silently turns the
         # publish identity-blind (no egress budget accounting).
         assert mock_publish.call_args.kwargs["installation_id"] == "9876543"
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha1"
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_head_sha == "sha1"
+        # The gating threshold is snapshotted with the watermark — outcome classification reconstructs
+        # the published set from it, so a later settings change can't rewrite what was posted.
+        assert report.published_urgency_threshold == "should_fix"
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

@@ -99,6 +99,26 @@ CHUNK_TARGET_ADDITIONS = 300
 CHUNK_SOFT_MAX_ADDITIONS = 600
 
 
+# OUTCOME TELEMETRY
+# The outcome-classifier judge decides whether the commits that landed after review actually
+# addressed a finding. Pinned to a model DIFFERENT from the reviewer's (`REVIEW_MODEL` /
+# `ONESHOT_MODEL` = claude-sonnet-5): a judge sharing the reviewer's model family would inherit the
+# same blind spots the telemetry exists to measure. Effort is "high" — a focused yes/no on a small
+# diff, not the reviewer's exhaustive xhigh pass.
+OUTCOME_JUDGE_MODEL = "claude-opus-4-8"
+OUTCOME_JUDGE_REASONING_EFFORT = "high"
+# A post-review commit counts as touching a finding when it changes lines within this many lines of
+# the finding's range — absorbs small drift (an import added above, a line renumbered) without
+# matching an unrelated edit elsewhere in the same file. The judge is the real arbiter; this only
+# gates which findings are worth spending a judge call on.
+OUTCOME_LINE_PROXIMITY_WINDOW = 15
+# Cap on reports classified per sweep, so one run can't fan out unboundedly across GitHub egress.
+OUTCOME_MAX_REPORTS_PER_SWEEP = 50
+# How far back the warehouse merged-PR lookup reaches each sweep — comfortably longer than the sweep
+# interval so a merge is never missed between runs, and bounded so the query stays cheap.
+OUTCOME_LOOKBACK_DAYS = 30
+
+
 # BLIND-SPOT CHECK
 # Reserved pass number for the blind-spot unit. Fixed and far above any wave enumeration (passes
 # 1..N over enabled perspectives), so persisted (pass, chunk) resume keys never collide with a wave

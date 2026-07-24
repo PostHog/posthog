@@ -621,6 +621,7 @@ path = "products.review_hog"
 depends_on = [
     "ee",
     "posthog",
+    "products.engineering_analytics",
     "products.signals",
     "products.skills",
     "products.tasks",
