@@ -282,6 +282,47 @@ describe('ImageBatcher', () => {
         expect(store.writes.flat()).toHaveLength(8)
     })
 
+    it('never writes an image whose offset a slow predecessor is still holding back', async () => {
+        // Completions arrive out of order, so a slow first image leaves later ones finished but not
+        // retired. Writing those on a capacity flush persists bytes whose offsets cannot be stored
+        // yet, and a batch failure then rewrites them under a fresh shard key: the same content in
+        // two shards, and two index rows pointing at it. A flush must only ever cover what it can
+        // also commit.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let releaseSlow = (): void => {}
+        const slow = new Promise<void>((resolve) => (releaseSlow = resolve))
+        const gatedClient = {
+            scrub: (b: Buffer) => (b.toString() === 'slow' ? slow.then(() => b) : Promise.resolve(b)),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            gatedClient,
+            { ...options, maxImages: 2, scrubConcurrency: 4 },
+            0
+        )
+
+        const batch: Message[] = [msg(0, 0, pt(1), Buffer.from('slow'))]
+        for (let i = 1; i < 5; i++) {
+            batch.push(msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        }
+        const running = batcher.handleBatch(batch, 1)
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+
+        // The fast images are done but unretired, so nothing may be written or committed yet.
+        expect(store.writes.flat()).toHaveLength(0)
+        expect(offsets.received).toHaveLength(0)
+
+        releaseSlow()
+        await running
+
+        expect(store.writes.flat()).toHaveLength(5)
+        expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 5 }])
+    })
+
     it('rescrubs an image whose batch failed rather than pod-deduping the replay away', async () => {
         // A ref is marked seen only once its image is buffered. Marking it at plan time, or inside
         // scrubOne, reads as a harmless simplification and silently drops the image instead: the

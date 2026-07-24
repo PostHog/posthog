@@ -109,9 +109,20 @@ export class ImageBatcher {
         let retired = 0
         const settled = new Array<boolean>(planned.length).fill(false)
         const inFlight = new Map<number, Promise<SettledScrub>>()
+        // Results wait here until their slot retires, so the buffer only ever holds images whose
+        // offsets have been recorded. Without it a flush could persist an image while a still-running
+        // predecessor kept its offset unrecorded, and a later batch failure would rewrite it under a
+        // fresh shard key. Staged bytes count towards capacity, which is what bounds this.
+        const staged = new Array<ScrubbedRef | null>(planned.length).fill(null)
+        let stagedCount = 0
+        let stagedBytes = 0
 
         while (nextToSubmit < planned.length || inFlight.size > 0) {
-            while (nextToSubmit < planned.length && inFlight.size < this.maxInFlight && !this.overCapacity()) {
+            while (
+                nextToSubmit < planned.length &&
+                inFlight.size < this.maxInFlight &&
+                !this.overCapacity(stagedCount, stagedBytes)
+            ) {
                 inFlight.set(nextToSubmit, this.submitScrub(nextToSubmit, planned[nextToSubmit], controller))
                 nextToSubmit++
             }
@@ -137,9 +148,9 @@ export class ImageBatcher {
                 throw done.error
             }
             if (done.scrubbed) {
-                this.buffer.push(done.scrubbed.image)
-                this.bufferBytes += done.scrubbed.image.bytes.length
-                this.seenRefs.add(done.scrubbed.ref)
+                staged[done.slot] = done.scrubbed
+                stagedCount += 1
+                stagedBytes += done.scrubbed.image.bytes.length
             }
 
             // Completions arrive out of order, so only the contiguous run from the front is safe to
@@ -150,6 +161,18 @@ export class ImageBatcher {
             settled[done.slot] = true
             const retiredBefore = retired
             while (retired < planned.length && settled[retired]) {
+                const ready = staged[retired]
+                if (ready) {
+                    this.buffer.push(ready.image)
+                    this.bufferBytes += ready.image.bytes.length
+                    // Marked here rather than on completion: a staged image is a local that a thrown
+                    // batch discards, so a ref marked before retirement could be skipped on replay
+                    // without ever having been persisted.
+                    this.seenRefs.add(ready.ref)
+                    staged[retired] = null
+                    stagedCount -= 1
+                    stagedBytes -= ready.image.bytes.length
+                }
                 retired++
             }
             if (retired > retiredBefore) {
@@ -157,7 +180,7 @@ export class ImageBatcher {
                 this.recordOffsets(messages.slice(spanStart, spanEnd))
                 spanStart = spanEnd
             }
-            if (this.overCapacity()) {
+            if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
         }
@@ -240,8 +263,12 @@ export class ImageBatcher {
         return { pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
     }
 
-    private overCapacity(): boolean {
-        return this.buffer.length >= this.options.maxImages || this.bufferBytes >= this.options.maxBytes
+    /** Staged results are counted so a slow slot holding back retirement still applies backpressure. */
+    private overCapacity(stagedCount = 0, stagedBytes = 0): boolean {
+        return (
+            this.buffer.length + stagedCount >= this.options.maxImages ||
+            this.bufferBytes + stagedBytes >= this.options.maxBytes
+        )
     }
 
     private shouldFlush(nowMs: number): boolean {
