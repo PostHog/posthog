@@ -144,7 +144,7 @@ def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dic
     Every other key (``multivariate``, ``payloads``, aggregation, holdout/super groups)
     is preserved — only who the flag releases to changes, not what it serves.
     """
-    return {**deepcopy(current_filters), "groups": deepcopy(groups)}
+    return {**current_filters, "groups": deepcopy(groups)}
 
 
 def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:

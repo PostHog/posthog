@@ -505,6 +505,8 @@ class TestReleaseConditionTransforms:
             "aggregation_group_type_index": 1,
         }
         assert result["groups"] is not new_groups
+        result["groups"][0]["properties"][0]["key"] = "mutated"
+        assert new_groups[0]["properties"][0]["key"] == "new"
         assert filters["groups"][0]["properties"][0]["key"] == "old"  # input not mutated
 
 

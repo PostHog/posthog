@@ -102,6 +102,7 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
                 )
             },
             team=survey.team,
+            # system write: skips the approval gate, same as the create_flag call below
             user=None,
         )
     # user=None: this is beat-task maintenance, so it must take the system-write

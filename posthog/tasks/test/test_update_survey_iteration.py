@@ -230,6 +230,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
         self.assertTrue(log.is_system)
         self.assertIsNone(log.user)
+        self.assertEqual(flag.created_by, self.user)
 
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_flag_create_is_system_write_and_skips_approval_gate(self, _mock_enabled: MagicMock) -> None:
