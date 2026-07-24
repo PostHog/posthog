@@ -8,6 +8,7 @@ import {
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 import {
     ML_BLOCK_METADATA_OUTPUT,
+    ML_IMAGE_SCRUB_OUTPUT,
     REPLAY_EVENTS_OUTPUT,
     SESSION_FEATURES_OUTPUT,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
@@ -46,5 +47,9 @@ export function createOutputsRegistry() {
         .register(ML_BLOCK_METADATA_OUTPUT, {
             topicKey: 'INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC',
             producerKey: 'INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER',
+        })
+        .register(ML_IMAGE_SCRUB_OUTPUT, {
+            topicKey: 'INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC',
+            producerKey: 'INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER',
         })
 }

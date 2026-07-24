@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
@@ -110,6 +110,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
+    const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -216,7 +217,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                // Carry the active filters / saved view (the list's query string) onto the
+                // ticket URL so the ticket's back arrow can return to this exact view. Skip it
+                // when embedded (e.g. the person side panel), where the host page's query
+                // string isn't the ticket filters.
+                const ticketUrl = combineUrl(
+                    urls.supportTicketDetail(ticket.ticket_number),
+                    embedded ? {} : searchParams
+                ).url
                 return {
                     onClick: (e: React.MouseEvent) => {
                         if (e.metaKey || e.ctrlKey) {

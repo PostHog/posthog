@@ -1833,12 +1833,12 @@ export const InitialPermissionModeEnumApi = {
  */
 export interface ClaudeTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -1897,7 +1897,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
      *
@@ -1944,12 +1944,12 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  */
 export interface CodexTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2008,7 +2008,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
@@ -2056,7 +2056,7 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
 }
 
@@ -2266,12 +2266,12 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  */
 export interface TaskRunBootstrapCreateRequestApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2327,7 +2327,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *

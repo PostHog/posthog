@@ -290,40 +290,6 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
-Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
-In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
-The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
-Optional, task-specific guidance is served through the same tool:
-
-- `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
-- `learn analytics` loads detailed analytics guidance and examples.
-- `learn visualizations` loads rendering guidance when visualizations are available.
-- `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
-- `learn feedback` loads feedback guidance when feedback is available.
-- `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
-- `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.
-- `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
-- `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
-- `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
-- `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
-- `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
-
-Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
-When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
-
-The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
-By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
-Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
-Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
-Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
-Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
-Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
-Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
-The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
-`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
-
-Other clients keep the full inline command reference.
-
 ### Consumer attribution
 
 Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
@@ -336,7 +302,7 @@ https://mcp.posthog.com/mcp?consumer=plugin
 x-posthog-mcp-consumer: plugin
 ```
 
-The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Desktop Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 
@@ -431,7 +397,7 @@ npx
 
 ### Developing against Claude Desktop
 
-Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
+Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Desktop doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
 
 ```json
 {

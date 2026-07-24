@@ -13,6 +13,7 @@ use anyhow::{bail, Result};
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
 use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
+use crate::collect::{collectable_data_uri_bytes, CollectedImage, ImageCollection, ImageCollector};
 use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
 
@@ -21,26 +22,36 @@ use crate::timings::PhaseTimings;
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
-/// Scrub context: the allow lists, the cv decompression budget, the blur memo, and the image
-/// scrub policy (inline blur, or deferred onto the shared worker pool).
+/// Scrub context: the allow lists, the cv decompression budget, the blur memo, the image scrub
+/// policy (inline blur, or deferred onto the shared worker pool), and the optional collection lane.
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
-    // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
+    // value: the replacement — a content ref (collection lane), a blurred data URI — or `None`
+    // when neither could be produced (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
     timings: Option<&'a PhaseTimings>,
     image_policy: ImagePolicy,
     images: ImageQueue,
+    // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
+    collector: Option<RefCell<ImageCollector>>,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_options(allow, None, ImagePolicy::Inline)
+        Self::with_options(allow, None, ImagePolicy::Inline, None)
     }
 
     pub fn with_timings(allow: &'a AllowLists, timings: Option<&'a PhaseTimings>) -> Self {
-        Self::with_options(allow, timings, ImagePolicy::Inline)
+        Self::with_options(allow, timings, ImagePolicy::Inline, None)
+    }
+
+    pub fn with_image_collection(
+        allow: &'a AllowLists,
+        image_collection: Option<ImageCollection>,
+    ) -> Self {
+        Self::with_options(allow, None, ImagePolicy::Inline, image_collection)
     }
 
     // pub(crate): the token-patch barriers live only in the kafka snapshot pipeline, so a
@@ -49,6 +60,7 @@ impl<'a> Ctx<'a> {
         allow: &'a AllowLists,
         timings: Option<&'a PhaseTimings>,
         image_policy: ImagePolicy,
+        image_collection: Option<ImageCollection>,
     ) -> Self {
         Self {
             allow,
@@ -57,14 +69,19 @@ impl<'a> Ctx<'a> {
             timings,
             image_policy,
             images: ImageQueue::default(),
+            collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
         }
     }
 
-    /// Scrub one image data URI per the policy: the blurred URI (inline), or a token the patch
-    /// pass later replaces (parallel). Failures resolve to `fallback` either way. A message that
-    /// exhausts the queued-bytes budget degrades to inline for the remainder — bounded memory,
-    /// identical output.
+    /// Scrub one image data URI: the collection lane's content ref when it takes the image (no blur
+    /// work at all — the original bytes ride back to the caller for the out-of-band scrub), else
+    /// per the policy — the blurred URI (inline), or a token the patch pass later replaces
+    /// (parallel). Failures resolve to `fallback` either way. A message that exhausts the
+    /// queued-bytes budget degrades to inline for the remainder — bounded memory, identical output.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
+        if let Some(collected) = self.collect_image(original) {
+            return collected;
+        }
         if self.image_policy == ImagePolicy::Parallel {
             if let Some(token) = self.images.submit(
                 original,
@@ -104,6 +121,14 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Drain the collected images (hash-sorted). Empty when collection was off.
+    pub fn into_collected_images(self) -> Vec<CollectedImage> {
+        match self.collector {
+            Some(collector) => collector.into_inner().into_images(),
+            None => Vec::new(),
+        }
+    }
+
     /// Restore the full cv decompression budget. The budget bounds one message; per-line callers
     /// ([`crate::event::anonymize_line_with_ctx`]) reset it each call so a long session file
     /// cannot exhaust it, while the blur memo keeps spanning the whole `Ctx`.
@@ -126,7 +151,8 @@ impl<'a> Ctx<'a> {
     // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs
     // borrow-free, so a future blur helper that re-entered `Ctx` still couldn't double-borrow-panic.
 
-    /// Blur a data-image URI, memoized on the URI. `None` → caller falls back to a blank/placeholder.
+    /// Blur a data-image URI inline, memoized on the URI. `None` → caller falls back to a
+    /// blank/placeholder.
     pub fn blur_data_uri(&self, original: &str) -> Option<String> {
         if let Some(hit) = self.blur_cache.borrow().get(original) {
             return hit.clone();
@@ -136,6 +162,22 @@ impl<'a> Ctx<'a> {
             .borrow_mut()
             .insert(original.to_string(), result.clone());
         result
+    }
+
+    /// The collection lane's ref for a data URI, or `None` (collection off, non-collectable URI,
+    /// or a cap hit) — the caller then blurs per the policy as before. Refs are memoized in the
+    /// blur cache so a sprite recurring thousands of times hashes once.
+    fn collect_image(&self, original: &str) -> Option<String> {
+        let collector = self.collector.as_ref()?;
+        if let Some(Some(hit)) = self.blur_cache.borrow().get(original) {
+            return Some(hit.clone());
+        }
+        let bytes = collectable_data_uri_bytes(original)?;
+        let collected = collector.borrow_mut().collect(bytes)?;
+        self.blur_cache
+            .borrow_mut()
+            .insert(original.to_string(), Some(collected.clone()));
+        Some(collected)
     }
 
     /// Pixelate raw RGBA pixels, memoized on dimensions + bytes.
