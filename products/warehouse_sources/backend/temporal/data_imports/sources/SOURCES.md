@@ -160,6 +160,7 @@ the row lists both.
 | convex                           | HTTP                        | requests                                                        | ✅                          |
 | copper                           | HTTP                        | requests                                                        | ✅                          |
 | coralogix                        | HTTP                        | requests                                                        | ✅                          |
+| cortex                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
@@ -852,7 +853,6 @@ doesn't conflict with concurrent PRs.
 - conta_azul
 - contentsquare
 - copper
-- cortex
 - cosmosdb
 - couchbase
 - crisp
