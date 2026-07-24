@@ -603,7 +603,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         unfiledItems: [
             false as boolean,
             {
@@ -628,228 +628,245 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             false,
             {
                 queueAction: async ({ action, projectTreeLogicKey }) => {
-                    if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
-                        const verb = action.type === 'prepare-link' ? 'link' : 'move'
-                        const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
-                        try {
-                            const response = await api.fileSystem.count(action.item.id)
-                            actions.removeQueuedAction(action)
-                            if (response && response.count > MOVE_ALERT_LIMIT) {
-                                const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
-                                if (!confirm(confirmMessage)) {
-                                    return false
+                    // Run queued actions strictly in enqueue order. Moves, links and deletes are
+                    // otherwise independent concurrent loader runs, so a folder delete could reach the
+                    // server before an in-flight "move item out of this folder" finished, and then
+                    // cascade-delete the rows the move hadn't relocated yet, soft-deleting their backing
+                    // objects (e.g. insights). Chaining on the previous action makes the delete's count
+                    // and cascade see the post-move server state.
+                    const previousAction: Promise<void> = cache.actionQueue ?? Promise.resolve()
+                    let releaseQueue: () => void = () => {}
+                    cache.actionQueue = new Promise<void>((resolve) => {
+                        releaseQueue = resolve
+                    })
+                    await previousAction
+                    try {
+                        if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
+                            const verb = action.type === 'prepare-link' ? 'link' : 'move'
+                            const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
+                            try {
+                                const response = await api.fileSystem.count(action.item.id)
+                                actions.removeQueuedAction(action)
+                                if (response && response.count > MOVE_ALERT_LIMIT) {
+                                    const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
+                                    if (!confirm(confirmMessage)) {
+                                        return false
+                                    }
                                 }
+                                actions.queueAction({ ...action, type: verb }, projectTreeLogicKey)
+                            } catch (error) {
+                                console.error(`Error ${verbing} item:`, error)
+                                lemonToast.error(`Error ${verbing} item: ${error}`)
+                                actions.removeQueuedAction(action)
                             }
-                            actions.queueAction({ ...action, type: verb }, projectTreeLogicKey)
-                        } catch (error) {
-                            console.error(`Error ${verbing} item:`, error)
-                            lemonToast.error(`Error ${verbing} item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'move' && action.newPath) {
-                        try {
-                            const oldPath = action.item.path
-                            const newPath = action.newPath
-                            await api.fileSystem.move(action.item.id, newPath)
-                            actions.removeQueuedAction(action)
-                            actions.movedItem(action.item, oldPath, newPath)
-                            if (action.item.type === 'dashboard') {
-                                // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
-                                // dashboard-specific event in the generic move path — a deliberate altitude
-                                // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
-                                // mounts only in the tree arm, so emitting there would miss control-arm moves and
-                                // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
-                                // post-move analytics hook) once we agree on a solution / the experiment ends.
-                                // method/count + undo net-out deferred.
-                                eventUsageLogic.actions.reportDashboardMovedToFolder({
-                                    fromDepth: splitPath(oldPath).length,
-                                    toDepth: splitPath(newPath).length,
-                                    fromUnfiled: oldPath.startsWith('Unfiled/'),
-                                    toUnfiled: newPath.startsWith('Unfiled/'),
-                                })
-                            }
-                            lemonToast.success('Item moved successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-move',
-                                    action: () => {
-                                        actions.moveItem(
-                                            { ...action.item, path: newPath },
-                                            oldPath,
-                                            false,
-                                            projectTreeLogicKey
-                                        )
-                                    },
-                                },
-                            })
-                        } catch (error) {
-                            console.error('Error moving item:', error)
-                            lemonToast.error(`Error moving item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'link' && action.newPath) {
-                        try {
-                            const newPath = action.newPath
-                            const newItem = await api.fileSystem.link(action.item.id, newPath)
-                            actions.removeQueuedAction(action)
-                            if (newItem) {
-                                actions.createSavedItem(newItem)
-                            }
-                            if (action.item.type === 'folder') {
-                                actions.loadFolder(newPath)
-                            }
-                            lemonToast.success('Item linked successfully') // TODO: undo for linking
-                        } catch (error) {
-                            console.error('Error linking item:', error)
-                            lemonToast.error(`Error linking item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'create') {
-                        try {
-                            const response = await api.fileSystem.create(action.item)
-                            actions.removeQueuedAction(action)
-                            actions.createSavedItem(response)
-                            lemonToast.success('Folder created successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-create-folder',
-                                    action: () => {
-                                        actions.deleteItem(response, projectTreeLogicKey)
-                                    },
-                                },
-                            })
-
-                            // Expand in the logic that called this data flow
-                            projectTreeLogic
-                                .findMounted({ key: projectTreeLogicKey })
-                                ?.actions.expandProjectFolder(action.item.path)
-                        } catch (error) {
-                            console.error('Error creating folder:', error)
-                            lemonToast.error(`Error creating folder: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'prepare-delete' && action.item.id) {
-                        try {
-                            const response = await api.fileSystem.count(action.item.id)
-                            actions.removeQueuedAction(action)
-                            if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const folderName =
-                                    splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
-                                LemonDialog.open({
-                                    title: `Delete "${folderName}"?`,
-                                    content: (
-                                        <DeleteFolderDialogContent
-                                            folderName={folderName}
-                                            folderPath={action.item.path ?? ''}
-                                            entries={response.entries ?? []}
-                                            totalCount={response.count}
-                                            hasMore={response.has_more ?? false}
-                                        />
-                                    ),
-                                    primaryButton: {
-                                        children: 'Delete folder',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
+                        } else if (action.type === 'move' && action.newPath) {
+                            try {
+                                const oldPath = action.item.path
+                                const newPath = action.newPath
+                                await api.fileSystem.move(action.item.id, newPath)
+                                actions.removeQueuedAction(action)
+                                actions.movedItem(action.item, oldPath, newPath)
+                                if (action.item.type === 'dashboard') {
+                                    // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
+                                    // dashboard-specific event in the generic move path — a deliberate altitude
+                                    // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
+                                    // mounts only in the tree arm, so emitting there would miss control-arm moves and
+                                    // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
+                                    // post-move analytics hook) once we agree on a solution / the experiment ends.
+                                    // method/count + undo net-out deferred.
+                                    eventUsageLogic.actions.reportDashboardMovedToFolder({
+                                        fromDepth: splitPath(oldPath).length,
+                                        toDepth: splitPath(newPath).length,
+                                        fromUnfiled: oldPath.startsWith('Unfiled/'),
+                                        toUnfiled: newPath.startsWith('Unfiled/'),
+                                    })
+                                }
+                                lemonToast.success('Item moved successfully', {
+                                    button: {
+                                        label: 'Undo',
+                                        dataAttr: 'undo-project-tree-move',
+                                        action: () => {
+                                            actions.moveItem(
+                                                { ...action.item, path: newPath },
+                                                oldPath,
+                                                false,
+                                                projectTreeLogicKey
+                                            )
                                         },
                                     },
-                                    secondaryButton: {
-                                        children: 'Cancel',
+                                })
+                            } catch (error) {
+                                console.error('Error moving item:', error)
+                                lemonToast.error(`Error moving item: ${error}`)
+                                actions.removeQueuedAction(action)
+                            }
+                        } else if (action.type === 'link' && action.newPath) {
+                            try {
+                                const newPath = action.newPath
+                                const newItem = await api.fileSystem.link(action.item.id, newPath)
+                                actions.removeQueuedAction(action)
+                                if (newItem) {
+                                    actions.createSavedItem(newItem)
+                                }
+                                if (action.item.type === 'folder') {
+                                    actions.loadFolder(newPath)
+                                }
+                                lemonToast.success('Item linked successfully') // TODO: undo for linking
+                            } catch (error) {
+                                console.error('Error linking item:', error)
+                                lemonToast.error(`Error linking item: ${error}`)
+                                actions.removeQueuedAction(action)
+                            }
+                        } else if (action.type === 'create') {
+                            try {
+                                const response = await api.fileSystem.create(action.item)
+                                actions.removeQueuedAction(action)
+                                actions.createSavedItem(response)
+                                lemonToast.success('Folder created successfully', {
+                                    button: {
+                                        label: 'Undo',
+                                        dataAttr: 'undo-project-tree-create-folder',
+                                        action: () => {
+                                            actions.deleteItem(response, projectTreeLogicKey)
+                                        },
                                     },
                                 })
-                                return false
+
+                                // Expand in the logic that called this data flow
+                                projectTreeLogic
+                                    .findMounted({ key: projectTreeLogicKey })
+                                    ?.actions.expandProjectFolder(action.item.path)
+                            } catch (error) {
+                                console.error('Error creating folder:', error)
+                                lemonToast.error(`Error creating folder: ${error}`)
+                                actions.removeQueuedAction(action)
                             }
-                            actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
-                        } catch (error) {
-                            console.error('Error deleting item:', error)
-                            lemonToast.error(`Error deleting item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'delete' && action.item.id) {
-                        try {
-                            const deletionResult = await api.fileSystem.delete(action.item.id)
-                            actions.removeQueuedAction(action)
-                            actions.deleteSavedItem(action.item)
-                            const deletionSummary = deletionResult?.deleted ?? []
-                            const countsByType = new Map<string, number>()
-                            for (const entry of deletionSummary) {
-                                countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
+                        } else if (action.type === 'prepare-delete' && action.item.id) {
+                            try {
+                                const response = await api.fileSystem.count(action.item.id)
+                                actions.removeQueuedAction(action)
+                                if (response && response.count > DELETE_ALERT_LIMIT) {
+                                    const folderName =
+                                        splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
+                                    LemonDialog.open({
+                                        title: `Delete "${folderName}"?`,
+                                        content: (
+                                            <DeleteFolderDialogContent
+                                                folderName={folderName}
+                                                folderPath={action.item.path ?? ''}
+                                                entries={response.entries ?? []}
+                                                totalCount={response.count}
+                                                hasMore={response.has_more ?? false}
+                                            />
+                                        ),
+                                        primaryButton: {
+                                            children: 'Delete folder',
+                                            status: 'danger',
+                                            onClick: () => {
+                                                actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
+                                            },
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                    return false
+                                }
+                                actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
+                            } catch (error) {
+                                console.error('Error deleting item:', error)
+                                lemonToast.error(`Error deleting item: ${error}`)
+                                actions.removeQueuedAction(action)
                             }
-                            const summaryParts = Array.from(countsByType.entries()).map(([type, count]) =>
-                                pluralize(count, humanizeFileSystemEntryType(type), undefined, count !== 1)
-                            )
-                            const message =
-                                summaryParts.length > 0
-                                    ? `Deleted ${humanList(summaryParts)}.`
-                                    : 'Item deleted successfully'
-                            const undoableEntries = deletionSummary.filter(
-                                (entry) => entry.can_undo && Boolean(entry.ref)
-                            )
-                            lemonToast.success(message, {
-                                button: undoableEntries.length
-                                    ? {
-                                          label: 'Undo',
-                                          dataAttr: 'project-tree-undo-delete',
-                                          action: async () => {
-                                              try {
-                                                  await api.fileSystem.undoDelete(
-                                                      undoableEntries.map((entry) => ({
-                                                          type: entry.type,
-                                                          ref: entry.ref as string,
-                                                          ...(entry.path !== undefined ? { path: entry.path } : {}),
-                                                      }))
-                                                  )
-                                                  const foldersToReload = new Set(
-                                                      undoableEntries.map((entry) =>
-                                                          joinPath(splitPath(entry.path || '').slice(0, -1))
+                        } else if (action.type === 'delete' && action.item.id) {
+                            try {
+                                const deletionResult = await api.fileSystem.delete(action.item.id)
+                                actions.removeQueuedAction(action)
+                                actions.deleteSavedItem(action.item)
+                                const deletionSummary = deletionResult?.deleted ?? []
+                                const countsByType = new Map<string, number>()
+                                for (const entry of deletionSummary) {
+                                    countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
+                                }
+                                const summaryParts = Array.from(countsByType.entries()).map(([type, count]) =>
+                                    pluralize(count, humanizeFileSystemEntryType(type), undefined, count !== 1)
+                                )
+                                const message =
+                                    summaryParts.length > 0
+                                        ? `Deleted ${humanList(summaryParts)}.`
+                                        : 'Item deleted successfully'
+                                const undoableEntries = deletionSummary.filter(
+                                    (entry) => entry.can_undo && Boolean(entry.ref)
+                                )
+                                lemonToast.success(message, {
+                                    button: undoableEntries.length
+                                        ? {
+                                              label: 'Undo',
+                                              dataAttr: 'project-tree-undo-delete',
+                                              action: async () => {
+                                                  try {
+                                                      await api.fileSystem.undoDelete(
+                                                          undoableEntries.map((entry) => ({
+                                                              type: entry.type,
+                                                              ref: entry.ref as string,
+                                                              ...(entry.path !== undefined ? { path: entry.path } : {}),
+                                                          }))
                                                       )
-                                                  )
-                                                  for (const folder of foldersToReload) {
-                                                      actions.loadFolder(folder, true)
-                                                      if (folder) {
-                                                          projectTreeLogic
-                                                              .findMounted({ key: projectTreeLogicKey })
-                                                              ?.actions.expandProjectFolder(folder)
+                                                      const foldersToReload = new Set(
+                                                          undoableEntries.map((entry) =>
+                                                              joinPath(splitPath(entry.path || '').slice(0, -1))
+                                                          )
+                                                      )
+                                                      for (const folder of foldersToReload) {
+                                                          actions.loadFolder(folder, true)
+                                                          if (folder) {
+                                                              projectTreeLogic
+                                                                  .findMounted({ key: projectTreeLogicKey })
+                                                                  ?.actions.expandProjectFolder(folder)
+                                                          }
                                                       }
-                                                  }
-                                                  // Signal non-sidebar consumers (the dashboards tree) to refetch.
-                                                  actions.restoredItems()
-                                                  const restoreCountsByType = new Map<string, number>()
-                                                  for (const entry of undoableEntries) {
-                                                      restoreCountsByType.set(
-                                                          entry.type,
-                                                          (restoreCountsByType.get(entry.type) ?? 0) + 1
-                                                      )
-                                                  }
-                                                  const restoreParts = Array.from(restoreCountsByType.entries()).map(
-                                                      ([type, count]) =>
+                                                      // Signal non-sidebar consumers (the dashboards tree) to refetch.
+                                                      actions.restoredItems()
+                                                      const restoreCountsByType = new Map<string, number>()
+                                                      for (const entry of undoableEntries) {
+                                                          restoreCountsByType.set(
+                                                              entry.type,
+                                                              (restoreCountsByType.get(entry.type) ?? 0) + 1
+                                                          )
+                                                      }
+                                                      const restoreParts = Array.from(
+                                                          restoreCountsByType.entries()
+                                                      ).map(([type, count]) =>
                                                           pluralize(
                                                               count,
                                                               humanizeFileSystemEntryType(type),
                                                               undefined,
                                                               count !== 1
                                                           )
-                                                  )
-                                                  const restoreMessage =
-                                                      restoreParts.length > 0
-                                                          ? `Restored ${humanList(restoreParts)}.`
-                                                          : 'Item restored.'
-                                                  lemonToast.success(restoreMessage)
-                                              } catch (undoError) {
-                                                  console.error('Error undoing delete:', undoError)
-                                                  lemonToast.error(`Error undoing delete: ${undoError}`)
-                                              }
-                                          },
-                                      }
-                                    : undefined,
-                            })
-                        } catch (error) {
-                            console.error('Error deleting item:', error)
-                            lemonToast.error(`Error deleting item: ${error}`)
-                            actions.removeQueuedAction(action)
+                                                      )
+                                                      const restoreMessage =
+                                                          restoreParts.length > 0
+                                                              ? `Restored ${humanList(restoreParts)}.`
+                                                              : 'Item restored.'
+                                                      lemonToast.success(restoreMessage)
+                                                  } catch (undoError) {
+                                                      console.error('Error undoing delete:', undoError)
+                                                      lemonToast.error(`Error undoing delete: ${undoError}`)
+                                                  }
+                                              },
+                                          }
+                                        : undefined,
+                                })
+                            } catch (error) {
+                                console.error('Error deleting item:', error)
+                                lemonToast.error(`Error deleting item: ${error}`)
+                                actions.removeQueuedAction(action)
+                            }
                         }
+                        return true
+                    } finally {
+                        releaseQueue()
                     }
-                    return true
                 },
             },
         ],
