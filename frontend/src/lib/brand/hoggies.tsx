@@ -33,9 +33,20 @@ export interface HoggiePngModule {
  *
  * `aspect-ratio` and `object-fit` are inline styles, so utility classes can't override
  * them - use the `style` prop for that.
+ *
+ * Call sites pass the module namespace straight from `import * as x`, usually into a
+ * top-level `const`. Read `src`/`aspectRatio` lazily inside the component rather than
+ * destructuring the argument here: a module that resolves to null/undefined (a partial or
+ * failed chunk load, an interop edge) then just renders nothing, instead of throwing at
+ * module-evaluation time and taking down every consumer of the surrounding component.
  */
-export function pngHoggie({ src, aspectRatio }: HoggiePngModule): ComponentType<AssetSvgProps> {
-    function HoggiePng({ className, style, size, title, width, height, ...rest }: AssetSvgProps): JSX.Element {
+export function pngHoggie(pngModule: HoggiePngModule | null | undefined): ComponentType<AssetSvgProps> {
+    function HoggiePng({ className, style, size, title, width, height, ...rest }: AssetSvgProps): JSX.Element | null {
+        const src = pngModule?.src
+        if (!src) {
+            return null
+        }
+        const aspectRatio = pngModule.aspectRatio
         // Mirror the SVG components' sizing: `size` (any CSS length) wins, then explicit
         // width/height, then fill the container - the last only when no className is given,
         // because inline style beats utility classes (the SVG version used a width
