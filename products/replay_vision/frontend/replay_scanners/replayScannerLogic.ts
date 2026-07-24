@@ -17,9 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,7 +29,6 @@ import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
     visionScannersEstimateCreate,
-    visionScannersImpactRetrieve,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersObserveCreate,
@@ -44,7 +41,6 @@ import type {
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
-    ScannerImpactApi,
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
@@ -54,6 +50,8 @@ import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
+import type { ObservationStatusStats } from './scannerStats'
+import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ScannerConfig,
@@ -100,19 +98,6 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
-}
-
-function daysFromChartRange(dateFrom: string | null, dateTo: string | null): number {
-    if (!dateFrom) {
-        return 14
-    }
-    // 'all' has no anchor; a year is the chart's practical ceiling.
-    const from = dateFrom === 'all' ? dayjs().subtract(1, 'year') : dateStringToDayJs(dateFrom)
-    if (!from) {
-        return 14
-    }
-    const to = (dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null) ?? dayjs()
-    return Math.max(1, to.diff(from, 'day'))
 }
 
 interface ObservationListParams {
@@ -228,16 +213,6 @@ export interface replayScannerLogicValues {
     availableTags: string[]
     chartDateFrom: string | null
     chartDateTo: string | null
-    classifierTagStats: {
-        fixedRanked: [string, number][]
-        freeformRanked: [string, number][]
-        totalWithTags: number
-    }
-    coverageStats: {
-        recentDays: number
-        recentSessions: number
-        totalSessions: number
-    }
     durationValidationError: string | null
     estimateRequestVersion: number
     hasActiveObservationFilters: boolean
@@ -246,21 +221,10 @@ export interface replayScannerLogicValues {
     isNew: boolean
     isScannerSubmitting: boolean
     isScannerValid: boolean
-    monitorStats: {
-        inconclusiveTotal: number
-        noTotal: number
-        yesTotal: number
-    }
     observationDateFrom: string | null
     observationDateTo: string | null
     observationDetailLinkParams: Record<string, string>
-    observationStats: {
-        failed: number
-        ineligible: number
-        inFlight: number
-        succeeded: number
-        total: number
-    }
+    observationStats: ObservationStatusStats
     observationStatsApi: ObservationStatsApi | null
     observationStatsApiLoading: boolean
     observationStatusFilter: ObservationStatusValue[]
@@ -286,26 +250,11 @@ export interface replayScannerLogicValues {
     scannerEstimateError: string | null
     scannerEstimateLoading: boolean
     scannerHasErrors: boolean
-    scannerImpact: ScannerImpactApi | null
-    scannerImpactLoading: boolean
     scannerLoading: boolean
     scannerManualErrors: Record<string, any>
     scannerTouched: boolean
     scannerTouches: Record<string, boolean>
     scannerValidationErrors: DeepPartialMap<ReplayScanner, ValidationErrorType>
-    scorerHistogram: {
-        counts: number[]
-        labels: string[]
-    } | null
-    scorerSummary: {
-        count: number
-        max: number
-        mean: number
-        median: number
-        min: number
-        p25: number
-        p75: number
-    } | null
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
     submitIntent: 'advance' | 'save'
@@ -368,21 +317,6 @@ export interface replayScannerLogicActions {
     }
     loadScannerFailure: () => {
         value: true
-    }
-    loadScannerImpact: () => any
-    loadScannerImpactFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadScannerImpactSuccess: (
-        scannerImpact: ScannerImpactApi | null,
-        payload?: any
-    ) => {
-        scannerImpact: ScannerImpactApi | null
-        payload?: any
     }
     loadScannerSuccess: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
@@ -595,41 +529,7 @@ export interface replayScannerLogicMeta {
             scanner: ReplayScanner
         ) => Record<string, string>
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
-        observationStats: (observationStatsApi: ObservationStatsApi | null) => {
-            failed: number
-            ineligible: number
-            inFlight: number
-            succeeded: number
-            total: number
-        }
-        monitorStats: (observationStatsApi: ObservationStatsApi | null) => {
-            inconclusiveTotal: number
-            noTotal: number
-            yesTotal: number
-        }
-        classifierTagStats: (observationStatsApi: ObservationStatsApi | null) => {
-            fixedRanked: [string, number][]
-            freeformRanked: [string, number][]
-            totalWithTags: number
-        }
-        scorerSummary: (observationStatsApi: ObservationStatsApi | null) => {
-            count: number
-            max: number
-            mean: number
-            median: number
-            min: number
-            p25: number
-            p75: number
-        } | null
-        scorerHistogram: (observationStatsApi: ObservationStatsApi | null) => {
-            counts: number[]
-            labels: string[]
-        } | null
-        coverageStats: (observationStatsApi: ObservationStatsApi | null) => {
-            recentDays: number
-            recentSessions: number
-            totalSessions: number
-        }
+        observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
         sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
     }
 }
@@ -791,18 +691,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     loaders(({ props, values }) => ({
-        scannerImpact: [
-            null as ScannerImpactApi | null,
-            {
-                loadScannerImpact: async () => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || props.id === 'new') {
-                        return null
-                    }
-                    return await visionScannersImpactRetrieve(String(teamId), props.id)
-                },
-            },
-        ],
         affectedCohort: [
             null as { cohort_id: number } | null,
             {
@@ -1185,86 +1073,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner,
                 }) as Record<string, string>,
         ],
+        // Tag options for the observations-list Tag filter pill. Wrapped in an inline arrow with an
+        // explicit return type so kea-typegen can infer it (it can't from bare function references).
         availableTags: [
             (s) => [s.observationStatsApi],
-            (stats: ObservationStatsApi | null): string[] => stats?.available_tags ?? [],
+            (stats: ObservationStatsApi | null): string[] => availableTagsFromStats(stats),
         ],
+        // The observations metric strip (Total / Succeeded / Failed / Ineligible / In flight).
+        // The per-type overview panels (verdict mix, tag rankings, score distribution, coverage) moved
+        // to the Overview tab (scannerOverviewLogic), which derives them from the same helpers.
         observationStats: [
             (s) => [s.observationStatsApi],
-            (
-                stats: ObservationStatsApi | null
-            ): {
-                total: number
-                succeeded: number
-                failed: number
-                ineligible: number
-                inFlight: number
-            } => {
-                if (!stats) {
-                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
-                }
-                const c = stats.status_counts
-                return {
-                    total: c.total,
-                    succeeded: c.succeeded,
-                    failed: c.failed,
-                    ineligible: c.ineligible,
-                    inFlight: c.in_flight,
-                }
-            },
-        ],
-        monitorStats: [
-            (s) => [s.observationStatsApi],
-            (stats: ObservationStatsApi | null): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => ({
-                yesTotal: stats?.monitor?.yes_total ?? 0,
-                noTotal: stats?.monitor?.no_total ?? 0,
-                inconclusiveTotal: stats?.monitor?.inconclusive_total ?? 0,
-            }),
-        ],
-        classifierTagStats: [
-            (s) => [s.observationStatsApi],
-            (
-                stats: ObservationStatsApi | null
-            ): {
-                fixedRanked: [string, number][]
-                freeformRanked: [string, number][]
-                totalWithTags: number
-            } => ({
-                fixedRanked: (stats?.classifier?.fixed_ranked ?? []).map((t) => [t.tag, t.count] as [string, number]),
-                freeformRanked: (stats?.classifier?.freeform_ranked ?? []).map(
-                    (t) => [t.tag, t.count] as [string, number]
-                ),
-                totalWithTags: stats?.classifier?.total_with_tags ?? 0,
-            }),
-        ],
-        scorerSummary: [
-            (s) => [s.observationStatsApi],
-            (
-                stats: ObservationStatsApi | null
-            ): {
-                min: number
-                p25: number
-                median: number
-                mean: number
-                p75: number
-                max: number
-                count: number
-            } | null => stats?.scorer?.summary ?? null,
-        ],
-        scorerHistogram: [
-            (s) => [s.observationStatsApi],
-            (stats: ObservationStatsApi | null): { labels: string[]; counts: number[] } | null =>
-                stats?.scorer?.histogram ?? null,
-        ],
-        coverageStats: [
-            (s) => [s.observationStatsApi],
-            (
-                stats: ObservationStatsApi | null
-            ): { recentSessions: number; totalSessions: number; recentDays: number } => ({
-                recentSessions: stats?.coverage.recent_sessions ?? 0,
-                totalSessions: stats?.coverage.total_sessions ?? 0,
-                recentDays: stats?.coverage.recent_days ?? 14,
-            }),
+            (stats: ObservationStatsApi | null): ObservationStatusStats => deriveObservationStatusStats(stats),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.scanner, s.isNew],
@@ -1326,10 +1146,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
-                }
-                // Impact needs the scanner type known; only monitors have a qualifier-free predicate.
-                if (props.id !== 'new' && scanner.scanner_type === 'monitor') {
-                    actions.loadScannerImpact()
                 }
             },
 
@@ -1561,7 +1377,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
                     const { order_by: _ignored, ...params } = buildObservationListParams(values)
-                    const recentDays = daysFromChartRange(values.chartDateFrom, values.chartDateTo)
+                    const recentDays = daysFromDateRange(values.chartDateFrom, values.chartDateTo)
                     const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, {
                         ...params,
                         recent_days: recentDays,

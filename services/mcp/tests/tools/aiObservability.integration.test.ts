@@ -67,6 +67,13 @@ describe('AI observability', { concurrent: false }, () => {
             const costsData = parseToolResponse(result)
             expect(Array.isArray(costsData.results)).toBe(true)
         })
+
+        it('should fall back to the active project when projectId is omitted', async () => {
+            const result = await costsTool.handler(context, {})
+
+            const costsData = parseToolResponse(result)
+            expect(Array.isArray(costsData.results)).toBe(true)
+        })
     })
 
     describe('AI observability workflow', () => {

@@ -1145,6 +1145,10 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
     # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
     context_target = models.JSONField(default=dict, blank=True)
+    # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
+    # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
+    # get_skill_bundle_s3_prefix()) are copied into every fired run so the sandbox installs them.
+    skill_bundles = models.JSONField(default=list, blank=True)
     internal = models.BooleanField(
         default=False,
         help_text="If true, this loop is for internal use and should not be exposed to end users.",
@@ -1174,6 +1178,16 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
 
     def __str__(self):
         return self.name
+
+    @staticmethod
+    def skill_bundle_s3_prefix_for(team_id: int, loop_id: "uuid.UUID | str") -> str:
+        """Base prefix for a loop's skill bundle objects in S3, computable from ids so
+        seeding can validate snapshot paths without loading the row."""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{team_id}/loop_{loop_id}"
+
+    def get_skill_bundle_s3_prefix(self) -> str:
+        return Loop.skill_bundle_s3_prefix_for(self.team_id, self.id)
 
     def _get_before_update(self, **kwargs: Any) -> "Loop | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed

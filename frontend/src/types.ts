@@ -4445,6 +4445,8 @@ export interface EarlyAccessFeatureType {
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
+    /** The user who created this feature. Null for features created before creator tracking was added. */
+    created_by?: UserBasicType | null
     _create_in_folder?: string | null
     /** The effective access level the user has for this early access feature. */
     user_access_level?: AccessControlLevel
@@ -5505,6 +5507,7 @@ export enum SlackIntegrationScopeInReview {
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_MANAGE = 'channels:manage',
     COMMANDS = 'commands',
+    FILES_READ = 'files:read',
     FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
     MPIM_HISTORY = 'mpim:history',

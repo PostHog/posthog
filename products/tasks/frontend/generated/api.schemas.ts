@@ -111,6 +111,15 @@ export interface LoopTriggerDTOApi {
     updated_at: string
 }
 
+export interface LoopSkillBundleDTOApi {
+    id: string
+    skill_name: string
+    skill_source: string
+    size: number
+    content_sha256: string
+    uploaded_at: string
+}
+
 /**
  * Detail/create/update response for a loop, including its triggers.
  */
@@ -156,6 +165,8 @@ export interface LoopDTOApi {
     updated_at: string
     /** Triggers attached to this loop. */
     triggers: LoopTriggerDTOApi[]
+    /** Skill bundles attached to this loop, seeded into every fired run. */
+    skill_bundles: LoopSkillBundleDTOApi[]
 }
 
 export interface PaginatedLoopDTOListApi {
@@ -596,6 +607,72 @@ export interface LoopRunPageApi {
      * @nullable
      */
     next_cursor: string | null
+}
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+/**
+ * One zipped local skill in a skill-bundle replace request.
+ */
+export interface LoopSkillBundleUploadApi {
+    /**
+     * File name for the stored bundle, e.g. `my-skill.zip`.
+     * @maxLength 255
+     */
+    file_name: string
+    /**
+     * Name of the skill inside the bundle.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source the bundle was built from, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /** Base64-encoded bundle bytes. */
+    content_base64: string
+}
+
+/**
+ * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+ * list to detach every skill.
+ */
+export interface LoopSkillBundlesWriteApi {
+    bundles: LoopSkillBundleUploadApi[]
 }
 
 /**
@@ -1088,30 +1165,6 @@ export type TaskRunDetailDTOProviderEnumApi =
 export const TaskRunDetailDTOProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
-} as const
-
-/**
- * * `user` - user
- * * `repo` - repo
- * * `marketplace` - marketplace
- * * `codex` - codex
- */
-export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
-
-export const SkillSourceEnumApi = {
-    User: 'user',
-    Repo: 'repo',
-    Marketplace: 'marketplace',
-    Codex: 'codex',
-} as const
-
-/**
- * * `zip` - zip
- */
-export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
-
-export const BundleFormatEnumApi = {
-    Zip: 'zip',
 } as const
 
 export interface TaskRunArtifactMetadataApi {
