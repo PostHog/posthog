@@ -68,6 +68,27 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
     to_string_representation(value).parse::<f64>().ok()
 }
 
+/// Parses the property value being matched as f64, for the numeric comparison operators
+/// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
+/// error here, distinct from `match_value.is_none()` short-circuiting to `Ok(false)`
+/// earlier in each operator's match arm.
+fn parse_numeric_match_value(
+    match_value: Option<&Value>,
+    key: &str,
+    operator: OperatorType,
+) -> Result<f64, FlagMatchingError> {
+    let match_value = match_value.unwrap_or(&Value::Null);
+    to_f64_representation(match_value).ok_or_else(|| {
+        tracing::debug!(
+            "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
+            match_value,
+            key,
+            operator
+        );
+        FlagMatchingError::ValidationError("value is not a number".to_string())
+    })
+}
+
 /// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
 fn normalize_version_string(version: &str) -> &str {
     version.strip_prefix('v').unwrap_or(version).trim()
@@ -329,22 +350,7 @@ pub fn match_property(
                 }
             };
 
-            let parsed_value = match to_f64_representation(
-                match_value.unwrap_or(&serde_json::Value::Null),
-            ) {
-                Some(parsed_value) => parsed_value,
-                None => {
-                    tracing::debug!(
-                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
-                        match_value.unwrap_or(&serde_json::Value::Null),
-                        key,
-                        operator
-                    );
-                    return Err(FlagMatchingError::ValidationError(
-                        "value is not a number".to_string(),
-                    ));
-                }
-            };
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
 
             if let Some(filter_value) = to_f64_representation(value) {
                 Ok(compare(parsed_value, filter_value, operator))
@@ -390,36 +396,21 @@ pub fn match_property(
                 to_f64_representation(&bounds[0]),
                 to_f64_representation(&bounds[1]),
             ) {
-                (Some(low), Some(high)) if low <= high => (low, high),
-                (Some(_), Some(_)) => {
-                    return Err(FlagMatchingError::ValidationError(
-                        "between/not_between operator requires min value to be less than or equal to max value"
-                            .to_string(),
-                    ));
-                }
+                (Some(low), Some(high)) => (low, high),
                 _ => {
                     return Err(FlagMatchingError::ValidationError(
                         "between/not_between operator requires numeric values".to_string(),
                     ));
                 }
             };
+            if low > high {
+                return Err(FlagMatchingError::ValidationError(
+                    "between/not_between operator requires min value to be less than or equal to max value"
+                        .to_string(),
+                ));
+            }
 
-            let parsed_value = match to_f64_representation(
-                match_value.unwrap_or(&serde_json::Value::Null),
-            ) {
-                Some(parsed_value) => parsed_value,
-                None => {
-                    tracing::debug!(
-                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
-                        match_value.unwrap_or(&serde_json::Value::Null),
-                        key,
-                        operator
-                    );
-                    return Err(FlagMatchingError::ValidationError(
-                        "value is not a number".to_string(),
-                    ));
-                }
-            };
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
 
             let in_range = parsed_value >= low && parsed_value <= high;
             if operator == OperatorType::Between {

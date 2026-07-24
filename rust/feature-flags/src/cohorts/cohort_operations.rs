@@ -24,6 +24,18 @@ use common_types::TeamId;
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
 
+/// Logs and counts a cohort whose filters failed dependency extraction or evaluation
+/// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
+/// structural error surfaced by `traverse_filters`/`InnerCohortProperty::evaluate`).
+fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
+    tracing::warn!(
+        cohort_id,
+        team_id,
+        "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
+    );
+    common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
+}
+
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
 const COHORT_COLUMNS: &str = r#"
     c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
@@ -148,14 +160,7 @@ impl Cohort {
 
         let mut dependencies = HashSet::new();
         Self::traverse_filters(&cohort_property.properties, &mut dependencies).inspect_err(
-            |_| {
-                tracing::warn!(
-                    cohort_id = self.id,
-                    team_id = self.team_id,
-                    "Cohort filters contain a malformed or unparsable leaf; failing dependency extraction"
-                );
-                common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
-            },
+            |_| record_malformed_cohort_filter(self.id, self.team_id, "dependency extraction"),
         )?;
         Ok(dependencies)
     }
@@ -424,14 +429,7 @@ fn evaluate_single_cohort(
     cohort_property
         .properties
         .evaluate(target_properties, evaluation_results, team_timezone)
-        .inspect_err(|_| {
-            tracing::warn!(
-                cohort_id = cohort.id,
-                team_id = cohort.team_id,
-                "Cohort filters contain a malformed or unparsable leaf; failing evaluation"
-            );
-            common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
-        })
+        .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
 pub fn evaluate_dynamic_cohorts(
