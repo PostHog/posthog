@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_url_pattern,
     excel_stored_filename,
     excel_to_parquet_bytes,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
@@ -81,6 +82,7 @@ __all__ = [
     "build_file_upload_url_pattern",
     "excel_stored_filename",
     "excel_to_parquet_bytes",
+    "hosted_upload_s3_path",
 ]
 
 # GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source

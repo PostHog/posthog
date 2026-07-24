@@ -10,6 +10,7 @@ import pandas as pd
 from parameterized import parameterized
 from rest_framework import status
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -43,6 +44,7 @@ class _FakeS3:
 
     def __init__(self, *, exists_result: bool = True) -> None:
         self.written: dict[str, bytes] = {}
+        self.removed: list[str] = []
         self._exists_result = exists_result
 
     def open(self, path: str, mode: str) -> io.BytesIO:
@@ -50,6 +52,9 @@ class _FakeS3:
 
     def exists(self, path: str) -> bool:
         return self._exists_result
+
+    def rm(self, path: str) -> None:
+        self.removed.append(path)
 
 
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket")
@@ -316,3 +321,67 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in response.json()["message"]
         assert DataWarehouseTable.objects.count() == 0
+
+
+@override_settings(DATAWAREHOUSE_BUCKET="test-bucket", DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.posthog.test")
+class TestWarehouseTableDeleteRemovesHostedFile(APIBaseTest):
+    def _delete(self, table: DataWarehouseTable) -> tuple[int, list[str]]:
+        s3 = _FakeS3()
+        with patch(f"{VIEW_MODULE}.get_s3_client", return_value=s3):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}")
+        return response.status_code, s3.removed
+
+    def test_deleting_a_hosted_upload_removes_its_backing_file(self) -> None:
+        # The whole point of the fix: a self-managed table whose file we host must have that object
+        # removed from our bucket on delete, not just have its row soft-deleted.
+        upload_id = "11111111-1111-1111-1111-111111111111"
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="CSVWithNames",
+            url_pattern=f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv",
+            columns={},
+        )
+
+        status_code, removed = self._delete(table)
+
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]
+
+    def test_deleting_a_linked_bucket_table_leaves_the_customer_file_untouched(self) -> None:
+        # A self-managed table pointing at a customer's own bucket carries a credential and a foreign
+        # host — deleting its file would destroy data on infra we don't own, so we must never touch it.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="CSVWithNames",
+            url_pattern="https://customer-bucket.s3.amazonaws.com/exports/orders.csv",
+            credential=credential,
+            columns={},
+        )
+
+        status_code, removed = self._delete(table)
+
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == []
+
+    def test_shared_upload_is_kept_until_the_last_referencing_table_is_deleted(self) -> None:
+        # The same uploaded file can back more than one table. Deleting one table must not pull the
+        # file out from under the other — the object is only reclaimed once the last table goes.
+        upload_id = "22222222-2222-2222-2222-222222222222"
+        url_pattern = f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
+        first = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="CSVWithNames", url_pattern=url_pattern, columns={}
+        )
+        second = DataWarehouseTable.objects.create(
+            team=self.team, name="orders_copy", format="CSVWithNames", url_pattern=url_pattern, columns={}
+        )
+
+        status_code, removed = self._delete(first)
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == []
+
+        status_code, removed = self._delete(second)
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]

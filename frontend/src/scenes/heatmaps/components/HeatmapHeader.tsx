@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function HeatmapHeader(): JSX.Element {
     const {
@@ -19,6 +22,7 @@ export function HeatmapHeader(): JSX.Element {
         displayUrl,
         displayUrlIsPattern,
         type,
+        userAccessLevel,
     } = useValues(heatmapLogic)
     const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
@@ -41,15 +45,21 @@ export function HeatmapHeader(): JSX.Element {
                                 onPressEnter={applyPageUrlDraft}
                                 fullWidth={true}
                             />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={applyPageUrlDraft}
-                                loading={loading}
-                                disabledReason={disabledReason}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Heatmap}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel ?? undefined}
                             >
-                                Regenerate
-                            </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={applyPageUrlDraft}
+                                    loading={loading}
+                                    disabledReason={disabledReason}
+                                >
+                                    Regenerate
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                         <div className="text-xs text-muted mt-1">
                             The page we load in the iframe or capture as a screenshot.

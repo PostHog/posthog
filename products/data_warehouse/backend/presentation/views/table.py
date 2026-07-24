@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     excel_stored_filename,
     excel_to_parquet_bytes,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -59,6 +60,34 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+
+def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
+    """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
+
+    Only ever touches files we host: `hosted_upload_s3_path` returns `None` for a customer-linked
+    bucket, and a stored credential (the mark of a user-supplied bucket) is a further guard. Failures
+    are swallowed so a storage hiccup can't block the table delete — the object simply lingers.
+    """
+    if table.credential_id is not None:
+        return
+    path = hosted_upload_s3_path(table.url_pattern)
+    if path is None:
+        return
+    # The same uploaded file can back more than one table — `create_from_upload` doesn't claim
+    # exclusive ownership of an upload — so only reclaim the object once no live table still points
+    # at it. This keeps deleting one table from pulling the file out from under another, and stops a
+    # table whose file is still in use from having its object removed.
+    if (
+        DataWarehouseTable.objects.filter(team_id=table.team_id, url_pattern=table.url_pattern, deleted=False)
+        .exclude(pk=table.pk)
+        .exists()
+    ):
+        return
+    try:
+        get_s3_client().rm(path)
+    except Exception as e:
+        capture_exception(e)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -364,6 +393,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

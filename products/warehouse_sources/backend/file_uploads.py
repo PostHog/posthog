@@ -171,3 +171,24 @@ def _excel_column_to_arrow(values: "list[object]") -> "pa.Array":
         return pa.array(values)
     except (pa.ArrowInvalid, pa.ArrowTypeError):
         return pa.array([None if value is None else str(value) for value in values], type=pa.string())
+
+
+def hosted_upload_s3_path(url_pattern: str) -> str | None:
+    """The bucket-qualified ``bucket/key`` path (the form s3fs takes) backing a self-managed table
+    whose file PostHog hosts in its own data warehouse bucket, or ``None`` when the table reads from
+    anywhere else — most importantly a customer-linked S3/GCS bucket, which is never ours to delete.
+
+    The gate is the URL host: only ``url_pattern``s under ``DATAWAREHOUSE_BUCKET_DOMAIN`` are hosted
+    by us. That covers both the current ``file_uploads/`` prefix and the legacy ``managed/`` one.
+    """
+    domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
+    bucket = settings.DATAWAREHOUSE_BUCKET
+    if not domain or not bucket:
+        return None
+    prefix = f"https://{domain}/"
+    if not url_pattern.startswith(prefix):
+        return None
+    key = url_pattern[len(prefix) :]
+    if not key:
+        return None
+    return f"{bucket}/{key}"
