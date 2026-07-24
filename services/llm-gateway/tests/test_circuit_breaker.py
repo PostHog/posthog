@@ -116,6 +116,21 @@ class TestAnthropicCircuitBreaker:
         assert sonnet_decision.open is False
         assert aggregate_decision.open is False
 
+    async def test_cross_request_policy_opens_on_first_failure_after_successes(
+        self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
+    ) -> None:
+        breaker = make_breaker(
+            fake_redis,
+            model_policies={"claude-fable-5": ModelCircuitBreakerPolicy(min_requests=1, cross_request_fallback=True)},
+        )
+        for _ in range(4):
+            await breaker.record_outcome(success=True, model="claude-fable-5")
+        await breaker.record_outcome(success=False, model="claude-fable-5")
+
+        decision = await breaker.evaluate("claude-fable-5")
+
+        assert decision.open is True
+
     async def test_unconfigured_model_uses_only_aggregate_keys(
         self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
     ) -> None:
@@ -267,9 +282,7 @@ class TestAnthropicCircuitBreaker:
 
 class TestPublishGaugesLoop:
     async def test_publishes_gauges_then_cancels_cleanly(self, fake_redis: fakeredis.FakeRedis) -> None:
-        import asyncio as _asyncio
-
-        from llm_gateway.circuit_breaker import publish_anthropic_breaker_gauges_loop
+        from llm_gateway.circuit_breaker import _publish_anthropic_breaker_gauges
         from llm_gateway.metrics.prometheus import (
             ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
             ANTHROPIC_CIRCUIT_BREAKER_OPEN,
@@ -287,13 +300,7 @@ class TestPublishGaugesLoop:
 
         original_pipeline = fake_redis.pipeline
         with patch.object(fake_redis, "pipeline", wraps=original_pipeline) as pipeline_calls:
-            task = _asyncio.create_task(publish_anthropic_breaker_gauges_loop(breaker, interval_seconds=10))
-            await _asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except _asyncio.CancelledError:
-                pass
+            await _publish_anthropic_breaker_gauges(breaker)
 
         assert pipeline_calls.call_count == 1
         assert ANTHROPIC_CIRCUIT_BREAKER_OPEN._value.get() == 1

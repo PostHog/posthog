@@ -466,10 +466,10 @@ def _is_breaker_success(status_code: int) -> bool:
     return status_code < 500
 
 
-async def _record_anthropic_outcome(breaker: AnthropicCircuitBreaker | None, success: bool, model: str) -> None:
+async def _record_anthropic_outcome(breaker: AnthropicCircuitBreaker | None, success: bool, model: str) -> bool:
     if breaker is None:
-        return
-    await breaker.record_outcome(success=success, model=model)
+        return False
+    return await breaker.record_outcome(success=success, model=model)
 
 
 def _wrap_stream_with_breaker(
@@ -558,11 +558,12 @@ async def _handle_anthropic_messages(
         # failures so the breaker can open; provider 4xx are successes and gateway 4xx are ignored.
         billing_block = _is_anthropic_billing_block(exc)
         fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
+        outcome_recorded = False
         if isinstance(exc, ProviderError) or exc.status_code >= 500:
-            await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
+            outcome_recorded = await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
         if not use_bedrock_fallback or not fallback_eligible:
             raise
-        if breaker is not None and breaker.uses_cross_request_fallback(body.model):
+        if outcome_recorded and breaker is not None and breaker.uses_cross_request_fallback(body.model):
             logger.warning(
                 "Anthropic request failed, Bedrock fallback armed for next request",
                 model=body.model,

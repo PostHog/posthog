@@ -74,9 +74,9 @@ class AnthropicCircuitBreaker:
     def _current_bucket_index(self, now: float | None = None) -> int:
         return int((now if now is not None else time.time()) // BUCKET_WIDTH_SECONDS)
 
-    async def record_outcome(self, *, success: bool, model: str | None = None) -> None:
+    async def record_outcome(self, *, success: bool, model: str | None = None) -> bool:
         if not self.enabled or self.redis is None:
-            return
+            return False
         bucket = self._current_bucket_index()
         field: _OutcomeField = "s" if success else "f"
         try:
@@ -89,6 +89,7 @@ class AnthropicCircuitBreaker:
                 pipe.hincrby(key, field, 1)
                 pipe.expire(key, self.window_seconds + BUCKET_WIDTH_SECONDS)
             await asyncio.wait_for(pipe.execute(), timeout=REDIS_OP_TIMEOUT_SECONDS)
+            return True
         except Exception as exc:
             from llm_gateway.metrics.prometheus import ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS
 
@@ -99,6 +100,7 @@ class AnthropicCircuitBreaker:
                 error_type=type(exc).__name__,
                 error_message=str(exc),
             )
+            return False
 
     async def _get_stats(self, model: str | None = None) -> tuple[int, int]:
         if not self.enabled or self.redis is None:
@@ -131,8 +133,11 @@ class AnthropicCircuitBreaker:
     def _decision(self, total: int, failures: int, model: str | None, *, choose_bypass: bool) -> BreakerDecision:
         rate = failures / total if total else 0.0
         policy = self.model_policies.get(model) if model is not None else None
-        min_requests = policy.min_requests if policy is not None else self.min_requests
-        is_open = total >= min_requests and rate >= self.failure_threshold
+        if policy is not None and policy.cross_request_fallback:
+            is_open = failures >= policy.min_requests
+        else:
+            min_requests = policy.min_requests if policy is not None else self.min_requests
+            is_open = total >= min_requests and rate >= self.failure_threshold
         if not is_open:
             return BreakerDecision(bypass=False, open=False, failure_rate=rate, total_requests=total)
         bypass_probability = 1.0 if policy is not None else self.bypass_probability
@@ -194,16 +199,7 @@ def build_anthropic_circuit_breaker(redis: Redis[bytes] | None) -> AnthropicCirc
     )
 
 
-async def publish_anthropic_breaker_gauges_loop(
-    breaker: AnthropicCircuitBreaker,
-    interval_seconds: int = 5,
-) -> None:
-    """Refresh the breaker gauges from a single async task instead of from the request hot path.
-
-    Keeps the dashboard signal coherent under multi-worker load (no per-request races) and
-    decouples breaker observability from inbound traffic — the gauges keep updating even
-    when no opted-in callers are hitting the gateway.
-    """
+async def _publish_anthropic_breaker_gauges(breaker: AnthropicCircuitBreaker) -> None:
     from llm_gateway.metrics.prometheus import (
         ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
         ANTHROPIC_CIRCUIT_BREAKER_OPEN,
@@ -213,18 +209,26 @@ async def publish_anthropic_breaker_gauges_loop(
         ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS,
     )
 
+    decisions = await breaker.snapshot()
+    decision = decisions[None]
+    ANTHROPIC_CIRCUIT_BREAKER_OPEN.set(1 if decision.open else 0)
+    ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE.set(decision.failure_rate)
+    ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS.set(decision.total_requests)
+    for model in breaker.model_policies:
+        model_decision = decisions[model]
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_OPEN.labels(model=model).set(1 if model_decision.open else 0)
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_FAILURE_RATE.labels(model=model).set(model_decision.failure_rate)
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS.labels(model=model).set(model_decision.total_requests)
+
+
+async def publish_anthropic_breaker_gauges_loop(
+    breaker: AnthropicCircuitBreaker,
+    interval_seconds: int = 5,
+) -> None:
+    """Refresh breaker gauges outside the request hot path, including while traffic is idle."""
     while True:
         try:
-            decisions = await breaker.snapshot()
-            decision = decisions[None]
-            ANTHROPIC_CIRCUIT_BREAKER_OPEN.set(1 if decision.open else 0)
-            ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE.set(decision.failure_rate)
-            ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS.set(decision.total_requests)
-            for model in breaker.model_policies:
-                model_decision = decisions[model]
-                ANTHROPIC_MODEL_CIRCUIT_BREAKER_OPEN.labels(model=model).set(1 if model_decision.open else 0)
-                ANTHROPIC_MODEL_CIRCUIT_BREAKER_FAILURE_RATE.labels(model=model).set(model_decision.failure_rate)
-                ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS.labels(model=model).set(model_decision.total_requests)
+            await _publish_anthropic_breaker_gauges(breaker)
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -1774,6 +1774,54 @@ class TestAnthropicCircuitBreakerIntegration:
         ]
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_fable_failure_falls_back_in_request_when_breaker_cannot_arm(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        mock_response_dict: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+        from llm_gateway.config import ModelCircuitBreakerPolicy
+
+        broken_redis = MagicMock()
+        broken_redis.pipeline.side_effect = RuntimeError("redis unavailable")
+        authenticated_client.app.state.anthropic_circuit_breaker = AnthropicCircuitBreaker(
+            redis=broken_redis,
+            failure_threshold=0.25,
+            window_seconds=300,
+            bypass_probability=0.9,
+            min_requests=20,
+            model_policies={"claude-fable-5": ModelCircuitBreakerPolicy(min_requests=1, cross_request_fallback=True)},
+            enabled=True,
+        )
+        error = Exception("timed out")
+        error.status_code = 504  # type: ignore[attr-defined]
+        error.message = "timed out"  # type: ignore[attr-defined]
+        error.type = "timeout_error"  # type: ignore[attr-defined]
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]},
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert [call.kwargs["model"] for call in mock_anthropic.call_args_list] == [
+            "anthropic/claude-fable-5",
+            "bedrock/us.anthropic.claude-fable-5",
+        ]
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_anthropic_only_param_stripped_before_bedrock_fallback(
         self,
         mock_anthropic: MagicMock,
