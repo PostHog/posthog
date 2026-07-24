@@ -347,6 +347,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"], [])
 
+    def test_distinct_id_lookup_failure_returns_retryable_503_not_500(self):
+        # A transient personhog outage during the distinct_id lookup must surface as a retryable
+        # 503, not a bare 500 that clients report as an unhandled exception.
+        with mock.patch(
+            "posthog.models.person.util.get_person_by_distinct_id",
+            side_effect=Exception("personhog unavailable"),
+        ):
+            response = self.client.get("/api/person/?distinct_id=whatever")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "person_lookup_unavailable")
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person(self):
         person = _create_person(

@@ -2,7 +2,8 @@ import { MakeLogicType, actions, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -136,13 +137,25 @@ export const personLogic = kea<personLogicType>([
             },
         ],
     })),
-    lazyLoaders(({ props }) => ({
+    lazyLoaders(({ props, values }) => ({
         person: [
             null as PersonType | null,
             {
-                loadPerson: async (): Promise<PersonType | null> => {
+                loadPerson: async (_, breakpoint): Promise<PersonType | null> => {
                     if (props.distinctId != null) {
-                        const response = await api.persons.list({ distinct_id: props.distinctId })
+                        let response: CountedPaginatedResponse<PersonType>
+                        try {
+                            response = await api.persons.list({ distinct_id: props.distinctId })
+                        } catch (error) {
+                            // A request superseded by newer navigation is aborted, not a load
+                            // failure — drop the stale result quietly instead of surfacing an error
+                            // or letting it be captured as an exception.
+                            if (isAbortedRequest(error)) {
+                                breakpoint()
+                                return values.person
+                            }
+                            throw error
+                        }
                         const person = response.results[0]
                         if (person != null) {
                             return person

@@ -18,7 +18,7 @@ from drf_spectacular.utils import (
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -84,6 +84,16 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+class PersonLookupTemporarilyUnavailable(APIException):
+    # 503 (not the default 500) marks the failure as transient and retryable: the person data
+    # store (personhog) is momentarily unreachable, not the request itself being invalid. Clients
+    # treat 5xx-transient statuses as "try again" rather than reporting them as unhandled errors.
+    status_code = 503
+    default_code = "person_lookup_unavailable"
+    default_detail = "We couldn't look up this person right now because the person data store is temporarily unavailable. Please try again in a moment."
+
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../cdp/utils.ts
@@ -544,7 +554,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
         if filter.distinct_id:
             # Exact match on any of the person's distinct IDs; no matching person => no results.
-            matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
+            try:
+                matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
+            except Exception:
+                # This lookup routes through personhog over gRPC. A transient outage there would
+                # otherwise bubble up as a bare HTTP 500 ("A server error occurred") and be reported
+                # as an unhandled client exception. Translate it into a retryable 503 so the person
+                # page degrades to a graceful "try again" state instead.
+                logger.warning("persons_list_distinct_id_lookup_failed", team_id=team.pk, exc_info=True)
+                raise PersonLookupTemporarilyUnavailable()
             if matched is None:
                 # Return early: a constant-false predicate can't be pushed into the persons
                 # lazy table, so ClickHouse would still aggregate every person row for the

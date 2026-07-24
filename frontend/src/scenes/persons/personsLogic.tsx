@@ -408,8 +408,20 @@ export const personsLogic = kea<personsLogicType>([
             person: [
                 null as PersonType | null,
                 {
-                    loadPerson: async ({ id }): Promise<PersonType | null> => {
-                        const response = await api.persons.list({ distinct_id: id })
+                    loadPerson: async ({ id }, breakpoint): Promise<PersonType | null> => {
+                        let response: CountedPaginatedResponse<PersonType>
+                        try {
+                            response = await api.persons.list({ distinct_id: id })
+                        } catch (error) {
+                            // A request superseded by newer navigation is aborted, not a load
+                            // failure — drop the stale result quietly instead of surfacing an error
+                            // or letting it be captured as an exception (mirrors loadPersonUUID).
+                            if (isAbortedRequest(error)) {
+                                breakpoint()
+                                return values.person
+                            }
+                            throw error
+                        }
                         if (!response.results.length) {
                             return null
                         }
