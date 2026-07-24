@@ -606,6 +606,9 @@ tools:
             - edits
             - base_version
             - version_description
+        param_overrides:
+            base_version:
+                required: true
     llma-provider-key-create:
         operation: llm_analytics_provider_keys_create
         enabled: false
