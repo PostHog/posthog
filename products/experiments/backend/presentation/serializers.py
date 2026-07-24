@@ -379,6 +379,18 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "flag_cleanup_task action."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository holding this experiment's feature-flag code, in `organization/repository` "
+            "format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on "
+            "end/ship_variant. When not set, cleanup targets the team's only connected repository and is "
+            "skipped if the team has several."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -416,6 +428,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conclusion",
             "conclusion_comment",
             "flag_cleanup_task_id",
+            "repository",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
@@ -508,6 +521,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def validate_saved_metrics_ids(self, value):
         ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
         return value
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return value.lower()
 
     def validate(self, data):
         ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
