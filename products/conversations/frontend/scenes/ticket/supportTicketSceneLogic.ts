@@ -200,8 +200,8 @@ export interface supportTicketSceneLogicValues {
     previousTickets: Ticket[]
     previousTicketsLoading: boolean
     priority: TicketPriority | null
-    sidePanelContext: SidePanelSceneContext | null
     replyRecipientDescription: string
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
