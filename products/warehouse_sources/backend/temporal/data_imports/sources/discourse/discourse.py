@@ -268,6 +268,9 @@ def discourse_source(
             # base host and refuse redirects so the credentialed request can't be bounced off-host.
             "allowed_hosts": [],
             "allow_redirects": False,
+            # Bound every sync request so a host that accepts the connection then stalls can't hold
+            # an import worker indefinitely (the credential probe is already bounded separately).
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {},
         "resources": [resource],
