@@ -140,8 +140,15 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         completed: [oklch(0.93, 0.05, 303.9), oklch(0.28, 0.05, 302.7), 'bg-completed'],
         'completed-foreground': [oklch(0.46, 0.25, 287.35), oklch(0.81, 0.06, 301.45), 'text-completed-foreground'],
 
-        // ── Borders & rings (theme-derived) ───────────
-        border: [surface(0.9, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
+        // ── Borders & rings ───────────────────────────
+        // Matches the outline button's border (see button.css) so a standalone
+        // `border-border` reads identically to a button's edge. Relative overlay
+        // on `--foreground` rather than a theme-hue surface.
+        border: [
+            'color-mix(in oklab, var(--foreground) 10%, transparent)',
+            'color-mix(in oklab, var(--foreground) 15%, transparent)',
+            'border-border',
+        ],
         input: [surface(0.81, 0.5, 'light'), surface(0.3, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
@@ -224,10 +231,10 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'muted',
     'chrome',
     'primary',
-    'border',
     'input',
     // Transitive: reference var(--foreground) / var(--muted) — must also live
     // on `*` to re-evaluate on local overrides.
+    'border',
     'fill-hover',
     'fill-expanded',
     'fill-selected',
