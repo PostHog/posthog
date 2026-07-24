@@ -70,6 +70,13 @@ export function WebVitals(props: {
         [webVitalsQueryResponse, webVitalsPercentile]
     )
 
+    // Once the overview query has loaded, an undefined value for the active tab means the metric has no
+    // data at the selected percentile/filters (INP and CLS are naturally sparse) — show an explicit empty
+    // state on the graph instead of a blank line.
+    const activeMetricValue = { INP, LCP, FCP, CLS }[webVitalsTab]
+    const showGraphEmptyState =
+        !responseLoading && webVitalsQueryResponse !== undefined && activeMetricValue === undefined
+
     return (
         <div className="flex flex-col flex-1 gap-4">
             <div className="flex flex-col gap-1">
@@ -114,13 +121,23 @@ export function WebVitals(props: {
             <div className="flex flex-col sm:flex-row gap-2">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
-                    <Query
-                        key={webVitalsTab}
-                        query={webVitalsMetricQuery}
-                        readOnly
-                        embedded
-                        context={{ renderEmptyStateAsSkeleton: true }}
-                    />
+                    {showGraphEmptyState ? (
+                        <div
+                            className="flex flex-1 items-center justify-center min-h-40"
+                            data-attr="web-vitals-graph-empty"
+                        >
+                            <span className="text-sm text-text-tertiary">
+                                No data for the selected filters and percentile
+                            </span>
+                        </div>
+                    ) : (
+                        <Query
+                            query={webVitalsMetricQuery}
+                            readOnly
+                            embedded
+                            context={{ renderEmptyStateAsSkeleton: true }}
+                        />
+                    )}
 
                     <div className="flex w-full justify-end">
                         <LemonButton
