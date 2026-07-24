@@ -338,6 +338,41 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toMatchSnapshot()
     })
 
+    it('sources enrich_url from params when {params.id} is used', () => {
+        // Action endpoints (run, run_history, materialize) return an empty body or {run_history: [...]}
+        // with no top-level id, so the enrich URL must come from the request params, not the response.
+        const config: ToolConfig = {
+            operation: 'things_run_history',
+            enabled: true,
+            input_schema: 'ThingRunHistorySchema',
+            enrich_url: '?open_view={params.id}',
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/run_history/',
+            operation: {
+                operationId: 'things_run_history',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-run-history',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('?open_view=${params.id}')
+        expect(result.code).not.toContain('?open_view=${result.id}')
+    })
+
     it('applies list enrichment with input_schema', () => {
         const config: ToolConfig = {
             operation: 'things_list',

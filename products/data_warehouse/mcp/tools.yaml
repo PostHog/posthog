@@ -309,7 +309,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Materialize saved query
         description: >
             Enable materialization for a saved query. This creates a physical table from the view's query and sets up a
@@ -324,7 +324,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
             Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
@@ -338,7 +338,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Get run history
         description: >
             Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and
@@ -352,7 +352,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Revert materialization
         description: >
             Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,
