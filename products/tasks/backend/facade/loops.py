@@ -1001,14 +1001,24 @@ MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 10 * 1024 * 1024
 # wedge each scheduled run; these mirror the client bundler's own build-time caps.
 MAX_LOOP_SKILL_BUNDLE_FILES = 1000
 MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
+# Ceiling on the zip central directory itself, checked from the trailer before ZipFile
+# parses it. This is what actually bounds parse-time ZipInfo allocation (zipfile walks
+# the directory by size, not by the forgeable entry-count field). 300KB comfortably fits
+# MAX_LOOP_SKILL_BUNDLE_FILES entries with long names while capping a hostile directory
+# at a few thousand records instead of hundreds of thousands.
+MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES = 300 * 1024
 
 
-def _zip_entry_count(content_bytes: bytes) -> int | None:
-    """Total entry count from the zip's end-of-central-directory trailer, without
-    materializing per-entry metadata. Mirrors how `zipfile` locates the trailer (last
-    well-formed record within the max 64KB comment window), so the count validated here
-    is the one `ZipFile` will parse. Returns None when no trailer is found. A zip64
-    archive reports 0xFFFF here, which already exceeds the bundle cap."""
+def _zip_trailer(content_bytes: bytes) -> tuple[int, int] | None:
+    """(entry count, central directory size in bytes) from the zip's
+    end-of-central-directory trailer, without materializing per-entry metadata. Mirrors
+    how `zipfile` locates the trailer (last well-formed record within the max 64KB
+    comment window), so the values validated here are the ones `ZipFile` will use.
+    Returns None when no trailer is found. The directory SIZE is the load-bearing
+    number: `ZipFile.infolist()` walks exactly that many directory bytes (one ZipInfo
+    per record, each at least 46 bytes) and ignores the count field, so bounding the
+    size bounds parse-time allocation even when the count field lies. Zip64 archives
+    report sentinel maxima in both fields, which exceed the caps and are rejected."""
     eocd_size = 22
     tail = content_bytes[-(eocd_size + 65535) :]
     offset = tail.rfind(b"PK\x05\x06")
@@ -1017,7 +1027,9 @@ def _zip_entry_count(content_bytes: bytes) -> int | None:
         if len(record) >= eocd_size:
             comment_length = int.from_bytes(record[20:22], "little")
             if len(record) == eocd_size + comment_length:
-                return int.from_bytes(record[10:12], "little")
+                entry_count = int.from_bytes(record[10:12], "little")
+                central_dir_size = int.from_bytes(record[12:16], "little")
+                return entry_count, central_dir_size
         offset = tail.rfind(b"PK\x05\x06", 0, offset)
     return None
 
@@ -1082,19 +1094,23 @@ def replace_loop_skill_bundles(
             )
         if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
-        # Entry count comes from the end-of-central-directory record BEFORE ZipFile
-        # parses the archive: infolist() materializes a ZipInfo per record, so a small
-        # zip declaring 100k entries would otherwise allocate tens of MB of metadata
-        # just to be rejected.
-        entry_count = _zip_entry_count(content_bytes)
-        if entry_count is None:
+        # Trailer prechecks run BEFORE ZipFile parses the archive: infolist()
+        # materializes a ZipInfo per directory record, so a small zip carrying a huge
+        # central directory would otherwise allocate tens of MB of metadata just to be
+        # rejected. The directory-size cap is the real allocation bound; the count is a
+        # cheap fast-fail for honest oversized archives.
+        trailer = _zip_trailer(content_bytes)
+        if trailer is None:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
-        if entry_count > MAX_LOOP_SKILL_BUNDLE_FILES:
+        entry_count, central_dir_size = trailer
+        if entry_count > MAX_LOOP_SKILL_BUNDLE_FILES or central_dir_size > MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES:
             raise LoopValidationError(
                 f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
             )
         # Central-directory metadata only — nothing is decompressed here. The parsed
-        # entry list is re-checked against the cap in case the trailer undercounted.
+        # entry list is re-checked against the cap in case the trailer undercounted:
+        # a lying count can shave the fast-fail, but the size cap above already bounds
+        # how much ZipFile can allocate getting here.
         try:
             with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
                 archive_entries = archive.infolist()

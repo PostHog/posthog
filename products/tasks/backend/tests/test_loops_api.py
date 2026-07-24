@@ -386,6 +386,35 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         self.assertIn("contains more than", response.json()["detail"])
         mock_write.assert_not_called()
 
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES", 10)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_an_oversized_central_directory(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_FILES", 1)
+    @patch("posthog.storage.object_storage.write")
+    def test_a_lying_trailer_count_is_caught_after_parse(self, mock_write):
+        # The trailer's entry count is attacker-controlled; forging it low shaves the
+        # fast-fail but the parsed entry list must still trip the cap.
+        content = bytearray(self._zip_bytes({"SKILL.md": "body", "extra.md": "more"}))
+        eocd = content.rfind(b"PK\x05\x06")
+        content[eocd + 8 : eocd + 12] = (1).to_bytes(2, "little") * 2
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=bytes(content))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("contains more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
     def test_replace_requires_a_declared_content_length(self):
         loop = self._create_loop(self.owner_client)
 
