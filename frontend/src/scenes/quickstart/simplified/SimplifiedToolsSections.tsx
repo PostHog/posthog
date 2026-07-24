@@ -21,7 +21,7 @@ export function SimplifiedToolsSections(): JSX.Element {
 
     return (
         <section>
-            <div className="flex flex-wrap items-start justify-between gap-x-8">
+            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
                 <SectionHeader
                     title={QUICKSTART_PRODUCT_LAYOUT.featured.title}
                     subtitle={QUICKSTART_PRODUCT_LAYOUT.featured.description}

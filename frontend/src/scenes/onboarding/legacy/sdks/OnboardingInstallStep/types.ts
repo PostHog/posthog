@@ -11,6 +11,8 @@ export interface SDKGridProps {
     onSearchChange: (term: string) => void
     onTagChange: (tag: SDKTag | null) => void
     currentTeam: { api_token?: string } | null
+    /** Analytics hook for the copy-project-token button, for hosts with their own event vocabulary */
+    onCopyProjectToken?: () => void
     showTopControls?: boolean
     installationComplete: boolean
     showTopSkipButton: boolean

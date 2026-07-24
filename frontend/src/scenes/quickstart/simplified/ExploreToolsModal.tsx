@@ -19,11 +19,15 @@ export function ExploreToolsModal({ isOpen, onClose }: { isOpen: boolean; onClos
             description={QUICKSTART_PRODUCT_LAYOUT.additional.description}
             width="40rem"
         >
-            <div className="flex flex-col gap-2">
-                {additionalProducts.map((product) => (
-                    <SimplifiedToolRow key={product.key} product={product} onAction={onClose} />
-                ))}
-            </div>
+            {additionalProducts.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                    {additionalProducts.map((product) => (
+                        <SimplifiedToolRow key={product.key} product={product} onAction={onClose} />
+                    ))}
+                </div>
+            ) : (
+                <p className="text-secondary mb-0">Every tool is in Your tools already.</p>
+            )}
         </LemonModal>
     )
 }

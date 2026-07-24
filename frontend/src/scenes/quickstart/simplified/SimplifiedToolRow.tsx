@@ -22,21 +22,22 @@ export function SimplifiedToolRow({
     onAction?: () => void
 }): JSX.Element {
     const { setProductFeatured, openToolSetupModal } = useActions(quickstartLogic)
-    const needsSetup = product.status.level === 'needs_setup'
-    const opensSetupModal = needsSetup && !!PRODUCT_SDK_SETUP[product.key]
+    const needsInstall =
+        product.status.level === 'needs_setup' && (product.status.cta === 'install' || product.status.cta === 'setup')
+    const opensSetupModal = needsInstall && !!PRODUCT_SDK_SETUP[product.key]
 
     return (
         <LemonCard hoverEffect className="relative p-0 rounded-lg min-w-0">
             <Link
-                to={opensSetupModal ? undefined : needsSetup ? product.setupUrl : product.url}
+                to={opensSetupModal ? undefined : needsInstall ? product.setupUrl : product.url}
                 onClick={() => {
-                    if (needsSetup) {
-                        captureQuickstartAction('set_up_product', product.key)
+                    if (needsInstall) {
+                        captureQuickstartAction('set_up_product', product.key, { source: 'explore_dialog' })
                         if (opensSetupModal) {
                             openToolSetupModal(product.key)
                         }
                     } else {
-                        captureQuickstartAction('open_product', product.key)
+                        captureQuickstartAction('open_product', product.key, { source: 'explore_dialog' })
                     }
                     onAction?.()
                 }}
@@ -46,10 +47,12 @@ export function SimplifiedToolRow({
                 <span className="text-xl leading-none shrink-0">
                     {getProductIcon(product.icon, { iconColor: product.iconColor })}
                 </span>
-                <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-sm mb-0 truncate">{product.name}</h3>
-                    <p className="text-secondary text-xs mb-0 truncate">{product.description}</p>
-                </div>
+                {/* Spans, not h3/p: with to=undefined the Link renders a <button>, which only
+                    allows phrasing content */}
+                <span className="flex-1 min-w-0 text-left">
+                    <span className="block font-semibold text-sm truncate">{product.name}</span>
+                    <span className="block text-secondary text-xs truncate">{product.description}</span>
+                </span>
             </Link>
             <div className="absolute top-1/2 -translate-y-1/2 right-2">
                 <LemonButton
@@ -57,7 +60,10 @@ export function SimplifiedToolRow({
                     icon={<IconPin />}
                     tooltip="Add to Your tools"
                     aria-label={`Add ${product.name} to Your tools`}
-                    onClick={() => setProductFeatured(product.key, true)}
+                    onClick={() => {
+                        captureQuickstartAction('feature_product', product.key)
+                        setProductFeatured(product.key, true)
+                    }}
                     data-attr={`quickstart-feature-${product.key}`}
                 />
             </div>

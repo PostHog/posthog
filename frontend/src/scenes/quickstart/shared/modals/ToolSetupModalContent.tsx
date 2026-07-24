@@ -61,7 +61,13 @@ export function ToolSetupModalContent({
                     selectSDK(sdk)
                 }}
                 onSearchChange={setSearchTerm}
-                onTagChange={setSelectedTag}
+                onTagChange={(tag) => {
+                    captureQuickstartAction('filter_sdks_tag', product.key, { tag: tag ?? 'all' })
+                    setSelectedTag(tag)
+                }}
+                onCopyProjectToken={() =>
+                    captureQuickstartAction('copy_project_token', product.key, { source: 'setup_modal' })
+                }
                 currentTeam={currentTeam}
                 showTopControls
                 installationComplete={installationComplete}

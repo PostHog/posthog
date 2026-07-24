@@ -8,7 +8,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { finishedLocalRunLogic } from 'scenes/onboarding/shared/wizard-sync/finishedLocalRunLogic'
+import { progressFromFinishedLocalRun } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import {
+    InstallationProgressContent,
     InstallationProgressView,
     useLocalWizardRunActive,
 } from 'scenes/onboarding/shared/wizard-sync/InstallationProgressView'
@@ -31,8 +34,10 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
     const { isCloudOrDev } = useValues(preflightLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
-    const { featuredProducts } = useValues(quickstartLogic)
+    const { featuredProducts, products } = useValues(quickstartLogic)
     const { openToolSetupModal } = useActions(quickstartLogic)
+    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
+    const { dismissLocalRun } = useActions(finishedLocalRunLogic)
 
     const isLocalRunActive = useLocalWizardRunActive()
     const offerCloud = cloudRunEnabled && isCloudOrDev
@@ -53,7 +58,13 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6">
             <div className="flex flex-col gap-4">
                 {intro}
-                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-2" role="radiogroup">
+                {/* The outer grid splits at @3xl, halving this column's width, so the mode
+                    cards go back to a stack until the column can fit three again */}
+                <div
+                    className="grid grid-cols-1 @2xl/main-content:grid-cols-3 @3xl/main-content:grid-cols-1 @5xl/main-content:grid-cols-3 gap-2"
+                    role="group"
+                    aria-label="Installation method"
+                >
                     {cards.map((card) => {
                         const selected = effectiveMode === card.value
                         const disabled = installationTriggered && card.value !== effectiveMode
@@ -61,10 +72,9 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
                             <button
                                 key={card.value}
                                 type="button"
-                                role="radio"
-                                aria-checked={selected}
+                                aria-pressed={selected}
                                 disabled={disabled}
-                                title={disabled ? 'Installation in progress.' : undefined}
+                                title={disabled ? 'A setup run is active.' : undefined}
                                 className={cn(
                                     'text-left rounded border p-3 bg-bg-light transition-colors flex flex-col justify-start gap-1',
                                     selected ? 'border-accent' : 'hover:border-secondary',
@@ -102,6 +112,15 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
                 ) : effectiveMode === 'local' ? (
                     isLocalRunActive ? (
                         <InstallationProgressView mode="local" bare />
+                    ) : finishedLocalRun ? (
+                        // A terminal run that never got dismissed: show its outcome (success payoff
+                        // or the error) instead of silently falling back to the idle command
+                        <InstallationProgressContent
+                            progress={progressFromFinishedLocalRun(finishedLocalRun)}
+                            mode="local"
+                            bare
+                            onDismiss={() => dismissLocalRun(finishedLocalRun.sessionId)}
+                        />
                     ) : (
                         <WizardCommandBlock hideHog align="start" />
                     )
@@ -111,7 +130,7 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
                             Pick a tool to open its install guide with instructions for every SDK and framework.
                         </p>
                         <div className="flex flex-wrap gap-2">
-                            {featuredProducts.map((product) => (
+                            {(featuredProducts.length > 0 ? featuredProducts : products).map((product) => (
                                 <LemonButton
                                     key={product.key}
                                     type="secondary"

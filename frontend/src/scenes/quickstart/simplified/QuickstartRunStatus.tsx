@@ -4,6 +4,8 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { currentTaskLabel } from 'scenes/onboarding/shared/wizard-sync/helpers'
 import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 
+import { captureQuickstartAction } from '../shared/captureQuickstartAction'
+
 // A cloud run's status at quickstart altitude: healthy-and-working, failed-with-a-way-out,
 // or finished-with-the-PR. Sub-step detail stays behind the header chip's dialog.
 export function QuickstartRunStatus({
@@ -13,16 +15,26 @@ export function QuickstartRunStatus({
     progress: InstallationProgress
     onRetryLocally: () => void
 }): JSX.Element {
+    const retryButton = (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => {
+                captureQuickstartAction('retry_locally')
+                onRetryLocally()
+            }}
+            data-attr="quickstart-retry-locally"
+        >
+            Run it in your terminal instead
+        </LemonButton>
+    )
+
     if (progress.error) {
         return (
-            <div className="flex flex-col gap-2" role="status">
+            <div className="flex flex-col gap-2" role="alert">
                 <div className="font-semibold text-sm">{progress.error.title}</div>
                 {progress.error.detail && <p className="text-secondary text-sm mb-0">{progress.error.detail}</p>}
-                <div>
-                    <LemonButton type="secondary" size="small" onClick={onRetryLocally}>
-                        Run it in your terminal instead
-                    </LemonButton>
-                </div>
+                <div>{retryButton}</div>
             </div>
         )
     }
@@ -37,15 +49,44 @@ export function QuickstartRunStatus({
                     Review the changes, merge, and deploy. Events start flowing once your app runs with the new code.
                 </p>
                 {match && (
-                    <div className="text-sm text-secondary font-mono">
+                    <div className="text-sm text-secondary font-mono ph-no-capture">
                         {match[1]} #{match[2]}
                     </div>
                 )}
-                <div className="w-fit">
-                    <LemonButton type="primary" size="small" to={progress.prUrl} targetBlank>
+                <div className="w-fit ph-no-capture">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        to={progress.prUrl}
+                        targetBlank
+                        onClick={() => captureQuickstartAction('open_wizard_pr')}
+                        data-attr="quickstart-open-wizard-pr"
+                    >
                         Review the pull request
                     </LemonButton>
                 </div>
+            </div>
+        )
+    }
+    if (progress.phase === 'completed') {
+        return (
+            <div className="flex flex-col gap-2" role="status">
+                <div className="flex items-center gap-2">
+                    <IconCheckCircle className="text-success text-base" />
+                    <span className="font-semibold text-sm">The agent finished setting up</span>
+                </div>
+                <p className="text-secondary text-sm mb-0">Events appear once your app runs with the new code.</p>
+            </div>
+        )
+    }
+    if (progress.phase === 'idle') {
+        return (
+            <div className="flex flex-col gap-2" role="status">
+                <div className="font-semibold text-sm">This run stopped reporting</div>
+                <p className="text-secondary text-sm mb-0">
+                    We're not hearing back from it. You can set up another way.
+                </p>
+                <div>{retryButton}</div>
             </div>
         )
     }

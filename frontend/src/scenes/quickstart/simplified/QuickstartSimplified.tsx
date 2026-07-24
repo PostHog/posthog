@@ -28,22 +28,29 @@ export function QuickstartSimplified(): JSX.Element {
         localStorage.setItem(dismissKey, 'true')
         setInstallDismissed(true)
     }
-    const reopenFocusedInstall = (): void => {
-        captureQuickstartAction('reopen_focused_install')
+    const reopenFocusedInstall = (source: string): void => {
+        captureQuickstartAction('reopen_focused_install', undefined, { source })
         localStorage.removeItem(dismissKey)
         setInstallDismissed(false)
     }
 
     // A completed wizard run finishes the install flow. Persist the exit without touching
     // state: the completed card (and its dashboard link) stays up for the current view, and
-    // the next visit lands on the tool cards instead of an idle install panel.
+    // the next visit lands on the tool cards instead of an idle install panel. Deduped per
+    // session id so a persisted handle can't re-fire the event or override a later
+    // Back to setup once the exit has been recorded.
     const { finishedLocalRun } = useValues(finishedLocalRunLogic)
+    const completionKey = `quickstart-install-flow-completed-${currentTeamId ?? 'unknown'}`
     useEffect(() => {
-        if (finishedLocalRun?.runPhase === 'completed' && localStorage.getItem(dismissKey) !== 'true') {
+        if (
+            finishedLocalRun?.runPhase === 'completed' &&
+            localStorage.getItem(completionKey) !== finishedLocalRun.sessionId
+        ) {
             captureQuickstartAction('install_flow_completed')
+            localStorage.setItem(completionKey, finishedLocalRun.sessionId)
             localStorage.setItem(dismissKey, 'true')
         }
-    }, [finishedLocalRun, dismissKey])
+    }, [finishedLocalRun, dismissKey, completionKey])
     // Pre-ingestion the page has one job (the first event), so the tool cards wait for data
     const focusedInstall = !installationComplete && !installDismissed
 
