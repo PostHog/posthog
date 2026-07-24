@@ -11,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { Ticket } from '../../types'
+import { ticketListBackTo } from '../ticket/SupportTicketScene'
 import { SupportTicketsTable } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -110,7 +111,7 @@ describe('SupportTicketsTable selection', () => {
             logic.actions.setStatusFilter(['open'])
         })
         // The filter is reflected in the list URL first.
-        await waitFor(() => expect(router.values.location.url).toContain('status'))
+        await waitFor(() => expect(router.values.searchParams.status).not.toBeUndefined())
 
         render(
             <Provider>
@@ -118,14 +119,55 @@ describe('SupportTicketsTable selection', () => {
             </Provider>
         )
 
-        // Click the ticket row itself (not the selection checkbox).
+        // Click the ticket row itself (not the selection checkbox). The router pathname is
+        // project-scoped (e.g. /project/997/...), so match on the ticket path suffix.
         const rows = screen.getAllByRole('row')
         await userEvent.click(rows[rows.length - 1])
 
         await waitFor(() =>
-            expect(router.values.location.pathname).toBe(urls.supportTicketDetail(TICKET.ticket_number))
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
         )
         // Filters ride along on the ticket URL so the back arrow returns to this view.
-        expect(router.values.location.url).toContain('status')
+        expect(router.values.searchParams.status).not.toBeUndefined()
+    })
+
+    // Regression (the back half): the ticket's back arrow rebuilds the list URL from the
+    // filters carried in the ticket page's query string via `ticketListBackTo`. If that
+    // construction drops the filters, the arrow lands on the unfiltered "all tickets" list
+    // — the actual bug. This follows the round trip: open a filtered ticket, then the back
+    // arrow, and confirm it lands back on the filtered list.
+    it('sends the ticket back arrow to the filtered list', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+        await waitFor(() => expect(router.values.searchParams.status).not.toBeUndefined())
+
+        render(
+            <Provider>
+                <SupportTicketsTable />
+            </Provider>
+        )
+
+        // Open the ticket from the filtered list; the row carries the filters onto its URL.
+        // (Router pathnames are project-scoped, so match on the path suffix.)
+        const rows = screen.getAllByRole('row')
+        await userEvent.click(rows[rows.length - 1])
+        await waitFor(() =>
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
+        )
+
+        // The back arrow's target is built from the ticket page's live query string. It must
+        // point back at the ticket list and keep the status filter.
+        const backPath = ticketListBackTo(router.values.searchParams).path ?? ''
+        expect(backPath.split('?')[0]).toBe(urls.supportTickets())
+        expect(backPath).toContain('status')
+
+        // Follow the back arrow: it lands on the filtered ticket list, not the unfiltered
+        // "all tickets" view.
+        act(() => {
+            router.actions.push(backPath)
+        })
+        await waitFor(() => expect(router.values.location.pathname).toContain(urls.supportTickets()))
+        expect(router.values.searchParams.status).not.toBeUndefined()
     })
 })
