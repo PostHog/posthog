@@ -328,6 +328,13 @@ _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 # phrase, not the volatile `_ssl.c:<line>` suffix that shifts across Python builds.
 _SSL_CONNECTION_CLOSED_EOF_TOKEN = "TLS/SSL connection has been closed (EOF)"
 
+# CPython's ssl module raises this when the peer closes the raw socket (a TCP RST or FIN) after
+# sending some bytes that never got consumed by the still-in-progress TLS handshake — a third
+# rendering of the same peer-closed-mid-handshake condition as the two tokens above (an overloaded
+# server, a proxy/load-balancer idle cull, a failover, or a momentary network blip). pymysql wraps
+# it as the same 2003 connect failure, so it's equally transient and must be retried too.
+_SSL_CLOSED_WITH_BUFFERED_DATA_TOKEN = "Closed before TLS handshake with data in recv buffer"
+
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it
@@ -351,9 +358,10 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
       A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
       mismatch (a deterministic config error, already non-retryable): it arrives with an
       `[SSL: ...` suffix, so exclude that and let it surface.
-    - `2003` (can't connect) carrying an SSL peer-close cause — either
-      `[SSL: UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF) or "TLS/SSL connection
-      has been closed (EOF)" (`SSLZeroReturnError`, a clean close): the peer dropped the
+    - `2003` (can't connect) carrying an SSL peer-close cause — `[SSL:
+      UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF), "TLS/SSL connection has been
+      closed (EOF)" (`SSLZeroReturnError`, a clean close), or "Closed before TLS handshake
+      with data in recv buffer" (a raw socket close mid-handshake): the peer dropped the
       TLS connection mid-handshake — the SSL-flavoured sibling of the 2013 drop, equally
       transient. The generic 2003 (wrong host/port, firewall) stays non-retryable, so
       match only the SSL peer-close tokens.
@@ -365,7 +373,11 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     if code == _LOST_CONNECTION_DURING_QUERY_CODE:
         return "[SSL:" not in args_text
     if code == _CANT_CONNECT_TO_SERVER_CODE:
-        return _SSL_UNEXPECTED_EOF_TOKEN in args_text or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
+        return (
+            _SSL_UNEXPECTED_EOF_TOKEN in args_text
+            or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
+            or _SSL_CLOSED_WITH_BUFFERED_DATA_TOKEN in args_text
+        )
     return False
 
 

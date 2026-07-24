@@ -12,7 +12,6 @@ import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreS
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -102,7 +101,7 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
-import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -787,15 +786,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Link to person',
                 description: (
                     <>
-                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
-                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
-                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
-                        Override only if your backend pipeline emits the person identifier under a different key.
+                        The log attributes PostHog reads to identify which person a log belongs to. A log is linked when
+                        any of these attributes matches one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>, the key the JavaScript and React Native SDKs auto-attach. Add
+                        keys only if your backend pipeline emits the person identifier under different attributes.
                     </>
                 ),
                 searchDescription:
-                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
-                component: <LogsDistinctIdAttributeKey />,
+                    "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
+                component: <LogsDistinctIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
@@ -996,14 +995,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Exclude test accounts from revenue calculations and reports.',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
-            },
-            {
-                // FIXME: should not be in settings
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                description: 'Set revenue targets to track performance against your business objectives.',
-                component: <GoalsConfiguration />,
-                keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
                 // FIXME: should not be in settings

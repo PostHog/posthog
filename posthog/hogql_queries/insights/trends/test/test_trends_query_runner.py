@@ -7512,6 +7512,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Label should show combined events
         self.assertEqual("$pageview, $pageleave", response.results[0]["label"])
 
+    @parameterized.expand(
+        [
+            # Zero / one effective filters previously bypassed the operator check via early returns.
+            ("zero_nodes", []),
+            ("one_node", [EventsNode(event="$pageview")]),
+            ("two_nodes", [EventsNode(event="$pageview"), EventsNode(event="$pageleave")]),
+        ]
+    )
+    def test_group_node_and_operator_is_rejected(self, _name, nodes):
+        # AND groups aren't supported yet. Must fail validation rather than silently drop the
+        # event filter (which would match every event and return wrong counts).
+        group_node = GroupNode(operator=FilterLogicalOperator.AND_, nodes=nodes)
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(
+                query=TrendsQuery(
+                    dateRange=DateRange(
+                        date_from=self.default_date_from,
+                        date_to=self.default_date_to,
+                    ),
+                    interval=IntervalType.DAY,
+                    series=[group_node],
+                ),
+                team=self.team,
+            ).calculate()
+
     def test_group_node_with_actions(self):
         """Test that GroupNode works with ActionsNode"""
         self._create_test_events()
