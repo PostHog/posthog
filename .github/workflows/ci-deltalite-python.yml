@@ -1,0 +1,76 @@
+name: Deltalite Python tests
+
+# The differential parity suite for rust/deltalite: the same batch sequences run
+# through the real delta-rs Python `merge` (as `DeltaTableHelper` drives it) and
+# through `deltalite.upsert`, asserting identical logical table content. This is
+# the compatibility check that replaces version-lockstep between the `deltalake`
+# Rust crate and the `deltalake` Python package (see rust/deltalite/README.md).
+#
+# ci-rust.yml covers the crates' build/lint/test; this workflow adds the thing
+# cargo cannot do -- build the actual wheel with maturin and run the Python
+# suite against the repo's pinned deltalake/pyarrow versions.
+
+on:
+    pull_request:
+        paths:
+            - rust/deltalite/**
+            - .github/workflows/ci-deltalite-python.yml
+    push:
+        branches:
+            - master
+        paths:
+            - rust/deltalite/**
+            - .github/workflows/ci-deltalite-python.yml
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        name: Build wheel and run parity suite
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      rust/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: clippy,rustfmt
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v1-deltalite-python'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+            - name: Create venv with test dependencies
+              # Versions pinned to match the repo's pyproject.toml so parity is
+              # asserted against exactly what production runs.
+              run: |
+                  uv venv .venv-deltalite --python 3.13
+                  VIRTUAL_ENV=$PWD/.venv-deltalite uv pip install \
+                      maturin pytest \
+                      'deltalake==1.6.1' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
+
+            - name: Build and install the extension
+              run: |
+                  VIRTUAL_ENV=$PWD/.venv-deltalite .venv-deltalite/bin/python -m maturin develop \
+                      --release --manifest-path rust/deltalite/python/Cargo.toml
+
+            - name: Run pytest
+              run: .venv-deltalite/bin/python -m pytest rust/deltalite/python/tests -q

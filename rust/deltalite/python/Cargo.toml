@@ -1,0 +1,38 @@
+[package]
+name = "deltalite-python"
+# Mirrors pyproject.toml in this directory (always identical); bump both together.
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "deltalite_python"
+# `cdylib` for the Python wheel that maturin builds; `rlib` so other Rust crates could
+# depend on the binding layer if useful later -- `cdylib` alone would break that. Same
+# shape as `rust/hogql/parser`.
+#
+# NOTE: keep Rust unit tests OUT of this crate. `extension-module` (below) suppresses
+# the libpython link, so a `cargo test` harness binary for this crate cannot link on
+# Linux. All Rust tests live in `deltalite-core`, which has no pyo3 dependency.
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+deltalite-core = { path = "../core" }
+
+# `abi3-py312` matches the repo convention (`rust/hogql/parser`): one wheel works on
+# every Python 3.12+ via the stable CPython ABI, including the pinned prod 3.13.
+#
+# pyo3 0.28 is dictated by arrow 58's `pyarrow` feature (arrow major fixed by
+# `deltalake` 0.32). Cargo allows one pyo3 version per workspace (`links = "python"`),
+# so this must stay in lockstep with `rust/hogql/parser`.
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py312"] }
+arrow = { version = "58", features = ["pyarrow"] }
+arrow-array = { version = "58" }
+arrow-schema = { version = "58" }
+
+deltalake = { version = "=0.32.4", default-features = false, features = ["s3", "rustls"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
