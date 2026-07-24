@@ -15,13 +15,15 @@ on:
         paths:
             - 'products/metrics/agent/**'
             - '.github/workflows/cd-metrics-agent-image.yml'
-    # paths mirror the push trigger; the build-metrics-agent-image label only
-    # forces a build on PRs touching these paths, use workflow_dispatch otherwise.
+    # paths mirror the push trigger; the build-metrics-agent-image label
+    # forces a build on PRs touching these paths.
     pull_request:
         types: [opened, synchronize, reopened, labeled]
         paths:
             - 'products/metrics/agent/**'
             - '.github/workflows/cd-metrics-agent-image.yml'
+    # Manual rebuilds of master only: the build job hands the Docker Hub token
+    # to the checked-out docker-meta action, so it must never run branch code.
     workflow_dispatch:
 
 concurrency:
@@ -58,7 +60,7 @@ jobs:
             (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
             (
                 github.event_name == 'push' ||
-                github.event_name == 'workflow_dispatch' ||
+                (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
                 contains(github.event.pull_request.labels.*.name, 'build-metrics-agent-image')
             )
         runs-on: depot-ubuntu-24.04
@@ -77,13 +79,34 @@ jobs:
               with:
                   image-name: metrics-agent
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  # PR validation builds never push to Docker Hub, so they never
+                  # see the token: it reaches the checked-out action only for
+                  # master code (push, or dispatch restricted to master above).
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
-                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  dockerhub-password: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN || '' }}
                   # Docker Hub is the primary customer-facing registry for this image.
                   push-to-dockerhub: 'true'
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   # Nothing internal deploys this image, so no ECR.
                   push-to-ecr: 'false'
+
+            - name: Read release tag from the chart appVersion
+              id: release-tag
+              # The chart's default image tag is its appVersion, so every
+              # master build also publishes under that tag; bumping appVersion
+              # is how a new agent version is released to chart users.
+              env:
+                  PUSH_GHCR: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+              run: |
+                  APP_VERSION=$(awk '/^appVersion:/{print $2}' products/metrics/agent/chart/posthog-metrics-agent/Chart.yaml)
+                  {
+                    echo "tags<<EOF"
+                    echo "posthog/metrics-agent:$APP_VERSION"
+                    if [ "$PUSH_GHCR" = "true" ]; then
+                      echo "ghcr.io/posthog/metrics-agent:$APP_VERSION"
+                    fi
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -96,7 +119,9 @@ jobs:
               with:
                   context: products/metrics/agent
                   push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
-                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  tags: |
+                      ${{ steps.docker-meta.outputs.tags }}
+                      ${{ steps.release-tag.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
 
