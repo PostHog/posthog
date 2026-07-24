@@ -49,7 +49,12 @@ SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "anomaly_investigation"
 
 
-ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 20 * 60  # 20 minutes
+# Sized to cover a realistic worst-case sequential agent run: up to MAX_TOOL_CALLS + 1 LLM turns,
+# each capped at the runner's per-request timeout (thinking turns run long). 20 min got tight once
+# that per-request timeout rose to 180s, so a slow thinking-heavy run could blow the deadline and be
+# killed mid-flight — skipping the runner's fallback path and re-running the whole agent. 30 min
+# keeps a realistic run inside a single activity attempt; the pathological tail falls to the retry.
+ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 30 * 60  # 30 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
@@ -201,9 +206,20 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         notebook_short_id=notebook.short_id,
     )
 
-    # Surface the completed investigation to the Signals inbox. Best-effort: the investigation
-    # itself has already succeeded and been persisted, so a failure to emit must not fail the
-    # activity (and trigger a re-run of the whole agent).
+    # Surface the completed investigation to the Signals inbox, gated on the verdict so
+    # false-positive fires don't become inbox noise (the verdict stays auditable on the
+    # AlertCheck and in the notebook). Best-effort: the investigation itself has already
+    # succeeded and been persisted, so a failure to emit must not fail the activity
+    # (and trigger a re-run of the whole agent).
+    if not should_emit_investigation_signal(result.report.verdict, alert.investigation_inconclusive_action):
+        logger.info(
+            "anomaly_investigation.signal_skipped",
+            alert_id=str(alert.id),
+            alert_check_id=str(alert_check.id),
+            verdict=result.report.verdict,
+        )
+        return
+
     try:
         await _emit_investigation_signal(
             team=team,
@@ -220,6 +236,20 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
             alert_id=str(alert.id),
             alert_check_id=str(alert_check.id),
         )
+
+
+def should_emit_investigation_signal(verdict: str | None, inconclusive_action: str | None) -> bool:
+    """Whether a completed investigation should surface in the Signals inbox.
+
+    True positives always emit; false positives never do. Inconclusive follows the
+    alert's `investigation_inconclusive_action` policy, mirroring the notification
+    gate, so one per-alert knob controls both surfaces.
+    """
+    if verdict == "true_positive":
+        return True
+    if verdict == "inconclusive":
+        return (inconclusive_action or "notify") == "notify"
+    return False
 
 
 def _build_investigation_signal_extra(

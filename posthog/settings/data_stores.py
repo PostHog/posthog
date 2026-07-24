@@ -670,9 +670,12 @@ if QUERY_CACHE_REDIS_CLUSTER_URL:
         },
         "KEY_PREFIX": "posthog",
     }
+else:
+    CACHES["query_cache"] = CACHES["default"]
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["query_cache"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -1,0 +1,86 @@
+syntax = "proto3";
+package personhog.identity.v1;
+
+import "personhog/types/v1/person.proto";
+
+// GetOrCreatePersonEntry is a single get-or-create key: resolve distinct_id
+// within team_id, creating a person stub when absent. The properties and
+// scalars are used on the creation branch only — when the person already
+// exists the caller applies $set/$set_once through UpdatePersonProperties.
+message GetOrCreatePersonEntry {
+  int64 team_id = 1;
+  // The primary distinct id. The person UUID derives deterministically from
+  // team_id:distinct_id, so its distinct id row is always version 0.
+  string distinct_id = 2;
+  // Additional distinct ids mapped to the person on the creation branch.
+  // Their rows get version 1 when the distinct id has personless history
+  // (a posthog_personlessdistinctid row already existed), else version 0.
+  // An extra already mapped to a different person keeps its existing
+  // mapping: get-or-create never re-points or merges, so the conflict is
+  // not an error and is not reported — re-pointing distinct ids is the
+  // merge path's job.
+  repeated string extra_distinct_ids = 3;
+  // The event name that triggered this call (e.g. "$identify", "$pageview").
+  // Forwarded to the leader's property update on the creation branch.
+  string event_name = 4;
+  // JSON-encoded $set map, applied via the leader on the creation branch.
+  bytes set_properties = 5;
+  // JSON-encoded $set_once map, applied via the leader on the creation branch.
+  bytes set_once_properties = 6;
+  // Person created_at, epoch millis. Used on the creation branch.
+  int64 created_at = 7;
+  bool is_identified = 8;
+}
+
+message GetOrCreatePersonByDistinctIdRequest {
+  GetOrCreatePersonEntry entry = 1;
+}
+
+// created = true means the stub row is committed in Postgres AND the initial
+// properties (when provided) are durable in the leader's changelog.
+message GetOrCreatePersonByDistinctIdResponse {
+  personhog.types.v1.Person person = 1;
+  bool created = 2;
+}
+
+message GetOrCreatePersonsByDistinctIdsRequest {
+  // Max 250 per request. Keys may span teams; each entry is independent and
+  // individually retryable.
+  repeated GetOrCreatePersonEntry entries = 1;
+}
+
+// GetOrCreatePersonResult is the per-key outcome of a batch get-or-create.
+message GetOrCreatePersonResult {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Absent when this key failed (see error).
+  optional personhog.types.v1.Person person = 3;
+  bool created = 4;
+  // Set when this key failed; the caller should retry the key. A committed
+  // stub whose initial-properties write failed surfaces here — the retried
+  // key resolves to the stub (created = false) and applies properties through
+  // the normal update path.
+  optional string error = 5;
+}
+
+message GetOrCreatePersonsByDistinctIdsResponse {
+  // Same order as the request entries.
+  repeated GetOrCreatePersonResult results = 1;
+}
+
+// PersonHogIdentity owns the identity graph: distinct id resolution and
+// get-or-create orchestration across the sync plane (Postgres primary) and
+// the async plane (leader-owned properties). Ingestion calls this service
+// directly; it is not fronted by the router.
+//
+// Get-or-create semantics: created = true means the person stub row is
+// committed in Postgres AND the initial properties (when provided) are
+// durable in the leader's changelog. A crash between the stub commit and the
+// leader ack surfaces as an error; the retried key resolves to the stub
+// (created = false) and the caller applies properties through the normal
+// UpdatePersonProperties path — the event remains the durable source of the
+// initial properties.
+service PersonHogIdentity {
+  rpc GetOrCreatePersonByDistinctId(GetOrCreatePersonByDistinctIdRequest) returns (GetOrCreatePersonByDistinctIdResponse);
+  rpc GetOrCreatePersonsByDistinctIds(GetOrCreatePersonsByDistinctIdsRequest) returns (GetOrCreatePersonsByDistinctIdsResponse);
+}

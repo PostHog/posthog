@@ -901,6 +901,7 @@ def _to_custom_property_definition_view(
         description=definition.description,
         display_type=definition.display_type,
         target_type=definition.target_type,
+        group_type_index=definition.group_type_index,
         is_big_number=definition.is_big_number,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
@@ -969,13 +970,21 @@ def _definition_source_view(
 
 
 def list_custom_property_definitions(
-    team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
+    team_id: int,
+    offset: int,
+    limit: int,
+    *,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``references`` (the workflows referencing each definition) is included only when the caller can
-    read workflows — see ``_can_read_workflow_references``."""
+    read workflows — see ``_can_read_workflow_references``. ``exclude_group_targets`` hides group-target
+    definitions from callers without ``group`` read authorization."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
+    if exclude_group_targets:
+        queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     references = (
@@ -1027,6 +1036,7 @@ def create_custom_property_definition(
     is_big_number: bool,
     options: list[dict[str, Any]] | None = None,
     target_type: str = TargetType.ACCOUNT.value,
+    group_type_index: int | None = None,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -1039,6 +1049,8 @@ def create_custom_property_definition(
             description=description,
             display_type=display_type,
             target_type=target_type,
+            # Only group targets carry an index; force it null otherwise to satisfy the check constraint.
+            group_type_index=group_type_index if target_type == TargetType.GROUP.value else None,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
             options=normalize_options(DisplayType(display_type), options),
         )
@@ -1228,7 +1240,9 @@ def _to_custom_property_source_view(
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
     # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
     # the schedule/latest-run above — a caller without warehouse-source viewer access sees the mapping
-    # but not its status. Account sources have no warehouse binding; their status stays visible.
+    # but not its status. Column descriptions are likewise warehouse-derived (populated from the source's
+    # ``information_schema.columns`` or set by a warehouse-source editor), so they're gated the same way.
+    # Account sources have no warehouse binding; their status and descriptions stay visible.
     warehouse_status_visible = source.external_data_schema_id is None or schema is not None
 
     return contracts.CustomPropertySourceView(
@@ -1239,6 +1253,7 @@ def _to_custom_property_source_view(
         source_column=source.source_column,
         key_column=source.key_column,
         column_property_map=source.column_property_map,
+        column_descriptions=source.column_descriptions if warehouse_status_visible else {},
         is_enabled=source.is_enabled,
         consecutive_failures=source.consecutive_failures if warehouse_status_visible else 0,
         last_synced_at=source.last_synced_at if warehouse_status_visible else None,
@@ -1317,6 +1332,25 @@ def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
     return column_property_map
 
 
+def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[str]) -> dict[str, str]:
+    """Optional {warehouse_column: description} for a person source. Descriptions are keyed by the
+    same warehouse columns the source maps; unknown columns and blank descriptions are dropped."""
+    if column_descriptions is None:
+        return {}
+    if not isinstance(column_descriptions, dict):
+        raise CustomPropertySourceValidationError("column_descriptions must be an object.")
+    cleaned: dict[str, str] = {}
+    for column, description in column_descriptions.items():
+        if column not in mapped_columns:
+            continue
+        if description is None or (isinstance(description, str) and not description.strip()):
+            continue
+        if not isinstance(description, str):
+            raise CustomPropertySourceValidationError("column_descriptions values must be strings.")
+        cleaned[column] = description.strip()
+    return cleaned
+
+
 def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
     """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
     try:
@@ -1337,13 +1371,18 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
 
 
+# Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
+# materialized-view path. These share the sync-now / backfill / run-history machinery.
+_WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
+
+
 def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
-    """Insert a 'running' run for each enabled person source on the schema that isn't already running.
-    The UI shows these as in-progress and disables the trigger while they exist; the backfill activity
-    reconciles them to their terminal state (see record_sync_run). Skipping sources that already have a
-    running run makes this a no-op when a backfill for the table is already in flight (coalesced).
-    Returns the source ids a placeholder was created for, so the caller can reconcile them to FAILED if
-    the workflow start never happens (see ``_fail_created_runs``)."""
+    """Insert a 'running' run for each enabled person/group source on the schema that isn't already
+    running. The UI shows these as in-progress and disables the trigger while they exist; the backfill
+    activity reconciles them to their terminal state (see record_sync_run). Skipping sources that
+    already have a running run makes this a no-op when a backfill for the table is already in flight
+    (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
+    to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     with transaction.atomic():
         # Lock the candidate sources so a concurrent trigger for the same schema can't pass the
         # "already running" check and insert a duplicate RUNNING row before this one commits.
@@ -1352,7 +1391,7 @@ def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any
             .filter(
                 external_data_schema_id=schema_id,
                 is_enabled=True,
-                definition__target_type=TargetType.PERSON.value,
+                definition__target_type__in=_WAREHOUSE_PROFILE_TARGETS,
             )
             .select_for_update()
         )
@@ -1419,8 +1458,8 @@ def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
 
 
 def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
-    """The schema id to act on for a person-property trigger, or None when the source isn't a valid,
-    flag-enabled person source (→ the view returns 400)."""
+    """The schema id to act on for a person/group-property trigger, or None when the source isn't a
+    valid, flag-enabled warehouse-profile source (→ the view returns 400)."""
     source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).select_related("definition").first()
     if source is None or source.external_data_schema_id is None:
         return None
@@ -1429,7 +1468,7 @@ def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
     # a mapping the system already turned off.
     if not source.is_enabled:
         return None
-    if source.definition.target_type != TargetType.PERSON.value:
+    if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
         return None
     if not person_properties_flag_enabled(team_id):
         return None
@@ -1520,11 +1559,21 @@ def trigger_person_property_backfill(
 
 
 def list_custom_property_sources(
-    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    *,
+    exclude_group_targets: bool = False,
 ) -> tuple[list[contracts.CustomPropertySourceView], int]:
     """Custom-property sources for the team, newest first. Returns ``(page, total_count)``. Warehouse
-    schedule/run enrichment per source is gated on the caller's warehouse-source viewer access."""
+    schedule/run enrichment per source is gated on the caller's warehouse-source viewer access.
+
+    ``exclude_group_targets`` hides sources feeding a group-target definition from callers without
+    ``group`` read authorization."""
     queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
+    if exclude_group_targets:
+        queryset = queryset.exclude(definition__target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     enrichment = _batch_source_enrichment(team_id, page, user_access_control)
@@ -1552,6 +1601,7 @@ def create_custom_property_source(
     source_column: str | None = None,
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
+    column_descriptions: dict | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
@@ -1567,15 +1617,19 @@ def create_custom_property_source(
         "key_column": key_column,
         "is_enabled": is_enabled,
     }
-    if definition.target_type == TargetType.PERSON.value:
+    if definition.target_type in _WAREHOUSE_PROFILE_TARGETS:
         if external_data_schema_id is None:
-            raise CustomPropertySourceValidationError("A person property source needs an external_data_schema.")
+            raise CustomPropertySourceValidationError("A person/group property source needs an external_data_schema.")
         if saved_query_id is not None or source_column:
             raise CustomPropertySourceValidationError(
-                "A person property source uses external_data_schema + column_property_map, not saved_query."
+                "A person/group property source uses external_data_schema + column_property_map, not saved_query."
             )
         # Validate the map shape in memory before the DB lookup below.
-        create_kwargs["column_property_map"] = _validate_column_property_map(column_property_map)
+        validated_map = _validate_column_property_map(column_property_map)
+        create_kwargs["column_property_map"] = validated_map
+        create_kwargs["column_descriptions"] = _validate_column_descriptions(
+            column_descriptions, set(validated_map.keys())
+        )
         if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
             raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
         # Mapping (and enabling) a warehouse table into person properties drives its billable source,

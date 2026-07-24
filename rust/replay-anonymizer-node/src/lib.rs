@@ -11,7 +11,9 @@ use std::sync::RwLock;
 
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
-use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind, PhaseTimings};
+use posthog_replay_anonymizer::{
+    snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings,
+};
 use serde::Deserialize;
 
 // The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
@@ -21,6 +23,28 @@ use serde::Deserialize;
 compile_error!(
     "replay-anonymizer-node requires panic=unwind: catch_unwind is the fail-closed guard"
 );
+
+/// Deferred-parallel image scrubbing is the production default; `REPLAY_ANONYMIZER_PARALLEL_IMAGES=0`
+/// (or `false`) is the rollback lever to the inline path. Worker count comes from
+/// `REPLAY_ANONYMIZER_IMAGE_THREADS` (see the core crate's `images` module).
+static IMAGE_POLICY: std::sync::OnceLock<ImagePolicy> = std::sync::OnceLock::new();
+
+fn image_policy() -> ImagePolicy {
+    *IMAGE_POLICY.get_or_init(|| {
+        // Forgiving parse: this is an incident rollback lever, so common falsy spellings count.
+        let disabled = std::env::var("REPLAY_ANONYMIZER_PARALLEL_IMAGES").is_ok_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            )
+        });
+        if disabled {
+            ImagePolicy::Inline
+        } else {
+            ImagePolicy::Parallel
+        }
+    })
+}
 
 // The allow lists are immutable per process; set once at startup via `initAnonymizer`.
 static ALLOW: RwLock<Option<AllowLists>> = RwLock::new(None);
@@ -42,9 +66,11 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
     Ok(cx.null())
 }
 
-/// The off-thread outcome: anonymized output, a classified failure (dlq/drop reason + detail), or an
-/// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
-type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str, String)>, String>;
+/// The off-thread outcome: anonymized output (lines, meta JSON, route, packed image bytes), a
+/// classified failure (dlq/drop reason + detail), or an unclassified error (panic, missing init)
+/// that the caller must treat as `anonymize_failed`.
+type TaskOutcome =
+    Result<Result<(Vec<u8>, String, &'static str, Vec<u8>), (&'static str, String)>, String>;
 
 /// The outcome plus the JSON phase timings, reported on every arm including panics.
 type TaskResult = (TaskOutcome, Option<String>);
@@ -59,6 +85,28 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    // Present + non-empty (both of them) enables the image-collection lane, keyed to this
+    // pseudonymous team id and per-team content-HMAC key. A present-but-non-string argument, or one
+    // of the pair without the other, must fail loudly (the caller drops the message) rather than
+    // silently disable or mis-key collection; only absent/undefined/null mean "collection off".
+    let opt_string_arg = |cx: &mut FunctionContext, index: usize| -> NeonResult<Option<String>> {
+        Ok(match cx.argument_opt(index) {
+            Some(v) if v.is_a::<JsUndefined, _>(cx) || v.is_a::<JsNull, _>(cx) => None,
+            Some(v) => Some(v.downcast_or_throw::<JsString, _>(cx)?.value(cx)),
+            None => None,
+        }
+        .filter(|s| !s.is_empty()))
+    };
+    let pseudo_team = opt_string_arg(&mut cx, 2)?;
+    let content_key = opt_string_arg(&mut cx, 3)?;
+    let image_collection = match (pseudo_team, content_key) {
+        (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
+            pseudo_team,
+            content_key,
+        }),
+        (None, None) => None,
+        _ => return cx.throw_error("pseudoTeam and contentKey must be passed together"),
+    };
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
     let timings = PhaseTimings::new();
@@ -86,8 +134,12 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let scrubbed = snapshot::anonymize_kafka_payload_timed(
                     allow,
                     &mut payload,
-                    snapshot::AnonymizeOpts::default(),
+                    snapshot::AnonymizeOpts {
+                        image_policy: image_policy(),
+                        ..Default::default()
+                    },
                     Some(&timings),
+                    image_collection,
                 );
                 timings.scrub_finished();
                 match scrubbed {
@@ -96,7 +148,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;
                         timings.mark("done");
-                        Ok(Ok((out.lines, meta, out.route.as_str())))
+                        Ok(Ok((out.lines, meta, out.route.as_str(), out.image_bytes)))
                     }
                     Err(f) => Ok(Err((f.kind.reason(), f.detail))),
                 }
@@ -133,10 +185,12 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 obj.set(cx, "meta", null)?;
                 let null = cx.null();
                 obj.set(cx, "route", null)?;
+                let null = cx.null();
+                obj.set(cx, "images", null)?;
                 Ok(())
             };
             match result {
-                Ok(Ok((lines, meta, route))) => {
+                Ok(Ok((lines, meta, route, image_bytes))) => {
                     let failed = cx.boolean(false);
                     obj.set(&mut cx, "failed", failed)?;
                     let null = cx.null();
@@ -151,6 +205,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     obj.set(&mut cx, "meta", meta)?;
                     let route = cx.string(route);
                     obj.set(&mut cx, "route", route)?;
+                    if image_bytes.is_empty() {
+                        let null = cx.null();
+                        obj.set(&mut cx, "images", null)?;
+                    } else {
+                        let images = JsBuffer::external(&mut cx, image_bytes);
+                        obj.set(&mut cx, "images", images)?;
+                    }
                 }
                 Ok(Err((reason, detail))) => set_failure(&mut cx, &obj, reason, detail)?,
                 // Fail closed: an unclassified error still drops the message.

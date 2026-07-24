@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DuckgresBatchConsumerAdapter,
     DuckgresConsumerConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
+    duckgres_sink_enablement,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
 )
@@ -226,6 +229,21 @@ class TestDuckgresProcessSingle:
 
 
 class TestDuckgresEnablementGating:
+    @pytest.mark.asyncio
+    async def test_enabled_team_ids_refresh_uses_connection_safe_wrapper(self):
+        """The refresh crosses from the asyncio poll loop into a worker thread; a bare
+        sync_to_async never recovers a connection killed by the DB/proxy since the last
+        refresh, so this must go through database_sync_to_async_pool instead."""
+        adapter = DuckgresBatchConsumerAdapter()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.database_sync_to_async_pool",
+        ) as mock_wrapper:
+            mock_wrapper.return_value = AsyncMock(return_value=None)
+            await adapter._enabled_team_ids()
+
+        mock_wrapper.assert_called_once_with(duckgres_sink_enablement)
+
     @pytest.mark.asyncio
     async def test_fetch_returns_empty_without_querying_when_no_teams_enabled(self):
         adapter = DuckgresBatchConsumerAdapter()
