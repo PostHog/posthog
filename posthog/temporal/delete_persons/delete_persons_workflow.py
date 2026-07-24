@@ -34,12 +34,12 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     cohortpeople cleanup, so no separate cohort delete is needed here.
     """
     from posthog.personhog_client.caller_tag import personhog_caller_tag
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import PersonHogNotConfiguredError, get_personhog_client
     from posthog.personhog_client.proto import DeletePersonsRequest, GetPersonsRequest
 
     client = get_personhog_client()
     if client is None:
-        raise RuntimeError("personhog client not configured")
+        raise PersonHogNotConfiguredError("personhog client not configured")
 
     with personhog_caller_tag("delete-persons/by-ids"):
         uuids: list[str] = []
@@ -57,12 +57,12 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
 def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
     """Delete up to `batch_size` of a team's persons via personhog, returning the count."""
     from posthog.personhog_client.caller_tag import personhog_caller_tag
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import PersonHogNotConfiguredError, get_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
     client = get_personhog_client()
     if client is None:
-        raise RuntimeError("personhog client not configured")
+        raise PersonHogNotConfiguredError("personhog client not configured")
 
     with personhog_caller_tag("delete-persons/by-team"):
         resp = client.delete_persons_batch_for_team(
@@ -207,7 +207,9 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=360),
                     maximum_attempts=0,
-                    non_retryable_error_types=[],
+                    # A missing PERSONHOG_ADDR is a permanent misconfiguration, not a transient
+                    # outage — fail fast instead of retrying forever and flooding error tracking.
+                    non_retryable_error_types=["PersonHogNotConfiguredError"],
                 ),
             )
 
@@ -231,7 +233,9 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=360),
                     maximum_attempts=0,
-                    non_retryable_error_types=[],
+                    # A missing PERSONHOG_ADDR is a permanent misconfiguration, not a transient
+                    # outage — fail fast instead of retrying forever and flooding error tracking.
+                    non_retryable_error_types=["PersonHogNotConfiguredError"],
                 ),
             )
 
