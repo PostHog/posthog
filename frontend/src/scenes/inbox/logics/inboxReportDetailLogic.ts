@@ -15,7 +15,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -76,6 +76,10 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 ]
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
+
+// Shown in the "Files changed" section when the branch diff can't be produced. A merged, deleted, or
+// force-rewritten-away branch is the common cause — an expected end state for a finished report.
+const DIFF_UNAVAILABLE_MESSAGE = "Couldn't load the diff — the branch may have been merged, deleted, or rewritten."
 
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
@@ -314,9 +318,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // The branch diff endpoint returned an expected 404 (branch merged/deleted/rewritten away).
+        // Surfaces the no-diff message without letting the fetch throw into global error capture.
+        setReportDiffUnavailable: true,
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -418,7 +425,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    try {
+                        return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    } catch (error) {
+                        // A merged/deleted/force-rewritten branch makes the backend `diff` endpoint return
+                        // a deliberate 404 — an expected end state for a finished report, not an exception.
+                        // Swallow it and fall back to the no-diff state (message shown via `reportDiffError`)
+                        // so it never reaches `initKea`'s loader `onFailure` → `posthog.captureException`.
+                        if (error instanceof ApiError && error.status === 404) {
+                            actions.setReportDiffUnavailable()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -460,14 +479,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // compare usually means the branch was merged, deleted, or force-rewritten away. `loadReportDiff`
+        // clears it on each (re)start; `setReportDiffUnavailable` fires for the expected 404 the loader
+        // swallows, so success must NOT reset it back to null in that case.
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
-                loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
+                setReportDiffUnavailable: () => DIFF_UNAVAILABLE_MESSAGE,
+                loadReportDiffFailure: () => DIFF_UNAVAILABLE_MESSAGE,
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
