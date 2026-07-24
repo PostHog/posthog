@@ -15,6 +15,8 @@ import {
     ExperimentSavedMetricsPartialUpdateBody,
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
+    ExperimentsActivityRetrieveParams,
+    ExperimentsActivityRetrieveQueryParams,
     ExperimentsArchiveCreateBody,
     ExperimentsArchiveCreateParams,
     ExperimentsCalculateRunningTimeCreateBody,
@@ -1039,6 +1041,27 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
+const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
+    .extend(ExperimentsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+
+const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
+    name: 'experiment-activity',
+    schema: ExperimentActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
@@ -1070,4 +1093,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiment-activity': experimentActivity,
 }

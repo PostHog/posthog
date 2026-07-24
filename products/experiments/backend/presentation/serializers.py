@@ -1527,3 +1527,8 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
             "experiment's run window overlaps the recording or no flag data was observed in the session."
         ),
     )
+
+
+class ExperimentActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")

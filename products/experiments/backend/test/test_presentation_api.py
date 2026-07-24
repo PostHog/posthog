@@ -6943,6 +6943,28 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
 
+    def test_activity_endpoint_returns_only_this_experiments_changes(self):
+        experiment_ids = []
+        for key in ["activity-endpoint-one", "activity-endpoint-two"]:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {"name": f"Experiment {key}", "feature_flag_key": key},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            experiment_ids.append(create_response.json()["id"])
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/experiments/{experiment_ids[-1]}/",
+                {"description": f"Updated {key}"},
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_ids[0]}/activity")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["total_count"], 2)
+        self.assertEqual([entry["activity"] for entry in response_data["results"]], ["updated", "created"])
+        self.assertEqual({entry["item_id"] for entry in response_data["results"]}, {str(experiment_ids[0])})
+
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,

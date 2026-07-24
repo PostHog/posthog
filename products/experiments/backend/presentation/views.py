@@ -29,6 +29,8 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.activity_logging.activity_log import load_activity
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -56,6 +58,7 @@ from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
+    ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
@@ -613,6 +616,36 @@ class EnterpriseExperimentsViewSet(
             }
         )
         return Response(response_serializer.data)
+
+    @validated_request(
+        query_serializer=ExperimentActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
+            404: OpenApiResponse(response=None),
+        },
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """
+        Change history for this experiment.
+
+        Returns a paginated audit trail of changes to the experiment and its holdouts
+        and shared metrics: who made each change, what changed (field-level before/after
+        values), and when. Ordered newest first.
+        """
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
+
+        experiment: Experiment = self.get_object()
+
+        activity_page = load_activity(
+            scope="Experiment",
+            team_id=self.team_id,
+            item_ids=[str(experiment.id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
     @extend_schema(
         request=None,

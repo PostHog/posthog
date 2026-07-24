@@ -74741,6 +74741,19 @@ export namespace Schemas {
       Stopped: 'stopped',
     } as const;
 
+    export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
+
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
      * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
