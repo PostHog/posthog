@@ -1,5 +1,6 @@
 import gzip
 import json
+import zlib
 import base64
 import dataclasses
 from datetime import UTC, datetime
@@ -121,7 +122,9 @@ def _decode_invocation_globals(stored: str) -> dict[str, Any]:
             else:
                 return {}
         parsed = json.loads(decoded)
-    except (ValueError, OSError, EOFError, zstd.Error):
+    # zlib.error covers a valid gzip header with a corrupted deflate body —
+    # it subclasses only Exception, so the stdlib tuple alone misses it.
+    except (ValueError, OSError, EOFError, zlib.error, zstd.Error):
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

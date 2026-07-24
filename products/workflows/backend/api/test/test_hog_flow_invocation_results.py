@@ -227,8 +227,17 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         assert body["status"] == "failed"
         assert body["invocation_globals"] == _GLOBALS_PAYLOAD
 
-    def test_detail_invocation_globals_degrades_to_empty_on_garbage(self):
-        self._seed("inv-1", invocation_globals="not-valid-base64-or-json")
+    # The corrupted-gzip case has a valid magic prefix but a broken deflate body, which
+    # raises zlib.error (a bare Exception subclass) — the one decode failure the stdlib
+    # ValueError/OSError/EOFError tuple does not cover.
+    @parameterized.expand(
+        [
+            ("not_base64_or_json", "not-valid-base64-or-json"),
+            ("gzip_magic_corrupt_body", base64.b64encode(b"\x1f\x8b\x08\x00" + b"\xff" * 20).decode("utf-8")),
+        ]
+    )
+    def test_detail_invocation_globals_degrades_to_empty_on_garbage(self, _name, stored):
+        self._seed("inv-1", invocation_globals=stored)
         assert self._detail("inv-1").json()["invocation_globals"] == {}
 
     def test_detail_404_for_unknown_invocation(self):
