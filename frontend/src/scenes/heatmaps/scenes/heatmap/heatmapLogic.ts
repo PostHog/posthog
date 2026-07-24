@@ -500,12 +500,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (cache.creatingHeatmap) {
                 return
             }
+            const url = values.displayUrl?.trim()
+            if (!url) {
+                lemonToast.error('Page URL is required')
+                return
+            }
             cache.creatingHeatmap = true
             actions.setLoading(true)
             try {
                 const data: SavedHeatmapRequestApi = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
-                    url: values.displayUrl || '',
+                    url,
                     data_url: values.dataUrl,
                     type: values.type,
                     block_consent_modals: values.blockConsentModals,
@@ -526,13 +531,18 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         updateHeatmap: async () => {
+            const url = values.displayUrl?.trim()
+            if (!url) {
+                lemonToast.error('Page URL is required')
+                return
+            }
             actions.setLoading(true)
             const previousSavedUrl = values.savedDisplayUrl
             const previousBlockConsentModals = values.savedBlockConsentModals
             try {
                 const data: SavedHeatmapRequestApi = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
-                    url: values.displayUrl || '',
+                    url,
                     data_url: values.dataUrl,
                     type: values.type,
                     block_consent_modals: values.blockConsentModals,
@@ -552,9 +562,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
                 }
             } catch (error: unknown) {
-                if (values.displayUrl !== previousSavedUrl) {
-                    actions.setDisplayUrl(previousSavedUrl)
-                }
+                // Keep the user's URL in the field so they can correct it — don't roll it back to the
+                // saved value (which may be empty) and leave them staring at a cleared input.
                 lemonToast.error(getApiErrorMessage(error, 'Failed to update heatmap'))
             } finally {
                 actions.setLoading(false)
