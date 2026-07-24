@@ -6,8 +6,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from unittest.mock import patch
 
 from django.core.signing import SignatureExpired
+from django.db import connection
 from django.http import HttpResponse
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1412,6 +1414,75 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert str(granted_server.id) not in revoke_response.json()["server_ids"]
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
+
+    @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
+    def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self, _mock_is_limited) -> None:
+        account = self._active_posthog_ai_account()
+        client = self._agent_client(account)
+
+        def grant_server(index: int) -> MCPGatewayServer:
+            server = MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team,
+                name=f"Catalog server {index}",
+                url=f"https://mcp.catalog-{index}.example.com/mcp",
+            )
+            installation = MCPServerInstallation.objects.create(
+                team=self.team,
+                user=self.user,
+                display_name=server.name,
+                url=server.url,
+                auth_type="api_key",
+                scope="shared",
+                gateway_server=server,
+            )
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name=f"catalog_tool_{index}",
+                description=f"Catalog tool {index}",
+                input_schema={"type": "object", "properties": {"index": {"type": "integer"}}},
+                last_seen_at=timezone.now(),
+            )
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                service_account=account,
+                gateway_server=server,
+                granted_by=self.user,
+            )
+            MCPToolPolicy.objects.for_team(self.team.id).create(
+                team=self.team,
+                gateway_server=server,
+                tool_name=f"catalog_tool_{index}",
+                scope_type="agent",
+                scope_service_account=account,
+                state="do_not_use",
+            )
+            return server
+
+        servers = [grant_server(0)]
+        assert client.get("/api/mcp_store/gateway/servers/").status_code == status.HTTP_200_OK
+        with CaptureQueriesContext(connection) as one_server_queries:
+            one_server_response = client.get("/api/mcp_store/gateway/servers/")
+
+        servers.extend(grant_server(index) for index in range(1, 5))
+        with CaptureQueriesContext(connection) as five_server_queries:
+            five_server_response = client.get("/api/mcp_store/gateway/servers/")
+
+        assert one_server_response.status_code == status.HTTP_200_OK
+        assert five_server_response.status_code == status.HTTP_200_OK
+        results_by_id = {row["id"]: row for row in five_server_response.json()["results"]}
+        for index, server in enumerate(servers):
+            assert results_by_id[str(server.id)]["tools"] == [
+                {
+                    "name": f"catalog_tool_{index}",
+                    "description": f"Catalog tool {index}",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"index": {"type": "integer"}},
+                    },
+                    "state": "do_not_use",
+                }
+            ]
+        assert len(five_server_queries.captured_queries) == len(one_server_queries.captured_queries)
 
     def test_built_in_agent_oauth_cannot_use_member_mcp_or_control_plane(self) -> None:
         self._make_admin()

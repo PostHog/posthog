@@ -17,11 +17,15 @@ through this module so their answers can't drift apart.
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Literal
+from uuid import UUID
 
 from django.db.models import Q
+
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPToolPolicy, TeamMCPGatewayConfig
 
@@ -99,6 +103,13 @@ class ResolvedPolicy:
         return self.decided_by == "rule"
 
 
+@dataclass(frozen=True)
+class _PolicyInputs:
+    rules: tuple[MCPOrgRule, ...]
+    policies: tuple[MCPToolPolicy, ...]
+    preset: str
+
+
 _STRICTNESS = {"do_not_use": 2, "needs_approval": 1, "approved": 0}
 
 
@@ -120,6 +131,7 @@ class PolicyContext:
         caller: GatewayCaller,
         gateway_server: MCPGatewayServer,
         installation: MCPServerInstallation | None = None,
+        _preloaded: _PolicyInputs | None = None,
     ) -> None:
         self.team_id = team_id
         self.caller = caller
@@ -128,18 +140,27 @@ class PolicyContext:
         audience = "members" if caller.kind == "member" else "agents"
         # for_team: policy resolution also runs outside request scope (Max,
         # the agent proxy), where the fail-closed manager has no context.
-        self._rules = [
-            rule
-            for rule in MCPOrgRule.objects.for_team(team_id).filter(enabled=True)
-            if rule.applies_to in ("everyone", audience)
-        ]
+        self._rules = (
+            tuple(
+                MCPOrgRule.objects.for_team(team_id).filter(
+                    enabled=True,
+                    applies_to__in=("everyone", audience),
+                )
+            )
+            if _preloaded is None
+            else _preloaded.rules
+        )
 
         policy_scope = Q(scope_type="team")
         if caller.kind == "member" and caller.user_id is not None:
             policy_scope |= Q(scope_type="member", scope_user_id=caller.user_id)
         elif caller.kind == "agent" and caller.service_account_id is not None:
             policy_scope |= Q(scope_type="agent", scope_service_account_id=caller.service_account_id)
-        policies = MCPToolPolicy.objects.for_team(team_id).filter(policy_scope, gateway_server=gateway_server)
+        policies: Iterable[MCPToolPolicy] = (
+            MCPToolPolicy.objects.for_team(team_id).filter(policy_scope, gateway_server=gateway_server)
+            if _preloaded is None
+            else _preloaded.policies
+        )
         self._team_rows: dict[str, str] = {}
         self._scope_rows: dict[str, str] = {}
         for policy in policies:
@@ -160,16 +181,71 @@ class PolicyContext:
             ):
                 self._scope_rows[policy.tool_name] = policy.state
 
-        config = TeamMCPGatewayConfig.objects.for_team(team_id).first()
-        if config is None:
-            self.preset = ""
+        if _preloaded is not None:
+            self.preset = _preloaded.preset
         else:
-            self.preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
+            config = TeamMCPGatewayConfig.objects.for_team(team_id).first()
+            if config is None:
+                self.preset = ""
+            else:
+                self.preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
 
         self._legacy_rows: dict[str, str] = {}
         if installation is not None and caller.kind == "member":
             for row in installation.tools.filter(removed_at__isnull=True).values("tool_name", "approval_state"):
                 self._legacy_rows[row["tool_name"]] = row["approval_state"]
+
+    @classmethod
+    def for_agent_servers(
+        cls,
+        *,
+        team_id: int,
+        service_account_id: str,
+        gateway_servers: Iterable[MCPGatewayServer],
+    ) -> dict[UUID, "PolicyContext"]:
+        """Load policy inputs once for an agent's server catalog."""
+        servers_by_id = {server.id: server for server in gateway_servers}
+        if not servers_by_id:
+            return {}
+
+        canonical_team_id = resolve_effective_team_id(team_id)
+        caller = GatewayCaller(kind="agent", service_account_id=service_account_id)
+        rules = tuple(
+            MCPOrgRule.objects.for_team(canonical_team_id, canonical=True).filter(
+                enabled=True,
+                applies_to__in=("everyone", "agents"),
+            )
+        )
+        policies_by_server: dict[UUID, list[MCPToolPolicy]] = {}
+        relevant_policies = (
+            MCPToolPolicy.objects.for_team(canonical_team_id, canonical=True)
+            .filter(gateway_server_id__in=servers_by_id)
+            .filter(
+                Q(scope_type="team")
+                | Q(
+                    scope_type="agent",
+                    scope_service_account_id=service_account_id,
+                )
+            )
+        )
+        for policy in relevant_policies:
+            policies_by_server.setdefault(policy.gateway_server_id, []).append(policy)
+
+        config = TeamMCPGatewayConfig.objects.for_team(canonical_team_id, canonical=True).first()
+        preset = config.agent_default_preset if config is not None else ""
+        return {
+            server_id: cls(
+                team_id=team_id,
+                caller=caller,
+                gateway_server=server,
+                _preloaded=_PolicyInputs(
+                    rules=rules,
+                    policies=tuple(policies_by_server.get(server_id, ())),
+                    preset=preset,
+                ),
+            )
+            for server_id, server in servers_by_id.items()
+        }
 
     def _matching_rule(self, tool_name: str, description: str) -> MCPOrgRule | None:
         matches = [

@@ -10,10 +10,12 @@ Every tools/call resolves through the same policy engine as members, under the
 agent's own scope.
 """
 
-from collections.abc import Iterable
+from collections import defaultdict
 from datetime import timedelta
 from typing import Any, cast
+from uuid import UUID
 
+from django.db.models import Prefetch
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -29,7 +31,7 @@ from rest_framework.response import Response
 
 from ..agents import resolve_gateway_agent_token
 from ..gateway import installation_for_agent_access
-from ..models import MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
+from ..models import MCPServerInstallation, MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
 from ..policy import GatewayCaller, PolicyContext
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from .views import MCPProxyRenderer
@@ -77,6 +79,16 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account)
             .select_related("gateway_server__template", "installation")
+            .prefetch_related(
+                Prefetch(
+                    "gateway_server__installations",
+                    queryset=MCPServerInstallation.objects.filter(
+                        team_id=account.team_id,
+                        scope="shared",
+                    ).order_by("created_at"),
+                    to_attr="agent_shared_installations",
+                )
+            )
             .order_by("gateway_server__name")
         )
 
@@ -89,37 +101,54 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         """The agent's server catalog: every enabled server it has access to,
         with each tool's effective policy state."""
         account = cast(MCPServiceAccount, request.auth)
-        results = []
-        for access in self._accessible_server_access(account):
-            server = access.gateway_server
-            installation = installation_for_agent_access(access)
-            context = PolicyContext(
-                team_id=account.team_id,
-                caller=GatewayCaller(kind="agent", service_account_id=str(account.id)),
-                gateway_server=server,
+        catalog_entries = [
+            (access, installation_for_agent_access(access)) for access in self._accessible_server_access(account)
+        ]
+        active_entries = [
+            (access, installation)
+            for access, installation in catalog_entries
+            if installation is not None and installation.is_enabled
+        ]
+        policy_contexts = PolicyContext.for_agent_servers(
+            team_id=account.team_id,
+            service_account_id=str(account.id),
+            gateway_servers=(access.gateway_server for access, _installation in active_entries),
+        )
+        tools_by_installation: dict[UUID, list[MCPServerInstallationTool]] = defaultdict(list)
+        active_installation_ids = [installation.id for _access, installation in active_entries]
+        for tool in (
+            MCPServerInstallationTool.objects.filter(
+                installation_id__in=active_installation_ids,
+                removed_at__isnull=True,
             )
+            .order_by("installation_id", "tool_name", "-last_seen_at", "-id")
+            .only("installation_id", "tool_name", "description", "input_schema")
+        ):
+            tools_by_installation[tool.installation_id].append(tool)
+
+        results = []
+        for access, installation in catalog_entries:
+            server = access.gateway_server
             tools = []
             seen: set[str] = set()
-            tool_rows: Iterable[tuple[str, str, dict[str, Any]]] = ()
+            tool_rows: list[MCPServerInstallationTool] = []
             if installation is not None and installation.is_enabled:
-                tool_rows = (
-                    MCPServerInstallationTool.objects.filter(
-                        installation=installation,
-                        removed_at__isnull=True,
-                    )
-                    .order_by("tool_name", "-last_seen_at")
-                    .values_list("tool_name", "description", "input_schema")
-                )
-            for tool_name, description, input_schema in tool_rows:
-                if tool_name in seen:
+                tool_rows = tools_by_installation.get(installation.id, [])
+            for tool in tool_rows:
+                if tool.tool_name in seen:
                     continue
-                seen.add(tool_name)
+                seen.add(tool.tool_name)
                 tools.append(
                     {
-                        "name": tool_name,
-                        "description": description or "",
-                        "input_schema": input_schema or {},
-                        "state": context.resolve(tool_name, description or "").state,
+                        "name": tool.tool_name,
+                        "description": tool.description or "",
+                        "input_schema": tool.input_schema or {},
+                        "state": policy_contexts[server.id]
+                        .resolve(
+                            tool.tool_name,
+                            tool.description or "",
+                        )
+                        .state,
                     }
                 )
             results.append(
