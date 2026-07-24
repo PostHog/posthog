@@ -1,6 +1,24 @@
 import contextvars
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from posthoganalytics.client import Client
+
+# Dedicated client for exceptions raised on self-hosted deployments. When set (from
+# PostHogConfig.ready()), capture_exception routes through it — sending to the "hobby experience"
+# project instead of the default client's PostHog-internal product analytics project, which nobody
+# monitors for self-hosted environment errors. None means "use the default client".
+_hobby_experience_client: Optional["Client"] = None
+_hobby_experience_distinct_id: Optional[str] = None
+
+
+def use_hobby_experience_exceptions_client(client: "Client", distinct_id: str) -> None:
+    global _hobby_experience_client, _hobby_experience_distinct_id
+    _hobby_experience_client = client
+    _hobby_experience_distinct_id = distinct_id
+
 
 # Ambient properties merged into every capture_exception raised within the current execution
 # context. Lets a long-running subsystem (e.g. a data warehouse import) tag captured exceptions
@@ -75,7 +93,13 @@ def capture_exception(error=None, additional_properties=None):
 
     properties.update(celery_properties())
 
-    if api_key:
+    if _hobby_experience_client is not None:
+        uuid = _hobby_experience_client.capture_exception(
+            error, distinct_id=_hobby_experience_distinct_id, properties=properties
+        )
+        if uuid is not None:
+            logger.exception(error, event_id=uuid)
+    elif api_key:
         uuid = posthog_capture_exception(error, properties=properties)
 
         # Only log if captured

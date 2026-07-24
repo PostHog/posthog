@@ -8,11 +8,15 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.cloud_utils import is_cloud
+from posthog.constants import HOBBY_EXPERIENCE_API_KEY
+from posthog.exceptions_capture import use_hobby_experience_exceptions_client
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
+from posthog.ph_client import PH_US_HOST, enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
+    get_instance_realm,
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
@@ -66,7 +70,17 @@ class PostHogConfig(AppConfig):
             getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
-        posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # Self-hosted deployments send exceptions to the dedicated "hobby experience" project (client
+        # constructed below) instead of autocapturing into PostHog's internal product analytics
+        # project — self-hosted environment errors aren't triaged there and drown out our own.
+        route_exceptions_to_hobby_experience = (
+            bool(HOBBY_EXPERIENCE_API_KEY)
+            and not is_cloud()
+            and not settings.DEBUG
+            and not settings.TEST
+            and not settings.E2E_TESTING
+        )
+        posthoganalytics.enable_exception_autocapture = not route_exceptions_to_hobby_experience  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
@@ -127,6 +141,28 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+
+        if route_exceptions_to_hobby_experience and not posthoganalytics.disabled:
+            # The autocapture hooks (sys/threading excepthooks) attach to this client instead of the
+            # default one, and posthog.exceptions_capture routes manual captures through it too.
+            # Rate limiting guards the hobby experience project against crash-looping instances,
+            # and code-variable capture stays off (SDK default): these are third-party servers.
+            hobby_experience_client = Client(
+                HOBBY_EXPERIENCE_API_KEY,
+                host=PH_US_HOST,
+                enable_exception_autocapture=True,
+                enable_exception_autocapture_rate_limiting=True,
+                log_captured_exceptions=True,
+                super_properties={
+                    "site_url": settings.SITE_URL,
+                    "machine_id": get_machine_id(),
+                    "realm": get_instance_realm(),
+                    "deployment": os.getenv("DEPLOYMENT", "unknown"),
+                    "git_sha": get_git_commit_short(),
+                },
+            )
+            use_hobby_experience_exceptions_client(hobby_experience_client, distinct_id=get_machine_id())
+
         # Use HyperCache to provide flag definitions instead of per-process API polling.
         # Falls back to the SDK's emergency API fetch (via personal_api_key) only when
         # the cache is cold. In E2E testing personal_api_key is None, so a cold cache

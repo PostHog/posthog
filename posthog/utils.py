@@ -544,10 +544,13 @@ def _build_template_context(
         elif posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-    else:
+    elif is_cloud():
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
+    # Self-hosted without self-capture: no key at all. A third-party instance's admin UI must not
+    # send telemetry to PostHog Cloud — head.html then omits the posthog-js bootstrap entirely and
+    # loadPostHogJS falls through to its opted-out no-op instance.
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)

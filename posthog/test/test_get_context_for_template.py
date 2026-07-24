@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
@@ -90,3 +90,20 @@ class TestGetContextForTemplate(APIBaseTest):
         actual = get_context_for_template("index.html", request)
 
         assert actual["boot_theme"] == expected
+
+
+class TestTemplateContextPostHogJsKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cloud_us", "US", "sTMFPsFhdP1Ssg"),
+            ("cloud_eu", "EU", "sTMFPsFhdP1Ssg"),
+            ("self_hosted", None, None),
+        ]
+    )
+    def test_posthog_js_key_is_cloud_only_outside_self_capture(self, _name, cloud_deployment, expected):
+        with self.settings(SELF_CAPTURE=False, CLOUD_DEPLOYMENT=cloud_deployment):
+            actual = get_context_for_template("layout", MagicMock())
+
+        # A self-hosted instance's admin UI must not get a PostHog Cloud key: with no key,
+        # head.html omits the posthog-js bootstrap and the UI sends no telemetry at all.
+        assert actual.get("js_posthog_api_key") == expected
