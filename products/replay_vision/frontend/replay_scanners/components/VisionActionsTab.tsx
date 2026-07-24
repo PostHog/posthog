@@ -106,7 +106,7 @@ function VisionActionsTable({
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    // The scanner's built-in daily digest is listed here alongside user-created summaries and alerts
+    // The scanner's built-in daily digest is listed here alongside user-created digests and alerts
     // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
     const rows = visionActions
@@ -114,11 +114,11 @@ function VisionActionsTable({
     if (!visionActionsLoading && rows.length === 0) {
         return (
             <ProductIntroduction
-                productName="Summaries and alerts"
-                thingName="summary or alert"
+                productName="Digests and alerts"
+                thingName="digest or alert"
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Get scheduled summaries of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                description="Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
                     <div className="flex gap-2">
                         <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
@@ -128,7 +128,7 @@ function VisionActionsTable({
                                 to={urls.replayVisionActionNew(scannerId, 'group_summary')}
                                 data-attr="vision-action-new-empty"
                             >
-                                New summary
+                                New digest
                             </LemonButton>
                         </EditorGate>
                         <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
@@ -241,7 +241,7 @@ function VisionActionsTable({
                                 LemonDialog.open({
                                     title: `Delete "${action.name}"?`,
                                     description:
-                                        'This stops its scheduled summaries and removes its delivery destinations. This cannot be undone.',
+                                        'This stops its scheduled runs and removes its delivery destinations. This cannot be undone.',
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -267,7 +267,7 @@ function VisionActionsTable({
                         to={urls.replayVisionActionNew(scannerId, 'group_summary')}
                         data-attr="vision-action-new"
                     >
-                        New summary
+                        New digest
                     </LemonButton>
                 </EditorGate>
                 <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
@@ -287,7 +287,7 @@ function VisionActionsTable({
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No summaries or alerts set up for this scanner yet."
+                emptyState="No digests or alerts set up for this scanner yet."
             />
         </div>
     )

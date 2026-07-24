@@ -183,7 +183,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 setActionId: (_, { actionId }) => actionId,
             },
         ],
-        // Whether the summary covers everything or only matching observations. Explicit state (not
+        // Whether the digest covers everything or only matching observations. Explicit state (not
         // derived from the filter values) so picking "only matching" shows the controls before any
         // value is chosen.
         targetingMode: [
@@ -248,7 +248,9 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 crumbs.push(
                     {
                         key: `action-${actionId}`,
-                        name: loadedAction?.name || 'Summary',
+                        name:
+                            loadedAction?.name ||
+                            (loadedAction?.mode === VisionActionModeEnumApi.Alert ? 'Alert' : 'Digest'),
                         path: urls.replayVisionAction(actionId),
                     },
                     { key: `action-${actionId}-edit`, name: 'Edit' }
@@ -270,7 +272,11 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 alert_frequency,
                 alert_threshold,
             }: VisionActionForm) => ({
-                name: !name?.trim() ? 'Give this summary a name' : undefined,
+                name: !name?.trim()
+                    ? mode === VisionActionModeEnumApi.Alert
+                        ? 'Give this alert a name'
+                        : 'Give this digest a name'
+                    : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
                 // Alerts have no schedule UI (checked continuously on every sweep), so weekdays don't apply.
@@ -301,15 +307,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const body = buildActionBody(form, scannerId)
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
-                    lemonToast.success(
-                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Summary created'
-                    )
+                    lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Digest created')
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Summary updated')
+                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Digest updated')
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -322,7 +326,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     listeners(({ actions, values }) => ({
         setTargetingMode: ({ mode }) => {
             if (mode === 'all') {
-                // Clear the filter values so a hidden filter can't silently narrow the summary.
+                // Clear the filter values so a hidden filter can't silently narrow the digest.
                 actions.setActionFormValues({ verdict: [], tags: [], min_score: null, max_score: null })
             }
         },
@@ -340,7 +344,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 actions.setScannerName(scanner.name)
                 actions.setScannerType(scanner.scanner_type)
             } catch {
-                // Display-only — the title falls back to "New summary".
+                // Display-only — the title falls back to "New digest".
             }
         },
 
@@ -372,7 +376,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 if (isBreakpoint(error)) {
                     throw error
                 }
-                lemonToast.error(`Failed to load summary${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load this action${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionFailure()
             }
         },
@@ -388,7 +392,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             )
             actions.setTargetingMode(hasFilter ? 'filtered' : 'all')
             // Stored alerts without a frequency predate the field and behaved as on_breach; anything
-            // else gets the fresh-form default so flipping a summary to an alert starts at every_match.
+            // else gets the fresh-form default so flipping a digest to an alert starts at every_match.
             const alertFrequency =
                 action.alert_config?.frequency ??
                 (action.mode === VisionActionModeEnumApi.Alert
@@ -417,7 +421,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
 
         submitActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
-            lemonToast.error(`Failed to save summary${error?.detail ? `: ${error.detail}` : ''}`)
+            const noun = values.actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+            lemonToast.error(`Failed to save ${noun}${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
 
@@ -425,7 +430,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         [urls.replayVisionActionNew(':scannerId')]: ({ scannerId }, { mode }) => {
             actions.setActionId('new')
             actions.setScannerId(scannerId || '')
-            // Mode is picked before opening the editor (the "New summary" / "New alert" buttons), so the
+            // Mode is picked before opening the editor (the "New digest" / "New alert" buttons), so the
             // form opens committed to one shape rather than showing a type toggle.
             const startMode =
                 mode === VisionActionModeEnumApi.Alert
