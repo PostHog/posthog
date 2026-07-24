@@ -185,6 +185,11 @@ class JiraIssueSignalInput(SignalInputBase):
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
+class ConversationsTicketImage(ContractModel):
+    url: str
+    author: str
+
+
 class ConversationsTicketSignalExtra(SignalExtraBase):
     ticket_number: int
     channel_source: str
@@ -193,6 +198,9 @@ class ConversationsTicketSignalExtra(SignalExtraBase):
     priority: str | None
     created_at: str
     email_subject: str | None
+    # Publicly fetchable media URLs pasted into the thread, so the research agent can inspect
+    # screenshots directly. Absent (rather than empty) when the thread has no attachments.
+    images: list[ConversationsTicketImage] | None = None
 
 
 class ConversationsTicketSignalInput(SignalInputBase):

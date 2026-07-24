@@ -37,7 +37,7 @@ class CaptureSignalDroppedInput:
     extra: dict = field(default_factory=dict)
 
 
-def _summarize_drop_error(error: BaseException) -> tuple[str, str]:
+def summarize_drop_error(error: BaseException) -> tuple[str, str]:
     """Extract the most specific (type, message) from a (possibly wrapped) activity error.
 
     Temporal wraps the real failure: an ActivityError's `cause` is an ApplicationError
@@ -93,7 +93,7 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
     """Best-effort signal_dropped telemetry from workflow code; never raises into the grouping flow."""
     if not workflow.patched(_PATCH_SIGNAL_DROPPED):
         return
-    error_type, error_message = _summarize_drop_error(error)
+    error_type, error_message = summarize_drop_error(error)
     try:
         await workflow.execute_activity(
             capture_signal_dropped_activity,
