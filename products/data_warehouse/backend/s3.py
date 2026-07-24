@@ -1,3 +1,4 @@
+import time
 import contextlib
 from typing import Optional
 from urllib.parse import urlparse
@@ -88,19 +89,26 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
         raise ValueError(f"Invalid S3 URL: {s3_url}")
 
     bucket_name = parsed.netloc
+    max_attempts = 3
+    transient_codes = {"403", "500", "502", "503"}
 
-    try:
-        s3_client.head_bucket(Bucket=bucket_name)
-    except botocore.exceptions.ClientError as e:
-        error = e.response.get("Error")
-        if not error:
-            raise
+    for attempt in range(max_attempts):
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+            return
+        except botocore.exceptions.ClientError as e:
+            error = e.response.get("Error")
+            if not error:
+                raise
 
-        error_code = error.get("Code")
-        if not error_code:
-            raise
+            error_code = str(error.get("Code", ""))
 
-        if int(error_code) == 404:
-            s3_client.create_bucket(Bucket=bucket_name)
-        else:
+            if error_code == "404":
+                s3_client.create_bucket(Bucket=bucket_name)
+                return
+
+            if error_code in transient_codes and attempt < max_attempts - 1:
+                time.sleep(2**attempt)
+                continue
+
             raise
