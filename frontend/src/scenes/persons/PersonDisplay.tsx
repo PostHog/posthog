@@ -34,7 +34,6 @@ export interface PersonDisplayProps {
     isCentered?: boolean
     children?: React.ReactChild
     withCopyButton?: boolean
-    /** Show an icon button to copy the person's email to the clipboard. */
     withCopyEmailButton?: boolean
     withComposeTicketButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
