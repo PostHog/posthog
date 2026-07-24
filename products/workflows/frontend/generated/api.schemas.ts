@@ -686,7 +686,7 @@ export interface HogFlowBatchJobApi {
     /** ID of the workflow this batch run belongs to. */
     hog_flow: string
     /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-    filters?: unknown
+    readonly filters: unknown
     /** Variable value overrides applied to this run. */
     variables?: unknown
     readonly created_at: string
@@ -1175,6 +1175,8 @@ export interface BlastRadiusApi {
      *
      * * `email` - email */
     dedupe_key: DedupeKeyEnumApi | null
+    /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+    confirm_token: string
 }
 
 export type HogFlowTemplatesListParams = {

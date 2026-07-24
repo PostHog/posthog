@@ -6413,6 +6413,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6448,6 +6450,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6479,6 +6483,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -6511,6 +6517,7 @@ export namespace Schemas {
 
     export const MarketingAnalyticsDrillDownLevel = {
       Channel: 'channel',
+      ChannelSource: 'channel_source',
       Source: 'source',
       Campaign: 'campaign',
       AdGroup: 'ad_group',
@@ -12592,6 +12599,8 @@ export namespace Schemas {
        *
        * * `email` - email */
       dedupe_key: DedupeKeyEnum | null;
+      /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+      confirm_token: string;
     }
 
     /**
@@ -16275,6 +16284,8 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
+      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -27178,6 +27189,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion
+     */
+    export type SourceRoleEnum = typeof SourceRoleEnum[keyof typeof SourceRoleEnum];
+
+
+    export const SourceRoleEnum = {
+      Source: 'source',
+      Step: 'step',
+      Numerator: 'numerator',
+      Denominator: 'denominator',
+      RetentionStart: 'retention_start',
+      RetentionCompletion: 'retention_completion',
+    } as const;
+
+    /**
+     * One event/action source of a metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricSourceHit {
+      /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+       *
+       * * `source` - source
+       * * `step` - step
+       * * `numerator` - numerator
+       * * `denominator` - denominator
+       * * `retention_start` - retention_start
+       * * `retention_completion` - retention_completion */
+      source_role: SourceRoleEnum;
+      /** Display name of the source event or action. */
+      source_name: string;
+      /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+      source_index: number;
+      /** Total number of sources the metric is defined over. */
+      source_total: number;
+      /** Number of events in the session matching this source. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching this source. */
+      first_timestamp: string;
+      /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment metric with at least one matching event in a session recording.
      */
     export interface ExperimentSessionMetricHit {
@@ -27191,6 +27249,8 @@ export namespace Schemas {
       first_timestamp: string;
       /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
       timestamps: string[];
+      /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+      sources: ExperimentSessionMetricSourceHit[];
     }
 
     /**
@@ -32594,7 +32654,7 @@ export namespace Schemas {
       /** ID of the workflow this batch run belongs to. */
       hog_flow: string;
       /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-      filters?: unknown;
+      readonly filters: unknown;
       /** Variable value overrides applied to this run. */
       variables?: unknown;
       readonly created_at: string;
@@ -39559,6 +39619,7 @@ export namespace Schemas {
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
+     * * `ticket` - TICKET
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -39573,6 +39634,7 @@ export namespace Schemas {
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
+      Ticket: 'ticket',
     } as const;
 
     export interface NotificationEvent {
@@ -60950,11 +61012,6 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
-      /**
-         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-         * @maxLength 200
-         */
-      skill_name: string;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -60973,6 +61030,73 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+    }
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+    }
+
+    /**
+     * Create a runnable custom scout and its config in one atomic request.
+     */
+    export interface SignalScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional reference files bundled with the scout prompt. */
+      files?: LLMSkillFileInput[];
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export interface SignalScoutSkillSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      /** Server-managed report tools granted to this scout. */
+      readonly allowed_tools: readonly string[];
+    }
+
+    export interface SignalScoutCreateResponse {
+      /** True when this request created the missing scout skill or config; false when both already existed. */
+      created: boolean;
+      skill: SignalScoutSkillSummary;
+      config: SignalScoutConfig;
     }
 
     /**

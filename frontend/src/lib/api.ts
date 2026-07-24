@@ -5702,6 +5702,8 @@ const api = {
     dataWarehouseTables: {
         async list(params?: {
             limit?: number
+            offset?: number
+            search?: string
             include_columns?: boolean
         }): Promise<PaginatedResponse<DataWarehouseTable>> {
             return await new ApiRequest()

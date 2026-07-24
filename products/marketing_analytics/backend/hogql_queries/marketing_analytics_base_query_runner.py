@@ -32,8 +32,11 @@ from posthog.models.team.team import DEFAULT_CURRENCY
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CHANNEL_SESSIONS_CTE_NAME,
     DRILL_DOWN_LEVEL_CONFIG,
+    TOTAL_SESSIONS_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    UNKNOWN_CHANNEL,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
@@ -47,7 +50,7 @@ from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .utils import convert_team_conversion_goals_to_objects
+from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 
@@ -63,6 +66,16 @@ COMPARE_PERIOD_PREVIOUS = "previous"
 # warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
 # SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
 COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
+
+def _session_start_day(expr: ast.Expr) -> ast.Expr:
+    """Truncate to the day, via a function the sessions timestamp pushdown recognizes.
+
+    `toStartOfDay` is on the allowlist in posthog/hogql/helpers/timestamp_visitor.py — `toDate` is
+    NOT, and using it silently drops the inner `raw_sessions` WHERE, making the CTE aggregate the
+    team's entire session history on every load.
+    """
+    return ast.Call(name="toStartOfDay", args=[expr])
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -447,6 +460,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
+            elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+                # Repurpose campaign_name to hold the channel, but keep the real source
+                # so each channel breaks down into its sources.
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
             elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
                 # Repurpose campaign_name to hold the source
                 select_columns.extend(
@@ -828,6 +852,72 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             now=datetime.now(),
         )
 
+    def _build_sessions_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+        """Session counts per channel x source, straight off the sessions table.
+
+        This is the only side of the query that sees untagged traffic: costs come from ad platforms
+        and conversions from UTM-tagged events, so without this a team with no connected ad source
+        sees an empty table. `$channel_type` is already derived on the sessions table, and the source
+        is normalized the same way the conversion side normalizes it so both sides agree on a row key.
+        """
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
+            team_config=self.team.marketing_analytics_config
+        )
+        source_expr = build_source_normalization_expr(
+            ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="notEmpty", args=[ast.Field(chain=["sessions", "$entry_utm_source"])]),
+                    ast.Field(chain=["sessions", "$entry_utm_source"]),
+                    ast.Constant(value=self.config.organic_source),
+                ],
+            ),
+            source_mappings,
+        )
+        channel_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="notEmpty", args=[ast.Field(chain=["sessions", "$channel_type"])]),
+                ast.Field(chain=["sessions", "$channel_type"]),
+                ast.Constant(value=UNKNOWN_CHANNEL),
+            ],
+        )
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias=self.config.campaign_field, expr=channel_expr),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=TOTAL_SESSIONS_FIELD,
+                    expr=ast.Call(name="uniq", args=[ast.Field(chain=["sessions", "session_id"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+            # Bounded by day, not by datetime: `$start_timestamp` is an aggregate (min of the
+            # session's timestamps), and a raw datetime upper bound gets pushed down to the raw rows
+            # in a way that prunes the whole bucket the session lives in — the session silently
+            # disappears. Marketing date ranges are day-granular anyway.
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=_session_start_day(ast.Field(chain=["sessions", "$start_timestamp"])),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=_session_start_day(
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        left=_session_start_day(ast.Field(chain=["sessions", "$start_timestamp"])),
+                        op=ast.CompareOperationOp.LtEq,
+                        right=_session_start_day(
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
+                        ),
+                    ),
+                ]
+            ),
+            group_by=[channel_expr, source_expr],
+        )
+
     def _build_complete_query_ast(
         self,
         union_subquery: ast.SelectQuery | ast.SelectSetQuery,
@@ -880,6 +970,14 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
+
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            with self.timings.measure("ma_channel_sessions_cte"):
+                ctes[CHANNEL_SESSIONS_CTE_NAME] = ast.CTE(
+                    name=CHANNEL_SESSIONS_CTE_NAME,
+                    expr=self._build_sessions_select(date_range),
+                    cte_type="subquery",
+                )
 
         # Add CTEs to the main query
         main_query.ctes = ctes
@@ -1061,6 +1159,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
             # channel is a computed alias, so GROUP BY the same expression
             return [self._build_channel_type_expr()]
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            return [self._build_channel_type_expr(), ast.Field(chain=[self.config.source_field])]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
     def _build_compare_pivot(

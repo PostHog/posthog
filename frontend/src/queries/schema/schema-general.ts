@@ -6451,6 +6451,15 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * once per person via first_time_for_user) rather than every conversion. Defaults to false.
      */
     counts_as_customer?: boolean
+    /**
+     * Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a
+     * count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC.
+     * The amount itself comes from math_property, and its currency from
+     * math_property_revenue_currency, the same shape Revenue analytics uses for revenue events.
+     * Independent of counts_as_customer: a purchase is usually both, a trial signup neither.
+     * Defaults to false.
+     */
+    counts_as_revenue?: boolean
 }
 
 export enum AttributionMode {
@@ -6482,6 +6491,7 @@ export interface MarketingAnalyticsConfig {
 
 export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
+    ChannelSource = 'channel_source',
     Source = 'source',
     Campaign = 'campaign',
     AdGroup = 'ad_group',
@@ -6547,6 +6557,12 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
         ],
+    },
+    [MarketingAnalyticsDrillDownLevel.ChannelSource]: {
+        // Channel is the grouping alias; Source survives as the second column so a channel's
+        // rows break down into the sources that make it up.
+        columnAlias: 'Channel',
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.Campaign],
     },
     [MarketingAnalyticsDrillDownLevel.Source]: {
         columnAlias: 'Source',
