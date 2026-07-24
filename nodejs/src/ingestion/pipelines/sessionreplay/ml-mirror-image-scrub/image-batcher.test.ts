@@ -50,6 +50,7 @@ const options = {
     maxBytes: 1e9,
     scrubConcurrency: 4,
     maxBatchScrubMs: 30_000,
+    dedupMaxRefs: 1000,
 }
 
 describe('ImageBatcher', () => {
@@ -169,6 +170,48 @@ describe('ImageBatcher', () => {
 
         expect(slowStore.writes.flat()).toHaveLength(6)
         expect(offsets.stored).toBe(slowStore.writes.length)
+    })
+
+    it('scrubs each ref once: duplicates in and across batches skip the sidecar but still advance offsets', async () => {
+        // The topic is keyed by ref, so duplicate produces (per-mirror-pod producer dedup misses
+        // cross-pod repeats) are partition-affine; losing this dedup silently re-burns sidecar CPU
+        // per duplicate and writes duplicate shard entries.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const countingClient = {
+            scrub: (b: Buffer) => {
+                scrubs += 1
+                return Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, countingClient, options, 0)
+
+        const sprite = Buffer.from('sprite')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite), msg(0, 1, pt(1), sprite)], 1)
+        await batcher.handleBatch([msg(0, 2, pt(1), sprite)], 2)
+
+        expect(scrubs).toBe(1)
+        expect(store.writes.flat()).toHaveLength(1)
+        // The all-duplicate second batch still advances offsets, or the duplicates replay forever.
+        expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 3 }])
+    })
+
+    it('dedupMaxRefs 0 disables dedup instead of skipping everything or throwing', async () => {
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            scrubClient,
+            { ...options, dedupMaxRefs: 0 },
+            0
+        )
+
+        const sprite = Buffer.from('sprite')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
+        await batcher.handleBatch([msg(0, 1, pt(1), sprite)], 2)
+
+        expect(store.writes.flat()).toHaveLength(2)
     })
 
     test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {

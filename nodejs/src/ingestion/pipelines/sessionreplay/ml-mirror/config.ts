@@ -37,6 +37,12 @@ export type MlMirrorConfig = {
     // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
+    /**
+     * Capacity of the consumer's per-pod seen-ref LRU. The topic is keyed by ref, so duplicates are
+     * partition-affine and a per-pod cache dedupes them exactly up to this many refs (~200 B each in
+     * a Map, so 1M ≈ 200 MB). 0 disables dedup.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
@@ -76,6 +82,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 1_000_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,

@@ -9,6 +9,10 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
         help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
     })
+    private static readonly deduped = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_deduped_total',
+        help: 'Messages skipped because this pod already scrubbed the same ref (duplicate produce); dedup hit rate = deduped / (deduped + scrubbed + skipped)',
+    })
     private static readonly invalidKey = new Counter({
         name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
         help: 'Messages dropped because the key is missing, not an image ref, or the value is empty — a sustained rate means producer/consumer ref-format drift is zeroing the lane',
@@ -39,6 +43,9 @@ export class ImageScrubConsumerMetrics {
     }
     public static incSkipped(): void {
         this.skipped.inc()
+    }
+    public static incDeduped(): void {
+        this.deduped.inc()
     }
     public static incInvalidKey(): void {
         this.invalidKey.inc()

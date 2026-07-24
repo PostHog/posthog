@@ -1,3 +1,5 @@
+import { LRUCache } from 'lru-cache'
+
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
@@ -9,8 +11,9 @@ import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines
 /**
  * The Rust collector dedupes within one message; this bounds cross-message re-produces (the same
  * sprite recurring in every snapshot of a session). Refs are ~60 bytes, so the ceiling is ~6 MB.
- * Duplicates that slip past it are only wasted topic bytes — the consumer's S3 layout is keyed by
- * hash, so re-produces are idempotent.
+ * Duplicates that slip past it are only wasted topic bytes — the consumer dedupes by ref too, so
+ * re-produces are idempotent. LRU eviction, never wholesale clears: clearing forgets every hot
+ * sprite at once and re-produces the whole working set each time the cap is hit.
  */
 const PRODUCED_REF_CACHE_MAX = 100_000
 
@@ -21,9 +24,10 @@ const PRODUCED_REF_CACHE_MAX = 100_000
  * is defined as equivalent to a placeholder for training joins.
  */
 export function createProduceCollectedImagesStep<T extends { collectedImages?: CollectedImage[] }>(
-    outputs: IngestionOutputs<MlImageScrubOutput>
+    outputs: IngestionOutputs<MlImageScrubOutput>,
+    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
-    const producedRefs = new Set<string>()
+    const producedRefs = new LRUCache<string, true>({ max: producedRefCacheMax })
 
     return function produceCollectedImagesStep(input) {
         const images = input.collectedImages
@@ -31,18 +35,15 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             return Promise.resolve(ok(input))
         }
 
-        const fresh = images.filter((image) => !producedRefs.has(image.ref))
+        const fresh = images.filter((image) => !producedRefs.get(image.ref))
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
         }
 
-        if (producedRefs.size + fresh.length > PRODUCED_REF_CACHE_MAX) {
-            producedRefs.clear()
-        }
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.add(image.ref)
+            producedRefs.set(image.ref, true)
             bytes += image.bytes.length
         }
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)

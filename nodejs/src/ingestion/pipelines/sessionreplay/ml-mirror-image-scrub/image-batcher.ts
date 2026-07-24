@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
@@ -18,6 +19,7 @@ export interface ImageBatcherOptions {
     maxBytes: number
     scrubConcurrency: number
     maxBatchScrubMs: number
+    dedupMaxRefs: number
 }
 
 export class ImageBatcher {
@@ -27,6 +29,17 @@ export class ImageBatcher {
     private lastFlushMs: number
     private readonly chunkSize: number
     private readonly scrubConcurrency: ConcurrencyController
+    /**
+     * Refs this pod has already sent to the sidecar. The topic is keyed by ref, so every copy of an
+     * image lands on the same partition — a per-pod cache therefore dedupes exactly (within its
+     * capacity), and the producer's own dedup is per-mirror-pod, so cross-mirror-pod duplicates of
+     * hot sprites all arrive here. Marked before the scrub completes: if the scrub throws, the batch
+     * throws and the pod restarts (wiping this cache), and offsets are only stored after a durable
+     * flush, so a marked-but-unwritten ref can't have its offsets committed. The one gap is a
+     * rebalance without a restart, where a replayed ref is skipped and stays a dangling ref — which
+     * downstream reads as a placeholder by design.
+     */
+    private readonly seenRefs: LRUCache<string, true> | null
 
     constructor(
         private readonly store: ImageShardStore,
@@ -43,6 +56,7 @@ export class ImageBatcher {
         }
         this.lastFlushMs = nowMs
         this.scrubConcurrency = new ConcurrencyController(this.chunkSize)
+        this.seenRefs = options.dedupMaxRefs > 0 ? new LRUCache({ max: options.dedupMaxRefs }) : null
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
@@ -131,6 +145,11 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.incInvalidKey()
             return null
         }
+        if (this.seenRefs?.get(ref)) {
+            ImageScrubConsumerMetrics.incDeduped()
+            return null
+        }
+        this.seenRefs?.set(ref, true)
         const bytes = await this.scrubClient.scrub(m.value, signal)
         if (bytes === null) {
             ImageScrubConsumerMetrics.incSkipped()
