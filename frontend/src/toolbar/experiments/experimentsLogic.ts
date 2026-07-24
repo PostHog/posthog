@@ -114,7 +114,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
 
                     // Any failure (unauthenticated, server error, malformed body) soft-fails to
                     // the existing list — toolbarApi has already logged/reported it as needed.
-                    if (!result.ok || !Array.isArray(result.data.results)) {
+                    if (!result?.ok || !Array.isArray(result?.data?.results)) {
                         return values.allExperiments
                     }
                     return result.data.results
