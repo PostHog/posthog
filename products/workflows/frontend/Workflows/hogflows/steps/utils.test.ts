@@ -1,11 +1,26 @@
+import { renderHook } from '@testing-library/react'
+
 import {
     getBranchRemovalDisabledReason,
     removeBranchEdge,
     updateItemWithOptionalName,
     updateOptionalName,
+    useDebouncedNameInputs,
 } from './utils'
 
 describe('utils', () => {
+    describe('useDebouncedNameInputs', () => {
+        it('does not crash when items is undefined', () => {
+            // Persisted step configs can lack the array (e.g. a random_cohort_branch without `cohorts`);
+            // the hook must not throw on `items.map` in that case.
+            const { result } = renderHook(() =>
+                useDebouncedNameInputs(undefined as unknown as { name?: string }[], jest.fn())
+            )
+
+            expect(result.current.localNames).toEqual([])
+        })
+    })
+
     describe('updateOptionalName', () => {
         it('should add name when value is provided', () => {
             const obj = { id: '1', filters: {} }
