@@ -405,13 +405,23 @@ class TestFileUploadThrottling(SimpleTestCase):
         throttle_types = {type(t) for t in viewset.get_throttles()}
         assert FileUploadBurstThrottle not in throttle_types
 
-    def test_cache_key_is_per_user_not_per_team(self) -> None:
-        # Two session members of the same team must land in separate buckets. The inherited
-        # team-first key would collide them, letting one member's burst lock out the whole team.
+    def test_cache_key_is_per_user_across_auth_methods(self) -> None:
+        # The key must bound one person regardless of auth method: two members of the same team land
+        # in separate buckets (the inherited team key would collide them and let one lock out the
+        # team), while one user's session and personal-API-key requests share a bucket (the inherited
+        # per-key hash would give each minted key its own independent budget — a throttle bypass).
         throttle = FileUploadBurstThrottle()
-        with patch("posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=None):
-            key_a = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
-            key_b = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=2)), view=None)
-        assert key_a != key_b
-        assert key_a.endswith("1")
-        assert key_b.endswith("2")
+        key_user_1 = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
+        key_user_2 = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=2)), view=None)
+        # A personal-API-key request authenticates as the key's owner; the key it was minted with must
+        # not open a fresh budget, or a user could rotate keys past the limit. Even with a key present,
+        # the bucket stays keyed on user.pk.
+        with patch(
+            "posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=("secret", "source")
+        ):
+            key_user_1_via_key = throttle.get_cache_key(Mock(user=Mock(is_authenticated=True, pk=1)), view=None)
+
+        assert key_user_1 != key_user_2
+        assert key_user_1 == key_user_1_via_key
+        assert key_user_1.endswith("1")
+        assert key_user_2.endswith("2")

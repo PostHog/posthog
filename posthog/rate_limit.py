@@ -487,16 +487,16 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
 # a person uploading files but catch a scripted loop.
 class _FileUploadRateThrottle(PersonalApiKeyOrUserRateThrottle):
     """Base for the file-upload throttles. Keys the bucket per authenticated user rather than per
-    team, so one member's burst can't drain a shared team budget and lock everyone else out. The
-    inherited get_cache_key falls back to team_id for session/OAuth/body-key auth — fine for the
-    per-project query throttles, but these limits are meant to bound a single person's uploads."""
+    team or per key, so these limits bound a single person's uploads across every auth method they
+    use. The inherited get_cache_key keys by team_id (session/OAuth/body-key auth) or by API-key
+    hash (personal key auth) — fine for the per-project query throttles, but here the team key lets
+    one member drain a shared budget and lock the team out, and the per-key hash lets one person mint
+    several keys for several independent budgets. A personal API key authenticates as its owner, so
+    request.user.pk covers key requests too; only unauthenticated requests fall back to the IP."""
 
     def get_cache_key(self, request, view):
-        api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-        if api_key is not None:
-            ident: str | int = hash_key_value(api_key[0])
-        elif request.user and request.user.is_authenticated:
-            ident = request.user.pk
+        if request.user and request.user.is_authenticated:
+            ident: str | int = request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
