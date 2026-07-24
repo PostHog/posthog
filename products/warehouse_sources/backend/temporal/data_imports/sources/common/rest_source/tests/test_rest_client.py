@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ProxyError
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.exceptions import (
     IgnoreResponseException,
@@ -378,11 +380,14 @@ class TestRESTClient:
         mock_session.send.return_value = _make_non_json_response(content)
 
         client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
+        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from") as ctx:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 1
         mock_sleep.assert_not_called()
+        # A non-JSON 2xx body is always a customer/upstream condition, so it must carry the
+        # non-reportable marker the activity interceptor uses to keep it out of error tracking.
+        assert isinstance(ctx.value, NonReportableError)
 
     @patch("tenacity.nap.time.sleep")
     @patch(

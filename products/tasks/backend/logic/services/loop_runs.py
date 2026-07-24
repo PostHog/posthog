@@ -38,6 +38,13 @@ LOOP_TEAM_RATE_CAP_PER_DAY = 500
 LOOP_AUTO_PAUSE_THRESHOLD = 5
 TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 
+# Stored on Loop.disabled_reason when the kill-switch pauses a loop, so clients can render the
+# cause (and a billing CTA for usage_limited) instead of a bare "Paused". Lifecycle pause codes
+# (owner deactivated/removed, GitHub disconnected) live in loop_lifecycle.py; re-enabling clears
+# the field in facade/loops.py::update_loop either way.
+DISABLED_REASON_USAGE_LIMITED = "usage_limited"
+DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
+
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
@@ -279,7 +286,9 @@ def fire_loop(
     # advisory lock across it would stall every other fire for the team.
     gate_owner_id = loop.created_by_id
     if _usage_gate_blocked(loop):
-        _increment_consecutive_failures_and_maybe_pause(loop, error="cloud usage limit exceeded")
+        _increment_consecutive_failures_and_maybe_pause(
+            loop, error="cloud usage limit exceeded", disabled_reason=DISABLED_REASON_USAGE_LIMITED
+        )
         observe_loop_fire(reason="gate_blocked")
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
@@ -614,7 +623,7 @@ def _execute_task_processing_workflow_for_loop(
     )
 
 
-def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -> None:
+def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, disabled_reason: str) -> None:
     should_pause = False
     with transaction.atomic():
         locked_loop = Loop.objects.for_team(loop.team_id, canonical=True).select_for_update().get(id=loop.id)
@@ -623,7 +632,8 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -
         update_fields = ["consecutive_failures", "last_error", "updated_at"]
         if locked_loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and locked_loop.enabled:
             locked_loop.enabled = False
-            update_fields.append("enabled")
+            locked_loop.disabled_reason = disabled_reason
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         locked_loop.save(update_fields=update_fields)
 
@@ -672,7 +682,8 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
         if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
-            update_fields.append("enabled")
+            loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
 

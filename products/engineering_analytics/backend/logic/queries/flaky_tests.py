@@ -1,21 +1,16 @@
-"""HogQL aggregation of per-test CI spans into a flaky-test leaderboard.
+"""HogQL aggregation of per-test CI run evidence into the active test-health queue.
 
-Embeds the shared per-test span scan (``_test_spans``, the one definition of the service
-fence, signal outcomes, and repository scoping) and groups the signal spans by nodeid over
-a window, ranking tests by flakiness signal.
+Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
+by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
 
-Two data caveats shape the query:
+A test is a ``confirmed_flake`` only where the evidence already carries proof (one commit was
+seen both failing and passing it: a re-run attempt going green, or an in-job retry), and every
+other failure is an honest ``suspected_regression`` rather than a guess dressed up as one.
+Failing on many distinct PRs proves only that a failure is not one PR's fault, never that the
+test is flaky: real regressions fail across PRs too.
 
-- Passing tests under the emitter's duration threshold are dropped, while failures, errors,
-  xfails, and reruns are always emitted, so denominators are biased and everything here is an
-  absolute count, never a rate.
-- ``rerun_passed`` (pass-on-retry, the strongest flaky signal) only flows from lanes running
-  pytest with reruns enabled. Lanes without reruns surface a flake as a plain ``failed`` /
-  ``error`` span, so the cross-PR failure count is the qualifying signal for those.
-
-Ranking is ``rerun_passed_count + failed_pr_count``: reruns catch the rerun-enabled lanes,
-distinct-PRs-hit catches the rest, and neither is inflated by one broken PR failing the same
-test on every push (that raises only ``failed_count``, the tiebreaker).
+Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
+denominator to divide by.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
@@ -26,31 +21,41 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.workload import Workload
 
-from products.engineering_analytics.backend.facade.contracts import FlakyTestItem, FlakyTestList
+from products.engineering_analytics.backend.facade.contracts import (
+    FlakyTestClassification,
+    FlakyTestItem,
+    FlakyTestList,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
-    flaky_bar,
+    run_evidence,
     scan_placeholders,
     selector_from_nodeid,
-    span_scan,
 )
 
-_SELECT = f"""
+_SELECT = """
     SELECT
         nodeid,
         anyIf(selector, selector != '') AS selector,
-        countIf(outcome = 'rerun_passed') AS rerun_passed_count,
-        countIf(outcome IN ('failed', 'error')) AS failed_count,
-        uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '') AS failed_pr_count,
-        countIf(outcome IN ('failed', 'error') AND branch IN ('master', 'main')) AS master_failed_count,
-        uniqIf(branch, branch != '') AS branch_count,
-        countIf(outcome = 'xfailed') AS xfailed_count,
-        max(span_timestamp) AS last_seen_at
-    FROM (__SPAN_SCAN__)
+        countIf(recovered_in_run) AS same_commit_recovery_run_count,
+        countIf(failed_in_run) AS failed_run_count,
+        uniqIf(pr_number, failed_in_run AND pr_number != '') AS failed_pr_count,
+        countIf(failed_in_run AND branch IN ('master', 'main')) AS master_failed_run_count,
+        countIf(quarantined_in_run) AS quarantined_failed_run_count,
+        max(run_signal_at) AS last_signal_at
+    FROM (__RUN_EVIDENCE__)
     GROUP BY nodeid
-    HAVING {flaky_bar("rerun_passed_count", "failed_pr_count")}
-    ORDER BY (rerun_passed_count + failed_pr_count) DESC, failed_count DESC, last_seen_at DESC
-    LIMIT {{limit_plus_one}}
+    HAVING same_commit_recovery_run_count > 0
+        OR quarantined_failed_run_count > 0
+        OR master_failed_run_count > 0
+        OR failed_pr_count >= {min_failed_prs}
+    ORDER BY
+        master_failed_run_count DESC,
+        failed_pr_count DESC,
+        failed_run_count DESC,
+        last_signal_at DESC,
+        nodeid ASC
+    LIMIT {limit_plus_one}
 """
 
 
@@ -59,25 +64,23 @@ def query_flaky_tests(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    min_rerun_passes: int,
     min_failed_prs: int,
     limit: int,
 ) -> FlakyTestList:
     repository = curated.repository
     # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
     # cannot tell one connected repo's spans from another, so return nothing rather than leak every
-    # repository's flaky signals into the selected source's leaderboard.
+    # repository's flaky signals into the selected source's queue.
     if not repository:
         return FlakyTestList(items=[], truncated=False, limit=limit)
 
     placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to)
-    placeholders["min_rerun_passes"] = ast.Constant(value=min_rerun_passes)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
     response = curated.run(
-        _SELECT.replace("__SPAN_SCAN__", span_scan(bounded=date_to is not None)),
+        _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.
@@ -90,17 +93,27 @@ def query_flaky_tests(
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
-                rerun_passed_count=rerun_passed_count,
-                failed_count=failed_count,
+                classification=FlakyTestClassification.from_run_evidence(
+                    quarantined_failed_run_count=quarantined_failed_run_count,
+                    same_commit_recovery_run_count=same_commit_recovery_run_count,
+                ),
+                same_commit_recovery_run_count=same_commit_recovery_run_count,
+                failed_run_count=failed_run_count,
                 failed_pr_count=failed_pr_count,
-                master_failed_count=master_failed_count,
-                branch_count=branch_count,
-                xfailed_count=xfailed_count,
-                last_seen_at=last_seen_at,
+                master_failed_run_count=master_failed_run_count,
+                quarantined_failed_run_count=quarantined_failed_run_count,
+                last_signal_at=last_signal_at,
             )
-            for nodeid, selector, rerun_passed_count, failed_count, failed_pr_count, master_failed_count, branch_count, xfailed_count, last_seen_at in rows[
-                :limit
-            ]
+            for (
+                nodeid,
+                selector,
+                same_commit_recovery_run_count,
+                failed_run_count,
+                failed_pr_count,
+                master_failed_run_count,
+                quarantined_failed_run_count,
+                last_signal_at,
+            ) in rows[:limit]
         ],
         truncated=len(rows) > limit,
         limit=limit,

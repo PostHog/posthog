@@ -18,21 +18,20 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
     dashboardId,
     dashboardWidgetsEnabled,
-    showAddInsightToDashboardModal,
+    onAddInsight,
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
 }: {
     dashboardId: number
     dashboardWidgetsEnabled: boolean
-    showAddInsightToDashboardModal: () => void
+    onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
@@ -47,7 +46,7 @@ export function getAddTileMenuItems({
     return [
         {
             label: 'Insight',
-            onClick: withBeforeSelect(showAddInsightToDashboardModal),
+            onClick: withBeforeSelect(onAddInsight),
             'data-attr': 'dashboard-add-insight',
         },
         {
@@ -79,8 +78,8 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+        useActions(dashboardLogic)
     const { push } = useActions(router)
 
     if (!dashboard) {
@@ -116,7 +115,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                     items={getAddTileMenuItems({
                         dashboardId: dashboard.id,
                         dashboardWidgetsEnabled,
-                        showAddInsightToDashboardModal,
+                        onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
