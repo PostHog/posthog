@@ -43967,7 +43967,7 @@ export namespace Schemas {
          */
       interval: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: SubscriptionByweekdayItem[] | null;
@@ -51692,7 +51692,7 @@ export namespace Schemas {
          */
       interval?: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: PatchedSubscriptionByweekdayItem[] | null;

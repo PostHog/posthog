@@ -53,6 +53,7 @@ import {
     monthlyWeekdayOptions,
     targetTypeOptions,
     timeOptions,
+    weekdayInputOptions,
     weekdayOptions,
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
@@ -656,21 +657,21 @@ function EditSubscriptionForm({
                                     <LemonSelect options={availableFrequencyOptions} />
                                 </LemonField>
 
-                                {subscription.frequency === 'weekly' && (
+                                {(subscription.frequency === 'daily' || subscription.frequency === 'weekly') && (
                                     <>
                                         <span>on</span>
                                         <LemonField name="byweekday">
                                             {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    options={weekdayOptions}
-                                                    value={value ? value[0] : null}
-                                                    onChange={(val) => onChange([val])}
+                                                <LemonInputSelect
+                                                    mode="multiple"
+                                                    options={weekdayInputOptions}
+                                                    value={value ?? []}
+                                                    onChange={onChange}
                                                 />
                                             )}
                                         </LemonField>
                                     </>
                                 )}
-
                                 {subscription.frequency === 'monthly' && (
                                     <>
                                         <span>on the</span>

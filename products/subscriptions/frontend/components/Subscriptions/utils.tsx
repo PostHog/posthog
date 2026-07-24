@@ -93,6 +93,13 @@ export const weekdayOptions: LemonSelectOptionLeaf<
     { value: 'sunday', label: 'Sunday' },
 ]
 
+export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
+export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
+    key: value,
+    value,
+    label: typeof label === 'string' ? label : value,
+}))
+
 export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
 
 export const monthlyWeekdayOptions: LemonSelectOptions<

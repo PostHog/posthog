@@ -95,6 +95,18 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+            ("weekly", ["monday", "wednesday", "friday"]),
+        ]
+    )
+    def test_accepts_multiple_delivery_weekdays(self, frequency: str, byweekday: list[str]) -> None:
+        response = self._create_subscription(frequency=frequency, byweekday=byweekday, bysetpos=None)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["byweekday"] == byweekday
+
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

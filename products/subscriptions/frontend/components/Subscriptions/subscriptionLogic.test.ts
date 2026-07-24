@@ -102,12 +102,30 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('uses the UTC weekday for legacy weekly subscriptions', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'weekly',
+                    start_date: '2024-01-01T00:30:00Z',
+                    byweekday: null,
+                    bysetpos: null,
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual(['monday'])
+    })
+
     it('updates values depending on frequency', async () => {
         router.actions.push('/insights/123/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
-            bysetpos: 1,
+            bysetpos: null,
             byweekday: ['monday'],
         })
         // A plain "new subscription" open (no prefill) must not pre-mark the form as changed,
@@ -119,7 +137,31 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'daily',
             bysetpos: null,
-            byweekday: null,
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+        })
+
+        newLogic.actions.setSubscriptionValues({
+            interval: 7,
+            start_date: '2024-01-01T09:00:00Z',
+            byweekday: ['tuesday'],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe(
+            'Select the delivery day matching the start date for this interval'
+        )
+
+        newLogic.actions.setSubscriptionValue('byweekday', [])
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe('Select at least one delivery day')
+
+        newLogic.actions.setSubscriptionValue('frequency', 'weekly')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            frequency: 'weekly',
+            bysetpos: null,
+            byweekday: ['monday'],
         })
 
         newLogic.actions.setSubscriptionValue('frequency', 'monthly')
