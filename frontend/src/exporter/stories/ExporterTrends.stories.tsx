@@ -53,9 +53,12 @@ const meta: Meta<ExportedData> = {
 
 export default meta
 
+// Trend charts render to a <canvas> via @posthog/quill-charts; wait for it to draw before snapshotting.
+const waitForChartCanvas = { testOptions: { waitForSelector: '.ExportedInsight canvas' } }
+
 export const TrendsLineInsight: Story = {
     args: { insight: __trendsLine as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsLineInsightLegend: Story = {
@@ -63,7 +66,7 @@ export const TrendsLineInsightLegend: Story = {
         insight: __trendsLine as any,
         legend: true,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsLineInsightDetailed: Story = {
@@ -71,7 +74,7 @@ export const TrendsLineInsightDetailed: Story = {
         insight: __trendsLine as any,
         detailed: true,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
@@ -82,7 +85,7 @@ export const TrendsLineInsightNoResults: Story = {
             result: null,
         },
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    // Empty state is plain DOM (no chart canvas), so no canvas wait needed.
 }
 
 export const TrendsLineMultiInsight: Story = {
@@ -90,57 +93,57 @@ export const TrendsLineMultiInsight: Story = {
         insight: __trendsLineMulti as any,
     },
     parameters: {
+        ...waitForChartCanvas,
         mockDate: '2023-07-10',
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsLineBreakdownInsight: Story = {
     args: {
         insight: __trendsLineBreakdown as any,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsBarInsight: Story = {
     args: { insight: __trendsBar as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsBarBreakdownInsight: Story = {
     args: {
         insight: __trendsBarBreakdown as any,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsValueInsight: Story = {
     args: { insight: __trendsValue as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsValueBreakdownInsight: Story = {
     args: {
         insight: __trendsValueBreakdown as any,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsAreaInsight: Story = {
     args: { insight: __trendsArea as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsAreaBreakdownInsight: Story = {
     args: {
         insight: __trendsAreaBreakdown as any,
     },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: waitForChartCanvas,
 }
 
 export const TrendsNumberInsight: Story = {
     args: { insight: __trendsNumber as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    // BoldNumber is plain DOM (no chart canvas), so no canvas wait needed.
 }
 
 /** The Metric sparkline is SVG/canvas, so it captures cleanly and guards against the exported card
