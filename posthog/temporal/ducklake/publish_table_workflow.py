@@ -65,11 +65,13 @@ class PublishRegisterInputs:
 
 
 @dataclass
-class PublishCleanupInputs:
+class PrunePublishedSnapshotInputs:
     team_id: int
     publication_id: str
-    keep_version: str
-    bucket: str
+    # A version whose COPY completed but which may not be registered as live yet —
+    # kept alongside the live version so a half-finished register never strands the
+    # table on a deleted folder.
+    completed_version: str | None = None
 
 
 @dataclass
@@ -193,12 +195,33 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> None:
 
 
 @temporalio.activity.defn
-def publish_table_cleanup_activity(inputs: PublishCleanupInputs) -> None:
+def prune_published_snapshot_activity(inputs: PrunePublishedSnapshotInputs) -> None:
+    """Delete snapshot files the publication no longer needs.
+
+    Keeps the live version (publication.folder_version) plus any just-completed
+    version; deletes everything when the publication is deleted or has never
+    published successfully. Resolves the bucket itself so it also runs standalone
+    from the delete API path, where no copy result exists.
+    """
     close_old_connections()
-    publication = ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).get(id=inputs.publication_id)
-    delete_stale_publish_versions(
-        inputs.bucket, publish_folder(inputs.team_id, publication.id.hex), inputs.keep_version
+    publication = (
+        ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).filter(id=inputs.publication_id).first()
     )
+    if publication is None:
+        return
+
+    team = Team.objects.only("organization_id").get(id=inputs.team_id)
+    storage = get_org_config(str(team.organization_id))
+    bucket = storage.get("DUCKLAKE_BUCKET") or ""
+    if not bucket:
+        raise ValueError(f"No managed warehouse bucket recorded for organization {team.organization_id}")
+
+    keep_versions: set[str] = set()
+    if not publication.deleted:
+        keep_versions = {
+            version for version in (publication.folder_version, inputs.completed_version) if version is not None
+        }
+    delete_stale_publish_versions(bucket, publish_folder(inputs.team_id, publication.id.hex), keep_versions)
 
 
 @temporalio.activity.defn
@@ -221,8 +244,9 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: PublishTableInputs) -> None:
+        copy_result: PublishCopyResult | None = None
         try:
-            copy_result: PublishCopyResult = await temporalio.workflow.execute_activity(
+            copy_result = await temporalio.workflow.execute_activity(
                 publish_table_copy_activity,
                 inputs,
                 start_to_close_timeout=timedelta(hours=2),
@@ -244,12 +268,11 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
             )
             try:
                 await temporalio.workflow.execute_activity(
-                    publish_table_cleanup_activity,
-                    PublishCleanupInputs(
+                    prune_published_snapshot_activity,
+                    PrunePublishedSnapshotInputs(
                         team_id=inputs.team_id,
                         publication_id=inputs.publication_id,
-                        keep_version=copy_result.folder_version,
-                        bucket=copy_result.bucket,
+                        completed_version=copy_result.folder_version,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
@@ -257,6 +280,21 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
             except Exception:
                 temporalio.workflow.logger.warning("Publish cleanup failed; stale version folders remain")
         except Exception as error:
+            # Prune whatever the failed run wrote: partial COPY folders always, the
+            # whole folder if the publication was deleted mid-publish.
+            try:
+                await temporalio.workflow.execute_activity(
+                    prune_published_snapshot_activity,
+                    PrunePublishedSnapshotInputs(
+                        team_id=inputs.team_id,
+                        publication_id=inputs.publication_id,
+                        completed_version=copy_result.folder_version if copy_result else None,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                temporalio.workflow.logger.warning("Publish failure prune failed; stale files may remain")
             await temporalio.workflow.execute_activity(
                 publish_table_mark_failed_activity,
                 PublishMarkFailedInputs(
@@ -268,3 +306,22 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             raise
+
+
+@temporalio.workflow.defn(name="duckgres-prune-published-snapshot")
+class DuckgresPrunePublishedSnapshotWorkflow(PostHogWorkflow):
+    """Standalone snapshot prune, scheduled when a publication is deleted via the API."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> PrunePublishedSnapshotInputs:
+        loaded = json.loads(inputs[0])
+        return PrunePublishedSnapshotInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: PrunePublishedSnapshotInputs) -> None:
+        await temporalio.workflow.execute_activity(
+            prune_published_snapshot_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+        )

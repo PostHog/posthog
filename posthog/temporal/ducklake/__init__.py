@@ -16,8 +16,9 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     verify_ducklake_copy_activity,
 )
 from posthog.temporal.ducklake.publish_table_workflow import (
+    DuckgresPrunePublishedSnapshotWorkflow,
     DuckgresPublishTableWorkflow,
-    publish_table_cleanup_activity,
+    prune_published_snapshot_activity,
     publish_table_copy_activity,
     publish_table_mark_failed_activity,
     publish_table_register_activity,
@@ -27,6 +28,7 @@ WORKFLOWS = [
     DucklakeCompactionWorkflow,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyDataModelingWorkflow,
+    DuckgresPrunePublishedSnapshotWorkflow,
     DuckgresPublishTableWorkflow,
 ]
 ACTIVITIES = [
@@ -38,7 +40,7 @@ ACTIVITIES = [
     ducklake_copy_workflow_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
     prepare_data_modeling_ducklake_metadata_activity,
-    publish_table_cleanup_activity,
+    prune_published_snapshot_activity,
     publish_table_copy_activity,
     publish_table_mark_failed_activity,
     publish_table_register_activity,

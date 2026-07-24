@@ -1,11 +1,16 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.ducklake.models import ManagedWarehousePublishedTable
+from posthog.ducklake.publish import PUBLISHED_PREFIX, publish_folder
 from posthog.temporal.ducklake.publish_table_workflow import (
+    PrunePublishedSnapshotInputs,
     PublishMarkFailedInputs,
     PublishRegisterInputs,
     PublishTableInputs,
+    prune_published_snapshot_activity,
     publish_table_copy_activity,
     publish_table_mark_failed_activity,
     publish_table_register_activity,
@@ -171,3 +176,73 @@ class TestPublishTableActivities(BaseTest):
         publication.refresh_from_db()
         assert publication.status == ManagedWarehousePublishedTable.Status.FAILED
         assert publication.last_error == "COPY failed: out of memory"
+
+    # Prune is the only thing standing between a deleted publication and a permanent
+    # snapshot leak — and between a live table and a deleted-underneath folder.
+    @parameterized.expand(
+        [
+            (
+                "deleted_publication_loses_everything",
+                True,
+                "20260720120000",
+                "20260721120000",
+                ["20260719120000", "20260720120000", "20260721120000"],
+            ),
+            (
+                "live_publication_keeps_live_and_completed_versions",
+                False,
+                "20260720120000",
+                "20260721120000",
+                ["20260719120000"],
+            ),
+            (
+                "failed_first_publish_prunes_partial_attempts",
+                False,
+                None,
+                None,
+                ["20260719120000", "20260720120000", "20260721120000"],
+            ),
+        ]
+    )
+    def test_prune_published_snapshot(
+        self,
+        _name: str,
+        deleted: bool,
+        folder_version: str | None,
+        completed_version: str | None,
+        expected_deleted_versions: list[str],
+    ) -> None:
+        publication = self._publication()
+        publication.deleted = deleted
+        publication.folder_version = folder_version
+        publication.save()
+
+        folder = publish_folder(self.team.pk, publication.id.hex)
+        versions = ["20260719120000", "20260720120000", "20260721120000"]
+        keys = [f"{PUBLISHED_PREFIX}/{folder}/{version}/part-0.parquet" for version in versions]
+
+        with (
+            patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
+            patch(f"{_WORKFLOW_MODULE}.get_org_config", return_value={"DUCKLAKE_BUCKET": _BUCKET}),
+            patch("boto3.client") as mock_boto_client,
+        ):
+            s3 = mock_boto_client.return_value
+            s3.get_paginator.return_value.paginate.return_value = [{"Contents": [{"Key": key} for key in keys]}]
+
+            prune_published_snapshot_activity(
+                PrunePublishedSnapshotInputs(
+                    team_id=self.team.pk,
+                    publication_id=str(publication.id),
+                    completed_version=completed_version,
+                )
+            )
+
+        expected_deleted = [
+            f"{PUBLISHED_PREFIX}/{folder}/{version}/part-0.parquet" for version in expected_deleted_versions
+        ]
+        if expected_deleted:
+            s3.delete_objects.assert_called_once_with(
+                Bucket=_BUCKET, Delete={"Objects": [{"Key": key} for key in expected_deleted]}
+            )
+        else:
+            s3.delete_objects.assert_not_called()

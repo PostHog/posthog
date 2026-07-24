@@ -14,6 +14,7 @@ which is scoped to PUBLISHED_PREFIX.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -90,10 +91,12 @@ def build_publish_copy_sql(schema_name: str, table_name: str, destination_uri: s
     ).format(psql.Identifier(schema_name), psql.Identifier(table_name), psql.Literal(destination_uri))
 
 
-def delete_stale_publish_versions(bucket: str, folder: str, keep_version: str) -> None:
-    """Best-effort removal of superseded version folders under the publication's prefix.
+def delete_stale_publish_versions(bucket: str, folder: str, keep_versions: Collection[str]) -> None:
+    """Best-effort removal of version folders under the publication's prefix.
 
-    Runs with the temporal worker's own AWS identity; cross-account delete on the org
+    Every object whose key is not inside one of keep_versions is deleted; an empty
+    keep set removes the whole folder (used once a publication is deleted). Runs
+    with the temporal worker's own AWS identity; cross-account delete on the org
     bucket is granted (scoped to PUBLISHED_PREFIX) by the duckling bucket policy.
     """
     import boto3  # noqa: PLC0415 — keeps the heavy dep off the import path
@@ -108,11 +111,13 @@ def delete_stale_publish_versions(bucket: str, folder: str, keep_version: str) -
     s3 = boto3.client("s3", **client_kwargs)
 
     prefix = f"{PUBLISHED_PREFIX}/{folder}/"
-    keep_fragment = f"/{keep_version}/"
+    keep_fragments = [f"/{version}/" for version in keep_versions]
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         stale: list[ObjectIdentifierTypeDef] = [
-            {"Key": obj["Key"]} for obj in page.get("Contents", []) if keep_fragment not in obj["Key"]
+            {"Key": obj["Key"]}
+            for obj in page.get("Contents", [])
+            if not any(fragment in obj["Key"] for fragment in keep_fragments)
         ]
         if stale:
             s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})

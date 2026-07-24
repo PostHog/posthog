@@ -1,8 +1,12 @@
+from unittest import mock
+
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.ducklake.publish import (
+    PUBLISHED_PREFIX,
+    delete_stale_publish_versions,
     is_publishable_table,
     publish_folder,
     publish_s3_uri,
@@ -59,3 +63,40 @@ class TestPublishHelpers(SimpleTestCase):
             "https://posthog-duckling-acme-mw-prod-us.s3.us-east-1.amazonaws.com"
             "/__posthog_published/team_42_publish_abc123/20260720120000/**.parquet"
         )
+
+
+class TestDeleteStalePublishVersions(SimpleTestCase):
+    # Locks in which snapshot keys survive a prune: deleting the live version would
+    # break the warehouse table mid-query, and deleting nothing leaks storage.
+    @parameterized.expand(
+        [
+            ("keeps_listed_versions", {"20260720120000", "20260721120000"}, ["20260719120000"]),
+            ("empty_keep_set_deletes_everything", set(), ["20260719120000", "20260720120000", "20260721120000"]),
+        ]
+    )
+    @override_settings(USE_LOCAL_SETUP=False)
+    @mock.patch("boto3.client")
+    def test_keep_filtering(
+        self,
+        _name: str,
+        keep_versions: set[str],
+        expected_deleted_versions: list[str],
+        mock_boto_client: mock.MagicMock,
+    ) -> None:
+        folder = publish_folder(42, "abc123")
+        versions = ["20260719120000", "20260720120000", "20260721120000"]
+        keys = [f"{PUBLISHED_PREFIX}/{folder}/{version}/part-0.parquet" for version in versions]
+        s3 = mock_boto_client.return_value
+        s3.get_paginator.return_value.paginate.return_value = [{"Contents": [{"Key": key} for key in keys]}]
+
+        delete_stale_publish_versions("bucket", folder, keep_versions)
+
+        expected_deleted = [
+            f"{PUBLISHED_PREFIX}/{folder}/{version}/part-0.parquet" for version in expected_deleted_versions
+        ]
+        if expected_deleted:
+            s3.delete_objects.assert_called_once_with(
+                Bucket="bucket", Delete={"Objects": [{"Key": key} for key in expected_deleted]}
+            )
+        else:
+            s3.delete_objects.assert_not_called()

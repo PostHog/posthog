@@ -19,11 +19,15 @@ from posthog.ducklake.common import (
 )
 from posthog.ducklake.models import DuckgresServerTeam, ManagedWarehousePublishedTable
 from posthog.ducklake.publish import ModeledTable, is_publishable_table, reserved_backfill_table_names
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.ducklake.publish_table_workflow import PublishTableInputs
+from posthog.temporal.common.logger import get_logger
+from posthog.temporal.ducklake.publish_table_workflow import PrunePublishedSnapshotInputs, PublishTableInputs
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+LOGGER = get_logger(__name__)
 
 _NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _DISCOVERY_CONNECT_TIMEOUT_SECONDS = 5
@@ -123,6 +127,18 @@ def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
     )
 
 
+def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTable) -> None:
+    temporal = sync_connect()
+    inputs = PrunePublishedSnapshotInputs(team_id=publication.team_id, publication_id=str(publication.id))
+    start_workflow = cast(Callable[..., Any], async_to_sync(temporal.start_workflow))
+    start_workflow(
+        "duckgres-prune-published-snapshot",
+        inputs,
+        id=f"duckgres-prune-published-{publication.id}",
+        task_queue=str(settings.DUCKLAKE_TASK_QUEUE),
+    )
+
+
 def delete_publication(publication: ManagedWarehousePublishedTable) -> None:
     with transaction.atomic():
         if publication.table_id is not None:
@@ -132,3 +148,16 @@ def delete_publication(publication: ManagedWarehousePublishedTable) -> None:
 
         publication.deleted = True
         publication.save(update_fields=["deleted", "updated_at"])
+
+        # The parquet snapshot in the org bucket must go too, but only the temporal
+        # workers hold the cross-account DeleteObject grant — schedule the prune and
+        # let a failed schedule surface in Sentry rather than break the delete.
+        transaction.on_commit(lambda: _start_snapshot_prune_best_effort(publication))
+
+
+def _start_snapshot_prune_best_effort(publication: ManagedWarehousePublishedTable) -> None:
+    try:
+        start_snapshot_prune_workflow(publication)
+    except Exception as error:
+        LOGGER.exception("snapshot_prune_schedule_failed", publication_id=str(publication.id))
+        capture_exception(error)

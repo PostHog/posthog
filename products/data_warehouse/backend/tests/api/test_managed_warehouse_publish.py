@@ -156,7 +156,8 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json() == {"detail": "A publish for this table is already running."}
 
-    def test_delete_soft_deletes_publication_and_table(self) -> None:
+    @patch(f"{_LOGIC}.start_snapshot_prune_workflow")
+    def test_delete_soft_deletes_publication_and_table(self, mock_prune: MagicMock) -> None:
         table = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
             name="customer_arr",
@@ -164,9 +165,20 @@ class TestManagedWarehousePublish(APIBaseTest):
             url_pattern="s3://x",
         )
         publication = self._publication(table_id=table.id)
-        response = self.client.delete(f"{self._base()}/managed-warehouse-published-table/?id={publication.id}")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"{self._base()}/managed-warehouse-published-table/?id={publication.id}")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         publication.refresh_from_db()
         table.refresh_from_db()
         assert publication.deleted is True
         assert table.deleted is True
+        mock_prune.assert_called_once_with(publication)
+
+    @patch(f"{_LOGIC}.start_snapshot_prune_workflow", side_effect=RuntimeError("temporal unavailable"))
+    def test_delete_succeeds_when_prune_cannot_be_scheduled(self, _mock_prune: MagicMock) -> None:
+        publication = self._publication()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"{self._base()}/managed-warehouse-published-table/?id={publication.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        publication.refresh_from_db()
+        assert publication.deleted is True
