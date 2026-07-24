@@ -4827,6 +4827,26 @@ class TestPrinter(BaseTest):
         self.assertIn("LEFT JOIN base AS b2", result)
         self.assertIn("LEFT JOIN base AS b3", result)
 
+    @parameterized.expand(
+        [
+            # Scalar WITH alias referenced from inside a sibling subquery CTE. ClickHouse does not propagate a
+            # scalar WITH alias into a sibling CTE in the same flat WITH clause, so it must be inlined: the
+            # expression appears twice (its own declaration + the inlined reference) and the alias only once.
+            (
+                "inlined_into_sibling_subquery_cte",
+                "WITH plus(1, 2) AS cohort_end, sub AS (SELECT cohort_end AS x) SELECT x FROM sub",
+                2,
+                1,
+            ),
+            # Scalar WITH alias referenced only from the declaring query keeps the alias — no needless inlining.
+            ("kept_when_referenced_in_declaring_query", "WITH plus(1, 2) AS cohort_end SELECT cohort_end AS x", 1, 2),
+        ]
+    )
+    def test_scalar_cte_inlined_into_sibling_subquery(self, _name: str, query: str, expr_count: int, alias_count: int):
+        result = self._select(query)
+        self.assertEqual(result.count("plus(1, 2)"), expr_count)
+        self.assertEqual(result.count("cohort_end"), alias_count)
+
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")

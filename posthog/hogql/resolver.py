@@ -298,6 +298,11 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+        # Stack of column ("WITH expr AS x") CTE ids (by id() of the resolved CTE node) that are siblings of
+        # the subquery CTE currently being resolved. ClickHouse keeps every CTE in one flat WITH clause and
+        # does not propagate a scalar WITH alias into a sibling subquery CTE, so a reference to one of these
+        # from inside that subquery must be inlined rather than left as a bare alias — see `visit_field`.
+        self._sibling_column_cte_ids: list[set[int]] = []
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
 
@@ -754,9 +759,21 @@ class Resolver(CloningVisitor):
         if node.ctes:
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
+            # Column CTEs declared so far at this level. A later sibling subquery CTE can't reference these
+            # as scalar WITH aliases once ClickHouse flattens the WITH clause, so we mark them for inlining
+            # while that subquery's body is resolved (see `visit_field`). Sequential column CTEs referencing
+            # each other are unaffected — that resolves outside any subquery scope.
+            prior_column_cte_ids: set[int] = set()
             for cte in node.ctes.values():
-                resolved_cte = self.visit(cte)
+                if cte.cte_type == "subquery" and prior_column_cte_ids:
+                    self._sibling_column_cte_ids.append(set(prior_column_cte_ids))
+                    resolved_cte = self.visit(cte)
+                    self._sibling_column_cte_ids.pop()
+                else:
+                    resolved_cte = self.visit(cte)
                 current_level_ctes[cte.name] = resolved_cte
+                if resolved_cte.cte_type == "column":
+                    prior_column_cte_ids.add(id(resolved_cte))
             node_type.ctes = current_level_ctes
         else:
             self.ctes = dict(parent_ctes)
@@ -2013,6 +2030,13 @@ class Resolver(CloningVisitor):
                     # Table CTE: can only be used in FROM clauses (handled in visit_join_expr)
                     raise QueryError(f"Cannot use table CTE {cte.name} as a value. Use it in a FROM clause instead.")
                 elif cte.cte_type == "column":
+                    # ClickHouse keeps every CTE in one flat WITH clause and does not propagate a scalar
+                    # WITH alias into a sibling subquery CTE. When this column CTE is referenced from inside
+                    # such a sibling subquery, inline its expression so the reference resolves rather than
+                    # pointing at an alias ClickHouse can't see in that position.
+                    if any(id(cte) in sibling_ids for sibling_ids in self._sibling_column_cte_ids):
+                        return clone_expr(cte.expr, clear_types=False, clear_locations=True)
+
                     # Try to extract the actual return type from the scalar CTE's SELECT query
                     # Scalar CTEs should return a single column, so we get the type of the first selected column
                     inner_type: ast.Type = ast.StringType()
