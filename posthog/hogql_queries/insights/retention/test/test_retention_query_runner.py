@@ -3170,6 +3170,94 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ],
         )
 
+    def test_retention_first_time_matching_filters_with_event_breakdown(self):
+        # Each person joins a bucket on their first start event with that breakdown value,
+        # and only return events with the same value count toward that bucket.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        # Person1: first free signup day 1, free pageviews day 2 and 4
+        _create_events(self.team, [("person1", _date(1), {"plan": "free"})], "$user_signed_up")
+        _create_events(
+            self.team, [("person1", _date(2), {"plan": "free"}), ("person1", _date(4), {"plan": "free"})], "$pageview"
+        )
+
+        # Person2: paid signup day 2, paid pageview day 3; their free pageview day 4 must
+        # not count anywhere because they have no free signup
+        _create_events(self.team, [("person2", _date(2), {"plan": "paid"})], "$user_signed_up")
+        _create_events(
+            self.team, [("person2", _date(3), {"plan": "paid"}), ("person2", _date(4), {"plan": "free"})], "$pageview"
+        )
+
+        # Person3: their first free signup happened before the date range, so the day-3
+        # signup and day-4 pageview must not count in the free bucket
+        _create_events(
+            self.team,
+            [("person3", _date(-5), {"plan": "free"}), ("person3", _date(3), {"plan": "free"})],
+            "$user_signed_up",
+        )
+        _create_events(self.team, [("person3", _date(4), {"plan": "free"})], "$pageview")
+
+        # Person4: free signup day 1 (returns day 2) and paid signup day 3, so they land in
+        # both buckets independently
+        _create_events(
+            self.team,
+            [("person4", _date(1), {"plan": "free"}), ("person4", _date(3), {"plan": "paid"})],
+            "$user_signed_up",
+        )
+        _create_events(self.team, [("person4", _date(2), {"plan": "free"})], "$pageview")
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {"breakdown": "plan", "breakdown_type": "event"},
+            }
+        )
+
+        self.assertEqual(len(result), 16)  # 8 days * 2 plans
+
+        free_results = [r for r in result if r.get("breakdown_value") == "free"]
+        paid_results = [r for r in result if r.get("breakdown_value") == "paid"]
+
+        self.assertEqual(
+            pluck(free_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [2, 2, 0, 1, 0, 0, 0],  # Day 1: person1 + person4, both return day 2, person1 also day 4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person3's free signup is not their first
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+        self.assertEqual(
+            pluck(paid_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1: no paid signups
+                [1, 1, 0, 0, 0, 0, 0],  # Day 2: person2, returns day 3; their free pageview doesn't count
+                [1, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first paid signup, no paid returns
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
     @parameterized.expand(
         [
             # threshold 2: person1's 2 day-2 pageviews and person2's 2 day-5 pageviews both still qualify
@@ -8218,6 +8306,42 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         self.assertFalse(self._where_has_timestamp_bound(start_arm))
         self.assertTrue(self._where_has_timestamp_bound(return_arm))
 
+    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
+    def test_value_breakdown_scans_two_arms_carrying_breakdown_value(self, retention_type):
+        base_query = self._legacy_base_query(
+            retention_type,
+            breakdown_filter={"breakdowns": [{"type": "event", "property": "plan"}]},
+        )
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        def arm_breakdown_expr(arm: ast.SelectQuery) -> ast.Expr:
+            exprs = [e.expr for e in arm.select if isinstance(e, ast.Alias) and e.alias == "breakdown_value"]
+            self.assertEqual(len(exprs), 1)
+            return exprs[0]
+
+        outer_aliases = {e.alias: e.expr for e in base_query.select if isinstance(e, ast.Alias)}
+        self.assertIn("breakdown_value", outer_aliases)
+        group_by_chains = [f.chain for f in (base_query.group_by or []) if isinstance(f, ast.Field)]
+
+        self.assertIsInstance(arm_breakdown_expr(start_arm), ast.Call)
+
+        if retention_type == "retention_first_ever_occurrence":
+            # Only the start arm decides which bucket a person lands in: the return arm
+            # emits an empty value and the outer query picks the value from start rows.
+            return_arm_breakdown = arm_breakdown_expr(return_arm)
+            self.assertIsInstance(return_arm_breakdown, ast.Constant)
+            self.assertEqual(return_arm_breakdown.value, "")  # type: ignore[attr-defined]
+            outer_breakdown = outer_aliases["breakdown_value"]
+            self.assertIsInstance(outer_breakdown, ast.Call)
+            self.assertEqual(outer_breakdown.name, "argMinIf")  # type: ignore[attr-defined]
+            self.assertNotIn(["breakdown_value"], group_by_chains)
+        else:
+            self.assertIsInstance(arm_breakdown_expr(return_arm), ast.Call)
+            self.assertIn(["breakdown_value"], group_by_chains)
+
     @parameterized.expand(
         [
             ("recurring", "retention_recurring", None, None, None, None),
@@ -8231,11 +8355,11 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
             ),
             ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None),
             (
-                "breakdown",
+                "cohort_breakdown",
                 "retention_first_time",
                 None,
                 None,
-                {"breakdowns": [{"type": "event", "property": "plan"}]},
+                {"breakdowns": [{"type": "cohort", "property": 123}]},
                 None,
             ),
             ("property_aggregation", "retention_first_time", None, None, None, "revenue"),
