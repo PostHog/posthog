@@ -59,7 +59,7 @@ All marker reads and writes go through the helper, never through direct comment 
 ## The sweep
 
 1. `git fetch origin master` and record `MASTER_OID=$(git rev-parse origin/master)`.
-2. List candidates: `gh pr list --state open -L 1000 --json number,isDraft,headRefName,headRefOid,headRepositoryOwner,baseRefName,updatedAt`. Keep PRs that are non-draft, same-repo (`headRepositoryOwner.login == "PostHog"`), and based on `master` or `graphite-base/*`. Do not trust the `mergeable` field; it is computed lazily and unreliable in bulk.
+2. List candidates: `gh pr list --state open -L 1000 --json number,isDraft,headRefName,headRefOid,headRepository,headRepositoryOwner,baseRefName,updatedAt`. Keep PRs that are non-draft, same-repo (head repository is exactly this repo: `headRepositoryOwner.login + "/" + headRepository.name == $REPO` — owner alone is not enough, another PostHog-org repo is still a fork here), and based on `master` or `graphite-base/*`. Do not trust the `mergeable` field; it is computed lazily and unreliable in bulk.
 3. Bulk-fetch the candidate heads in one git call: `git fetch origin +refs/pull/<n>/head:refs/remotes/pull/<n> ...` for every candidate. Git protocol traffic is unmetered; prefer it over API calls everywhere below.
 4. Conflict check locally, per candidate: `git merge-tree --write-tree origin/master refs/remotes/pull/<n>`. Exit 1 means conflicting; 0 means clean (skip); anything else, skip with a warning in the report.
 5. For each conflicting PR, apply the cheap local filters before touching the API:
