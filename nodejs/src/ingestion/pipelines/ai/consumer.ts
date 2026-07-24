@@ -36,7 +36,7 @@ import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
-import { buildAiBlobStore } from './blob-offload/blob-store'
+import { AiBlobStoreComponent } from './blob-offload/blob-store'
 import { createAiIngestionPipeline } from './pipeline'
 
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
@@ -163,20 +163,9 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
                 },
             })
-            // Blob store owned by the scope so its startup healthcheck runs at
-            // scope start, mirroring the Kafka consumer's connect-at-start
-            // contract: an unreachable bucket (bad credentials, missing bucket,
-            // no route) fails startup before any traffic is consumed, instead
-            // of crash-looping on the first blob-carrying event.
-            .add('aiBlobStore', {
-                start: async () => {
-                    const store = buildAiBlobStore(config)
-                    if (store) {
-                        await store.healthcheck()
-                    }
-                    return { value: { store }, stop: () => Promise.resolve() }
-                },
-            })
+            // Owned by the scope so the store's startup healthcheck runs at
+            // scope start, before any traffic is consumed.
+            .add('aiBlobStore', new AiBlobStoreComponent(config))
     )
 
     const uploadMaxConcurrency = config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY

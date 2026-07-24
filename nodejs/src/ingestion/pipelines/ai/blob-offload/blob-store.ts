@@ -8,6 +8,7 @@ import {
     S3ServiceException,
 } from '@aws-sdk/client-s3'
 
+import { Component } from '~/ingestion/common/scopes'
 import { aiBlobOffloadS3Duration, aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
 
 export type EnsureStoredOutcome = 'uploaded' | 'fresh' | 'touched'
@@ -278,4 +279,25 @@ export function buildAiBlobStore(config: AiBlobS3Config): S3BlobStore | null {
         touchAfterMs: config.AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS * 3600 * 1000,
         timeoutMs: config.AI_BLOB_S3_TIMEOUT_MS,
     })
+}
+
+/**
+ * Scope entry for the AI blob store. `start()` builds the store from config
+ * (null when no bucket is configured — offload disabled) and runs its startup
+ * healthcheck, mirroring the Kafka consumer's connect-at-start contract: an
+ * unreachable bucket (bad credentials, missing bucket, no route) fails
+ * startup before any traffic is consumed, instead of crash-looping on the
+ * first blob-carrying event. The value is wrapped (`{ store }`) because
+ * container entries must be objects and the store may be null.
+ */
+export class AiBlobStoreComponent implements Component<{ store: BlobStore | null }> {
+    constructor(private readonly config: AiBlobS3Config) {}
+
+    async start(): Promise<{ value: { store: BlobStore | null }; stop: () => Promise<void> }> {
+        const store = buildAiBlobStore(this.config)
+        if (store) {
+            await store.healthcheck()
+        }
+        return { value: { store }, stop: () => Promise.resolve() }
+    }
 }
