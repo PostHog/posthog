@@ -31,6 +31,23 @@ from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
 
+_MAX_ERROR_CHARS = 500
+
+
+def _format_unexpected_tool_error(error: Exception) -> str:
+    # Surface the exception class and message so agents can tell error classes apart
+    # (syntax error vs. timeout vs. memory limit vs. backend failure) instead of retrying
+    # blindly against an opaque message. Errors classified as MaxToolError are handled
+    # separately with retry hints; this is the catch-all for everything else. Truncate to
+    # keep the payload bounded — the full exception is still captured in Sentry/logs above.
+    detail = str(error).strip() or repr(error)
+    if len(detail) > _MAX_ERROR_CHARS:
+        detail = detail[:_MAX_ERROR_CHARS] + "… (truncated)"
+    return (
+        f"The tool raised an internal error ({type(error).__name__}): {detail} "
+        "Do not immediately retry the tool call with the same input."
+    )
+
 
 class DocsSearchRequestSerializer(serializers.Serializer):
     query = serializers.CharField(
@@ -165,7 +182,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(
                 {
                     "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                    "content": _format_unexpected_tool_error(e),
                 }
             )
 
