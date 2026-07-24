@@ -57,12 +57,17 @@ def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> 
         logger.info("data_deletion_slack_not_configured", request_id=str(obj.pk))
         return
 
+    # The email local part is usually the submitter's Slack handle, so render it as a mention.
+    # A plain "@handle" won't hard-ping without the Slack member id, but it lets a reviewer spot
+    # and tab-complete the person who submitted the request.
+    submitter = f"@{obj.created_by.email.split('@', 1)[0]}" if obj.created_by and obj.created_by.email else "unknown"
+
     scope = "all events" if obj.delete_all_events else ", ".join(obj.events) or "—"
     fields = [
         f"*Request:* <{change_url}|{obj.pk}>",
         f"*Team:* {obj.team_id}",
         f"*Type:* {obj.get_request_type_display()}",
-        f"*Submitted by:* {obj.created_by.email if obj.created_by else 'unknown'}",
+        f"*Submitted by:* {submitter}",
         f"*Events:* {scope}",
         f"*Est. matching events:* {obj.count:,}" if obj.count is not None else "*Est. matching events:* not fetched",
     ]

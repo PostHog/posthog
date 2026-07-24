@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
@@ -437,6 +438,22 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(mock_post.called, should_notify)
+
+    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
+    def test_submit_notification_mentions_submitter_by_slack_handle(self):
+        self.user.email = "jane.doe@posthog.com"
+        self.user.save()
+        request = self._property_removal_request(properties=["$ip"])
+        request.created_by = self.user
+        request.save()
+
+        with patch("posthog.admin.admins.data_deletion_request_admin.requests.post") as mock_post:
+            self._call_submit(request, data={})
+
+        body = json.dumps(mock_post.call_args.kwargs["json"])
+        # The email local part is posted as a handle; the domain must not leak into the channel.
+        self.assertIn("@jane.doe", body)
+        self.assertNotIn("jane.doe@posthog.com", body)
 
     @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
     def test_submit_succeeds_even_if_slack_notification_fails(self):
