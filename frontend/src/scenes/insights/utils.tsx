@@ -269,7 +269,7 @@ export function isOtherBreakdown(breakdown_value: string | number | bigint | nul
     )
 }
 
-export function isNullBreakdown(breakdown_value: string | number | bigint | null | undefined): boolean {
+export function isNullBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
         breakdown_value === BREAKDOWN_NULL_STRING_LABEL ||
         breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL ||

@@ -3,9 +3,15 @@ import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsM
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import {
+    BreakdownFilter,
+    InsightActorsQuery,
+    InsightVizNode,
+    ResolvedDateRangeResponse,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { IntervalType } from '~/types'
+import { CohortType, IntervalType } from '~/types'
 
 export interface TrendsChartClickDeps {
     context?: QueryContext<InsightVizNode>
@@ -16,6 +22,10 @@ export interface TrendsChartClickDeps {
     resolvedDateRange: ResolvedDateRangeResponse | null | undefined
     querySource: InsightActorsQuery['source'] | null | undefined
     indexedResults: IndexedTrendResult[]
+    // Needed to render breakdown values (including the null/other sentinels) as readable modal titles.
+    breakdownFilter?: BreakdownFilter | null | undefined
+    cohorts?: CohortType[] | undefined
+    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction | undefined
     // Injected so the adapter stays decoupled from PersonsModal's dep graph.
     openPersonsModal: (props: OpenPersonsModalProps) => void
 }
