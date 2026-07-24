@@ -331,6 +331,7 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Required for type='branch'. conditional_branch: index into config.conditions[index]. "
+            "random_cohort_branch: index into config.cohorts[index]. "
             "wait_until_condition: use index:0 — it advances via the index:0 branch edge when it "
             "resolves (a condition match or an events entry firing)."
         ),
@@ -460,6 +461,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
+            "edge with index:N; percentages should sum to 100 (the remainder falls through the 'continue' edge). "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -650,6 +653,28 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+        # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
+        # its array crashes the editor panel and assigns nothing at runtime. Presence is only
+        # enforceable here (the config field is a lenient JSONField), so strict callers fail at
+        # write time. Web drafts stay lenient for mid-edit saves.
+        if strict:
+            branch_array_keys = {"conditional_branch": "conditions", "random_cohort_branch": "cohorts"}
+            branch_key = branch_array_keys.get(data.get("type", ""))
+            if branch_key is not None and not isinstance(data.get("config", {}).get(branch_key), list):
+                shape = (
+                    "{conditions: [{filters: {properties: [...]}}, ...]}"
+                    if branch_key == "conditions"
+                    else "{cohorts: [{percentage: <number>, name?: <string>}, ...]}"
+                )
+                raise serializers.ValidationError(
+                    {
+                        "config": (
+                            f"{data.get('type')} requires a '{branch_key}' array: {shape}. "
+                            f"Entry N pairs with the 'branch' edge with index N."
+                        )
+                    }
+                )
 
         conditions = data.get("config", {}).get("conditions", [])
 

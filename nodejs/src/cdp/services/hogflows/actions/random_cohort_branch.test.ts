@@ -90,6 +90,38 @@ describe('getRandomCohort', () => {
         expect(result2).toEqual(findActionById(invocation.hogFlow, 'cohort_b'))
     })
 
+    it.each([
+        ['missing', undefined],
+        ['empty', []],
+    ])('should fall through the continue edge when cohorts is %s', (_name, cohorts) => {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    broken_branch: {
+                        type: 'random_cohort_branch',
+                        config: { cohorts: [] },
+                    },
+                    after: {
+                        type: 'delay',
+                        config: { delay_duration: '2h' },
+                    },
+                },
+                edges: [
+                    {
+                        from: 'broken_branch',
+                        to: 'after',
+                        type: 'continue',
+                    },
+                ],
+            })
+            .build()
+        const brokenAction = findActionByType(hogFlow, 'random_cohort_branch')!
+        ;(brokenAction.config as any).cohorts = cohorts
+
+        const result = getRandomCohort(createExampleHogFlowInvocation(hogFlow), brokenAction)
+        expect(result).toEqual(findActionById(hogFlow, 'after'))
+    })
+
     it('should handle single cohort', () => {
         action.config.cohorts = [{ percentage: 100 }]
         ;(Math.random as jest.Mock).mockReturnValue(0.9)

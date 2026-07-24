@@ -801,6 +801,58 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("conditional_branch_no_conditions", "conditional_branch", {}, "conditions"),
+            ("random_cohort_branch_no_cohorts", "random_cohort_branch", {}, "cohorts"),
+            # The shape an LLM invents when it cross-breeds the two branch types: the split data
+            # stored under 'conditions' on a random_cohort_branch. Must fail loudly, not store.
+            (
+                "random_cohort_branch_wrong_key",
+                "random_cohort_branch",
+                {"conditions": [{"name": "A", "percentage": 50}, {"name": "B", "percentage": 50}]},
+                "cohorts",
+            ),
+            ("conditional_branch_non_list", "conditional_branch", {"conditions": "not-a-list"}, "conditions"),
+        ]
+    )
+    def test_hog_flow_branch_action_missing_branch_array_rejected_when_strict(
+        self, _name, action_type, config, expected_key
+    ):
+        branch_action = {"id": "branch_1", "name": "branch_1", "type": action_type, "config": config}
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [trigger_action, branch_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert expected_key in response.json()["detail"]
+
+    def test_hog_flow_branch_action_missing_branch_array_allowed_for_web_draft(self):
+        # The web builder saves incomplete nodes mid-edit; a draft save must not reject them.
+        branch_actions = [
+            {"id": "cond_1", "name": "cond_1", "type": "conditional_branch", "config": {}},
+            {"id": "split_1", "name": "split_1", "type": "random_cohort_branch", "config": {}},
+        ]
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "draft", "actions": [trigger_action, *branch_actions]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
             "id": "trigger_node",
