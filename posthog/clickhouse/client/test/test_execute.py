@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Product, tags_context
 
 
 @pytest.fixture
@@ -48,3 +48,23 @@ def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_wor
         sync_execute("SELECT 1", workload=workload, flush=False)
 
     assert client_from_pool.call_args[0][0] == expected_workload
+
+
+@pytest.mark.parametrize("explicit_ch_user", [ClickHouseUser.HOGQL, ClickHouseUser.META])
+def test_low_cost_ch_user_not_overridden_by_max_ai_product(client_from_pool, explicit_ch_user):
+    # Schema-introspection queries explicitly ask for a cheap, unconstrained user. Under the Max AI
+    # product context the override must not reassign them onto the constrained max_ai user, whose
+    # low concurrency cap would otherwise be exhausted by these frequent metadata lookups.
+    with tags_context(product=Product.MAX_AI):
+        sync_execute("SELECT 1", ch_user=explicit_ch_user, flush=False)
+
+    assert client_from_pool.call_args[0][3] == explicit_ch_user
+
+
+def test_max_ai_product_still_overrides_default_ch_user(client_from_pool):
+    # Guard the exemption stays narrow: an unspecified (default) user under Max AI is still routed
+    # to the max_ai user.
+    with tags_context(product=Product.MAX_AI):
+        sync_execute("SELECT 1", flush=False)
+
+    assert client_from_pool.call_args[0][3] == ClickHouseUser.MAX_AI
