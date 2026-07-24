@@ -546,6 +546,80 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(urgent_ticket.id))
         self.assertEqual(results[1]["id"], str(self.ticket.id))
 
+    def _list_ordered_ids(self, order_by):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": order_by})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return [r["id"] for r in response.json()["results"]]
+
+    def test_order_by_plan_ranks_by_tag_groups(self, mock_on_commit):
+        """Staff-only plan ordering ranks tickets by their plan-tag group, Triage first."""
+        self.user.is_staff = True
+        self.user.save()
+        # setUp's self.ticket is untagged → Triage (rank 0)
+        free = self._ticket_with_tags("plan_free")
+        churn = self._ticket_with_tags("churn_risk")
+        enterprise = self._ticket_with_tags("plan_enterprise")
+
+        ids = self._list_ordered_ids("plan")
+        self.assertEqual(ids, [str(self.ticket.id), str(churn.id), str(enterprise.id), str(free.id)])
+
+        ids_desc = self._list_ordered_ids("-plan")
+        self.assertEqual(ids_desc, [str(free.id), str(enterprise.id), str(churn.id), str(self.ticket.id)])
+
+    def test_order_by_plan_multi_tag_uses_highest_priority_group(self, mock_on_commit):
+        """A ticket carrying several plan tags ranks with the highest-priority one."""
+        self.user.is_staff = True
+        self.user.save()
+        enterprise = self._ticket_with_tags("plan_enterprise")
+        churny_free = self._ticket_with_tags("plan_free", "churn_risk")
+
+        ids = self._list_ordered_ids("plan")
+        # churn_risk (rank 1) outranks plan_enterprise (rank 3); setUp's untagged ticket is Triage (rank 0)
+        self.assertEqual(ids, [str(self.ticket.id), str(churny_free.id), str(enterprise.id)])
+
+    def test_order_by_plan_ties_break_by_sla_nulls_last(self, mock_on_commit):
+        """Within one plan group, sooner SLA deadlines come first; no SLA sorts last."""
+        self.user.is_staff = True
+        self.user.save()
+        self.ticket.delete()  # keep only the enterprise trio in play
+        later = self._ticket_with_tags("plan_enterprise")
+        later.sla_due_at = timezone.now() + timedelta(hours=10)
+        later.save()
+        sooner = self._ticket_with_tags("plan_enterprise")
+        sooner.sla_due_at = timezone.now() + timedelta(hours=1)
+        sooner.save()
+        no_sla = self._ticket_with_tags("plan_enterprise")
+
+        ids = self._list_ordered_ids("plan")
+        self.assertEqual(ids, [str(sooner.id), str(later.id), str(no_sla.id)])
+
+    def test_order_by_plan_composes_with_tag_filters(self, mock_on_commit):
+        """Plan ordering works on top of the tag filters' DISTINCT queryset,
+        without duplicating multi-matched rows."""
+        self.user.is_staff = True
+        self.user.save()
+        self.ticket.delete()
+        free = self._ticket_with_tags("plan_free", "vip")
+        enterprise = self._ticket_with_tags("plan_enterprise", "vip", "beta")  # matches both filter tags
+        self._ticket_with_tags("plan_top20")  # no vip/beta → filtered out
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/",
+            data={"tags": json.dumps(["vip", "beta"]), "order_by": "plan"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        self.assertEqual(ids, [str(enterprise.id), str(free.id)])
+
+    def test_order_by_plan_requires_staff(self, mock_on_commit):
+        """Non-staff requests fall back to the default ordering instead of plan rank."""
+        self.assertFalse(self.user.is_staff)
+        free = self._ticket_with_tags("plan_free")  # created after self.ticket → more recently updated
+
+        ids = self._list_ordered_ids("plan")
+        # Default -updated_at order (newest first), NOT plan order (which would put untagged/Triage first)
+        self.assertEqual(ids, [str(free.id), str(self.ticket.id)])
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW

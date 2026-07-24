@@ -24,6 +24,7 @@ import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -113,6 +114,8 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+    const { user } = useValues(userLogic)
+    const staff = !!user?.is_staff
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
@@ -168,11 +171,12 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 />
             ),
         }
-        return [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded })]
+        return [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, staff })]
     }, [
         visibleColumns,
         embedded,
         aiEnabled,
+        staff,
         isSomeOnPageSelected,
         isAllOnPageSelected,
         toggleAllOnPage,
