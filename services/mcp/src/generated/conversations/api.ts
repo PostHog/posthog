@@ -68,7 +68,9 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     order_by: zod
         .string()
         .optional()
-        .describe('Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.'),
+        .describe(
+            'Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak; non-staff requests fall back to the default.'
+        ),
     priority: zod
         .string()
         .optional()
