@@ -1171,6 +1171,38 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         assert filtered_actual_activities == expected_activities
 
+    def test_notifies_when_resuming_from_disabled(self, *args):
+        with (
+            patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get,
+            patch("posthog.plugins.plugin_server_api.internal_requests.patch") as mock_patch,
+            patch("products.cdp.backend.api.hog_function.send_hog_function_enabled") as mock_email,
+        ):
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": HogFunctionState.DISABLED.value, "tokens": 0}
+            mock_patch.return_value.status_code = status.HTTP_200_OK
+            mock_patch.return_value.json.return_value = {"state": HogFunctionState.DEGRADED.value, "tokens": 0}
+
+            function_id = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={**EXAMPLE_FULL, "name": "Fetch URL"},
+            ).json()["id"]
+
+            # Disabling a destination must never send a "resumed" email
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                    data={"enabled": False},
+                )
+            assert mock_email.delay.call_count == 0
+
+            # Re-enabling a watcher-disabled destination promotes it out of DISABLED and notifies owners
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                    data={"enabled": True},
+                )
+            mock_email.delay.assert_called_once_with(function_id)
+
     def test_list_with_filters_filter(self, *args):
         action1 = Action.objects.create(
             team=self.team,

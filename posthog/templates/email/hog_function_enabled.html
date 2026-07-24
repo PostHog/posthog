@@ -1,0 +1,30 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}A disabled destination has resumed sending{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    The destination <b>{{ hog_function.name }}</b> in project <b>{{ team }}</b> has started sending data again after previously being disabled.
+</p>
+<p>If you expected this, no action is needed. If you meant to keep it turned off, open the destination and disable it again.</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ hog_function.url }}">Go to destination</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ hog_function.url }}">{{ hog_function.url }}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}
