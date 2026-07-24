@@ -128,6 +128,33 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         assert new_insight_tile["filters_overrides"] == filters_overrides
         assert new_insight_tile["show_description"] is True
 
+    def test_deep_duplicate_preserves_insight_definition(self) -> None:
+        # Duplication builds the copy from the source insight's stored fields directly (not a full
+        # read-serialize round-trip). Guards against a writable field being dropped from that copy,
+        # which would silently strip the query/description/favorited state from duplicated insights.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        query = {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["event"]}}
+        self.dashboard_api.create_insight(
+            {
+                "dashboards": [dashboard_id],
+                "name": "source insight",
+                "description": "a helpful description",
+                "query": query,
+                "favorited": True,
+            }
+        )
+
+        duplicated = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"duplicate_tiles": True, "use_dashboard": dashboard_id, "name": "dup"},
+        ).json()
+
+        new_insight = next(t["insight"] for t in duplicated["tiles"] if t["insight"] is not None)
+        assert new_insight["name"] == "source insight (Copy)"
+        assert new_insight["description"] == "a helpful description"
+        assert new_insight["query"] == query
+        assert new_insight["favorited"] is True
+
     @staticmethod
     def _tile_child_ids_from(dashboard_json: dict) -> list[int]:
         child_ids: list[int] = []

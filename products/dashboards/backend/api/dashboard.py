@@ -1381,42 +1381,46 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 existing_dashboard.quick_filter_ids, team_id
             )
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+        # Create the dashboard and all of its copied content in one transaction so a timeout or
+        # error partway through the (potentially large) tile copy can't leave a half-populated
+        # dashboard behind — the whole thing commits or nothing does.
+        with transaction.atomic():
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        if use_template:
-            try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
+            if use_template:
+                try:
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
+                except AttributeError as error:
+                    logger.error(
+                        "dashboard_create.create_from_template_failed",
+                        team_id=team_id,
+                        template=use_template,
+                        error=error,
+                        exc_info=True,
+                    )
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+
+            elif existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
                 )
-            except AttributeError as error:
-                logger.error(
-                    "dashboard_create.create_from_template_failed",
-                    team_id=team_id,
-                    template=use_template,
-                    error=error,
-                    exc_info=True,
-                )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard)
+            # Manual tag creation since this create method doesn't call super()
+            self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -1438,21 +1442,31 @@ class DashboardSerializer(DashboardMetadataSerializer):
         self, dashboard: Dashboard, existing_tile: DashboardTile, user_access_control: UserAccessControl
     ) -> None:
         if existing_tile.insight:
-            # Deep duplication serializes and recreates the source insight, so the caller must have viewer
+            # Deep duplication reads and recreates the source insight, so the caller must have viewer
             # access to that specific insight — an insight can be restricted independently of its dashboard.
             if not user_access_control.check_access_level_for_object(existing_tile.insight, "viewer"):
                 raise exceptions.PermissionDenied(
                     "You don't have permission to view one of the source dashboard's insights."
                 )
 
+            source_insight = existing_tile.insight
+            # Build the create payload straight from the source insight's stored fields rather than
+            # round-tripping through InsightSerializer(...).data. That read serialization runs
+            # insight_result() per insight — a query-runner build plus cache lookup (see get_result)
+            # — which does nothing for a copy but adds up on large dashboards until the request times
+            # out. Duplication only needs the persisted definition, so we copy just the writable fields.
             new_data = {
-                **InsightSerializer(existing_tile.insight, context=self.context).data,
-                "id": None,  # to create a new Insight
-                "last_refresh": now(),
-                "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
+                "name": (source_insight.name + " (Copy)") if source_insight.name else None,
+                "derived_name": source_insight.derived_name,
+                "description": source_insight.description,
+                "filters": source_insight.filters,
+                "query": source_insight.query,
+                "order": source_insight.order,
+                "favorited": source_insight.favorited,
+                "saved": source_insight.saved,
+                "deleted": source_insight.deleted,
             }
-            new_data.pop("dashboards", None)
-            new_tags = new_data.pop("tags", None)
+            new_tags = list(source_insight.tagged_items.values_list("tag__name", flat=True))
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
             insight_serializer.is_valid()
             insight_serializer.save()
@@ -1637,11 +1651,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         if duplicate_tiles:
             user_access_control = UserAccessControl(user=user, team=instance.team)
-            for tile_data in duplicate_tiles:
-                # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
-                existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-                existing_tile.layouts = tile_data.get("layouts", {})
-                self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
+            # Copy every requested tile atomically so a failure mid-loop can't leave a dangling
+            # insight/text row without its tile.
+            with transaction.atomic():
+                for tile_data in duplicate_tiles:
+                    # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
+                    existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+                    existing_tile.layouts = tile_data.get("layouts", {})
+                    self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
             if being_deleted:
