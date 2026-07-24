@@ -6,10 +6,11 @@ rules, and the audit log. Personal/shared credentials stay on
 `MCPServerInstallation` (see views.py); this module only adds the team layer.
 """
 
+from functools import cached_property
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When, prefetch_related_objects
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -1075,35 +1076,40 @@ class MCPServiceAccountViewSet(
     permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     queryset = MCPServiceAccount.objects.unscoped()
 
+    @cached_property
+    def _synced_built_in_accounts(self) -> list[MCPServiceAccount]:
+        return sync_built_in_agents(self.team)
+
+    def _server_access_prefetch(self) -> Prefetch:
+        return Prefetch(
+            "server_access",
+            queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+            .select_related("gateway_server__template", "installation")
+            .prefetch_related(
+                Prefetch(
+                    "gateway_server__installations",
+                    queryset=MCPServerInstallation.objects.filter(team_id=self.team_id, scope="shared").order_by(
+                        "created_at"
+                    ),
+                    to_attr="agent_shared_installations",
+                )
+            )
+            .order_by("gateway_server__name"),
+        )
+
     def safely_get_queryset(self, queryset: QuerySet[MCPServiceAccount]) -> QuerySet[MCPServiceAccount]:
-        accounts = sync_built_in_agents(self.team)
         catalog_order = Case(
-            *(When(id=account.id, then=position) for position, account in enumerate(accounts)),
+            *(When(id=account.id, then=position) for position, account in enumerate(self._synced_built_in_accounts)),
             output_field=IntegerField(),
         )
-        return (
+        accounts_queryset = (
             MCPServiceAccount.objects.for_team(self.team_id)
             .filter(handle__in=built_in_agent_handles())
             .select_related("team__organization")
-            .prefetch_related(
-                Prefetch(
-                    "server_access",
-                    queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
-                    .select_related("gateway_server__template", "installation")
-                    .prefetch_related(
-                        Prefetch(
-                            "gateway_server__installations",
-                            queryset=MCPServerInstallation.objects.filter(
-                                team_id=self.team_id, scope="shared"
-                            ).order_by("created_at"),
-                            to_attr="agent_shared_installations",
-                        )
-                    )
-                    .order_by("gateway_server__name"),
-                )
-            )
-            .order_by(catalog_order)
         )
+        if self.action in ("list", "retrieve"):
+            accounts_queryset = accounts_queryset.prefetch_related(self._server_access_prefetch())
+        return accounts_queryset.order_by(catalog_order)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "access":
@@ -1197,7 +1203,7 @@ class MCPServiceAccountViewSet(
             properties={"handle": account.handle, "server_name": server.name, "enabled": data["enabled"]},
             team=self.team,
         )
-        account = self.safely_get_queryset(self.get_queryset()).get(id=account.id)
+        prefetch_related_objects([account], self._server_access_prefetch())
         return Response(MCPServiceAccountSerializer(account, context=self.get_serializer_context()).data)
 
 
