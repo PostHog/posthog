@@ -257,11 +257,13 @@ export function DataTable({
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
 
-    const allColumns = useMemo(
-        () =>
-            sourceFeatures.has(QueryFeature.columnsInResponse) ? (columnsInResponse ?? columnsInQuery) : columnsInQuery,
-        [sourceFeatures, columnsInResponse, columnsInQuery]
-    )
+    const allColumns = useMemo(() => {
+        const columns = sourceFeatures.has(QueryFeature.columnsInResponse)
+            ? (columnsInResponse ?? columnsInQuery)
+            : columnsInQuery
+        // Drop any falsy entries so an undefined column name can't reach the per-column callers below
+        return columns.filter(Boolean)
+    }, [sourceFeatures, columnsInResponse, columnsInQuery])
     const contextColumns = context?.columns
     const columnsInLemonTable = useMemo(
         () =>
