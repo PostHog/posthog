@@ -90,9 +90,64 @@ export const StageEnumApi = {
 } as const
 
 /**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
  * Feature flag payload for this early access feature
  */
 export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
+
+/**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type EarlyAccessFeatureApiAssignee = { [key: string]: unknown } | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -124,6 +179,12 @@ export interface EarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee: EarlyAccessFeatureApiAssignee
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -139,6 +200,12 @@ export interface PaginatedEarlyAccessFeatureListApi {
     previous?: string | null
     results: EarlyAccessFeatureApi[]
 }
+
+/**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type EarlyAccessFeatureSerializerCreateOnlyApiAssignee = { [key: string]: unknown } | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -169,6 +236,12 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     /** Arbitrary JSON metadata associated with this feature. */
     payload?: unknown
     readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee: EarlyAccessFeatureSerializerCreateOnlyApiAssignee
     /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
@@ -184,6 +257,12 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
  * Feature flag payload for this early access feature
  */
 export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
+
+/**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type PatchedEarlyAccessFeatureApiAssignee = { [key: string]: unknown } | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -215,6 +294,12 @@ export interface PatchedEarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee?: PatchedEarlyAccessFeatureApiAssignee
     /**
      * The effective access level the user has for this object
      * @nullable
