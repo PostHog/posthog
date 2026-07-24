@@ -12,6 +12,7 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { getExploreEmptyStateContext } from './exploreEmptyState'
 import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
 
@@ -43,6 +44,7 @@ export function SessionsScene(): JSX.Element {
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
                     dataTableRowsTransformer,
+                    ...getExploreEmptyStateContext(query, setQuery),
                 }}
             />
         </SceneContent>
