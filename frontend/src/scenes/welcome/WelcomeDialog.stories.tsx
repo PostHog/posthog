@@ -154,6 +154,14 @@ export default meta
 
 function Template(): JSX.Element {
     useMountedLogic(userLogic)
+    // The dialog persists a durable "seen"/"dismissed" marker in localStorage once shown, and the
+    // test-runner shares localStorage across stories. Clear it before the child renders (which mounts
+    // the logic and reads the marker) so the dialog opens for every story regardless of run order.
+    if (typeof window !== 'undefined') {
+        Object.keys(window.localStorage)
+            .filter((key) => key.startsWith('posthog_welcome_'))
+            .forEach((key) => window.localStorage.removeItem(key))
+    }
     useEffect(() => {
         // Force-mount the dialog logic so the story renders independent of the home page wrapper.
         welcomeDialogLogic.mount()
