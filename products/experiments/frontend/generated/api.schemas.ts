@@ -1365,6 +1365,22 @@ export interface ExperimentApiMetricApi {
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
 
 /**
+ * A single external link attached to an experiment.
+ */
+export interface ExperimentLinkApi {
+    /**
+     * Link URL, e.g. a pull request, design doc, or dashboard.
+     * @maxLength 2048
+     */
+    url: string
+    /**
+     * Short label for the link. Omit to display the URL itself.
+     * @maxLength 400
+     */
+    title?: string
+}
+
+/**
  * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
  */
 export interface ExperimentWriteApi {
@@ -1461,6 +1477,11 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+     * @nullable
+     */
+    links?: ExperimentLinkApi[] | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1580,6 +1601,11 @@ export interface ExperimentApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+     * @nullable
+     */
+    links?: ExperimentLinkApi[] | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1695,6 +1721,11 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+     * @nullable
+     */
+    links?: ExperimentLinkApi[] | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1757,6 +1788,15 @@ export interface ActivityLogEntryApi {
     readonly item_id: string
     detail?: DetailApi
     readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
 }
 
 /**

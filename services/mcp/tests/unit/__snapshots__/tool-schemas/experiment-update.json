@@ -2336,6 +2336,35 @@
             "description": "A unique integer value identifying this experiment.",
             "type": "number"
         },
+        "links": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "A single external link attached to an experiment.",
+                        "properties": {
+                            "title": {
+                                "description": "Short label for the link. Omit to display the URL itself.",
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            "url": {
+                                "description": "Link URL, e.g. a pull request, design doc, or dashboard.",
+                                "format": "uri",
+                                "maxLength": 2048,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["url"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links."
+        },
         "metrics": {
             "anyOf": [
                 {

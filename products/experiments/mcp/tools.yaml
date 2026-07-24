@@ -1093,6 +1093,7 @@ tools:
             - holdout_id
             - conclusion
             - conclusion_comment
+            - links
             - archived
             - allow_unknown_events
             - update_feature_flag_params
@@ -1137,6 +1138,7 @@ tools:
                 - saved_metrics
                 - conclusion
                 - conclusion_comment
+                - links
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false

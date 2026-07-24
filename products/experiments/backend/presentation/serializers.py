@@ -292,6 +292,21 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         data["parameters"] = parameters
 
 
+class ExperimentLinkSerializer(serializers.Serializer):
+    """A single external link attached to an experiment."""
+
+    url = serializers.URLField(
+        max_length=2048,
+        help_text="Link URL, e.g. a pull request, design doc, or dashboard.",
+    )
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=400,
+        help_text="Short label for the link. Omit to display the URL itself.",
+    )
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -391,6 +406,20 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "skipped if the team has several."
         ),
     )
+    links = ExperimentLinkSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "External links attached to the experiment (pull requests, design docs, dashboards) for "
+            "context. Writing replaces the whole list; at most 20 links."
+        ),
+    )
+
+    def validate_links(self, value: list[dict[str, str]] | None) -> list[dict[str, str]] | None:
+        if value is not None and len(value) > 20:
+            raise ValidationError("An experiment can have at most 20 links.")
+        return value
 
     class Meta:
         model = Experiment
@@ -429,6 +458,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conclusion_comment",
             "flag_cleanup_task_id",
             "repository",
+            "links",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
@@ -737,6 +767,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             conclusion=self.validated_data.get("conclusion"),
             conclusion_comment=self.validated_data.get("conclusion_comment"),
             repository=self.validated_data.get("repository"),
+            links=self.validated_data.get("links"),
             holdout_id=holdout_id,
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
@@ -778,6 +809,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conclusion",
             "conclusion_comment",
             "repository",
+            "links",
             "holdout",
             "filters",
             "scheduling_config",

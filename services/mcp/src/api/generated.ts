@@ -26400,6 +26400,22 @@ export namespace Schemas {
      */
     export type _ExperimentApiMetricsList = ExperimentApiMetric[];
 
+    /**
+     * A single external link attached to an experiment.
+     */
+    export interface ExperimentLink {
+      /**
+         * Link URL, e.g. a pull request, design doc, or dashboard.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Short label for the link. Omit to display the URL itself.
+         * @maxLength 400
+         */
+      title?: string;
+    }
+
     export type ExperimentStatusEnum = typeof ExperimentStatusEnum[keyof typeof ExperimentStatusEnum];
 
 
@@ -26512,6 +26528,11 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+         * @nullable
+         */
+      links?: ExperimentLink[] | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -27219,6 +27240,11 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+         * @nullable
+         */
+      links?: ExperimentLink[] | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -48087,6 +48113,11 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.
+         * @nullable
+         */
+      links?: ExperimentLink[] | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;

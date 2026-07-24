@@ -943,6 +943,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         repository: str | None = None,
+        links: list[dict[str, str]] | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
@@ -1087,6 +1088,7 @@ class ExperimentService:
             "conclusion": conclusion,
             "conclusion_comment": conclusion_comment,
             "repository": repository,
+            "links": links,
         }
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder
@@ -3232,7 +3234,7 @@ class ExperimentService:
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
-            allowed_fields = {"name", "description", "end_date", "deleted"}
+            allowed_fields = {"name", "description", "end_date", "deleted", "links"}
             update_fields = set(update_data.keys())
 
             # Remove internal fields that are handled separately
@@ -3277,6 +3279,7 @@ class ExperimentService:
             "saved_metrics_ids",
             "only_count_matured_users",
             "repository",
+            "links",
         }
         extra_keys = set(update_data.keys()) - expected_keys
 

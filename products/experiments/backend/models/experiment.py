@@ -148,6 +148,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # is skipped when the team has several — never inferred.
     repository = models.CharField(max_length=255, null=True, blank=True)
 
+    # External links (pull requests, docs, dashboards) giving context on the experiment.
+    # A list of {"url", "title"} objects, validated in the serializer.
+    links = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_experiment"
 
