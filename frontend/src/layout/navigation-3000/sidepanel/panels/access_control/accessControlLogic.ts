@@ -1139,6 +1139,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    heatmap: 'saved',
                     replay_scanner: 'vision/scanners',
                 }
                 const route = resourceToRoute[resource] ?? `${resource}s`
@@ -1365,7 +1366,10 @@ export const accessControlLogic = kea<accessControlLogicType>([
                                 (member) => member === accessControl.organization_member
                             )
                     ) as (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[]
-                return members.concat(organizationAdminsAsAccessControlMember)
+                // No row when no admins are visible (org may hide them from restricted members)
+                return organizationAdminsAsAccessControlMember.organization_admin_members.length > 0
+                    ? members.concat(organizationAdminsAsAccessControlMember)
+                    : members
             },
         ],
 

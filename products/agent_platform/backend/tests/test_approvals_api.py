@@ -232,7 +232,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         )
 
     # An `agent` (owner) decision requires a human acting interactively. Only a
-    # first-party PostHog OAuth app (e.g. PostHog Code, where a human approves
+    # first-party PostHog OAuth app (e.g. PostHog Desktop, where a human approves
     # in-app) qualifies; a third-party OAuth app is rejected even with a broad
     # `*` scope — the gate keys off the app's staff-set `is_first_party` flag,
     # not the token scope.

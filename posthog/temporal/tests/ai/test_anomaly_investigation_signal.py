@@ -1,5 +1,11 @@
+from parameterized import parameterized
+
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
-from posthog.temporal.ai.anomaly_investigation.workflow import _MAX_DESCRIPTION_CHARS, _build_signal_description
+from posthog.temporal.ai.anomaly_investigation.workflow import (
+    _MAX_DESCRIPTION_CHARS,
+    _build_signal_description,
+    should_emit_investigation_signal,
+)
 
 
 class TestBuildSignalDescription:
@@ -42,3 +48,21 @@ class TestBuildSignalDescription:
 
         assert "verdict: true positive" in description
         assert "id 42" in description
+
+
+class TestShouldEmitInvestigationSignal:
+    # Guards the verdict gate: a regression here floods the Signals inbox with
+    # false-positive investigation reports again.
+    @parameterized.expand(
+        [
+            ("true_positive", "notify", True),
+            ("true_positive", "suppress", True),
+            ("false_positive", "notify", False),
+            ("false_positive", "suppress", False),
+            ("inconclusive", "notify", True),
+            ("inconclusive", "suppress", False),
+            ("inconclusive", None, True),
+        ]
+    )
+    def test_gating_by_verdict_and_policy(self, verdict: str, inconclusive_action: str | None, expected: bool) -> None:
+        assert should_emit_investigation_signal(verdict, inconclusive_action) is expected

@@ -120,9 +120,9 @@ Then **share** each page or database you want to sync with the integration (via 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Runs at creation time with no row pin; new sources are stamped with default_version, and
-        # the /v1/users/me probe is version-agnostic, so validate under the default.
-        return validate_notion_credentials(config.api_key, self.default_version)
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are
+        # stamped with); a pinned source revalidates under its own `Notion-Version` header.
+        return validate_notion_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NotionResumeConfig]:
         return ResumableSourceManager[NotionResumeConfig](inputs, NotionResumeConfig)

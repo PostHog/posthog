@@ -5,14 +5,32 @@ import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
-async function createSavedTrendsInsight(page: Page, insightName: string): Promise<void> {
-    const insight = new InsightPage(page)
-
-    await insight.goToNewTrends()
-    await insight.trends.waitForChart()
-    await insight.editName(insightName)
-    await insight.save()
-    await expect(insight.editButton).toBeVisible()
+/**
+ * Creates a saved Trends insight via the API (no UI interaction).
+ * This avoids flakiness from chart rendering timeouts under CI load.
+ */
+async function createSavedTrendsInsight(
+    page: Page,
+    insightName: string,
+    workspace: PlaywrightWorkspaceSetupResult
+): Promise<void> {
+    const response = await page.request.post(`/api/projects/${workspace.team_id}/insights/`, {
+        headers: {
+            Authorization: `Bearer ${workspace.personal_api_key}`,
+            'Content-Type': 'application/json',
+        },
+        data: {
+            name: insightName,
+            query: {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'TrendsQuery',
+                    series: [{ kind: 'EventsNode', event: '$pageview' }],
+                },
+            },
+        },
+    })
+    expect(response.ok()).toBe(true)
 }
 
 test.describe('Dashboards', () => {
@@ -34,7 +52,7 @@ test.describe('Dashboards', () => {
         let dashboardUrl: string
 
         await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName)
+            await createSavedTrendsInsight(page, insightName, workspace!)
         })
 
         await test.step('create a dashboard with an insight', async () => {

@@ -65,6 +65,7 @@ function requestContextFromValues(values: {
     scope: InboxScope
     searchQuery: string
     sourceProductFilter: string[]
+    scoutFilter: string[]
     priorityFilter: SignalReportPriority[]
 }): { scope: InboxScope; hasActiveFilters: boolean } {
     return {
@@ -72,6 +73,7 @@ function requestContextFromValues(values: {
         hasActiveFilters:
             values.searchQuery.trim().length > 0 ||
             values.sourceProductFilter.length > 0 ||
+            values.scoutFilter.length > 0 ||
             values.priorityFilter.length > 0,
     }
 }
@@ -104,6 +106,7 @@ export interface reportListLogicValues {
     hasUserChosenScope: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
+    scoutFilter: string[] // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
     sortDirection: InboxSortDirection // inboxFiltersLogic
     sortField: InboxSortField // inboxFiltersLogic
@@ -151,6 +154,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
+    } // inboxFiltersLogic
+    toggleScout: (scout: string) => {
+        scout: string
     } // inboxFiltersLogic
     toggleSourceProduct: (source: string) => {
         source: string
@@ -241,6 +247,7 @@ export interface reportListLogicMeta {
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
             sourceProductFilter: string[],
+            scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scope: InboxScope,
             user: UserType | null,
@@ -289,6 +296,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'sortField',
                 'sortDirection',
                 'sourceProductFilter',
+                'scoutFilter',
                 'priorityFilter',
             ],
             userLogic,
@@ -300,6 +308,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'setSearchQuery',
                 'setSort',
                 'toggleSourceProduct',
+                'toggleScout',
                 'togglePriority',
                 'setScope',
                 'applyDefaultScope',
@@ -386,6 +395,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.sortField,
                 s.sortDirection,
                 s.sourceProductFilter,
+                s.scoutFilter,
                 s.priorityFilter,
                 s.scope,
                 s.user,
@@ -396,6 +406,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 sortField: import('./inboxFiltersLogic').InboxSortField,
                 sortDirection: import('./inboxFiltersLogic').InboxSortDirection,
                 sourceProductFilter: string[],
+                scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 scope: InboxScope,
                 user: null | import('../../../types').UserType,
@@ -408,6 +419,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     search: searchQuery.trim() || undefined,
                     ordering: buildSignalReportListOrdering(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
+                    scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
                 }
@@ -491,6 +503,7 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         setSort: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),
+        toggleScout: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),

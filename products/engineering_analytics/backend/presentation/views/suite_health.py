@@ -28,7 +28,10 @@ from products.engineering_analytics.backend.presentation.views._base import (
 )
 
 
-class TestHealthActionsMixin(EngineeringAnalyticsViewSetBase):
+class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine"]
+    WRITE_ACTIONS = ["quarantine_request"]
+
     @extend_schema(
         operation_id="engineering_analytics_flaky_tests",
         parameters=[
@@ -42,20 +45,12 @@ class TestHealthActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
             _DATE_TO,
             OpenApiParameter(
-                name="min_rerun_passes",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="A test qualifies once it passed on retry at least this many times in the window "
-                "(OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
-            ),
-            OpenApiParameter(
                 name="min_failed_prs",
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="A test qualifies once it failed on at least this many distinct pull requests in "
-                "the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+                description="A test with no recorded recovery qualifies once it failed on at least this many "
+                "distinct pull requests in the window. Minimum 1. Defaults to 3.",
             ),
             OpenApiParameter(
                 name="limit",
@@ -74,9 +69,13 @@ class TestHealthActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
         },
         description=(
-            "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
-            "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
-            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a "
+            "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run "
+            "attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed "
+            "jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while "
+            "masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any "
+            "master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. "
+            + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -86,7 +85,6 @@ class TestHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
-                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
                 source_id=request.query_params.get("source_id") or None,

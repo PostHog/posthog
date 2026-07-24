@@ -114,7 +114,7 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Code and to Loops.
+ * Check whether the authenticated user has access to PostHog Desktop and to Loops.
  * @summary Check access
  */
 export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
@@ -129,7 +129,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Code invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (

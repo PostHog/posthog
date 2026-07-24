@@ -4,6 +4,11 @@ pub mod personhog {
             tonic::include_proto!("personhog.types.v1");
         }
     }
+    pub mod identity {
+        pub mod v1 {
+            tonic::include_proto!("personhog.identity.v1");
+        }
+    }
     pub mod leader {
         pub mod v1 {
             tonic::include_proto!("personhog.leader.v1");

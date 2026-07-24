@@ -32,6 +32,14 @@ def _parse_window(
     return parsed_from, parsed_to
 
 
+def _require_repo(repo: str | None) -> tuple[str, str]:
+    """`_split_repo` for builders whose repo argument is mandatory."""
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return owner, name
+
+
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not repo:
         return None, None

@@ -80,6 +80,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: stri
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
     customer_analytics: null,
+    ticket: (id) => urls.supportTicketDetail(id),
 }
 
 export interface NotificationGroup {

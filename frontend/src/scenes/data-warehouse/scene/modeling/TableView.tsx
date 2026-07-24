@@ -48,7 +48,6 @@ export function TableView(): JSX.Element {
     }
     return (
         <LemonTable
-            className="h-[calc(100vh-17rem)] overflow-y-auto"
             dataSource={visibleNodes}
             loading={nodesLoading}
             columns={[

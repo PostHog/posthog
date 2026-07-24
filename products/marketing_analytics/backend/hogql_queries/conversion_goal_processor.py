@@ -40,6 +40,7 @@ from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
+from .utils import build_source_normalization_expr
 
 DAY_IN_SECONDS = 86400
 LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
@@ -1997,38 +1998,10 @@ class ConversionGoalProcessor:
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
         Includes both adapter-defined sources and team-configured custom sources.
         """
-        # Convert source to lowercase for case-insensitive matching
-        lowercase_source = ast.Call(name="lower", args=[source_expr])
-
-        # Build nested if expressions for each mapping
-        normalized_expr = source_expr
-
-        # Get combined source mappings (adapter defaults + team custom sources)
         source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
             team_config=self.team.marketing_analytics_config
         )
-        for primary_source, alternative_sources in source_mappings.items():
-            # Skip the primary source itself in the alternatives list
-            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
-
-            if alternatives_only:
-                # If lowercase source is in alternatives, return primary; otherwise continue
-                normalized_expr = ast.Call(
-                    name="if",
-                    args=[
-                        ast.Call(
-                            name="in",
-                            args=[
-                                lowercase_source,
-                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
-                            ],
-                        ),
-                        ast.Constant(value=primary_source),
-                        normalized_expr,
-                    ],
-                )
-
-        return normalized_expr
+        return build_source_normalization_expr(source_expr, source_mappings)
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
@@ -2064,6 +2037,19 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             # At source level, group by source_name only
             select_columns = [
@@ -2242,6 +2228,16 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
