@@ -5,7 +5,6 @@ import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { ProjectMenu } from 'lib/components/Account/ProjectMenu'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,7 +18,6 @@ import { ZenModeButton } from './ZenModeButton'
 
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { hasOnboardedAnyProduct, currentTeam } = useValues(teamLogic)
     const { titleAndIcon } = useValues(sceneLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -42,14 +40,12 @@ export function MinimalNavigation(): JSX.Element {
             )}
             <div className="flex items-center justify-end gap-2 flex-1">
                 <ZenModeButton />
-                {(currentOrganization?.teams?.length ?? 0) > 1 ? (
-                    <ProjectMenu
-                        buttonProps={{
-                            size: 'lg',
-                            className: 'h-[37px]', // Match the height of the `AccountPopoverOverlay`, remove when we redo the account
-                        }}
-                    />
-                ) : null}
+                <ProjectMenu
+                    buttonProps={{
+                        size: 'lg',
+                        className: 'h-[37px]', // Match the height of the `AccountPopoverOverlay`, remove when we redo the account
+                    }}
+                />
                 <AccountMenu
                     align="end"
                     side="bottom"

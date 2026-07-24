@@ -61,7 +61,13 @@ export function ProjectMenu({
                         iconOnly ? 'min-w-auto' : '',
                         buttonProps.className
                     )}
-                    tooltip={hasPendingInvites ? 'You have a pending invitation' : buttonProps.tooltip}
+                    tooltip={
+                        hasPendingInvites
+                            ? 'You have a pending invitation'
+                            : (buttonProps.tooltip ?? 'Switch project')
+                    }
+                    // The icon-only trigger shows only a lettermark, so give it a spoken label
+                    aria-label={iconOnly ? 'Switch project' : undefined}
                 >
                     {iconOnly ? (
                         <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">

@@ -18,11 +18,12 @@ export interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
 
 export const Label = forwardRef<HTMLLabelElement, LabelProps>(({ className, intent, htmlFor, ...props }, ref) => {
     if (!htmlFor) {
-        // When rendering as div, exclude label-specific props
+        // Without htmlFor this is a section header, not a control, so render a non-interactive
+        // div with cursor-default so it doesn't read as clickable.
         const { form, ...divProps } = props as LabelHTMLAttributes<HTMLLabelElement>
         return (
             <div
-                className={cn(labelVariants({ intent }), className)}
+                className={cn(labelVariants({ intent }), 'cursor-default', className)}
                 ref={ref as React.Ref<HTMLDivElement>}
                 {...(divProps as HTMLAttributes<HTMLDivElement>)}
             />
