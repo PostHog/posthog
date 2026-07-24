@@ -501,7 +501,7 @@ export function HogFunctionScene(): JSX.Element {
             : {
                   label: 'Invocations',
                   key: 'invocations',
-                  content: <HogInvocations id={id} functionKind="hog_function" />,
+                  content: <HogInvocations id={id} functionKind="hog_function" hogFunctionType={type} />,
               },
 
         supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]

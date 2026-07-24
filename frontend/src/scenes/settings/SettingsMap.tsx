@@ -12,7 +12,6 @@ import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreS
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -440,6 +439,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-person-properties',
+                title: 'Person properties from the warehouse',
+                description:
+                    'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
+                component: <WarehousePersonPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
             },
         ],
     },
@@ -907,15 +915,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['name', 'email', 'identity', 'display'],
             },
             {
-                id: 'warehouse-person-properties',
-                title: 'Person properties from the warehouse',
-                description:
-                    'Sync columns from a data warehouse table onto matching people as person properties, usable in feature flags, cohorts and insights.',
-                component: <WarehousePersonPropertiesSetting />,
-                flag: 'WAREHOUSE_PERSON_PROPERTIES',
-                keywords: ['warehouse', 'person', 'properties', 'sync', 'custom property'],
-            },
-            {
                 id: 'person-last-seen-at',
                 title: 'Person last seen tracking',
                 description:
@@ -996,14 +995,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Exclude test accounts from revenue calculations and reports.',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
-            },
-            {
-                // FIXME: should not be in settings
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                description: 'Set revenue targets to track performance against your business objectives.',
-                component: <GoalsConfiguration />,
-                keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
                 // FIXME: should not be in settings
@@ -1569,6 +1560,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',

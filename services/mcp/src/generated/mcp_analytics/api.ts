@@ -15,7 +15,7 @@ export const McpAnalyticsFeedbackCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -92,10 +92,12 @@ export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
     category: zod
         .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe('* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other')
+        .describe(
+            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
+        )
         .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
         .describe(
-            'High-level category for the feedback.\n\n* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other'
+            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
         ),
 })
 
@@ -106,7 +108,7 @@ export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -117,7 +119,7 @@ export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -128,7 +130,7 @@ export const McpAnalyticsMissingCapabilitiesCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -216,7 +218,7 @@ export const McpAnalyticsSessionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -275,7 +277,7 @@ export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -296,7 +298,7 @@ export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

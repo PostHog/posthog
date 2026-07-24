@@ -2341,7 +2341,7 @@ When set, the specified dashboard's filters and date range override will be appl
     ) -> dict[str, Any]:
         """Convert Filter-style params to a query and run via process_query_dict.
 
-        Uses the unified QueryRunner cache instead of the legacy @cached_by_filters system.
+        Uses the unified QueryRunner cache instead of the removed legacy filter-based cache.
         """
         team = self.team
         filter = Filter(request=request, team=team)

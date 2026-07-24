@@ -1,0 +1,483 @@
+name: Auto-resolve PR conflicts
+
+# Resolves conflicts on every open same-repo PR targeting master, on a schedule, before the author
+# looks. Forks are skipped (can't be pushed to). Never auto-merges. Graphite-stacked PRs (base
+# `graphite-base/*`) can't be merged with master, so they're flagged for the author to restack.
+#
+# Deterministic fixes (lockfiles, migration numbering, generated types) skip the model; the backend
+# stack comes up only for `build:openapi`. A marker comment records the last-attempted (head, master)
+# so nothing re-runs on an unchanged conflict. Polling batches conflicts, which is cheaper than a run
+# per merge; runs on GitHub-hosted runners (cheapest for a public repo).
+#
+# Token safety (as in pr-resolve-outdated-bot-comments.yml): `resolve` runs PR-controlled code with
+# NO write token; `finalize` holds the App token but only consumes result DATA via trusted scripts.
+
+on:
+    schedule:
+        - cron: '*/15 * * * 1-5' # every 15 minutes, weekdays only (no point resolving over the weekend)
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'Resolve a single PR number (skips the full scan). For testing.'
+                required: false
+                type: string
+
+# No global concurrency: ticks may overlap so a slow PR never head-of-line-blocks the rest.
+# Per-PR concurrency on resolve/finalize keeps one PR from being worked twice at once; the
+# race + marker guards make any redundant overlap a fast no-op.
+
+permissions:
+    contents: read
+
+env:
+    MAX_PRS: '20' # max conflicting PRs one tick hands off; overlapping ticks pick up the rest
+    FRESH_HOURS: '72' # only resolve PRs a human touched this recently; skip stale ones (72h covers a weekend)
+    # Conflicts matching these are mechanically regenerated (no model). Anchored to real generated
+    # dirs, never `**/api.ts` (would match hand-written frontend/src/lib/api.ts). NOTE: migration
+    # numbering (max_migration.txt) is deliberately NOT here — `ci:preflight --fix` doesn't resolve
+    # it, and renumbering (renaming files, fixing dependencies) is judgment work, so it goes to the agent.
+    GENERATED_GLOBS: >-
+        pnpm-lock.yaml
+        **/pnpm-lock.yaml
+        uv.lock
+        frontend/src/generated/**
+        products/**/frontend/generated/**
+    # Subset of GENERATED_GLOBS whose regen needs the backend stack (build:openapi).
+    API_TYPE_GLOBS: >-
+        frontend/src/generated/**
+        products/**/frontend/generated/**
+
+jobs:
+    detect:
+        name: Detect conflicting PRs
+        runs-on: ubuntu-latest
+        timeout-minutes: 10 # bulk-fetches PR heads + merge-tree sweep of the open-PR pool
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            prs: ${{ steps.find.outputs.prs }}
+            count: ${{ steps.find.outputs.count }}
+        steps:
+            # GitHub's `mergeable` field is computed lazily and returns UNKNOWN for anything a
+            # `pr list` touches, so it can't be used to find conflicts. We check authoritatively
+            # with `git merge-tree` against master instead.
+            - name: Checkout master
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false # public repo; PR heads fetch anonymously
+            - name: Find conflicting PRs
+              id: find
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  PR_OVERRIDE: ${{ github.event.inputs.pr_number }}
+              run: |
+                  set -euo pipefail
+                  OWNER="${REPO%/*}"
+                  MASTER_OID=$(git rev-parse HEAD)
+
+                  # Reliable fields only (no `mergeable`). Two modes by base branch:
+                  #   classic  = base master → resolve by merging master.
+                  #   graphite = base graphite-base/* → a stacked PR we can't merge; flag for a human.
+                  FIELDS=number,isDraft,headRefName,headRefOid,headRepositoryOwner,baseRefName
+                  if [ -n "${PR_OVERRIDE:-}" ]; then
+                    raw=$(gh pr view "$PR_OVERRIDE" --repo "$REPO" --json "$FIELDS" | jq -c '[.]')
+                    skip_marker=1 # let a human force a retry
+                  else
+                    raw=$(gh pr list --repo "$REPO" --state open -L 1000 --json "$FIELDS")
+                    skip_marker=0
+                  fi
+                  candidates=$(echo "$raw" | jq -c --arg owner "$OWNER" '
+                      [ .[] | select(.isDraft == false
+                                     and .headRepositoryOwner.login == $owner
+                                     and (.baseRefName == "master" or (.baseRefName | startswith("graphite-base/"))))
+                        | {number, headRefName, headRefOid,
+                           mode: (if .baseRefName == "master" then "classic" else "graphite" end)} ]')
+
+                  # Bulk-fetch every candidate head in one shot — fast, since the runner already has
+                  # master and the heads are small deltas. Then a local merge-tree per PR is the
+                  # authoritative conflict check (a full-repo sweep is a few seconds).
+                  nums=$(echo "$candidates" | jq -r '.[].number')
+                  if [ -n "$nums" ]; then
+                    refspecs=$(for n in $nums; do echo "+refs/pull/$n/head:refs/remotes/pull/$n"; done)
+                    # shellcheck disable=SC2086 # intentional word-splitting of the refspec list
+                    git fetch -q origin $refspecs 2>/dev/null || true
+                  fi
+
+                  # For each conflicting candidate, skip if already attempted at this (head, master).
+                  # merge-tree first so the (paginated) marker lookup only runs for real conflicts.
+                  # Marker format matches commit-resolved.mjs. Stop at MAX_PRS conflicting.
+                  matched=()
+                  for row in $(echo "$candidates" | jq -c '.[]'); do
+                    if [ "${#matched[@]}" -ge "$MAX_PRS" ]; then
+                      echo "::warning::hit MAX_PRS=$MAX_PRS; remaining PRs picked up next tick"; break
+                    fi
+                    num=$(echo "$row" | jq -r '.number')
+                    head=$(echo "$row" | jq -r '.headRefOid')
+                    git rev-parse -q --verify "refs/remotes/pull/$num" >/dev/null \
+                      || { echo "::warning::#$num head unfetchable; skipping"; continue; }
+                    rc=0
+                    git merge-tree --write-tree HEAD "refs/remotes/pull/$num" >/dev/null 2>&1 || rc=$?
+                    if [ "$rc" -eq 0 ]; then continue; fi
+                    if [ "$rc" -ne 1 ]; then echo "::warning::#$num merge-tree rc=$rc; skipping"; continue; fi
+                    if [ "$skip_marker" = "0" ]; then
+                      marker=$(gh api "repos/$REPO/issues/$num/comments" --paginate --jq '
+                          [ .[] | .body | capture("<!-- autoresolve-attempt:(?<h>[0-9a-f]+):(?<m>[0-9a-f]+) -->") ] | last // empty
+                        ' 2>/dev/null || true)
+                      if [ -n "$marker" ]; then
+                        mh=$(echo "$marker" | jq -r '.h'); mm=$(echo "$marker" | jq -r '.m')
+                        if [ "$mh" = "$head" ] && [ "$mm" = "$MASTER_OID" ]; then
+                          echo "#$num: already attempted at this state; skipping"; continue
+                        fi
+                      fi
+                    fi
+                    # Freshness: skip PRs no human has touched in FRESH_HOURS (stale — e.g. author away).
+                    # Bot commits (incl. this workflow's own resolutions) are excluded, so a stale PR
+                    # can't be kept alive by the bot resolving it over and over as master moves.
+                    cutoff=$(date -u -d "$FRESH_HOURS hours ago" +%s)
+                    last_human=$(gh api "repos/$REPO/pulls/$num/commits" --paginate \
+                        --jq '[ .[] | select((.author.type // "User") != "Bot") | .commit.committer.date ] | last // empty' 2>/dev/null || true)
+                    if [ -z "$last_human" ] || [ "$(date -u -d "$last_human" +%s 2>/dev/null || echo 0)" -lt "$cutoff" ]; then
+                      echo "#$num: no human commit in ${FRESH_HOURS}h; skipping (stale)"; continue
+                    fi
+                    echo "#$num: conflicting"
+                    matched+=("$row")
+                  done
+
+                  if [ "${#matched[@]}" -eq 0 ]; then prs='[]'; else prs=$(printf '%s\n' "${matched[@]}" | jq -s -c '.'); fi
+                  count=$(echo "$prs" | jq 'length')
+                  echo "Resolving $count PR(s): $prs"
+                  echo "prs=$prs" >> "$GITHUB_OUTPUT"
+                  echo "count=$count" >> "$GITHUB_OUTPUT"
+
+    resolve:
+        name: Resolve #${{ matrix.pr.number }}
+        needs: detect
+        if: needs.detect.outputs.count != '0'
+        runs-on: ubuntu-latest # bump to depot-ubuntu-latest-4 only if the heavy path OOMs
+        timeout-minutes: 35 # heavy path adds ~10-15 min of backend bring-up
+        # NO write token — runs PR-controlled code and the agent.
+        permissions:
+            contents: read
+        # Serialize only same-PR resolves (across overlapping ticks); different PRs run freely.
+        concurrency:
+            group: autoresolve-resolve-${{ matrix.pr.number }}
+            cancel-in-progress: false
+        strategy:
+            fail-fast: false
+            max-parallel: 10
+            matrix:
+                pr: ${{ fromJson(needs.detect.outputs.prs) }}
+        steps:
+            - name: Checkout PR head
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ matrix.pr.headRefName }}
+                  fetch-depth: 0 # need full history to merge master; blobs fetched lazily
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Start merge, list conflicts
+              id: merge
+              env:
+                  HEAD_OID: ${{ matrix.pr.headRefOid }}
+                  MODE: ${{ matrix.pr.mode }}
+              run: |
+                  set -euo pipefail
+                  git fetch -q origin master
+                  git rev-parse origin/master > "$RUNNER_TEMP/master_oid"
+
+                  # Graphite stack: can't be fixed by merging master (it needs a rebase/restack).
+                  # Emit a graphite status so finalize tells the author to restack, and stop here.
+                  if [ "$MODE" = graphite ]; then
+                    echo "graphite stack — flagging for a human, not merging"
+                    echo graphite > "$RUNNER_TEMP/status"
+                    echo "graphite=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+
+                  # Branch moved since detection — a later tick handles it.
+                  if [ "$(git rev-parse HEAD)" != "$HEAD_OID" ]; then
+                    echo "::warning::branch moved since detection; skipping"
+                    echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+                  git merge --no-commit --no-ff origin/master || true
+                  git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt" || true
+                  echo "Conflicted files:"; cat "$RUNNER_TEMP/conflicts.txt"
+
+                  # Not binary — a mixed conflict needs BOTH passes. Flag which are needed:
+                  #  run_deterministic = any conflict is a regenerated artifact (lockfile/migration/type)
+                  #  run_agent         = any conflict is a source file needing judgment
+                  #  needs_backend     = any conflict is a generated API type (build:openapi needs the stack)
+                  # The agent (source) runs first; the deterministic regen then derives the generated
+                  # files from the resolved source.
+                  run_deterministic=false; run_agent=false; needs_backend=false
+                  : > "$RUNNER_TEMP/conflicts_source.txt"
+                  set -f # the *_GLOBS are case patterns; never let the shell expand them against the tree
+                  while IFS= read -r f; do
+                    [ -z "$f" ] && continue
+                    gen=false
+                    for glob in $GENERATED_GLOBS; do
+                      case "$f" in $glob) gen=true; break;; esac
+                    done
+                    if [ "$gen" = true ]; then
+                      run_deterministic=true
+                    else
+                      run_agent=true; printf '%s\n' "$f" >> "$RUNNER_TEMP/conflicts_source.txt"
+                    fi
+                    for glob in $API_TYPE_GLOBS; do
+                      case "$f" in $glob) needs_backend=true; break;; esac
+                    done
+                  done < "$RUNNER_TEMP/conflicts.txt"
+                  {
+                    echo "run_deterministic=$run_deterministic"
+                    echo "run_agent=$run_agent"
+                    echo "needs_backend=$needs_backend"
+                  } >> "$GITHUB_OUTPUT"
+                  echo "deterministic=$run_deterministic agent=$run_agent backend=$needs_backend"
+
+            # Heavy path only. build:openapi needs only Postgres + ClickHouse — the same trim as
+            # ci-backend.yml's "Validate OpenAPI types" job (no migrations; zookeeper rides along as
+            # ClickHouse's dep). Authenticated pull avoids DockerHub's anonymous rate limits. The
+            # token is visible to this same-repo PR code — same as every backend CI job here — and
+            # forks never reach this workflow, so there's nothing to isolate it from.
+            - name: DockerHub login
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            # Boot containers in the background so they warm up during dep install below.
+            - name: Start backend services (background)
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: |
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  bin/ci-wait-for-docker launch --background --down db clickhouse
+
+            # --- Environment: uv + pnpm for classic resolution; python only for the heavy path ---
+            - name: Set up uv
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.graphite != 'true'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+            - name: Install pnpm dependencies
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.graphite != 'true'
+              uses: ./.github/actions/pnpm-install
+            - name: Set up Python
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+            - name: Install Python dependencies
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Wait for backend services
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: |
+                  echo "127.0.0.1 db clickhouse clickhouse-coordinator" | sudo tee -a /etc/hosts
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+                  ./bin/download-mmdb
+                  # --only: wait for just what we launched, not the default core (kafka/redis).
+                  bin/ci-wait-for-docker wait --only db clickhouse
+
+            # --- Agent pass (source conflicts, FIRST — so the regen below sees resolved source) ---
+            - name: Build focused agent prompt
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.run_agent == 'true'
+              run: |
+                  set -euo pipefail
+                  # Scope the agent to the SOURCE conflicts only; generated files are regenerated after.
+                  {
+                    echo "This repository is mid-merge: \`git merge --no-commit origin/master\` left"
+                    echo "conflict markers. Resolve ONLY the conflicts in these files:"
+                    echo
+                    sed 's/^/  - /' "$RUNNER_TEMP/conflicts_source.txt"
+                    echo
+                    echo "Rules:"
+                    echo "- YOU decide whether this is safe to auto-resolve. If any conflict needs human"
+                    echo "  judgment — both sides changed the same logic in incompatible ways, the intent"
+                    echo "  is ambiguous or contradictory, it's security-sensitive, or you are not confident"
+                    echo "  the merged result is correct — do NOT guess. Leave those files unresolved and"
+                    echo "  end your final message with exactly one line: NEEDS_HUMAN: <one-line reason>"
+                    echo "- Otherwise: reconcile both sides' intent (never blindly delete either side),"
+                    echo "  leave NO conflict markers, and end your final message with exactly: RESOLVED"
+                    echo "- Only touch the files listed above. Generated files (lockfiles, api types) are"
+                    echo "  regenerated automatically after you — do NOT edit or regenerate them yourself."
+                    echo "- Migration-numbering conflict (max_migration.txt): renumber to avoid collisions"
+                    echo "  and keep dependencies valid. You MAY also rename/edit the sibling migration files"
+                    echo "  in that migrations/ dir as needed. Consult the repo's migration conventions."
+                    echo "- Never commit, push, or touch git remotes."
+                  } > "$RUNNER_TEMP/agent-prompt.txt"
+            - name: Agent resolution
+              id: agent
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.run_agent == 'true'
+              continue-on-error: true # a model failure becomes a "needs a human" mark, not a red job
+              uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
+              with:
+                  openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+                  model: gpt-5.6-terra
+                  codex-args: '["-c", "model_reasoning_effort=high"]'
+                  safety-strategy: drop-sudo
+                  prompt-file: ${{ runner.temp }}/agent-prompt.txt
+            - name: Determine agent outcome
+              id: agent_outcome
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.run_agent == 'true'
+              env:
+                  AGENT_OUTCOME: ${{ steps.agent.outcome }}
+                  FINAL_MSG: ${{ steps.agent.outputs.final-message }}
+              run: |
+                  set -euo pipefail
+                  # The agent's own judgment wins: an explicit NEEDS_HUMAN aborts even if it cleared the
+                  # markers. A crash aborts too. Otherwise let the regen + final marker check decide.
+                  if printf '%s' "$FINAL_MSG" | grep -q 'NEEDS_HUMAN:'; then
+                    printf '%s' "$FINAL_MSG" | grep -m1 -oE 'NEEDS_HUMAN:.*' | sed -E 's/NEEDS_HUMAN:[[:space:]]*//' > "$RUNNER_TEMP/reason"
+                    echo "::warning::agent deferred to a human: $(cat "$RUNNER_TEMP/reason")"
+                    echo "abort=true" >> "$GITHUB_OUTPUT"
+                  elif [ "$AGENT_OUTCOME" != "success" ]; then
+                    echo "the agent could not resolve the conflict" > "$RUNNER_TEMP/reason"
+                    echo "::warning::agent run failed; will mark for a human"
+                    echo "abort=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "abort=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            # --- Deterministic pass (regenerate artifacts from the now-resolved source) ---
+            - name: Deterministic resolution
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.run_deterministic == 'true' && steps.agent_outcome.outputs.abort != 'true'
+              env:
+                  NEEDS_BACKEND: ${{ steps.merge.outputs.needs_backend }}
+              run: |
+                  set -euo pipefail
+                  # Lockfiles + migration numbering: cheap, no services.
+                  bin/hogli ci:preflight --fix || true
+                  # API types: regenerate against the already-up stack (hogli's `services:` are display-only).
+                  if [ "$NEEDS_BACKEND" = "true" ]; then
+                    bin/hogli build:openapi
+                  fi
+
+            # --- Final status: agent abort, else leftover markers in any conflicted file ---
+            - name: Determine result
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.graphite != 'true'
+              env:
+                  ABORT: ${{ steps.agent_outcome.outputs.abort }}
+              run: |
+                  set -euo pipefail
+                  git add -A
+                  if [ "$ABORT" = "true" ]; then
+                    echo failed > "$RUNNER_TEMP/status" # reason already written
+                  else
+                    # Only conflicted files can legitimately still hold markers; scanning the whole tree
+                    # would false-flag a stray `=======` divider. `<<<<<<<`/`>>>>>>>` never appear in real
+                    # content, so check those (the `=======` middle is ambiguous).
+                    remaining=""
+                    while IFS= read -r f; do
+                      [ -f "$f" ] || continue
+                      if grep -qE '^(<<<<<<<|>>>>>>>)' "$f"; then remaining="$f"; break; fi
+                    done < "$RUNNER_TEMP/conflicts.txt"
+                    if [ -n "$remaining" ]; then
+                      echo "conflict markers still present after resolution (e.g. $remaining)" > "$RUNNER_TEMP/reason"
+                      echo "::warning::markers remain; will mark for a human"
+                      echo failed > "$RUNNER_TEMP/status"
+                    else
+                      echo resolved > "$RUNNER_TEMP/status"
+                    fi
+                  fi
+
+            # --- Emit result data for the (token-holding) finalize job ---
+            - name: Emit result
+              if: steps.merge.outputs.skip != 'true'
+              env:
+                  AGENT_RAN: ${{ steps.merge.outputs.run_agent }}
+                  PR_NUMBER: ${{ matrix.pr.number }}
+                  HEAD_REF: ${{ matrix.pr.headRefName }}
+                  BASE_OID: ${{ matrix.pr.headRefOid }} # the head we based the merge on
+              run: |
+                  set -euo pipefail
+                  STATUS=$(cat "$RUNNER_TEMP/status")
+                  MASTER_OID=$(cat "$RUNNER_TEMP/master_oid")
+                  REASON=$([ -f "$RUNNER_TEMP/reason" ] && cat "$RUNNER_TEMP/reason" || echo "")
+                  # Data (not code) for finalize: additions (base64) + deletions vs the PR head.
+                  # finalize applies it via the API, executing nothing.
+                  node - "$STATUS" "$BASE_OID" "$MASTER_OID" "$AGENT_RAN" "$PR_NUMBER" "$HEAD_REF" "$REASON" > result.json <<'NODE'
+                  const { execSync } = require('node:child_process')
+                  const fs = require('node:fs')
+                  const [status, baseOid, masterOid, agentRan, prNumber, headRef, reason] = process.argv.slice(2)
+                  const additions = [], deletions = []
+                  if (status === 'resolved') {
+                    const changed = execSync(`git diff --cached --name-status ${baseOid}`, { encoding: 'utf8' })
+                    for (const line of changed.split('\n').filter(Boolean)) {
+                      const [code, ...rest] = line.split('\t')
+                      const path = rest[rest.length - 1]
+                      if (code.startsWith('D')) deletions.push({ path })
+                      else additions.push({ path, contents: fs.readFileSync(path).toString('base64') })
+                    }
+                  }
+                  process.stdout.write(JSON.stringify({ status, baseOid, masterOid, agentRan, prNumber: Number(prNumber), headRef, reason, additions, deletions }))
+                  NODE
+                  echo "status=$STATUS additions=$(jq '.additions | length' result.json) deletions=$(jq '.deletions | length' result.json)"
+
+            - name: Upload result
+              if: steps.merge.outputs.skip != 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: result-${{ matrix.pr.number }}
+                  path: result.json
+                  retention-days: 1
+
+    finalize:
+        name: Finalize #${{ matrix.pr.number }}
+        needs: [detect, resolve]
+        if: needs.detect.outputs.count != '0'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read # writes happen via the App token, not GITHUB_TOKEN
+        # Serialize same-PR commits so two overlapping ticks can't race the same branch/comment.
+        concurrency:
+            group: autoresolve-finalize-${{ matrix.pr.number }}
+            cancel-in-progress: false
+        strategy:
+            fail-fast: false
+            matrix:
+                pr: ${{ fromJson(needs.detect.outputs.prs) }}
+        steps:
+            # Scripts from the protected default branch, never the PR head — this job holds the
+            # write token, so it must not run PR-controlled code.
+            - name: Checkout trusted scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts/autoresolve
+
+            - name: Download result
+              id: dl
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true # a PR the resolve job skipped has no artifact
+              with:
+                  name: result-${{ matrix.pr.number }}
+
+            - name: Get App token
+              if: steps.dl.outcome == 'success'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
+
+            - name: Commit resolution or mark for a human
+              if: steps.dl.outcome == 'success'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  RESULT_JSON: result.json
+              run: node .github/scripts/autoresolve/commit-resolved.mjs

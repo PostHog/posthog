@@ -24,9 +24,9 @@ import { EXPOSURE_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON } from '../viewRec
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
-// LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
-// restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
-// variant literally named "all" just renders as its own option after the built-in "All".
+// LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
+// allowed character in variant keys, so the '$' prefix guarantees no collision with a real
+// variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {

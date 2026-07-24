@@ -1325,6 +1325,16 @@ export interface eventUsageLogicActions {
     reportInsightDateRangeChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
+    reportInsightDraftDiscarded: (draftAgeSeconds: number) => {
+        draftAgeSeconds: number
+    }
+    reportInsightDraftRestored: (
+        surface: 'insight_editor' | 'saved_insights',
+        draftAgeSeconds: number
+    ) => {
+        draftAgeSeconds: number
+        surface: 'insight_editor' | 'saved_insights'
+    }
     reportInsightDragToZoomed: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
@@ -1610,35 +1620,11 @@ export interface eventUsageLogicActions {
         dashboardId: number | null
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
-    reportRevenueAnalyticsBreakdownAdded: (
-        breakdownProperty: string,
-        breakdownType: string
-    ) => {
-        breakdownProperty: string
-        breakdownType: string
-    }
-    reportRevenueAnalyticsBreakdownRemoved: (
-        breakdownProperty: string,
-        breakdownType: string
-    ) => {
-        breakdownProperty: string
-        breakdownType: string
-    }
-    reportRevenueAnalyticsDataSourceConnected: (sourceType: string) => {
-        sourceType: string
-    }
     reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => {
         sourceType: string
     }
     reportRevenueAnalyticsDataSourceEnabled: (sourceType: string) => {
         sourceType: string
-    }
-    reportRevenueAnalyticsDateRangeChanged: (
-        dateFrom: string | null,
-        dateTo: string | null
-    ) => {
-        dateFrom: string | null
-        dateTo: string | null
     }
     reportRevenueAnalyticsEventCreated: (eventName: string) => {
         eventName: string
@@ -1649,28 +1635,9 @@ export interface eventUsageLogicActions {
     reportRevenueAnalyticsEventEdited: (eventName: string) => {
         eventName: string
     }
-    reportRevenueAnalyticsFilterApplied: (filterCount: number) => {
-        filterCount: number
-    }
-    reportRevenueAnalyticsGoalConfigured: () => {}
-    reportRevenueAnalyticsMRRBreakdownModalOpened: () => {}
-    reportRevenueAnalyticsMRRModeChanged: (mrrMode: string) => {
-        mrrMode: string
-    }
-    reportRevenueAnalyticsOnboardingCompleted: (
-        hasEvents: boolean,
-        hasSources: boolean
-    ) => {
-        hasEvents: boolean
-        hasSources: boolean
-    }
-    reportRevenueAnalyticsOnboardingViewed: () => {}
     reportRevenueAnalyticsSettingsViewed: () => {}
     reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
-    }
-    reportRevenueAnalyticsViewed: (delay?: number) => {
-        delay: number | undefined
     }
     reportRoleCreated: (role: string) => {
         role: string
@@ -2278,6 +2245,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightType,
             presetKey,
         }),
+        reportInsightDraftRestored: (surface: 'saved_insights' | 'insight_editor', draftAgeSeconds: number) => ({
+            surface,
+            draftAgeSeconds,
+        }),
+        reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -2651,35 +2623,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
-        reportRevenueAnalyticsViewed: (delay?: number) => ({ delay }),
         reportRevenueAnalyticsSettingsViewed: () => ({}),
-        reportRevenueAnalyticsOnboardingViewed: () => ({}),
-        reportRevenueAnalyticsOnboardingCompleted: (hasEvents: boolean, hasSources: boolean) => ({
-            hasEvents,
-            hasSources,
-        }),
         reportRevenueAnalyticsEventCreated: (eventName: string) => ({ eventName }),
         reportRevenueAnalyticsEventDeleted: (eventName: string) => ({ eventName }),
         reportRevenueAnalyticsEventEdited: (eventName: string) => ({ eventName }),
-        reportRevenueAnalyticsDataSourceConnected: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsDataSourceEnabled: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => ({ sourceType }),
-        reportRevenueAnalyticsFilterApplied: (filterCount: number) => ({ filterCount }),
-        reportRevenueAnalyticsBreakdownAdded: (breakdownProperty: string, breakdownType: string) => ({
-            breakdownProperty,
-            breakdownType,
-        }),
-        reportRevenueAnalyticsBreakdownRemoved: (breakdownProperty: string, breakdownType: string) => ({
-            breakdownProperty,
-            breakdownType,
-        }),
-        reportRevenueAnalyticsDateRangeChanged: (dateFrom: string | null, dateTo: string | null) => ({
-            dateFrom,
-            dateTo,
-        }),
-        reportRevenueAnalyticsMRRModeChanged: (mrrMode: string) => ({ mrrMode }),
-        reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
-        reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         // marketing analytics
         reportMarketingAnalyticsOnboardingViewed: () => ({}),
@@ -3327,6 +3276,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportInsightDraftRestored: ({ surface, draftAgeSeconds }) => {
+            posthog.capture('insight draft restored', { surface, draft_age_seconds: draftAgeSeconds })
+        },
+        reportInsightDraftDiscarded: ({ draftAgeSeconds }) => {
+            posthog.capture('insight draft discarded', { draft_age_seconds: draftAgeSeconds })
         },
         reportSavedInsightNewInsightClicked: ({ insightType, presetKey }) => {
             posthog.capture('saved insights new insight clicked', {
@@ -4068,24 +4023,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('account owner clicked', { name, email })
         },
         // revenue analytics
-        reportRevenueAnalyticsViewed: async ({ delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500)
-            }
-            const eventName = delay ? 'revenue analytics analyzed' : 'revenue analytics viewed'
-            posthog.capture(eventName, { delay })
-        },
         reportRevenueAnalyticsSettingsViewed: () => {
             posthog.capture('revenue analytics settings viewed')
-        },
-        reportRevenueAnalyticsOnboardingViewed: () => {
-            posthog.capture('revenue analytics onboarding viewed')
-        },
-        reportRevenueAnalyticsOnboardingCompleted: ({ hasEvents, hasSources }) => {
-            posthog.capture('revenue analytics onboarding completed', {
-                has_events: hasEvents,
-                has_sources: hasSources,
-            })
         },
         reportRevenueAnalyticsEventCreated: ({ eventName }) => {
             posthog.capture('revenue analytics event created', { event_name: eventName })
@@ -4096,44 +4035,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsEventEdited: ({ eventName }) => {
             posthog.capture('revenue analytics event edited', { event_name: eventName })
         },
-        reportRevenueAnalyticsDataSourceConnected: async ({ sourceType }) => {
-            posthog.capture('revenue analytics data source connected', { source_type: sourceType })
-        },
         reportRevenueAnalyticsDataSourceEnabled: ({ sourceType }) => {
             posthog.capture('revenue analytics data source enabled', { source_type: sourceType })
         },
         reportRevenueAnalyticsDataSourceDisabled: ({ sourceType }) => {
             posthog.capture('revenue analytics data source disabled', { source_type: sourceType })
-        },
-        reportRevenueAnalyticsFilterApplied: ({ filterCount }) => {
-            posthog.capture('revenue analytics filter applied', { filter_count: filterCount })
-        },
-        reportRevenueAnalyticsBreakdownAdded: ({ breakdownProperty, breakdownType }) => {
-            posthog.capture('revenue analytics breakdown added', {
-                breakdown_property: breakdownProperty,
-                breakdown_type: breakdownType,
-            })
-        },
-        reportRevenueAnalyticsBreakdownRemoved: ({ breakdownProperty, breakdownType }) => {
-            posthog.capture('revenue analytics breakdown removed', {
-                breakdown_property: breakdownProperty,
-                breakdown_type: breakdownType,
-            })
-        },
-        reportRevenueAnalyticsDateRangeChanged: ({ dateFrom, dateTo }) => {
-            posthog.capture('revenue analytics date range changed', {
-                date_from: dateFrom,
-                date_to: dateTo,
-            })
-        },
-        reportRevenueAnalyticsMRRModeChanged: ({ mrrMode }) => {
-            posthog.capture('revenue analytics MRR mode changed', { mrr_mode: mrrMode })
-        },
-        reportRevenueAnalyticsMRRBreakdownModalOpened: () => {
-            posthog.capture('revenue analytics MRR breakdown modal opened')
-        },
-        reportRevenueAnalyticsGoalConfigured: () => {
-            posthog.capture('revenue analytics goal configured')
         },
         reportRevenueAnalyticsTestAccountFilterUpdated: ({ filterTestAccounts }) => {
             posthog.capture('revenue analytics test account filter updated', {
