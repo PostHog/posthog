@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     StructDatabaseField,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 if TYPE_CHECKING:
@@ -181,7 +182,7 @@ def reconstruct_ordered_columns(
 
 
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -220,6 +221,7 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UUIDDatabaseField": UUIDDatabaseField,
     "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
