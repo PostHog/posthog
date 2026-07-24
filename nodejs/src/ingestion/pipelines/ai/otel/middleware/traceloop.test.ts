@@ -209,6 +209,17 @@ describe('traceloop middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
         })
 
+        it('promotes posthog_-prefixed association properties as custom properties', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'traceloop.association.properties.posthog_env': 'prod',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['env']).toBe('prod')
+            expect(event.properties!['traceloop.association.properties.posthog_env']).toBeUndefined()
+        })
+
         it('maps finish_reason to $ai_stop_reason when stop_reason is absent', () => {
             const event = createEvent('$ai_generation', {
                 'llm.request.type': 'chat',
