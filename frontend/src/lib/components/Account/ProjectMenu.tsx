@@ -62,9 +62,7 @@ export function ProjectMenu({
                         buttonProps.className
                     )}
                     tooltip={
-                        hasPendingInvites
-                            ? 'You have a pending invitation'
-                            : (buttonProps.tooltip ?? 'Switch project')
+                        hasPendingInvites ? 'You have a pending invitation' : (buttonProps.tooltip ?? 'Switch project')
                     }
                     // The icon-only trigger shows only a lettermark, so give it a spoken label
                     aria-label={iconOnly ? 'Switch project' : undefined}
