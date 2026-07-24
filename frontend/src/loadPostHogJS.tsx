@@ -2,6 +2,7 @@ import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { composedBeforeSend, registerBeforeSendFilter } from 'lib/errorTracking/beforeSend'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -37,6 +38,12 @@ export interface LoadPostHogJSOptions {
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
+    // posthog-js takes a single `before_send`, so we always hand it the composed filter and register
+    // any caller-supplied hooks (e.g. the exporter's token redaction) alongside the built-ins.
+    if (options.beforeSend) {
+        const callerFilters = Array.isArray(options.beforeSend) ? options.beforeSend : [options.beforeSend]
+        callerFilters.forEach(registerBeforeSendFilter)
+    }
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -56,7 +63,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: composedBeforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

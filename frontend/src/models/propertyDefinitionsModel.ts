@@ -638,7 +638,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
-                cache.abortController.abort()
+                // Pass a descriptive reason so the rejection is self-documenting and keeps the
+                // `AbortError` name — a bare `abort()` rejects with the native "signal is aborted
+                // without reason" DOMException, which reads like a real error in error tracking.
+                cache.abortController.abort(new DOMException('new query started', 'AbortError'))
                 cache.abortController = null
             }
         },
