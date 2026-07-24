@@ -607,3 +607,46 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         html = rich_content_to_html(doc)
         assert "<p>do not lose me</p>" in html
+
+    def test_rich_content_to_markdown_keeps_non_paragraph_blocks_in_list_items(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        _list_item(
+                            _paragraph("intro"),
+                            {"type": "heading", "attrs": {"level": 3}, "content": [{"type": "text", "text": "Step"}]},
+                            {
+                                "type": "codeBlock",
+                                "attrs": {"language": "python"},
+                                "content": [{"type": "text", "text": "print(1)"}],
+                            },
+                        )
+                    ],
+                }
+            ],
+        }
+        md = rich_content_to_markdown(doc)
+        assert "### Step" in md
+        assert "```python" in md
+        assert "print(1)" in md
+
+    def test_rich_content_to_html_keeps_non_paragraph_blocks_in_list_items(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "orderedList",
+                    "content": [
+                        _list_item(
+                            _paragraph("intro"),
+                            {"type": "codeBlock", "content": [{"type": "text", "text": "print(1)"}]},
+                        )
+                    ],
+                }
+            ],
+        }
+        html = rich_content_to_html(doc)
+        assert "<li>intro<pre><code>print(1)</code></pre></li>" in html

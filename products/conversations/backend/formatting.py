@@ -471,6 +471,48 @@ def _list_start(node: JSON) -> int:
         return 1
 
 
+def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -> str:
+    """Serialize a single non-list block node to markdown. Lists are handled by
+    _serialize_list_to_markdown because they carry indentation state."""
+    node_type = node.get("type")
+
+    if node_type == "paragraph":
+        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+
+    if node_type == "blockquote":
+        quote_lines: list[str] = []
+        for child in node.get("content", []):
+            if child.get("type") == "paragraph":
+                text = _serialize_inline_nodes_to_markdown(child.get("content", []), include_images=include_images)
+                quote_lines.extend(f"> {line}".rstrip() for line in text.split("\n"))
+        return "\n".join(quote_lines)
+
+    if node_type == "heading":
+        attrs = node.get("attrs") or {}
+        try:
+            level = min(max(int(attrs.get("level") or 1), 1), 6)
+        except (TypeError, ValueError):
+            level = 1
+        text = _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+        return f"{'#' * level} {text}" if text else ""
+
+    if node_type == "horizontalRule":
+        return "---"
+
+    if node_type == "codeBlock":
+        code_text = "".join(child.get("text", "") for child in node.get("content", []))
+        language = node.get("attrs", {}).get("language") or ""
+        return f"```{language}\n{code_text}\n```"
+
+    if node_type == "image" and include_images:
+        src = node.get("attrs", {}).get("src")
+        if src:
+            alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
+            return f"![{alt}]({src})"
+
+    return ""
+
+
 def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_images: bool = True) -> str:
     start = _list_start(node)
     lines: list[str] = []
@@ -488,10 +530,8 @@ def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_
                 nested = _serialize_list_to_markdown(child, child_type == "orderedList", child_indent, include_images)
                 if nested:
                     blocks.append((nested, True))
-            elif child_type == "paragraph":
-                text = _serialize_inline_nodes_to_markdown(
-                    child.get("content", []), include_images=include_images
-                ).strip()
+            else:
+                text = _serialize_block_node_to_markdown(child, include_images=include_images).strip()
                 if text:
                     blocks.append((text, False))
         if not blocks:
@@ -524,52 +564,20 @@ def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = T
     for node in rich_content.get("content", []):
         node_type = node.get("type")
 
-        if node_type == "paragraph":
-            blocks.append(_serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images))
-            continue
-
         if node_type in ("bulletList", "orderedList"):
             list_md = _serialize_list_to_markdown(node, node_type == "orderedList", "", include_images)
             if list_md:
                 blocks.append(list_md)
             continue
 
-        if node_type == "blockquote":
-            quote_lines: list[str] = []
-            for child in node.get("content", []):
-                if child.get("type") == "paragraph":
-                    text = _serialize_inline_nodes_to_markdown(child.get("content", []), include_images=include_images)
-                    quote_lines.extend(f"> {line}".rstrip() for line in text.split("\n"))
-            if quote_lines:
-                blocks.append("\n".join(quote_lines))
+        # Empty paragraphs are kept so intentional blank lines survive; other empty blocks are skipped.
+        if node_type == "paragraph":
+            blocks.append(_serialize_block_node_to_markdown(node, include_images=include_images))
             continue
 
-        if node_type == "heading":
-            attrs = node.get("attrs") or {}
-            try:
-                level = min(max(int(attrs.get("level") or 1), 1), 6)
-            except (TypeError, ValueError):
-                level = 1
-            text = _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
-            if text:
-                blocks.append(f"{'#' * level} {text}")
-            continue
-
-        if node_type == "horizontalRule":
-            blocks.append("---")
-            continue
-
-        if node_type == "codeBlock":
-            code_text = "".join(child.get("text", "") for child in node.get("content", []))
-            language = node.get("attrs", {}).get("language") or ""
-            blocks.append(f"```{language}\n{code_text}\n```")
-            continue
-
-        if node_type == "image" and include_images:
-            src = node.get("attrs", {}).get("src")
-            if src:
-                alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
-                blocks.append(f"![{alt}]({src})")
+        block_md = _serialize_block_node_to_markdown(node, include_images=include_images)
+        if block_md:
+            blocks.append(block_md)
 
     return "\n\n".join(blocks).strip()
 
@@ -750,6 +758,50 @@ def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
     return "".join(chunks)
 
 
+def _serialize_block_node_to_html(node: JSON) -> str:
+    """Serialize a single non-list block node to email-safe HTML. Lists are handled by
+    _serialize_list_to_html."""
+    node_type = node.get("type")
+
+    if node_type == "paragraph":
+        return f"<p>{_serialize_inline_nodes_to_html(node.get('content', []))}</p>"
+
+    if node_type == "blockquote":
+        inner_blocks: list[str] = []
+        for child in node.get("content", []):
+            if child.get("type") == "paragraph":
+                inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+        return f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>"
+
+    if node_type == "heading":
+        attrs = node.get("attrs") or {}
+        try:
+            level = min(max(int(attrs.get("level") or 1), 1), 6)
+        except (TypeError, ValueError):
+            level = 1
+        return f"<h{level}>{_serialize_inline_nodes_to_html(node.get('content', []))}</h{level}>"
+
+    if node_type == "horizontalRule":
+        return "<hr>"
+
+    if node_type == "codeBlock":
+        return f"<pre><code>{_serialize_inline_nodes_to_html(node.get('content', []))}</code></pre>"
+
+    if node_type == "image":
+        src = node.get("attrs", {}).get("src", "")
+        if src:
+            alt = node.get("attrs", {}).get("alt", "")
+            return f'<p><img src="{_escape_html(src)}" alt="{_escape_html(alt)}"></p>'
+        return ""
+
+    if node.get("content"):
+        inner = _serialize_inline_nodes_to_html(node.get("content", []))
+        if inner:
+            return f"<p>{inner}</p>"
+
+    return ""
+
+
 def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
     items: list[str] = []
     for item in node.get("content", []):
@@ -762,6 +814,8 @@ def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
                 inner_parts.append(_serialize_inline_nodes_to_html(child.get("content", [])))
             elif child_type in ("bulletList", "orderedList"):
                 inner_parts.append(_serialize_list_to_html(child, child_type == "orderedList"))
+            else:
+                inner_parts.append(_serialize_block_node_to_html(child))
         items.append(f"<li>{''.join(inner_parts)}</li>")
     if not ordered:
         return f"<ul>{''.join(items)}</ul>"
@@ -779,39 +833,13 @@ def rich_content_to_html(rich_content: JSON | None) -> str:
     for node in rich_content.get("content", []):
         node_type = node.get("type")
 
-        if node_type == "paragraph":
-            inner = _serialize_inline_nodes_to_html(node.get("content", []))
-            blocks.append(f"<p>{inner}</p>")
-        elif node_type == "blockquote":
-            inner_blocks: list[str] = []
-            for child in node.get("content", []):
-                if child.get("type") == "paragraph":
-                    inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
-            blocks.append(f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>")
-        elif node_type in ("bulletList", "orderedList"):
+        if node_type in ("bulletList", "orderedList"):
             blocks.append(_serialize_list_to_html(node, node_type == "orderedList"))
-        elif node_type == "heading":
-            attrs = node.get("attrs") or {}
-            try:
-                level = min(max(int(attrs.get("level") or 1), 1), 6)
-            except (TypeError, ValueError):
-                level = 1
-            inner = _serialize_inline_nodes_to_html(node.get("content", []))
-            blocks.append(f"<h{level}>{inner}</h{level}>")
-        elif node_type == "horizontalRule":
-            blocks.append("<hr>")
-        elif node_type == "codeBlock":
-            inner = _serialize_inline_nodes_to_html(node.get("content", []))
-            blocks.append(f"<pre><code>{inner}</code></pre>")
-        elif node_type == "image":
-            src = node.get("attrs", {}).get("src", "")
-            alt = node.get("attrs", {}).get("alt", "")
-            if src:
-                blocks.append(f'<p><img src="{_escape_html(src)}" alt="{_escape_html(alt)}"></p>')
-        elif node.get("content"):
-            inner = _serialize_inline_nodes_to_html(node.get("content", []))
-            if inner:
-                blocks.append(f"<p>{inner}</p>")
+            continue
+
+        html = _serialize_block_node_to_html(node)
+        if html:
+            blocks.append(html)
 
     body = "\n".join(blocks)
     return f"""<!DOCTYPE html>
