@@ -11,11 +11,13 @@ on the startup path does not drag the whole pipeline onto every process boot.
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     register_emit_signals_gate,
+    register_engineering_analytics_view_sync,
     register_revenue_view_sync,
 )
 
 __all__ = [
     "EmitSignalsActivityInputs",
     "register_emit_signals_gate",
+    "register_engineering_analytics_view_sync",
     "register_revenue_view_sync",
 ]

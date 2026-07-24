@@ -144,7 +144,6 @@ jobs:
                         - 'products/growth/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
-                        - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
                         - 'products/web_analytics/backend/**/*.py'
