@@ -188,6 +188,7 @@ X-PostHog-Use-Bedrock-Fallback: true
 
 The fallback only triggers on server errors (5xx), not client errors (4xx).
 If both Anthropic and Bedrock fail, the original Anthropic error is returned.
+The circuit breaker tracks configured models independently, so failures on one model can route that model directly to Bedrock without rerouting healthy models. `claude-fable-5` uses cross-request failover: its first failure returns immediately and opens the breaker, then following requests go directly to Bedrock for the rest of the window. Configure bounded model-specific behavior with `LLM_GATEWAY_ANTHROPIC_CIRCUIT_BREAKER_MODEL_POLICIES` (a JSON object whose values contain `min_requests` and `cross_request_fallback`). Other models retain the existing same-request fallback and aggregate breaker.
 
 ### Configuration
 

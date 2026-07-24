@@ -290,6 +290,24 @@ ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
     "Total Anthropic requests observed in the breaker's trailing window",
 )
 
+ANTHROPIC_MODEL_CIRCUIT_BREAKER_OPEN = Gauge(
+    "llm_gateway_anthropic_model_circuit_breaker_open",
+    "1 if the model-specific Anthropic->Bedrock circuit breaker is open, 0 otherwise",
+    labelnames=["model"],
+)
+
+ANTHROPIC_MODEL_CIRCUIT_BREAKER_FAILURE_RATE = Gauge(
+    "llm_gateway_anthropic_model_circuit_breaker_failure_rate",
+    "Trailing-window Anthropic failure rate for a configured model-specific circuit breaker",
+    labelnames=["model"],
+)
+
+ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
+    "llm_gateway_anthropic_model_circuit_breaker_window_requests",
+    "Anthropic requests observed in a configured model-specific breaker's trailing window",
+    labelnames=["model"],
+)
+
 ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS = Counter(
     "llm_gateway_anthropic_circuit_breaker_redis_errors_total",
     "Redis errors encountered by the Anthropic circuit breaker (non-zero rate means breaker is blind)",

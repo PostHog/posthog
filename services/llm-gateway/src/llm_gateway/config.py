@@ -17,6 +17,18 @@ class UserCostLimit(BaseModel, frozen=True):
     sustained_window_seconds: int
 
 
+class ModelCircuitBreakerPolicy(BaseModel, frozen=True):
+    min_requests: int
+    cross_request_fallback: bool = False
+
+    @field_validator("min_requests")
+    @classmethod
+    def validate_min_requests(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("minimum requests must be at least 1")
+        return value
+
+
 DEFAULT_USER_COST_LIMIT = UserCostLimit(
     burst_limit_usd=100.0,
     burst_window_seconds=86400,
@@ -217,6 +229,9 @@ class Settings(BaseSettings):
     anthropic_circuit_breaker_window_seconds: int = 300
     anthropic_circuit_breaker_bypass_probability: float = 0.9
     anthropic_circuit_breaker_min_requests: int = 20
+    anthropic_circuit_breaker_model_policies: dict[str, ModelCircuitBreakerPolicy] = {
+        "claude-fable-5": ModelCircuitBreakerPolicy(min_requests=1, cross_request_fallback=True)
+    }
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod
@@ -259,6 +274,17 @@ class Settings(BaseSettings):
                 )
             result[_normalize_cost_key(str(product))] = value
         return result
+
+    @field_validator("anthropic_circuit_breaker_model_policies")
+    @classmethod
+    def validate_anthropic_circuit_breaker_model_policies(
+        cls, value: dict[str, ModelCircuitBreakerPolicy]
+    ) -> dict[str, ModelCircuitBreakerPolicy]:
+        if len(value) > 50:
+            raise ValueError("at most 50 model-specific circuit breakers may be configured")
+        if any(not model or len(model) > 200 for model in value):
+            raise ValueError("circuit breaker model names must contain 1 to 200 characters")
+        return value
 
     @field_validator("staff_rate_limit_multiplier")
     @classmethod
