@@ -2223,6 +2223,36 @@ describe('processResultsForSurveyQuestions', () => {
             expect(dataMap.get('Maybe')).toEqual({ label: 'Maybe', value: 0, isPredefined: true })
             expect(dataMap.get('Custom answer')).toEqual({ label: 'Custom answer', value: 1, isPredefined: false })
         })
+
+        it('aggregates translated choice responses with their base choice', () => {
+            const questions = [
+                {
+                    id: 'single-q1',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No'],
+                    translations: {
+                        zh: { choices: ['是', '否'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 2],
+                ['single-q1', '是', 3],
+                ['single-q1', '否', 1],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
+
+            expect(singleData.totalResponses).toBe(6)
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+            // The Chinese "是" responses fold into the base "Yes" option instead of "Other"
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
+            expect(dataMap.get('No')).toEqual({ label: 'No', value: 1, isPredefined: true })
+            expect(dataMap.has('是')).toBe(false)
+            expect(dataMap.has('否')).toBe(false)
+        })
     })
 
     describe('Multiple Choice Questions', () => {
@@ -2403,6 +2433,34 @@ describe('processOpenEndedResults', () => {
 
         expect(choiceData.data).toHaveLength(1)
         expect(choiceData.data[0].label).toBe('Custom text')
+    })
+
+    it('does not treat translated predefined choices as "Other"', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+                translations: {
+                    zh: { choices: ['是', '否', '其他'] },
+                },
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const rows = [
+            ['是', 'user1', '2024-01-15T10:00:00Z'], // translated predefined choice, not "Other"
+            ['Something custom', 'user2', '2024-01-15T11:00:00Z'],
+        ]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        expect(choiceData.data).toHaveLength(1)
+        expect(choiceData.data[0].label).toBe('Something custom')
     })
 
     it('returns empty object for null rows', () => {
