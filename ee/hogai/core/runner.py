@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
 
+from django.db import DatabaseError
+
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -669,12 +671,30 @@ class BaseAgentRunner(ABC):
         try:
             with _tracer.start_as_current_span("posthog_ai.runner.lock_conversation"):
                 self._conversation.status = Conversation.Status.IN_PROGRESS
-                await self._conversation.asave(update_fields=["status"])
+                await self._save_conversation_status(update_fields=["status"])
             yield
         finally:
             with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
                 self._conversation.status = Conversation.Status.IDLE
-                await self._conversation.asave(update_fields=["status", "updated_at"])
+                await self._save_conversation_status(update_fields=["status", "updated_at"])
+
+    async def _save_conversation_status(self, *, update_fields: list[str]) -> None:
+        """Persist the conversation status, tolerating a conversation deleted mid-run.
+
+        When the row is gone, `asave(update_fields=...)` raises because the update matches no
+        rows. Swallow that case so the stream shuts down cleanly instead of surfacing a generic
+        StreamError; the deleted conversation is detected and terminated elsewhere in the run.
+        """
+        try:
+            await self._conversation.asave(update_fields=update_fields)
+        except DatabaseError:
+            if not await Conversation.objects.filter(id=self._conversation.id).aexists():
+                logger.warning(
+                    "Skipping conversation status update for deleted conversation",
+                    conversation_id=str(self._conversation.id),
+                )
+                return
+            raise
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

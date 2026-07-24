@@ -8,7 +8,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.context import get_node_path
 from ee.hogai.core.executable import BaseAgentExecutable
-from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.exceptions import ConversationDeleted, GenerationCanceled
 from ee.hogai.utils.types.base import (
     AssistantState,
     NodeEndAction,
@@ -68,7 +68,9 @@ class BaseAssistantNode(BaseAgentExecutable[StateType, PartialStateType]):
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
         if not conversation:
-            raise ValueError(f"Conversation {conversation_id} not found")
+            # The conversation was deleted mid-run. Terminate the stream cleanly, the same
+            # way we handle a cancellation, instead of raising into a generic StreamError.
+            raise ConversationDeleted(f"Conversation {conversation_id} not found")
         return conversation.status == Conversation.Status.CANCELING
 
 

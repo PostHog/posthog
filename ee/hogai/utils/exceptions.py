@@ -77,3 +77,14 @@ class GenerationCanceled(Exception):
     """Raised when generation is canceled."""
 
     pass
+
+
+class ConversationDeleted(GenerationCanceled):
+    """Raised when the conversation row is deleted while its run is still streaming.
+
+    Subclasses GenerationCanceled so the runner shuts the stream down cleanly — no error
+    capture, no FailureMessage — instead of letting the downstream DB errors bubble up and
+    surface as a generic StreamError.
+    """
+
+    pass
