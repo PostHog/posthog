@@ -97,7 +97,6 @@ export function QueryWindow({
         setQueryInput,
         runQuery,
         runSubquery,
-        setError,
         setMetadata,
         setMetadataLoading,
         setSendRawQuery,
@@ -354,9 +353,6 @@ export function QueryWindow({
                                   }
                               }
                             : runSubquery,
-                        onError: (error) => {
-                            setError(error)
-                        },
                         onMetadata: (metadata) => {
                             setMetadata(metadata)
                         },

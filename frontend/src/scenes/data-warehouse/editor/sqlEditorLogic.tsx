@@ -1187,8 +1187,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditingInsightDescription: (description: string) => ({ description }),
         closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
-        setError: (error: string | null) => ({ error }),
-        setDataError: (error: string | null) => ({ error }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
@@ -1468,12 +1466,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as QueryTab | null,
             {
                 updateTab: (_, { tab }) => tab,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                setError: (_, { error }) => error,
             },
         ],
         metadataLoading: [
