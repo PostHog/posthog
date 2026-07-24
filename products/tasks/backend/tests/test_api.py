@@ -4909,6 +4909,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
+    def _create_slack_mapping(self, task, run):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        return SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
         from posthog.models.integration import Integration
@@ -5015,10 +5032,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("failed", TaskRun.Status.FAILED),
+            ("cancelled", TaskRun.Status.CANCELLED),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
+    def test_relay_message_skips_for_failed_or_cancelled_run(self, _name, run_status, mock_execute_relay):
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status)
+        self._create_slack_mapping(task, run)
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
@@ -5029,6 +5053,56 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_accepts_completed_run(self, mock_execute_relay):
+        # A background (task-notification) turn can finish just after the
+        # inactivity timeout completed the run; its answer must still post.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        self._create_slack_mapping(task, run)
+        mock_execute_relay.return_value = "relay-late"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Late background answer"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-late"})
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text="Late background answer",
+            delete_progress=True,
+            message_id=None,
+        )
+
+    @patch("products.tasks.backend.temporal.client.signal_agent_text_delta")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_completed_run_bypasses_agent_design_signal(self, mock_execute_relay, mock_signal):
+        # The workflow behind a terminal run is closed, so the agent-design
+        # inline-stream signal cannot be delivered; the relay workflow posts instead.
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"slack_app_agent_design_enabled": True},
+        )
+        self._create_slack_mapping(task, run)
+        mock_execute_relay.return_value = "relay-late"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Late background answer"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-late"})
+        mock_signal.assert_not_called()
+        mock_execute_relay.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_rejects_blank_text(self, mock_execute_relay):

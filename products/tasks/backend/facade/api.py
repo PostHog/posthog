@@ -2895,8 +2895,13 @@ def relay_task_run_message(
     flag signal the running task workflow to stream the text inline.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
-    (run not found / terminal / no Slack mapping / empty text / streamed inline under the
-    agent-design flag), or ``"failed"``.
+    (run not found / failed or cancelled / no Slack mapping / empty text / streamed inline
+    under the agent-design flag), or ``"failed"``.
+
+    A completed run still relays: a background (task-notification) turn can finish while
+    the run is being torn down, or just after the inactivity timeout completed it, and its
+    answer should reach the thread rather than be dropped. Failed and cancelled runs stay
+    silent — their terminal Slack card is the last word.
 
     When ``text_parts`` is provided the last non-empty entry is used — it's the
     post-last-tool-use answer, and posting only that keeps the interim narration
@@ -2915,7 +2920,9 @@ def relay_task_run_message(
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
-    if run is None or run.is_terminal:
+    if run is None:
+        return "skipped", None
+    if run.is_terminal and run.status != TaskRun.Status.COMPLETED:
         return "skipped", None
     if not SlackThreadTaskMapping.objects.filter(task_run=run).exists():
         return "skipped", None
@@ -2925,7 +2932,9 @@ def relay_task_run_message(
     if not trimmed:
         return "skipped", None
 
-    if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+    # A terminal run's workflow is closed, so the inline-stream signal can't be
+    # delivered — fall through to the relay workflow even under the flag.
+    if not run.is_terminal and bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
             signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
