@@ -7,7 +7,7 @@ from temporalio import activity
 
 from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.common.utils import close_db_connections, retry_on_db_connection_drop
 
 from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -109,7 +109,15 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by").get(id=input.run_id)
+        # The early connect-time read goes through retry_on_db_connection_drop: the
+        # long-lived worker pools connections via pgbouncer, so a pool recycle / failover
+        # / transient DNS blip can leave a stale pooled connection that raises
+        # OperationalError on first use. Retrying once on a fresh connection keeps a
+        # transient blip from escaping as error-tracking noise (Temporal still retries
+        # the activity if the DB is genuinely degraded).
+        task_run = retry_on_db_connection_drop(
+            lambda: TaskRun.objects.select_related("task", "task__created_by").get(id=input.run_id)
+        )
     except TaskRun.DoesNotExist:
         logger.warning("post_slack_update_task_run_not_found", run_id=input.run_id)
         return
