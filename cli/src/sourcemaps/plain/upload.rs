@@ -21,7 +21,7 @@ use crate::{
         args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
-        plain::inject::is_javascript_file,
+        plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::read_pairs,
     },
     utils::files::{delete_files, FileSelection},
@@ -175,9 +175,34 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     upload_result?;
 
     if args.delete_after {
-        remove_sourcemap_references(source_paths)
-            .context("While stripping sourcemap references")?;
-        delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
+        let stylesheet_selection = FileSelection::try_from(args.file_selection.clone())?;
+        let stylesheet_pairs = read_pairs(
+            stylesheet_selection.into_iter().filter(is_stylesheet_file),
+            &args.public_path_prefix,
+        );
+        let stylesheet_source_paths = stylesheet_pairs
+            .iter()
+            .map(|pair| pair.source.inner.path.clone())
+            .collect::<Vec<_>>();
+        let stylesheet_sourcemap_paths = stylesheet_pairs
+            .iter()
+            .map(|pair| pair.sourcemap.inner.path.clone())
+            .collect::<Vec<_>>();
+
+        remove_sourcemap_references(
+            source_paths
+                .into_iter()
+                .chain(stylesheet_source_paths)
+                .collect(),
+        )
+        .context("While stripping sourcemap references")?;
+        delete_files(
+            sourcemap_paths
+                .into_iter()
+                .chain(stylesheet_sourcemap_paths)
+                .collect(),
+        )
+        .context("While deleting sourcemaps")?;
     }
 
     Ok(())

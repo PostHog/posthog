@@ -260,11 +260,21 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
-        let patterns = ["//# sourceMappingURL=", "//@ sourceMappingURL="];
-        let Some(found) = self.get_comment_value(&patterns) else {
-            return Ok(None);
-        };
-        Ok(Some(urlencoding::decode(&found)?.into_owned()))
+        let found = self.inner.content.lines().rev().find_map(|line| {
+            let line = line.trim();
+            ["//# sourceMappingURL=", "//@ sourceMappingURL="]
+                .iter()
+                .find_map(|prefix| line.strip_prefix(prefix))
+                .or_else(|| {
+                    line.strip_prefix("/*# sourceMappingURL=")
+                        .and_then(|reference| reference.strip_suffix("*/"))
+                        .map(str::trim_end)
+                })
+        });
+
+        Ok(found
+            .map(|reference| urlencoding::decode(reference).map(|decoded| decoded.into_owned()))
+            .transpose()?)
     }
 
     pub fn remove_sourcemap_reference(&mut self) -> bool {
@@ -354,6 +364,7 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
         }
         if trimmed_line.starts_with("//# sourceMappingURL=")
             || trimmed_line.starts_with("//@ sourceMappingURL=")
+            || (trimmed_line.starts_with("/*# sourceMappingURL=") && trimmed_line.ends_with("*/"))
         {
             return Some(line_start..line_end);
         }
@@ -541,6 +552,19 @@ mod tests {
 
         assert!(source.remove_sourcemap_reference());
         assert_eq!(source.inner.content, "console.log(1);\r\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_css_comment() {
+        let mut source =
+            minified_source(".app { color: black; }\n/*# sourceMappingURL=app.css.map */\n");
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".app { color: black; }\n");
     }
 
     #[test]
