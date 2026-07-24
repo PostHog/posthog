@@ -131,8 +131,11 @@ describe('SupportTicketsTableFilters count', () => {
         })
     }
 
-    it('shows a pluralized count of tickets matching the current query', async () => {
-        setCount(42)
+    it.each([
+        ['pluralizes the count of tickets matching the current query', 42, '42 tickets'],
+        ['uses the singular noun for a single ticket', 1, '1 ticket'],
+    ])('%s', async (_name, count, expected) => {
+        setCount(count)
 
         render(
             <Provider>
@@ -140,18 +143,6 @@ describe('SupportTicketsTableFilters count', () => {
             </Provider>
         )
 
-        expect(await screen.findByText('42 tickets')).toBeInTheDocument()
-    })
-
-    it('uses the singular noun for a single ticket', async () => {
-        setCount(1)
-
-        render(
-            <Provider>
-                <SupportTicketsTableFilters />
-            </Provider>
-        )
-
-        expect(await screen.findByText('1 ticket')).toBeInTheDocument()
+        expect(await screen.findByText(expected)).toBeInTheDocument()
     })
 })

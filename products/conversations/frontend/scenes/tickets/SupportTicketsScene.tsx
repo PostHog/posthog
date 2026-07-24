@@ -305,10 +305,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                         controls so it reads as the filtered count rather than an all-time total.
                         Hidden until the first load resolves; dims on subsequent background refreshes. */}
                     <span
-                        className={clsx(
-                            'text-secondary text-sm whitespace-nowrap',
-                            ticketsLoading && 'opacity-50'
-                        )}
+                        className={clsx('text-secondary text-sm whitespace-nowrap', ticketsLoading && 'opacity-50')}
                         aria-live="polite"
                     >
                         {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
