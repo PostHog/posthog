@@ -67,6 +67,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
+    // $session_id present but not a valid UUID. The event still ingests, but it is
+    // excluded from session analytics (the v3 sessions table and $session_id_uuid).
+    invalid_session_id: { category: 'event', severity: 'warning' },
 
     // Cookieless mode — events missing the data required to compute a cookieless distinct id
     cookieless_missing_timestamp: { category: 'event', severity: 'error' },

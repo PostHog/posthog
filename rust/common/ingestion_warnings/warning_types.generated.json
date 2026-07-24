@@ -164,6 +164,12 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_session_id",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": false
+    },
+    {
       "type": "malformed_event_properties",
       "category": "event",
       "severity": "error",

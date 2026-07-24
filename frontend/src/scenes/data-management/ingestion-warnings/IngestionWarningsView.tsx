@@ -40,6 +40,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    invalid_session_id:
+        'Event ingested with a $session_id that is not a valid UUID, so it is excluded from session analytics',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',

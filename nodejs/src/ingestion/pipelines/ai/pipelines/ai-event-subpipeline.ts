@@ -9,6 +9,7 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { createValidateSessionIdStep } from '~/ingestion/common/steps/event-processing/validate-session-id-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import type {
     AiEventSubpipelineConfig,
@@ -65,6 +66,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
+        .pipe(createValidateSessionIdStep())
         .pipe(createProcessAiEventStep())
         .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
             retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
