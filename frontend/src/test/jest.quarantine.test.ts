@@ -131,6 +131,9 @@ describe('jest.quarantine', () => {
                     runtimeEntry(fixtureSuiteId),
                     runtimeEntry(`${fixtureSuiteId} tolerates body failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates async rejection`),
+                    runtimeEntry(`${fixtureSuiteId} tolerates each row 1`),
+                    runtimeEntry(`${fixtureSuiteId} tolerates each done row 3`),
+                    runtimeEntry(`${fixtureSuiteId} parameterized describe A tolerates nested failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates beforeEach failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates afterEach failure`),
                     runtimeEntry(`${fixtureSuiteId} skips body`, 'skip'),
@@ -156,7 +159,12 @@ describe('jest.quarantine', () => {
                     {
                         cwd: FRONTEND_DIR,
                         encoding: 'utf-8',
-                        env: { ...process.env, CI: '1', POSTHOG_TEST_QUARANTINE_PATH: quarantinePath },
+                        env: {
+                            ...process.env,
+                            CI: '1',
+                            JEST_JUNIT_OUTPUT_DIR: tmpDir,
+                            POSTHOG_TEST_QUARANTINE_PATH: quarantinePath,
+                        },
                     }
                 )
                 const output = `${result.stdout}\n${result.stderr}`
@@ -167,8 +175,27 @@ describe('jest.quarantine', () => {
                 expect(output).toContain('quarantined body failure')
                 expect(output).toContain('quarantined beforeEach failure')
                 expect(output).toContain('quarantined afterEach failure')
+                expect(output).toContain('quarantined each row failure')
+                expect(output).toContain('quarantined each done row failure')
+                expect(output).toContain('quarantined parameterized describe failure')
                 expect(output).toContain('[quarantine] skipping')
                 expect(output).not.toContain('skipped body should not run')
+                const toleratedIds = fs
+                    .readdirSync(tmpDir)
+                    .filter((filename) => filename.startsWith('posthog-jest-quarantine-'))
+                    .flatMap((filename) =>
+                        fs
+                            .readFileSync(path.join(tmpDir, filename), 'utf-8')
+                            .trim()
+                            .split('\n')
+                            .map((line) => (JSON.parse(line) as { test_id: string }).test_id)
+                    )
+                expect(toleratedIds).toEqual(
+                    expect.arrayContaining([
+                        `${fixtureSuiteId} tolerates each done row 3`,
+                        `${fixtureSuiteId} parameterized describe A tolerates nested failure`,
+                    ])
+                )
             } finally {
                 fs.rmSync(tmpDir, { recursive: true, force: true })
             }
