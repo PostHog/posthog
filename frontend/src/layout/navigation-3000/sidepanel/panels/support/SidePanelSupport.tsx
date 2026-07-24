@@ -319,22 +319,20 @@ export function SidePanelSupport(): JSX.Element {
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { tickets, canCreateTicket, view: ticketsView } = useValues(sidepanelTicketsLogic)
+    const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    // Billing problems are answered on every plan, so that CTA gets a form even on free
+    // With the side panel on, a billing CTA grants an exemption that `canCreateTicket` already carries.
+    // The `targetArea` arm is for the classic Zendesk form, which never reaches that listener.
     const canEmail = canCreateTicket || targetArea === 'billing'
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
     const showEmailSupport = isCloudOrDev && canEmail
     const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
     // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
-    // bug reports) stay readable and repliable here. `ticketsView` keeps the section mounted once a
-    // thread or the composer is open, since targetArea resets as soon as the intent is consumed.
-    const showTickets =
-        isCloudOrDev && useProductSupportSidePanel && (canEmail || tickets.length > 0 || ticketsView !== 'list')
-    const isComposingTicket = useProductSupportSidePanel && ticketsView === 'new'
+    // bug reports) stay readable and repliable here
+    const showTickets = isCloudOrDev && useProductSupportSidePanel && (canCreateTicket || tickets.length > 0)
 
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
@@ -384,11 +382,11 @@ export function SidePanelSupport(): JSX.Element {
                             )}
 
                             {showTickets && isBillingLoaded && (
-                                <Section title={canEmail || isComposingTicket ? 'Contact us' : 'Your tickets'}>
+                                <Section title={canCreateTicket ? 'Contact us' : 'Your tickets'}>
                                     <StatusPageAlert />
                                     <SupportMessageOverride />
                                     <p>
-                                        {canEmail || isComposingTicket
+                                        {canCreateTicket
                                             ? "Can't find what you need and PostHog AI unable to help? Message our support engineers."
                                             : 'You can keep replying to tickets you already have open.'}
                                     </p>

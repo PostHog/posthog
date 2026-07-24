@@ -110,6 +110,52 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
     })
 
+    it('keeps the billing exemption after the support form resets, so backing out of the composer is not a dead end', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        expect(logic.values.canCreateTicket).toBe(false)
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'support',
+                target_area: 'billing',
+                isEmailFormOpen: true,
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        // supportLogic has already cleared target_area by now, so an exemption read off it would be gone
+        expect(supportLogic.values.targetArea).toBeNull()
+        expect(logic.values.canCreateTicket).toBe(true)
+
+        logic.actions.setView('list')
+        expect(logic.values.canCreateTicket).toBe(true)
+    })
+
+    it('opens the composer while entitlement is still unknown rather than discarding the request', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // billing is lazily loaded, so a CTA can fire before it resolves — for a paid customer,
+        // consuming the intent here would silently drop their message
+        billingLogic.actions.loadBilling()
+        expect(logic.values.isBillingResolved).toBe(false)
+
+        supportLogic.actions.openSupportForm({
+            kind: 'bug',
+            target_area: 'analytics',
+            isEmailFormOpen: true,
+            message: 'It broke',
+            target: 'sidePanel',
+        })
+
+        expect(logic.values.view).toBe('new')
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
+    })
+
     it('opens the specific ticket thread when a submission toast "View" is clicked', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
