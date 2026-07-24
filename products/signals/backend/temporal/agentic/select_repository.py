@@ -24,6 +24,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
+from products.signals.backend.temporal.drop_telemetry import _summarize_drop_error
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -62,12 +63,22 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
+    error: str | None = None,
 ) -> None:
     properties: dict = {"report_id": report_id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    # `error_type`/`error` split the opaque `agentic_activity_error` bucket so an
+    # investigator can tell infra (DB drop, timeout) from GitHub API from agent/LLM
+    # failures after the fact. `error` is already first-line-only and truncated by
+    # `_summarize_drop_error`, so no customer-derived multi-line content leaks here.
+    if error_type is not None:
+        properties["error_type"] = error_type
+    if error is not None:
+        properties["error"] = error
     try:
         posthoganalytics.capture(
             event=event,
@@ -190,6 +201,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             return result
     except Exception as e:
+        error_type, error_message = _summarize_drop_error(e)
         _capture_repo_research_event(
             "signals_repo_research_completed",
             team,
@@ -197,6 +209,8 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             input.report_id,
             result="failed",
             failure_reason="agentic_activity_error",
+            error_type=error_type,
+            error=error_message,
         )
         # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
         if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
