@@ -34,6 +34,50 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "How long does it take to get element stats?",
 )
 
+# SPA frameworks inject per-render or per-instance tokens into the DOM (Angular's
+# ng-star-inserted, CSP nonces, etc.). These land in elements_chain, so the same logical
+# element hashes differently on every event and its clicks scatter across hundreds of
+# low-count rows — the clickmap then undercounts because each fragment fails to re-match the
+# live DOM node. Stripping the volatile tokens before grouping collapses those fragments back
+# into one row.
+#
+# Patterns are RE2 (ClickHouse) and each is deleted (replaced with "") so a chain that carries
+# a volatile token becomes byte-identical to one that doesn't — that equality is what makes the
+# fragments coalesce, so every pattern must remove the token *and* its own leading separator.
+# Classes appear twice in the chain: as sorted `.class` tokens in the tag part and, verbatim in
+# DOM order, inside the redundant attr__class="..." attribute. We drop the whole attr__class
+# attribute (its raw ordering and injected classes are themselves a fragmentation source; the
+# `.class` tokens preserve the class set) and strip the volatile classes from the `.class`
+# tokens. Extend this list as new volatile tokens surface.
+VOLATILE_ELEMENTS_CHAIN_PATTERNS = [
+    # CSP nonce attributes carry a fresh random value on every response (attr keys ending "nonce",
+    # e.g. nonce, ngcspnonce, style-nonce)
+    r'[A-Za-z0-9_:-]*nonce="[^"]*"',
+    # the class set is preserved as sorted `.class` tokens; attr__class duplicates it in DOM order
+    # and carries injected classes verbatim, so drop it to stop reordering/injection fragmentation
+    r'attr__class="[^"]*"',
+    # Angular *ngIf/*ngFor structural marker class, added to the DOM only after the view renders
+    r"\.ng-star-inserted",
+    # Angular view-encapsulation namespace class, unique per component instance
+    r"\.ng-tns-c[0-9]+(?:-[0-9]+)*",
+    # Angular animation trigger marker class
+    r"\.ng-trigger(?:-[A-Za-z0-9_]+)?",
+]
+
+
+def normalized_elements_chain_expr() -> ast.Expr:
+    """HogQL expression that strips volatile SPA tokens from elements_chain (see
+    VOLATILE_ELEMENTS_CHAIN_PATTERNS). Returns fresh AST nodes on each call so the same
+    expression can be placed in SELECT, GROUP BY, and the hash without sharing nodes."""
+    expr: ast.Expr = ast.Field(chain=["elements_chain"])
+    for pattern in VOLATILE_ELEMENTS_CHAIN_PATTERNS:
+        expr = ast.Call(
+            name="replaceRegexpAll",
+            args=[expr, ast.Constant(value=pattern), ast.Constant(value="")],
+        )
+    return expr
+
+
 # element properties that appear as string values in elements_chain and can be
 # matched by the values regexes below; attr_class is excluded because classes are
 # serialized as .classname tokens in the tag part of the chain, not as
@@ -70,7 +114,7 @@ class ElementStatsSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of events matching this element chain")
     hash = serializers.CharField(
         allow_null=True,
-        help_text="Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages",
+        help_text="Stable identity of the element chain after volatile SPA tokens are stripped (hash computed before any attribute filtering), for deduplicating rows across pages",
     )
     type = serializers.CharField(help_text="Event type: $autocapture, $rageclick, or $dead_click")
     elements = ElementSerializer(many=True, help_text="Parsed elements of the chain, clicked element first")
@@ -210,24 +254,32 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 # HogQL resolves property access per the team's modifiers (materialized
                 # columns, person-on-events mode), so no per-mode handling is needed here
+                # group by the chain with volatile SPA tokens stripped so a single logical
+                # element collapses into one row instead of fragmenting into hundreds; the
+                # normalized chain is also what we return, so the toolbar re-matches against
+                # the stable form. Repeating the expression (rather than grouping by the
+                # output alias) keeps the GROUP BY key identical to the selected expression.
                 select = parse_select(
                     """
                     SELECT
-                        elements_chain,
+                        {chain_select} AS elements_chain,
                         count() / {sampling_factor} AS occurrences,
                         event AS event_type,
-                        cityHash64(elements_chain) AS chain_hash
+                        cityHash64({chain_hash}) AS chain_hash
                     FROM events
                     WHERE event IN {event_types}
                         AND elements_chain != ''
                         AND timestamp >= {date_from}
                         AND timestamp <= {date_to}
                         AND {property_filters}
-                    GROUP BY elements_chain, event
+                    GROUP BY {chain_group}, event
                     ORDER BY occurrences DESC
                     LIMIT {limit} OFFSET {offset}
                     """,
                     placeholders={
+                        "chain_select": normalized_elements_chain_expr(),
+                        "chain_hash": normalized_elements_chain_expr(),
+                        "chain_group": normalized_elements_chain_expr(),
                         "sampling_factor": ast.Constant(value=sampling_factor),
                         "event_types": ast.Constant(value=list(events_filter)),
                         "date_from": ast.Constant(value=query_date_from),
