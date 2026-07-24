@@ -12,6 +12,7 @@ import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDi
 import { SurveyResponseFilters } from 'scenes/surveys/components/SurveyResponseFilters'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 import {
+    CURRENT_URL_TOKEN,
     RESPONDENT_DETAILS_LINE,
     SURVEY_NAME_TOKEN,
     SurveyNotificationForm,
@@ -133,6 +134,7 @@ type MessageFormattingActionProps = {
     onReset: () => void
     onInsertSurveyName: () => void
     onInsertRespondentDetails: () => void
+    onInsertPageUrl: () => void
     onInsertQuestion: (question: SurveyQuestionForNotification, index: number) => void
 }
 
@@ -141,6 +143,7 @@ function MessageFormattingActions({
     onReset,
     onInsertSurveyName,
     onInsertRespondentDetails,
+    onInsertPageUrl,
     onInsertQuestion,
 }: MessageFormattingActionProps): JSX.Element {
     const applicableQuestions = questions.filter((question) => question.id && question.type !== SurveyQuestionType.Link)
@@ -161,6 +164,9 @@ function MessageFormattingActions({
                 </LemonButton>
                 <LemonButton size="xsmall" type="tertiary" onClick={onInsertRespondentDetails}>
                     Insert respondent details
+                </LemonButton>
+                <LemonButton size="xsmall" type="tertiary" onClick={onInsertPageUrl}>
+                    Insert page URL
                 </LemonButton>
                 {applicableQuestions.map((question, index) => (
                     <LemonButton
@@ -195,6 +201,7 @@ function getMessageFormattingActions({
             setNotificationFormValue(field, appendTemplateLine(value, `Survey: *${SURVEY_NAME_TOKEN}*`)),
         onInsertRespondentDetails: () =>
             setNotificationFormValue(field, appendTemplateLine(value, RESPONDENT_DETAILS_LINE)),
+        onInsertPageUrl: () => setNotificationFormValue(field, appendTemplateLine(value, `Page: ${CURRENT_URL_TOKEN}`)),
         onInsertQuestion: (question, index) =>
             setNotificationFormValue(field, appendQuestionToken(value, question, index)),
     }

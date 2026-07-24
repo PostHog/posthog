@@ -2,7 +2,7 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SURVEY_EVENT_TOKEN, SURVEY_STATUS_TOKEN } from 'scenes/surveys/surveyNotificationModalLogic'
+import { CURRENT_URL_TOKEN, SURVEY_EVENT_TOKEN, SURVEY_STATUS_TOKEN } from 'scenes/surveys/surveyNotificationModalLogic'
 
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
@@ -19,6 +19,7 @@ export function SurveyResponseKeysReference({ questions }: { questions: SurveyQu
         { label: 'Survey status', templateKey: SURVEY_STATUS_TOKEN },
         { label: 'Respondent name', templateKey: '{person.name}' },
         { label: 'Respondent email', templateKey: '{person.properties.email}' },
+        { label: 'Page URL', templateKey: CURRENT_URL_TOKEN },
     ]
 
     return (
