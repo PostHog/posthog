@@ -4,12 +4,15 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import pandas as pd
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.rate_limit import FileUploadBurstThrottle, FileUploadSustainedThrottle
+
+from products.data_warehouse.backend.presentation.views.table import TableViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -385,3 +388,19 @@ class TestWarehouseTableDeleteRemovesHostedFile(APIBaseTest):
         status_code, removed = self._delete(second)
         assert status_code == status.HTTP_204_NO_CONTENT
         assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]
+
+
+class TestFileUploadThrottling(SimpleTestCase):
+    @parameterized.expand(["upload_file", "create_from_upload", "file"])
+    def test_upload_actions_use_the_dedicated_throttle(self, action: str) -> None:
+        # The default throttles skip session users, so the heavy upload actions must carry their own
+        # per-user/key limit — dropping this reopens the DoS gap.
+        viewset = TableViewSet()
+        viewset.action = action
+        assert {type(t) for t in viewset.get_throttles()} == {FileUploadBurstThrottle, FileUploadSustainedThrottle}
+
+    def test_other_actions_keep_the_default_throttles(self) -> None:
+        viewset = TableViewSet()
+        viewset.action = "list"
+        throttle_types = {type(t) for t in viewset.get_throttles()}
+        assert FileUploadBurstThrottle not in throttle_types

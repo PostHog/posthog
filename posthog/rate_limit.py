@@ -480,6 +480,21 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# Self-managed file uploads do heavy synchronous work per request — Excel→Parquet conversion, plus a
+# ClickHouse schema read on create — much more than a normal write. The default Burst/Sustained
+# throttles only limit personal-API-key requests, so a session user could hammer these from the UI
+# unthrottled. PersonalApiKeyOrUserRateThrottle covers both auth methods; the rates are generous for
+# a person uploading files but catch a scripted loop.
+class FileUploadBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "file_upload_burst"
+    rate = "30/minute"
+
+
+class FileUploadSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "file_upload_sustained"
+    rate = "200/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 

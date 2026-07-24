@@ -20,6 +20,7 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.rate_limit import FileUploadBurstThrottle, FileUploadSustainedThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
@@ -363,6 +364,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def get_throttles(self):
+        # The file-upload actions convert/introspect the file synchronously in the web worker (Excel
+        # conversion, then a ClickHouse schema read on create) — far heavier than a normal write. The
+        # default throttles don't cover session users, so gate these on a dedicated per-user/key limit.
+        if self.action in ("upload_file", "create_from_upload", "file"):
+            return [FileUploadBurstThrottle(), FileUploadSustainedThrottle()]
+        return super().get_throttles()
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
