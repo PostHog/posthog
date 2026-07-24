@@ -247,9 +247,11 @@ class _Harness:
     signals in real time — no sleeps, no timer races.
     """
 
-    def __init__(self, rec: _Recorder) -> None:
+    def __init__(self, rec: _Recorder, *, start_worker: bool = True) -> None:
         self.rec = rec
         self.task_queue = str(uuid.uuid4())
+        self._auto_start_worker = start_worker
+        self._worker_cm: Worker | None = None
 
     async def __aenter__(self):
         # Escape hatch for networks where the SDK's temporal.download fetch is
@@ -260,6 +262,14 @@ class _Harness:
             test_server_existing_path=os.environ.get("TEMPORAL_TEST_SERVER_PATH")
         )
         self.env = await self._env_cm.__aenter__()
+        if self._auto_start_worker:
+            await self.start_worker()
+        return self
+
+    async def start_worker(self) -> None:
+        # Deferred worker start lets a test land the start and its signals in
+        # history before any worker polls, forcing them into the first workflow
+        # task (the buffered-signal case that races state seeded in run()).
         self._worker_cm = Worker(
             self.env.client,
             task_queue=self.task_queue,
@@ -268,10 +278,10 @@ class _Harness:
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
         await self._worker_cm.__aenter__()
-        return self
 
     async def __aexit__(self, *exc_info):
-        await self._worker_cm.__aexit__(*exc_info)
+        if self._worker_cm is not None:
+            await self._worker_cm.__aexit__(*exc_info)
         await self._env_cm.__aexit__(*exc_info)
 
 
@@ -403,9 +413,12 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
     pending = _message("1.1", event_id="Ev-pending")
     already_seen = _message("1.2", event_id="Ev-seen")
 
-    async with _Harness(rec) as h:
-        # Start with post-continue_as_new-shaped inputs: one carried pending
-        # message and one already-processed key.
+    async with _Harness(rec, start_worker=False) as h:
+        # Post-continue_as_new-shaped inputs: one carried pending message and
+        # one already-processed key. Land the start and the duplicate signal in
+        # history before the worker polls, so both hit the first workflow task —
+        # the case where seeding dedup state in run() rather than __init__ let
+        # the already-seen event slip past dedup and get queued and processed.
         handle = await h.env.client.start_workflow(
             SlackAppMentionWorkflow.run,
             SlackAppMentionWorkflowInputs(
@@ -416,6 +429,7 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
             task_queue=h.task_queue,
         )
         await handle.signal(SlackAppMentionWorkflow.new_message, already_seen)
+        await h.start_worker()
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
