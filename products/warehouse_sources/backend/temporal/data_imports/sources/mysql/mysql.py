@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BacktickIdentifierQuoter,
     Column,
@@ -66,6 +67,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetResumeState,
+    iter_keyset_pages,
+    keyset_resume_column,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     normalize_namespace,
@@ -1319,7 +1325,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
-    def build_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def build_pipeline(
+        self,
+        config: MySQLSourceConfig,
+        inputs: SourceInputs,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState] | None = None,
+    ) -> SourceResponse:
         location = resolve_source_location(
             inputs,
             config_namespace=_configured_schema(config),
@@ -1383,6 +1394,58 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
             _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
         )
+
+        # A full load over a single orderable primary key can page with keyset (seek) pagination
+        # instead of one long streaming cursor, which makes it resumable across pods. Incremental syncs
+        # already resume from their watermark, and keyless/composite/non-orderable tables fall through
+        # to the streaming path below.
+        keyset_column = keyset_resume_column(
+            primary_keys=primary_keys,
+            arrow_schema=arrow_schema,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        if keyset_column is not None and resumable_source_manager is not None:
+            manager = resumable_source_manager
+
+            def _keyset_get_rows() -> Iterator[Any]:
+                initial_last_value = None
+                state = manager.load_state() if manager.can_resume() else None
+                if state is not None:
+                    initial_last_value = state.last_key
+                    logger.debug(f"MySQL keyset resume: {keyset_column} > {initial_last_value}")
+
+                with self.connect(config, read_timeout=STATEMENT_TIMEOUT_SECONDS) as connection:
+
+                    def _run_page(page_sql: Any) -> pa.Table | None:
+                        with connection.cursor() as cursor:
+                            cursor.execute(page_sql.sql, page_sql.params)
+                            rows = cursor.fetchall()
+                            if not rows:
+                                return None
+                            column_names = [column[0] for column in cursor.description or []]
+                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+                    yield from iter_keyset_pages(
+                        builder=_QUERY_BUILDER,
+                        schema=schema,
+                        table_name=table_name,
+                        keyset_column=keyset_column,
+                        chunk_size=chunk_size,
+                        run_page=_run_page,
+                        initial_last_value=initial_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
+                    )
+
+            return SourceResponse(
+                name=location.response_name,
+                items=_keyset_get_rows,
+                primary_keys=primary_keys,
+                rows_to_sync=rows_to_sync,
+                supports_resume=True,
+                resume_keyset_column=keyset_column,
+            )
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1524,4 +1587,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
+            # The streaming path can't be resumed across pods (its cursor is bound to one connection),
+            # so this run is not cheaply resumable — treated as non-resumable for shutdown handling.
+            supports_resume=False,
         )

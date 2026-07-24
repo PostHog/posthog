@@ -3,6 +3,7 @@ import json
 import uuid
 import functools
 import contextlib
+from collections.abc import AsyncIterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -22,6 +23,7 @@ import psycopg
 import pyarrow as pa
 import aioboto3
 import deltalake
+import structlog
 import pytest_asyncio
 import pyarrow.parquet as pq
 import posthoganalytics
@@ -73,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
@@ -87,6 +90,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient as PostHogRESTClient,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import XminBounds
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -4153,6 +4159,101 @@ async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connec
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
     assert [row[0] for row in res.results] == [1, 2, 3]
+
+
+def _keyset_source_inputs(team_id: int, schema_name: str, job_id: str) -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id=str(uuid.uuid4()),
+        source_id=str(uuid.uuid4()),
+        team_id=team_id,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id=job_id,
+        logger=structlog.get_logger(),
+        reset_pipeline=False,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh_keyset_pages_whole_table(team, mysql_config, mysql_connection):
+    """A full-refresh load over an integer primary key pages via keyset (seek) pagination and lands
+    every row. A tiny chunk size forces several pages so the pagination itself is exercised end to
+    end through the real pipeline, not just the first page."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS keyset_full", None),
+            ("CREATE TABLE keyset_full (id INT PRIMARY KEY, payload VARCHAR(64))", None),
+            *[(f"INSERT INTO keyset_full VALUES ({i}, 'row-{i}')", None) for i in range(1, 6)],
+        ],
+    )
+
+    # chunk_size 2 over 5 rows -> keyset pages of [2, 2, 1].
+    # `ignore_assertions` skips `_run`'s single-row expectation (the other MySQL tests load one row);
+    # the multi-row assertion below is what proves keyset paging landed the whole table.
+    with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
+        await _run(
+            team=team,
+            schema_name="keyset_full",
+            table_name="mysql_keyset_full",
+            source_type="MySQL",
+            job_inputs=_mysql_job_inputs(mysql_config),
+            mock_data_response=[],
+            ignore_assertions=True,
+        )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, payload FROM mysql_keyset_full ORDER BY id", team)
+    assert [(row[0], row[1]) for row in res.results] == [(i, f"row-{i}") for i in range(1, 6)]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mysql_connection):
+    """With a keyset checkpoint already persisted (as a prior pod would have left it), the source
+    resumes the load from `WHERE id > checkpoint` and re-reads nothing at or below it. This is the
+    property that makes a bailed-and-resumed full load safe: no skipped or duplicated rows."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS keyset_resume", None),
+            ("CREATE TABLE keyset_resume (id INT PRIMARY KEY, payload VARCHAR(64))", None),
+            *[(f"INSERT INTO keyset_resume VALUES ({i}, 'row-{i}')", None) for i in range(1, 8)],
+        ],
+    )
+
+    with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
+        source = MySQLSource()
+        config = source.parse_config(_mysql_job_inputs(mysql_config))
+        inputs = _keyset_source_inputs(team_id=team.pk, schema_name="keyset_resume", job_id=str(uuid.uuid4()))
+        manager = source.get_resumable_source_manager(inputs)
+
+        # Simulate the checkpoint a previous pod committed just before it drained.
+        await sync_to_async(manager.save_state)(KeysetResumeState(last_key=3))
+
+        # A small chunk keeps resumption paging rather than one-shotting the tail.
+        with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
+            source_response = await sync_to_async(source.source_for_pipeline)(config, manager, inputs)
+
+            def _collect_ids() -> list[int]:
+                ids: list[int] = []
+                items = source_response.items()
+                assert not isinstance(items, AsyncIterable)  # the keyset MySQL source yields a sync iterable
+                for table in items:
+                    ids.extend(v.as_py() for v in table.column("id"))
+                return ids
+
+            ids = await sync_to_async(_collect_ids)()
+
+        await sync_to_async(manager.clear_state)()
+
+    assert ids == [4, 5, 6, 7]  # rows 1..3 (<= checkpoint) are never re-read; 4..7 arrive once, in order
+    assert source_response.supports_resume is True
+    assert source_response.resume_keyset_column == "id"
 
 
 @pytest.mark.django_db(transaction=True)

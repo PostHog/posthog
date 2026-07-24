@@ -42,6 +42,78 @@ class TestSelectAllFullRefresh:
             self.builder.select_all(schema="mydb", table_name="messages; DROP TABLE x")
 
 
+class TestSelectKeyset:
+    builder = SelectQueryBuilder(quoter=BacktickIdentifierQuoter())
+
+    def test_first_page_has_no_keyset_predicate(self) -> None:
+        result = self.builder.select_keyset(
+            schema="mydb", table_name="messages", keyset_column="id", keyset_last_value=None, limit=500
+        )
+        assert result.sql == "SELECT * FROM `mydb`.`messages` ORDER BY `id` ASC LIMIT 500"
+        assert result.params == {}
+
+    def test_resume_page_seeks_past_last_key(self) -> None:
+        result = self.builder.select_keyset(
+            schema="mydb", table_name="messages", keyset_column="id", keyset_last_value=4242, limit=500
+        )
+        assert result.sql == (
+            "SELECT * FROM `mydb`.`messages` WHERE `id` > %(keyset_value)s ORDER BY `id` ASC LIMIT 500"
+        )
+        assert result.params == {"keyset_value": 4242}
+
+    def test_limit_is_inlined_as_integer_literal(self) -> None:
+        # A bound param in LIMIT is rejected by several dialects, and it's our own batch size, so it's
+        # inlined — and coerced to int so nothing else can slip into the clause.
+        result = self.builder.select_keyset(
+            schema="mydb", table_name="t", keyset_column="id", keyset_last_value=None, limit=1000
+        )
+        assert result.sql.endswith("LIMIT 1000")
+        assert "%(" not in result.sql.split("LIMIT")[1]
+
+    def test_qmark_style_binds_keyset_value_positionally(self) -> None:
+        builder = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.QMARK)
+        result = builder.select_keyset(
+            schema="dbo", table_name="orders", keyset_column="id", keyset_last_value=7, limit=250
+        )
+        assert result.sql == 'SELECT * FROM "dbo"."orders" WHERE "id" > ? ORDER BY "id" ASC LIMIT 250'
+        assert result.params == [7]
+
+    def test_row_filters_compose_with_keyset_predicate(self) -> None:
+        result = self.builder.select_keyset(
+            schema="mydb",
+            table_name="messages",
+            keyset_column="id",
+            keyset_last_value=10,
+            limit=500,
+            row_filters=[
+                ValidatedRowFilter(column="status", operator=">", value=3, category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE `id` > %(keyset_value)s AND `status` > %(row_filter_0)s" in result.sql
+        assert result.sql.endswith("ORDER BY `id` ASC LIMIT 500")
+        assert result.params == {"keyset_value": 10, "row_filter_0": 3}
+
+    def test_projection_still_orders_and_seeks_on_keyset_column(self) -> None:
+        result = self.builder.select_keyset(
+            schema="mydb",
+            table_name="messages",
+            keyset_column="id",
+            keyset_last_value=1,
+            limit=500,
+            enabled_columns=["body"],
+            primary_keys=["id"],
+        )
+        assert "`id`" in result.sql and "`body`" in result.sql
+        assert "*" not in result.sql
+        assert result.sql.endswith("ORDER BY `id` ASC LIMIT 500")
+
+    def test_injection_in_keyset_column_raises(self) -> None:
+        with pytest.raises(InvalidIdentifierError):
+            self.builder.select_keyset(
+                schema="mydb", table_name="messages", keyset_column="id; DROP TABLE x", keyset_last_value=None, limit=10
+            )
+
+
 class TestSelectAllIncremental:
     builder = SelectQueryBuilder(quoter=BacktickIdentifierQuoter())
 

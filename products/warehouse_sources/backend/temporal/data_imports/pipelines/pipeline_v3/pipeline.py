@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_keyset_resume_state,
     persist_primary_keys,
     person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
@@ -248,7 +249,9 @@ class PipelineV3(Generic[ResumableData]):
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
-        source_is_resumable = self._resumable_source_manager is not None
+        # A resumable-source class whose current run can't actually resume (e.g. a SQL full load with
+        # no orderable primary key) reports `supports_resume=False`, so it's treated as non-resumable.
+        source_is_resumable = self._resumable_source_manager is not None and self._resource.supports_resume
 
         if should_resume:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
@@ -377,6 +380,11 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
+            # Load walked to completion — drop the keyset checkpoint so the next scheduled sync starts
+            # fresh instead of resuming mid-table. No-op for non-keyset runs.
+            if self._resource.resume_keyset_column is not None and self._resumable_source_manager is not None:
+                await asyncio.to_thread(self._resumable_source_manager.clear_state)
+
             return {
                 "should_trigger_cdp_producer": await self._cdp_producer.should_produce_table(),
                 "consumer_manages_job_status": len(self._batch_results) > 0,
@@ -473,6 +481,11 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+        )
+
+        # Keyset-resumable full loads checkpoint the committed max PK so a fresh pod resumes here.
+        await persist_keyset_resume_state(
+            self._resumable_source_manager, self._resource.resume_keyset_column, pa_table, self._logger
         )
 
         await update_row_tracking_after_batch(
