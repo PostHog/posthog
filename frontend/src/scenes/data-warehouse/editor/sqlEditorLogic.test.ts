@@ -25,6 +25,7 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -1920,6 +1921,30 @@ describe('sqlEditorLogic', () => {
                 rejectText,
                 source,
             })
+        })
+    })
+
+    describe('stuck database load recovery', () => {
+        it('forces a fresh load on mount when the shared schema loader is stuck loading', async () => {
+            // databaseTableListLogic is a shared singleton, so a prior visit can leave
+            // `databaseLoading` stuck true (a load that never settled). Reproduce that by making the
+            // schema query hang, then mount the editor: it must force a fresh load rather than skip
+            // it, otherwise the sources sidebar sits on "Loading..." forever.
+            // Non-forced so the only `{ force: true }` load in the action history is the editor's —
+            // the schema query hangs, so `databaseLoading` stays true regardless.
+            useMocks({ post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) } })
+            databaseLogic.actions.loadDatabase()
+            await expectLogic(databaseLogic).toMatchValues({ databaseLoading: true })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
         })
     })
 })

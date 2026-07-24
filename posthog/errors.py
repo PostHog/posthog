@@ -146,7 +146,9 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
         # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
         # into an actionable message instead of leaking the internals.
-        return CHQueryErrorCorruptedParquetMetadata(CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code)
+        return CHQueryErrorCorruptedParquetMetadata(
+            CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
+        )
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")

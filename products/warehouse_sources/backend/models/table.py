@@ -29,7 +29,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import wrap_clickhouse_query_error
+from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -80,7 +80,7 @@ ExtractErrors = {
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
-    "deserialize thrift": "A Parquet file has corrupted or oversized metadata and can't be read. This usually means the file wasn't written correctly during import. Re-sync the source (or re-upload the file if you manage it yourself), and contact support if it keeps happening.",
+    "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
