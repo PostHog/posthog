@@ -2716,7 +2716,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 title: 'Active Hours',
                                 linkText: 'Unique users',
                                 canOpenModal: true,
-                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                canOpenInsight: true,
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
@@ -2785,7 +2785,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 title: 'Active Hours',
                                 linkText: 'Total pageviews',
                                 canOpenModal: true,
-                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                canOpenInsight: true,
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {

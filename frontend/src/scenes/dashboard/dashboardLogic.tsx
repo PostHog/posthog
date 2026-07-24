@@ -115,8 +115,14 @@ import type { Node } from '../../queries/schema/schema-general'
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
+import {
+    BreakdownColorConfig,
+    computeAutoBreakdownColors,
+    extractBreakdownValues,
+    findBreakdownColorConfig,
+    mergeBreakdownColorConfigs,
+} from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -269,6 +275,7 @@ export interface dashboardLogicValues {
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveDashboardVariableOverrides: {
         [x: string]: HogQLVariable
     }
@@ -283,6 +290,7 @@ export interface dashboardLogicValues {
     externalFilters: DashboardFilter
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
+    hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasUrlFilters: boolean
     hasVariables: boolean
@@ -331,6 +339,9 @@ export interface dashboardLogicValues {
     sortedDates: Dayjs[]
     subscriptionId: number | 'new' | null
     temporaryBreakdownColors: BreakdownColorConfig[]
+    temporaryDataColorThemeId: {
+        themeId: number | null
+    } | null
     terraformModalOpen: boolean
     textTileId: number | 'new' | null
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
@@ -1079,10 +1090,31 @@ export interface dashboardLogicMeta {
         sidePanelContext: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => SidePanelSceneContext | null
+        dataColorThemeId: (
+            temporaryDataColorThemeId: {
+                themeId: number | null
+            } | null,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
+        effectiveBreakdownColors: (
+            temporaryBreakdownColors: BreakdownColorConfig[],
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
+            itemsLoading: boolean,
+            featureFlags: FeatureFlagsSet,
+            dataColorTheme: DataColorTheme | null
+        ) => BreakdownColorConfig[]
+        hasUnsavedColorChanges: (
+            temporaryBreakdownColors: BreakdownColorConfig[],
+            temporaryDataColorThemeId: {
+                themeId: number | null
+            } | null,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        ) => boolean
         maxContext: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => MaxContextInput[]
@@ -1406,10 +1438,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             persistedVariables,
                             values.effectiveDashboardVariableOverrides || {}
                         )
-                        const breakdownColorsChanged = !equal(
-                            persistedBreakdownColors,
-                            values.temporaryBreakdownColors || []
-                        )
+                        // With tiles still loading the visible breakdown values are incomplete, so
+                        // fresh auto assignments and stale-entry pruning would both act on partial
+                        // data — persist only the saved colors with unsaved edits merged over them,
+                        // and leave materializing auto entries to a save with every tile loaded.
+                        const breakdownColorsToSave = values.itemsLoading
+                            ? mergeBreakdownColorConfigs(
+                                  values.temporaryBreakdownColors,
+                                  persistedBreakdownColors
+                              ).filter((config) => !!config.colorToken)
+                            : values.effectiveBreakdownColors
+                        const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
                         const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
 
                         const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
@@ -1441,11 +1480,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.effectiveDashboardVariableOverrides,
-                                breakdown_colors: values.temporaryBreakdownColors,
+                                breakdown_colors: breakdownColorsToSave,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
+                        if (breakdownColorsChanged) {
+                            eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
+                                values.dashboard,
+                                breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
+                                breakdownColorsToSave.filter((c) => c.source === 'auto').length,
+                                Array.from(new Set(breakdownColorsToSave.map((c) => String(c.breakdownType))))
+                            )
+                        }
+                        if (themeChanged) {
+                            eventUsageLogic.actions.reportDashboardColorThemeSet(
+                                values.dashboard,
+                                values.dataColorThemeId
+                            )
+                        }
                         actions.resetUrlFilters()
                         actions.resetUrlVariables()
                         if (shouldRefreshTilesAfterSave) {
@@ -1731,26 +1784,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
+        // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
         temporaryBreakdownColors: [
             [] as BreakdownColorConfig[],
             {
                 setBreakdownColorConfig: (state, { config }) => {
-                    const existingConfigIndex = state.findIndex((c) => c.breakdownValue === config.breakdownValue)
+                    const existingConfigIndex = state.findIndex(
+                        (c) =>
+                            String(c.breakdownValue) === String(config.breakdownValue) &&
+                            c.breakdownType === config.breakdownType
+                    )
                     if (existingConfigIndex >= 0) {
                         return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
                     }
                     return [...state, config]
                 },
-                loadDashboardSuccess: (state, { dashboard }) => {
-                    return [...state, ...(dashboard?.breakdown_colors ?? [])]
-                },
+                // Cleared on discard only. After a successful save the edits match what's persisted,
+                // and a failed save (which also fires saveEditModeChangesSuccess) must keep them.
+                setDashboardMode: (state, { source }) =>
+                    source === DashboardEventSource.DashboardHeaderDiscardChanges ? [] : state,
             },
         ],
-        dataColorThemeId: [
-            null as number | null,
+        // Unsaved theme edit; null means untouched, so clearing the theme is distinguishable
+        temporaryDataColorThemeId: [
+            null as { themeId: number | null } | null,
             {
-                setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
-                loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
+                setDataColorThemeId: (_, { dataColorThemeId }) => ({ themeId: dataColorThemeId || null }),
+                setDashboardMode: (state, { source }) =>
+                    source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
             },
         ],
         layoutZoom: [
@@ -2835,12 +2896,95 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : null
             },
         ],
+        dataColorThemeId: [
+            (s) => [s.temporaryDataColorThemeId, s.dashboard],
+            (
+                temporaryDataColorThemeId: { themeId: number | null } | null,
+                dashboard: DashboardType<QueryBasedInsightModel> | null
+            ): number | null =>
+                temporaryDataColorThemeId
+                    ? temporaryDataColorThemeId.themeId
+                    : (dashboard?.data_color_theme_id ?? null),
+        ],
         dataColorTheme: [
             (s) => [s.dataColorThemeId, s.getTheme],
             (
                 dataColorThemeId: number | null,
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
             ): DataColorTheme | null => getTheme(dataColorThemeId),
+        ],
+        // Persisted colors with unsaved edits merged over them, plus auto-assigned colors for
+        // uncovered breakdown values. This is both what tiles render and what a save persists.
+        effectiveBreakdownColors: [
+            (s) => [
+                s.temporaryBreakdownColors,
+                s.dashboard,
+                s.insightTiles,
+                s.itemsLoading,
+                s.featureFlags,
+                s.dataColorTheme,
+            ],
+            (
+                temporaryBreakdownColors: BreakdownColorConfig[],
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
+                itemsLoading: boolean,
+                featureFlags: FeatureFlagsSet,
+                dataColorTheme: DataColorTheme | null
+            ): BreakdownColorConfig[] => {
+                const merged = mergeBreakdownColorConfigs(
+                    temporaryBreakdownColors,
+                    dashboard?.breakdown_colors ?? []
+                ).filter((config) => !!config.colorToken)
+
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
+                    return merged
+                }
+
+                const visibleValues = extractBreakdownValues(insightTiles, null)
+                // Prune stale auto entries only once all tiles have loaded — a partial tile set
+                // would drop colors for values that are merely still loading.
+                const kept = itemsLoading
+                    ? merged
+                    : merged.filter(
+                          (config) =>
+                              config.source !== 'auto' ||
+                              visibleValues.some(
+                                  (value) =>
+                                      value.breakdownValue === config.breakdownValue &&
+                                      value.breakdownType === config.breakdownType
+                              )
+                      )
+                // Size assignment to the active theme — getColorFromToken wraps tokens past the
+                // theme's color count, so assuming the default 15 slots on a smaller theme would
+                // hand out visually duplicate colors while palette slots remain free.
+                const paletteSize = dataColorTheme ? Object.keys(dataColorTheme).length : undefined
+                return [...kept, ...computeAutoBreakdownColors(visibleValues, kept, paletteSize)]
+            },
+        ],
+        hasUnsavedColorChanges: [
+            (s) => [s.temporaryBreakdownColors, s.temporaryDataColorThemeId, s.dashboard],
+            (
+                temporaryBreakdownColors: BreakdownColorConfig[],
+                temporaryDataColorThemeId: { themeId: number | null } | null,
+                dashboard: DashboardType<QueryBasedInsightModel> | null
+            ): boolean => {
+                const persisted = dashboard?.breakdown_colors ?? []
+                const colorsChanged = temporaryBreakdownColors.some((config) => {
+                    const persistedConfig = findBreakdownColorConfig(
+                        persisted,
+                        config.breakdownValue,
+                        config.breakdownType
+                    )
+                    return config.colorToken
+                        ? persistedConfig?.colorToken !== config.colorToken
+                        : !!persistedConfig?.colorToken
+                })
+                const themeChanged =
+                    temporaryDataColorThemeId !== null &&
+                    (temporaryDataColorThemeId.themeId ?? null) !== (dashboard?.data_color_theme_id ?? null)
+                return colorsChanged || themeChanged
+            },
         ],
         maxContext: [
             (s) => [s.dashboard],
@@ -3760,15 +3904,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const discard = (): void =>
                 actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
             const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
-            if (!promptEnabled || !values.hasUnsavedLayoutChanges) {
+            if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
                 discard()
                 return
             }
             eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
-                title: 'Discard layout changes?',
+                title: 'Discard unsaved changes?',
                 description:
-                    'You have moved tiles around but not saved. If you discard now, the layout will revert to its last saved state.',
+                    'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',
                 primaryButton: {
                     children: 'Discard changes',
                     status: 'danger',
