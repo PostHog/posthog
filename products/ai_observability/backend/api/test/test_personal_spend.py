@@ -277,8 +277,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["by_product"] == {"items": [], "truncated": False}
         assert body["by_tool"] == {"items": [], "truncated": False}
         assert body["by_model"] == {"items": [], "truncated": False}
+        assert body["by_input_size"] == {"items": [], "truncated": False}
         assert body["by_day"] == {"items": [], "truncated": False}
-        assert body["top_traces"] == {"items": [], "truncated": False}
+        assert "top_traces" not in body
 
     def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
         self._create_generation(ai_product="posthog_code", cost=2.0)
@@ -356,16 +357,97 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Scoped total stays $3.50 — the multi-tool generation is only counted once there.
         assert response.json()["summary"]["scoped_cost_usd"] == 3.5
 
-    def test_top_traces_always_empty(self) -> None:
-        # `top_traces` is deprecated — kept in the response shape so existing consumers don't
-        # crash, but always returns empty. Trace IDs are opaque strings that aren't actionable
-        # in the UI.
-        self._create_generation(trace_id="cheap", cost=0.5)
-        self._create_generation(trace_id="expensive", cost=5.0)
+    def test_by_tool_cost_attributed_splits_evenly_across_distinct_tools(self) -> None:
+        # Same fixture as test_by_tool_splits_comma_separated_tools: a multi-tool generation
+        # plus two single-tool generations. Unlike `cost_usd` (which double-counts the
+        # multi-tool generation into both rows), `cost_attributed_usd` must split its $2.0
+        # evenly across Bash and Read so the per-tool sum reconciles to scoped_cost_usd
+        # instead of overcounting -- this is the regression the whole PR exists to fix.
+        self._create_generation(tool="Bash,Read", cost=2.0, trace_id="multi")
+        self._create_generation(tool="Bash", cost=1.0, trace_id="bash-only")
+        self._create_generation(tool="Read", cost=0.5, trace_id="read-only")
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?product=posthog_code")
+        body = response.json()
+        rows = {r["tool"]: r for r in body["by_tool"]["items"]}
+
+        # Bash: $1.0 (bash-only) + $1.0 (half of the $2.0 multi-tool generation) = $2.0.
+        assert rows["Bash"]["cost_attributed_usd"] == 2.0
+        # Read: $0.5 (read-only) + $1.0 (half of the $2.0 multi-tool generation) = $1.5.
+        assert rows["Read"]["cost_attributed_usd"] == 1.5
+        # `cost_usd` still double-counts (unchanged, existing behavior) -- the two fields
+        # must genuinely differ, not just both exist.
+        assert rows["Bash"]["cost_usd"] == 3.0
+        assert rows["Read"]["cost_usd"] == 2.5
+
+        # Attributed cost reconciles to scoped_cost_usd; cost_usd does not ($5.5 > $3.5).
+        scoped = body["summary"]["scoped_cost_usd"]
+        assert scoped == 3.5
+        assert sum(r["cost_attributed_usd"] for r in rows.values()) == scoped
+        assert sum(r["cost_usd"] for r in rows.values()) != scoped
+
+        # share_attributed is cost_attributed_usd normalized the same way, and reconciles too.
+        assert rows["Bash"]["share_attributed"] == 2.0 / 3.5
+        assert rows["Read"]["share_attributed"] == 1.5 / 3.5
+        assert sum(r["share_attributed"] for r in rows.values()) == 1.0
+
+    def test_by_tool_cost_attributed_falls_back_to_null_tool_for_no_tools(self) -> None:
+        # A generation with no tools attributes its full cost to the same NULL `tool`
+        # bucket the existing (unattributed) rows already use for "no tool called".
+        self._create_generation(tool=None, cost=1.0)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?product=posthog_code")
+        rows = {r["tool"]: r for r in response.json()["by_tool"]["items"]}
+        assert rows.keys() == {None}
+        assert rows[None]["cost_attributed_usd"] == 1.0
+
+    def test_by_input_size_buckets_generations_by_input_tokens(self) -> None:
+        # One generation per bucket boundary, each with a distinguishing cost so the
+        # buckets can't be confused for one another.
+        self._create_generation(cost=1.0, input_tokens=10_000, trace_id="under-50k")
+        self._create_generation(cost=2.0, input_tokens=75_000, trace_id="50k-100k")
+        self._create_generation(cost=4.0, input_tokens=350_000, trace_id="over-300k")
+        # An embedding counts too -- by_input_size uses the same event set as by_model.
+        self._create_generation(cost=0.5, input_tokens=5_000, event_name="$ai_embedding", trace_id="embedding")
         flush_persons_and_events()
 
         response = self.client.get(ENDPOINT_OK)
-        assert response.json()["top_traces"] == {"items": [], "truncated": False}
+        body = response.json()
+        by_bucket = {r["bucket"]: r for r in body["by_input_size"]["items"]}
+
+        assert by_bucket["<50k"]["generation_count"] == 2  # the 10k generation + the 5k embedding
+        assert by_bucket["<50k"]["cost_usd"] == 1.5
+        assert by_bucket["<50k"]["min_input_tokens"] == 0
+        assert by_bucket["50k-100k"]["generation_count"] == 1
+        assert by_bucket["50k-100k"]["cost_usd"] == 2.0
+        assert by_bucket["50k-100k"]["min_input_tokens"] == 50_000
+        assert by_bucket[">300k"]["generation_count"] == 1
+        assert by_bucket[">300k"]["cost_usd"] == 4.0
+        assert by_bucket[">300k"]["min_input_tokens"] == 300_000
+        # Buckets with no events are omitted, not zero-filled.
+        assert set(by_bucket) == {"<50k", "50k-100k", ">300k"}
+
+        # Ordered ascending by min_input_tokens, not by cost.
+        assert [r["bucket"] for r in body["by_input_size"]["items"]] == ["<50k", "50k-100k", ">300k"]
+
+        # cost_usd across buckets reconciles to scoped_cost_usd.
+        scoped = body["summary"]["scoped_cost_usd"]
+        assert scoped == 7.5
+        assert sum(r["cost_usd"] for r in body["by_input_size"]["items"]) == scoped
+        assert sum(r["share_of_scoped"] for r in body["by_input_size"]["items"]) == 1.0
+        assert by_bucket["<50k"]["avg_cost_per_generation"] == 0.75
+
+    def test_top_traces_removed_from_response(self) -> None:
+        # `top_traces` was dropped entirely -- confirmed unused by the PostHog/code client,
+        # which already stopped rendering it. A stale client reading the field just sees it
+        # missing rather than the old always-empty placeholder.
+        self._create_generation(trace_id="cheap", cost=0.5)
+        flush_persons_and_events()
+
+        response = self.client.get(ENDPOINT_OK)
+        assert "top_traces" not in response.json()
 
     def test_other_users_spend_is_not_visible(self) -> None:
         other_email = "other-user@example.com"
@@ -394,9 +476,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # 5 fetchers run once (summary, by_product, by_tool, by_model, by_day). top_traces
-        # is deprecated and returned empty without a query.
-        assert mock_exec.call_count == 5
+        # 7 queries run once: summary, by_product, by_tool (+ its cost-attribution
+        # sub-query), by_model, by_input_size, by_day.
+        assert mock_exec.call_count == 7
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:

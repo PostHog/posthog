@@ -12,7 +12,7 @@ export interface _SummaryApi {
     date_from: string
     /** Exclusive UTC end of the spend window resolved from the request. */
     date_to: string
-    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+    /** The `ai_product` filter applied to tool / model / input-size / day breakdowns — echoes the request `product`. */
     product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
@@ -45,18 +45,22 @@ export interface _ProductBreakdownApi {
 
 export interface _ToolBreakdownRowApi {
     /**
-     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call. Skill invocations all collapse to the single `Skill` token, because the specific skill name isn't recorded at ingestion — treat that row as an upper bound across every skill combined, not any one skill.
      * @nullable
      */
     tool: string | null
     /** Number of $ai_generation events whose tool list includes this tool. */
     generation_count: number
-    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd` and rows can't be added together. It measures co-occurrence, not cost caused by the tool. Use `cost_attributed_usd` for a number that reconciles. */
     cost_usd: number
-    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Computed independently per row from `cost_usd`, so it inherits the same co-occurrence overstatement: a tool that's simply present in most generations (e.g. Bash) shows a large share even when it isn't what drove the cost, and shares across rows don't reconcile to 1. Use `share_attributed` for an honest per-tool percentage. */
     share_of_scoped: number
     /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
     avg_input_tokens: number
+    /** This tool's fractional share of generation cost: each generation's `$ai_total_cost_usd` is divided evenly across the distinct tools it called, and a generation that called no tools attributes its full cost to this same null `tool` row. Summed across all rows (when not truncated), this reconciles to `summary.scoped_cost_usd` for the GENERATION cost only -- embeddings carry no tools, so they're excluded here and the sum can land slightly under the full scoped cost. Prefer this over `cost_usd` for an honest per-tool number. */
+    cost_attributed_usd: number
+    /** `cost_attributed_usd` normalized to `summary.scoped_cost_usd`, as a float in `[0, 1]`. Shares across rows reconcile (summing to at most 1, short by the embedding-cost fraction which carries no tools) — this is the honest headline percentage, unlike `share_of_scoped`. */
+    share_attributed: number
 }
 
 export interface _ToolBreakdownApi {
@@ -86,6 +90,28 @@ export interface _ModelBreakdownApi {
     /** Rows of spend by model, ordered by cost descending. */
     items: _ModelBreakdownRowApi[]
     /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _InputSizeBreakdownRowApi {
+    /** Label for this `$ai_input_tokens` bucket (e.g. `100k-150k`). Buckets: <50k, 50k-100k, 100k-150k, 150k-200k, 200k-300k, >300k. */
+    bucket: string
+    /** Inclusive lower bound of `$ai_input_tokens` for this bucket. Use to order or re-derive the bucket. */
+    min_input_tokens: number
+    /** Number of $ai_generation + $ai_embedding events with `$ai_input_tokens` in this bucket. */
+    generation_count: number
+    /** Sum of `$ai_total_cost_usd` for events in this bucket. */
+    cost_usd: number
+    /** This bucket's share of `summary.scoped_cost_usd`, as a float in `[0, 1]`. Reconciles across buckets. */
+    share_of_scoped: number
+    /** Average `$ai_total_cost_usd` per event in this bucket -- `cost_usd / generation_count`. */
+    avg_cost_per_generation: number
+}
+
+export interface _InputSizeBreakdownApi {
+    /** One row per `$ai_input_tokens` bucket that has events, ordered by `min_input_tokens` ascending. This is the primary cost driver: large-context turns dominate spend regardless of which tool they called, so check this before attributing spend to a tool. Buckets with no events are omitted. */
+    items: _InputSizeBreakdownRowApi[]
+    /** Always false: there are only six buckets and `by_input_size` ignores `limit` because truncating by cost would drop whole buckets rather than individual rows. */
     truncated: boolean
 }
 
@@ -139,30 +165,6 @@ export interface _BucketBreakdownApi {
     truncated: boolean
 }
 
-export interface _TopTraceRowApi {
-    /**
-     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
-     * @nullable
-     */
-    trace_id: string | null
-    /** Number of $ai_generation events in this trace. */
-    generation_count: number
-    /** Total cost in USD for this trace. */
-    cost_usd: number
-    /**
-     * Timestamp of the earliest event in this trace.
-     * @nullable
-     */
-    started_at: string | null
-}
-
-export interface _TopTracesApi {
-    /** Rows of top traces by cost, ordered by cost descending. */
-    items: _TopTraceRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
 /**
  * Structured personal LLM spend analysis for the requesting user.
  */
@@ -175,12 +177,12 @@ export interface PersonalSpendAnalysisResponseApi {
     by_tool: _ToolBreakdownApi
     /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
     by_model: _ModelBreakdownApi
+    /** Spend grouped by `$ai_input_tokens` bucket. Scoped to `product`. Not subject to `limit`. This is the primary cost driver: large-context turns dominate spend regardless of which tool they called, so check this before attributing spend to a tool. */
+    by_input_size: _InputSizeBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi
-    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
-    top_traces: _TopTracesApi
 }
 
 /**
@@ -2583,7 +2585,7 @@ export type LlmAnalyticsPersonalSpendListParams = {
      */
     limit?: number
     /**
-     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * Required `ai_product` key to scope the tool / model / input-size / day breakdowns to a single product. Only the following products are currently supported: posthog_code.
      * @minLength 1
      * @maxLength 64
      */
