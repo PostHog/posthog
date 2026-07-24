@@ -1568,6 +1568,29 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert forged.item_context["author_type"] == "customer"
         assert forged.created_by is None
 
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_new_ticket_from_org_member_address_stays_customer_and_unread(self, _mock_sig: MagicMock):
+        """A fresh inbound email from an address matching an org member is still a customer request."""
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Colleague <{self.user.email}>",
+                "sender": self.user.email,
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": "<org-member-new@posthog.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.unread_team_count == 1
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
+
     @parameterized.expand(
         [
             # (name, claimed_email, reply_sender, expected_verified)
