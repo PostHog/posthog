@@ -768,7 +768,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
-            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Desktop app "
             "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
@@ -1308,7 +1308,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
         # caller (that would let any client self-label as wizard- or self-driving-created). They
         # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Code, or the wizard's self-driving program).
+        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1319,7 +1319,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
             "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
-            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
+            "they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(
@@ -2039,7 +2039,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
         # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
         # Upgrade that machine-injected value when the transport identifies one of them, so their
         # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
@@ -2595,7 +2595,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
         # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
-        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # is upgraded above when the transport identifies the wizard or PostHog Desktop). They usually
         # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
         # rewrite historical attribution.
         report_user_action(
