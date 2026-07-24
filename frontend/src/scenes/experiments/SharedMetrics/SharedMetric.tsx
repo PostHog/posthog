@@ -30,6 +30,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import { getConversionWindowError } from '../ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { LegacySharedFunnelsMetricForm } from '../legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from '../legacy/sharedMetrics/LegacySharedTrendsMetricForm'
@@ -61,6 +62,12 @@ export function SharedMetric(): JSX.Element {
             </div>
         )
     }
+
+    const saveDisabledReason = !sharedMetric.name
+        ? 'You must give your metric a name'
+        : sharedMetric.query.kind === NodeKind.ExperimentMetric
+          ? getConversionWindowError(sharedMetric.query as ExperimentMetric)
+          : undefined
 
     return (
         <SceneContent>
@@ -242,7 +249,7 @@ export function SharedMetric(): JSX.Element {
                         userAccessLevel={sharedMetric.user_access_level}
                     >
                         <LemonButton
-                            disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                            disabledReason={saveDisabledReason}
                             size="small"
                             type="primary"
                             onClick={() => {
@@ -310,7 +317,7 @@ export function SharedMetric(): JSX.Element {
                     userAccessLevel={sharedMetric.user_access_level}
                 >
                     <LemonButton
-                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        disabledReason={saveDisabledReason}
                         size="medium"
                         type="primary"
                         onClick={() => {
