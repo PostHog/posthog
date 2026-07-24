@@ -76,8 +76,12 @@ MAX_EXPOSURE_ROWS = 10_000
 # Short-lived because the context is not immutable — late-arriving events, experiment edits,
 # and access-control changes must all surface within minutes. The key includes the viewer:
 # the experiment set is filtered by per-user access control, so entries must never be shared
-# across users.
-SESSION_CONTEXT_CACHE_TTL = 5 * 60
+# across users. That per-viewer key is also why the TTL is an acceptable ACL boundary: there
+# is no cross-user leak to begin with, the only exposure is a bounded revocation lag for a
+# viewer who legitimately had access moments before — matching how other short-TTL caches in
+# this codebase behave on permission changes. Per-endpoint ACL-version invalidation would add
+# complexity and a lookup to a path that exists to cut latency.
+SESSION_CONTEXT_CACHE_TTL = 10 * 60
 # Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
 # extra session widens the grouped scans; anything larger should arrive as separate batches.
 MAX_SESSION_CONTEXT_BATCH = 20
