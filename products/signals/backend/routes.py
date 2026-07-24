@@ -6,7 +6,9 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutConfigViewSet,
     SignalScoutMembersViewSet,
     SignalScoutMetadataViewSet,
+    SignalScoutNoteViewSet,
     SignalScoutRunViewSet,
+    SignalScoutViewSet,
     SignalScratchpadViewSet,
 )
 from products.signals.backend.views import SignalViewSet
@@ -40,6 +42,11 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"signals/scout/scratchpad", SignalScratchpadViewSet, "project_signals_scout_scratchpad", ["team_id"]
     )
+    # Steering notes team members (or their agents) leave for the scouts. Reads are public
+    # (`signal_scout:read`); writes require skill-authoring-level authorization — see the viewset.
+    routers.projects.register(
+        r"signals/scout/notes", SignalScoutNoteViewSet, "project_signals_scout_notes", ["team_id"]
+    )
     routers.projects.register(
         r"signals/scout/project_profile",
         SignalProjectProfileViewSet,
@@ -60,3 +67,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_signals_scout_members",
         ["team_id"],
     )
+    routers.projects.register(r"signals/scout", SignalScoutViewSet, "project_signals_scout", ["team_id"])

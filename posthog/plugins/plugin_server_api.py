@@ -207,11 +207,15 @@ def get_hog_function_templates() -> requests.Response:
 
 
 def create_batch_hog_flow_job_invocation(
-    team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT, max_audience_size: int | None = None
+    team_id: int,
+    hog_flow_id: UUIDT,
+    batch_job_id: UUIDT,
+    max_audience_size: int | None = None,
+    filters: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size},
+        json={"max_audience_size": max_audience_size, "filters": filters},
         headers=get_internal_api_headers(),
     )
 

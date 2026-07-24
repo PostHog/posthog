@@ -69,6 +69,7 @@
     'deleted',
     'end_date',
     'flag_cleanup_task_id',
+    'repository',
     'start_date',
     'status',
     'updated_at',
@@ -367,6 +368,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
   list([
+    'created_by',
     'feature_flag',
     'team',
   ])
@@ -661,6 +663,7 @@
     '__str__',
     '_meta',
     'created_at',
+    'created_by_id',
     'feature_flag_id',
     'get_file_system_representation',
     'get_file_system_unfiled',
@@ -720,6 +723,7 @@
     'is_paused',
     'is_running',
     'is_stopped',
+    'repository',
     'save',
     'start_date',
     'status',

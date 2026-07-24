@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconCollapse, IconExpand, IconExternal, IconMinus, IconWarning } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconExternal, IconInfo, IconMinus, IconWarning } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -17,9 +17,11 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import type {
-    ExperimentSessionContextItemApi,
-    ExperimentSessionMetricHitApi,
+import {
+    type ExperimentSessionContextItemApi,
+    type ExperimentSessionMetricHitApi,
+    type ExperimentSessionMetricSourceHitApi,
+    SourceRoleEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import {
@@ -82,6 +84,67 @@ function MetricEventChips({
     )
 }
 
+// What each source is to its metric. A metric's own name says nothing about which side of it fired,
+// and for most metric types that distinction is the difference between "they converted" and "they
+// took the first step" — so it's spelled out rather than left to the reader.
+function sourceLabel(source: ExperimentSessionMetricSourceHitApi): string | null {
+    switch (source.source_role) {
+        case SourceRoleEnumApi.Step:
+            return source.source_total > 1
+                ? `Step ${source.source_index + 1} of ${source.source_total}`
+                : // A one-step funnel is just its event; the step number would be noise.
+                  null
+        case SourceRoleEnumApi.Numerator:
+            return 'Numerator'
+        case SourceRoleEnumApi.Denominator:
+            return 'Denominator'
+        case SourceRoleEnumApi.RetentionStart:
+            return 'Start event'
+        case SourceRoleEnumApi.RetentionCompletion:
+            return 'Return event'
+        default:
+            return null
+    }
+}
+
+const SESSION_SCOPE_CAVEAT =
+    "What this session saw, and the metric events that fired in it. These are events a metric counts, not its result: whether they count for this person depends on their exposure and the metric's window, which the experiment analysis decides across all their sessions."
+
+function MetricSourceRow({
+    source,
+    recordingStartMs,
+    isWithinRecording,
+    onSeek,
+}: {
+    source: ExperimentSessionMetricSourceHitApi
+    recordingStartMs: number | null
+    isWithinRecording: (timestampMs: number | null) => timestampMs is number
+    onSeek: (timestampMs: number) => void
+}): JSX.Element {
+    // Only in-bounds occurrences are seekable — the backend's ±1h slack can place some outside the
+    // playable recording. Each becomes a chip labelled with its offset from the recording start.
+    const seekPoints = source.timestamps
+        .map((timestamp) => dayjs(timestamp).valueOf())
+        .filter((ms): ms is number => isWithinRecording(ms))
+        .map((ms) => ({ ms, offsetSeconds: recordingStartMs != null ? Math.floor((ms - recordingStartMs) / 1000) : 0 }))
+    const label = sourceLabel(source)
+
+    return (
+        <div className="flex flex-col gap-y-0.5 min-w-0">
+            {label ? (
+                <span className="pl-3 truncate text-muted">
+                    {label} · {source.source_name}
+                </span>
+            ) : null}
+            {seekPoints.length === 0 ? (
+                <span className="pl-3 text-muted">Fired outside the recording</span>
+            ) : (
+                <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />
+            )}
+        </div>
+    )
+}
+
 function MetricHitRow({
     hit,
     recordingStartMs,
@@ -93,21 +156,37 @@ function MetricHitRow({
     isWithinRecording: (timestampMs: number | null) => timestampMs is number
     onSeek: (timestampMs: number) => void
 }): JSX.Element {
-    // Only in-bounds occurrences are seekable — the backend's ±1h slack can place some outside the
-    // playable recording. Each becomes a chip labelled with its offset from the recording start.
-    const seekPoints = hit.timestamps
-        .map((timestamp) => dayjs(timestamp).valueOf())
-        .filter((ms): ms is number => isWithinRecording(ms))
-        .map((ms) => ({ ms, offsetSeconds: recordingStartMs != null ? Math.floor((ms - recordingStartMs) / 1000) : 0 }))
+    // Metrics past the scan's aggregate ceiling carry no breakdown; their own totals are then the
+    // only thing to show, unqualified — which is exactly what the 'source' role renders.
+    const sources: ExperimentSessionMetricSourceHitApi[] =
+        hit.sources.length > 0
+            ? hit.sources
+            : [
+                  {
+                      source_role: SourceRoleEnumApi.Source,
+                      source_name: hit.metric_name,
+                      source_index: 0,
+                      source_total: 1,
+                      event_count: hit.event_count,
+                      first_timestamp: hit.first_timestamp,
+                      timestamps: hit.timestamps,
+                  },
+              ]
 
     return (
-        <div className="flex flex-col gap-y-0.5 min-w-0 pl-3 text-xs">
+        // Indented to start under the exposure-time column, so the block reads as belonging to the
+        // experiment row above it rather than as another top-level row.
+        <div className="flex flex-col gap-y-0.5 min-w-0 pl-8 text-xs">
             <span className="truncate">{hit.metric_name}</span>
-            {seekPoints.length === 0 ? (
-                <span className="pl-3 text-muted">Fired outside the recording</span>
-            ) : (
-                <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />
-            )}
+            {sources.map((source) => (
+                <MetricSourceRow
+                    key={`${source.source_role}-${source.source_index}`}
+                    source={source}
+                    recordingStartMs={recordingStartMs}
+                    isWithinRecording={isWithinRecording}
+                    onSeek={onSeek}
+                />
+            ))}
         </div>
     )
 }
@@ -381,7 +460,15 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
             className="rounded border bg-surface-primary px-2 py-1 flex flex-col gap-y-1"
             data-attr="replay-experiment-context-overview"
         >
-            <h4 className="font-semibold text-xs mb-0">Experiments</h4>
+            <h4 className="font-semibold text-xs mb-0 flex items-center gap-1">
+                Experiments
+                {/* One icon for the whole section: the caveat applies to every row and every metric
+                    under it, so repeating it per metric name would fire a tooltip on almost any
+                    hover in here. */}
+                <Tooltip title={SESSION_SCOPE_CAVEAT}>
+                    <IconInfo className="size-3 shrink-0 text-secondary" />
+                </Tooltip>
+            </h4>
 
             {pinnedItem ? (
                 <div className="flex flex-col gap-y-0.5" data-attr="replay-experiment-context-current">

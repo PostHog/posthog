@@ -309,7 +309,7 @@
         }
     },
     "evaluation-test-hog": {
-        "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
+        "description": "Test Hog evaluation code against recent data without persisting results. Compiles the provided Hog source code and runs it against a sample from the last 7 days — set target to 'generation' to sample individual $ai_generation events or 'trace' to sample whole traces and run against trace-level globals. Returns per-sample results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",
@@ -719,7 +719,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -733,7 +733,7 @@
         }
     },
     "workflows-run-batch": {
-        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count AND the confirm_token from that same workflows-blast-radius preview; the API rejects dispatch without the token, on audience drift, over the cap, or after 15 minutes.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Run batch workflow",

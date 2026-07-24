@@ -1789,7 +1789,7 @@ tasks: PostgresTable = PostgresTable(
     # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
     # exposed to end users. They are excluded entirely from HogQL.
     predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Code / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),

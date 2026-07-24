@@ -644,8 +644,8 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
- * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
- * pipeline, never through the API.
+ * One person- or group-property sync or backfill run. Read-only: runs are created by the
+ * sync/backfill pipeline, never through the API.
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
@@ -667,11 +667,11 @@ export interface CustomPropertySyncRunApi {
     readonly rows_read: number
     /** Rows whose mapped values changed since the last run. */
     readonly changed: number
-    /** Person profiles updated (changed rows that matched an existing person). */
+    /** Person or group profiles updated (changed rows that matched an existing person/group). */
     readonly existing: number
     /** Property-update intents produced to the ingestion pipeline. */
     readonly produced: number
-    /** Changed rows dropped because no existing person matched the distinct id. */
+    /** Changed rows dropped because no existing person/group matched the key column value. */
     readonly skipped_missing_person: number
     /**
      * Error summary if the run failed, else null.
@@ -683,8 +683,9 @@ export interface CustomPropertySyncRunApi {
 }
 
 /**
- * Binds a materialized data-warehouse view column to a custom property definition; the view's
- * values are synced onto matching accounts on each materialization.
+ * Binds a data-warehouse source to a custom property definition. Account sources read a
+ * materialized view column and sync onto matching accounts; person and group sources read a
+ * warehouse schema and sync onto matching persons or groups on each warehouse sync.
  */
 export interface CustomPropertySourceApi {
     readonly id: string
@@ -696,7 +697,7 @@ export interface CustomPropertySourceApi {
      */
     saved_query?: string | null
     /**
-     * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
      * @nullable
      */
     external_data_schema?: string | null
@@ -706,10 +707,12 @@ export interface CustomPropertySourceApi {
      * @nullable
      */
     source_column?: string | null
-    /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
+    /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    column_descriptions?: unknown
     /**
-     * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
+     * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
      */
     key_column: string
@@ -733,16 +736,16 @@ export interface CustomPropertySourceApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
      * @nullable
      */
     readonly sync_frequency_interval_seconds: number | null
     /**
-     * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
      * @nullable
      */
     readonly next_sync_at: string | null
-    /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+    /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
     readonly latest_run: CustomPropertySyncRunApi | null
 }
 
@@ -972,7 +975,7 @@ export const CustomPropertySyncTriggerResponseStatusEnumApi = {
 } as const
 
 /**
- * Response of the person-property sync/backfill trigger actions.
+ * Response of the person/group-property sync/backfill trigger actions.
  */
 export interface CustomPropertySyncTriggerResponseApi {
     /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
@@ -1078,6 +1081,96 @@ export interface PatchedCustomerProfileConfigApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface EventStreamApi {
+    readonly id: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids: readonly string[]
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface PatchedEventStreamApi {
+    readonly id?: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids?: readonly string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * Request body for adding or removing an event-stream member account.
+ */
+export interface EventStreamMemberWriteApi {
+    /** UUID of the account to add to or remove from the stream. */
+    account_id: string
+}
+
+/**
+ * Result of posting an event-stream test message to Slack.
+ */
+export interface EventStreamTestMessageApi {
+    /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+    readonly channel_id: string
 }
 
 /**

@@ -12,7 +12,7 @@ import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function TicketsList(): JSX.Element {
-    const { tickets, ticketsLoading } = useValues(sidepanelTicketsLogic)
+    const { tickets, ticketsLoading, canCreateTicket } = useValues(sidepanelTicketsLogic)
     const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
@@ -35,15 +35,17 @@ export function TicketsList(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonButton
-                type="primary"
-                fullWidth
-                center
-                onClick={() => setView('new')}
-                data-attr="sidebar-create-new-ticket"
-            >
-                Create new ticket
-            </LemonButton>
+            {canCreateTicket && (
+                <LemonButton
+                    type="primary"
+                    fullWidth
+                    center
+                    onClick={() => setView('new')}
+                    data-attr="sidebar-create-new-ticket"
+                >
+                    Create new ticket
+                </LemonButton>
+            )}
             {!hasIdentityMode && (
                 <p className="text-center text-xs text-muted-alt m-0">
                     Switched browsers?{' '}
@@ -59,7 +61,9 @@ export function TicketsList(): JSX.Element {
             {tickets.length === 0 ? (
                 <div className="text-center text-muted-alt py-8">
                     <p>No tickets yet.</p>
-                    <p className="text-sm">Create a new ticket to get help from our support engineers.</p>
+                    {canCreateTicket && (
+                        <p className="text-sm">Create a new ticket to get help from our support engineers.</p>
+                    )}
                 </div>
             ) : (
                 <div className="flex flex-col gap-1 mt-2">

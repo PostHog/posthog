@@ -18,6 +18,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -47,9 +48,6 @@ export type NotebookNodeSQLV2Attributes = {
 
 // Matches the SQL editor output pane's default so charts land at v1-node size.
 const VIZ_MIN_HEIGHT = 350
-// The default node height only fits a couple of table rows; grow to this once a result lands
-// so the output isn't clipped and the user doesn't have to resize by hand to read it.
-const RESULT_MIN_HEIGHT = 300
 
 // The dataframe name is referenced as a bare SQL table name and becomes a Python variable
 // when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
@@ -164,21 +162,26 @@ const Component = ({
         [attributes.vizQuery, attributes.code]
     )
 
-    // Grow a still-default (too-short) node the first time a result lands so it's readable
-    // without a manual resize. Only grows below the target and only on a fresh result, so a
-    // deliberate resize (or a taller reload) is left untouched.
-    const hadResultRef = useRef(!!result)
+    // Grow a still-too-short node to fit the result each run lands, so output is readable without
+    // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
     useEffect(() => {
-        const hasResult = !!dataframeResult
-        if (hasResult && !hadResultRef.current) {
-            const target = activeTab === OutputTab.Visualization ? VIZ_MIN_HEIGHT : RESULT_MIN_HEIGHT
-            if (typeof attributes.height !== 'number' || attributes.height < target) {
-                updateAttributes({ height: target })
-            }
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
         }
-        hadResultRef.current = hasResult
+        sizedRunIdRef.current = runId
+        const target =
+            activeTab === OutputTab.Visualization
+                ? VIZ_MIN_HEIGHT
+                : outputHeightForShape({ rowCount: (result.first_page ?? []).length })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
         // oxlint-disable-next-line exhaustive-deps
-    }, [dataframeResult])
+    }, [result, attributes.runId])
 
     if (!expanded) {
         return null

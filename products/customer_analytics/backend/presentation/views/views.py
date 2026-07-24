@@ -17,6 +17,8 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.db import transaction
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
@@ -24,6 +26,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
@@ -52,6 +55,9 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
+    EventStreamMemberWriteSerializer,
+    EventStreamSerializer,
+    EventStreamTestMessageSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -587,6 +593,7 @@ class CustomPropertySourceViewSet(
                 source_column=data.source_column,
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
+                column_descriptions=data.column_descriptions,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
@@ -642,8 +649,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["POST"], detail=True)
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
-        real (billable) warehouse sync; the incremental person-property update runs off it."""
+        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
+        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+        off it."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -654,7 +662,7 @@ class CustomPropertySourceViewSet(
         except api.WarehouseSyncPausedError as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
-            raise ValidationError("This action is only available for enabled person-property sources.")
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
         return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
@@ -664,8 +672,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: start a backfill that reads the whole warehouse table and populates
-        person properties for historical rows. Coalesces if one is already running for the table."""
+        """Person and group sources only: start a backfill that reads the whole warehouse table and
+        populates person or group properties for historical rows. Coalesces if one is already running
+        for the table."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(
@@ -677,7 +686,7 @@ class CustomPropertySourceViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         if started is None:
-            raise ValidationError("This action is only available for enabled person-property sources.")
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
         return Response(
             {"status": "started" if started else "already_running", "already_running": not started},
             status=status.HTTP_202_ACCEPTED,
@@ -689,8 +698,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: the source's sync/backfill run history, newest first. Gated on the
-        caller's warehouse-source viewer access, since the runs expose its row counts and sync errors."""
+        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
+        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+        errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1404,3 +1414,174 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+
+_EVENT_STREAM_ID_PARAM = OpenApiParameter(
+    "id",
+    OpenApiTypes.STR,
+    OpenApiParameter.PATH,
+    description="A UUID string identifying this event stream.",
+)
+
+
+class EventStreamTestMessageThrottle(UserRateThrottle):
+    """Each test message posts to Slack, so cap the rate per user regardless of auth method."""
+
+    scope = "event_stream_test_message"
+    rate = "6/minute"
+
+
+@extend_schema(tags=["customer_analytics"])
+class EventStreamViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """The caller's event stream: a live feed of selected accounts' events posted to a
+    Slack channel of their choice. Per-user — each team member owns at most one stream, and
+    every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+    destination that is re-provisioned inside the same transaction as every write, so
+    config and delivery can't drift apart."""
+
+    scope_object = "account"
+    serializer_class = EventStreamSerializer
+    pagination_class = None  # at most one stream exists per team (one-to-one) — nothing to paginate
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        streams = api.list_event_streams(self.team_id, user=cast(User, request.user))
+        return Response(EventStreamSerializer(instance=streams, many=True).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = EventStreamSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.create_event_stream(
+                    team_id=self.team_id,
+                    enabled=data.enabled,
+                    event_names=data.event_names,
+                    slack_integration_id=data.slack_integration,
+                    slack_channel_id=data.slack_channel_id,
+                    slack_channel_name=data.slack_channel_name,
+                    user=user,
+                )
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        except api.EventStreamConflictError as e:
+            raise Conflict(str(e))
+        return Response(EventStreamSerializer(instance=stream).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = EventStreamSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.update_event_stream(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    fields=_event_stream_write_fields(serializer.validated_data, request.data),
+                    user=user,
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        return Response(EventStreamSerializer(instance=stream).data)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        deleted = api.delete_event_stream(
+            team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=True)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def remove_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=False)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=None,
+        responses={200: EventStreamTestMessageSerializer},
+    )
+    @action(methods=["POST"], detail=True, throttle_classes=[EventStreamTestMessageThrottle])
+    def send_test_message(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            channel_id = api.send_test_slack_message(
+                team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
+            )
+        except contracts.EventStreamTestMessageError as e:
+            raise ValidationError(str(e))
+        if channel_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EventStreamTestMessageSerializer(instance={"channel_id": channel_id}).data)
+
+    def _set_member(self, request: Request, *, included: bool) -> Response:
+        write = EventStreamMemberWriteSerializer(data=request.data)
+        write.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.set_event_stream_member(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    account_id=write.validated_data["account_id"],
+                    included=included,
+                    user=user,
+                    user_access_control=self.user_access_control,
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.Account_DoesNotExist:
+            raise ValidationError({"account_id": "Account not found for this team."})
+        return Response(EventStreamSerializer(instance=stream).data)
+
+
+# Request field -> model column, for translating a write body into facade update fields.
+_EVENT_STREAM_WRITE_FIELDS = {
+    "enabled": "enabled",
+    "event_names": "event_names",
+    "slack_integration": "slack_integration_id",
+    "slack_channel_id": "slack_channel_id",
+    "slack_channel_name": "slack_channel_name",
+}
+
+
+def _event_stream_write_fields(validated, raw_data: dict) -> dict:
+    """The event-stream columns the caller actually sent, so a PATCH that omits a field
+    leaves it untouched (the serializer fields carry defaults for create)."""
+    return {column: getattr(validated, key) for key, column in _EVENT_STREAM_WRITE_FIELDS.items() if key in raw_data}
