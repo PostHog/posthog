@@ -1,10 +1,18 @@
-import { type ReactNode, useMemo } from 'react'
+import { type ReactNode, useCallback, useMemo } from 'react'
 
-import { MetricCard, type ChangeColor, type MetricChange, type Series } from '@posthog/quill-charts'
+import {
+    DefaultTooltip,
+    MetricCard,
+    type ChangeColor,
+    type MetricChange,
+    type Series,
+    type TooltipContext,
+} from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
 // A summary tile built on quill's MetricCard, adapting our app-metrics series shape. The chrome
@@ -88,6 +96,23 @@ export function WorkflowMetricCard({
 
     const neutral = neutralChange()
 
+    // Labels arrive pre-formatted in the team timezone ('YYYY-MM-DD', or '… HH:mm' for sub-day
+    // intervals), so parse them as naive local strings for the tooltip header.
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext) => (
+            <DefaultTooltip
+                {...ctx}
+                sortedByValue
+                showTotal
+                labelFormatter={(label: string) =>
+                    dayjs(label).format(label.includes(' ') ? 'MMM D, HH:mm' : 'MMM D, YYYY')
+                }
+                valueFormatter={(value: number) => humanFriendlyNumber(value)}
+            />
+        ),
+        []
+    )
+
     return (
         <MetricCard
             className={CARD_CHROME}
@@ -108,7 +133,8 @@ export function WorkflowMetricCard({
             onClickTooltip={onClickTooltip}
             footer={footer}
             sparklineHeight={160}
-            sparklineClassName="mt-3 -mx-3 -mb-3"
+            sparklineClassName="mt-4 -mx-3"
+            sparklineTooltip={renderTooltip}
         />
     )
 }
