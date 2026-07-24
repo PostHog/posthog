@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.egress.github.limiter import acquire_github_installation
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
@@ -71,8 +72,11 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     # Deferrable bulk: BATCH is shed first as the installation's budget fills, and the raise below
     # hands the retry to Temporal.
     if not await acquire_github_installation(installation_id, priority=Priority.BATCH, source="job_logs"):
-        # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
-        raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
+        # Over budget — raise so Temporal retries with backoff instead of blocking a worker. Uses the
+        # shared EgressBudgetExhausted subclass (not a plain ApplicationError) so the Temporal
+        # error-tracking interceptor recognizes this as deliberate backpressure and drops it, matching
+        # every other GitHub egress caller.
+        raise GitHubEgressBudgetExhausted(f"GitHub egress budget exhausted for installation {installation_id}")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
         log.info("github_job_log_unavailable")
