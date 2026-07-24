@@ -362,7 +362,7 @@ def _attach_images_to_user_message(
 def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
 
 
 def generate_change_summary(

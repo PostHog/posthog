@@ -575,7 +575,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
     # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
     # is_team_over_ai_credit_budget gates on above.
-    client = OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    client = OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
     distinct_id = replay_vision_distinct_id(team.id)
     response = client.chat.completions.create(  # type: ignore[call-overload]
         model=SYNTHESIS_MODEL,
