@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -213,7 +213,9 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         # `schema.source`, matching production where the delete happens on another connection.
         ExternalDataSource.objects.filter(pk=self.source.pk).delete()
 
-        with self.assertRaises(DatabaseError):
+        # Postgres aborts the whole transaction on an unhandled DatabaseError; a savepoint keeps
+        # the failure scoped so the existence check below can still run.
+        with self.assertRaises(DatabaseError), transaction.atomic():
             schema.update_incremental_field_value(42)
 
         assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
