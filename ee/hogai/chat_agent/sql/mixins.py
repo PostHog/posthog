@@ -203,6 +203,12 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+        except Exception as err:
+            # Placeholder/filter replacement and printing can raise unexpected errors that aren't
+            # HogQL error types (e.g. an IndexError when the LLM nests a date-range filter
+            # placeholder inside a function). Surface these as recoverable parser errors fed back
+            # to the model instead of crashing the agent turn.
+            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=str(err))
 
         return AssistantHogQLQuery(query=cleaned_query)
 

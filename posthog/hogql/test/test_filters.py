@@ -1,6 +1,9 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
@@ -141,6 +144,38 @@ class TestFilters(BaseTest):
             "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    @parameterized.expand(
+        [
+            ("from", "filters.dateRange.from", DateRange(date_from="2020-02-02")),
+            ("to", "filters.dateRange.to", DateRange(date_to="2020-02-02")),
+        ]
+    )
+    def test_replace_filters_nested_date_range_placeholder(self, _name, placeholder, date_range):
+        # When the placeholder is nested inside a function it has no enclosing comparison on
+        # the stack, so it must resolve to the date constant rather than raising IndexError.
+        select = replace_filters(
+            self._parse_select(f"SELECT toStartOfDay({{{placeholder}}}) FROM events"),
+            HogQLFilters(dateRange=date_range),
+            self.team,
+        )
+        resolved = select.select[0]
+        self.assertIsInstance(resolved, ast.Call)
+        self.assertEqual(resolved.name, "toStartOfDay")
+        self.assertEqual(resolved.args[0], ast.Constant(value=datetime(2020, 2, 2, tzinfo=self.team.timezone_info)))
+
+    @parameterized.expand([("from", "filters.dateRange.from"), ("to", "filters.dateRange.to")])
+    def test_replace_filters_nested_date_range_placeholder_no_filters(self, _name, placeholder):
+        # No enclosing comparison and no filters: the placeholder has no comparison to skip,
+        # so it must resolve to a constant rather than indexing into an empty list.
+        select = replace_filters(
+            self._parse_select(f"SELECT toStartOfDay({{{placeholder}}}) FROM events"),
+            None,
+            self.team,
+        )
+        resolved = select.select[0]
+        self.assertIsInstance(resolved, ast.Call)
+        self.assertEqual(resolved.args[0], ast.Constant(value=True))
 
     def test_replace_filters_event_property(self):
         select = replace_filters(
