@@ -159,7 +159,11 @@ SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
 
 
 class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
-    target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
+    # Bounded because it is echoed into an `x-posthog-property-*` header on the
+    # gateway call, and header values are ASCII-only on the wire.
+    target_language = serializers.CharField(
+        max_length=64, help_text="Language code to generate translations for, for example pt-BR."
+    )
     source_language = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -3044,8 +3048,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
             )
 
-        if not settings.GEMINI_API_KEY:
-            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+        if not (settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY):
+            raise exceptions.ValidationError(
+                "LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured to generate translations"
+            )
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(

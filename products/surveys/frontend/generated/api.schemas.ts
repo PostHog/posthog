@@ -1915,7 +1915,10 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown }
 
 export interface GenerateSurveyTranslationsRequestApi {
-    /** Language code to generate translations for, for example pt-BR. */
+    /**
+     * Language code to generate translations for, for example pt-BR.
+     * @maxLength 64
+     */
     target_language: string
     /** Optional override for the source language code. Defaults to the survey's `base_language` (or 'en' if unset). */
     source_language?: string

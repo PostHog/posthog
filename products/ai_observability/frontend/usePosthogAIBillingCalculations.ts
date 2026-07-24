@@ -22,6 +22,7 @@ const AI_PRODUCT_MARKUP: Record<string, number> = {
     alert_investigation_agent: AI_COST_MARKUP_PERCENT,
     product_analytics: AI_COST_MARKUP_PERCENT,
     surveys: AI_COST_MARKUP_PERCENT,
+    survey_translation: AI_COST_MARKUP_PERCENT,
     posthog_code: 0,
 }
 

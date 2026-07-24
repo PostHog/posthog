@@ -504,7 +504,9 @@ class TestSurvey(APIBaseTest):
         assert "default" not in result
         assert "en" not in result
 
-    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @override_settings(
+        CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
+    )
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
         self.organization.is_ai_data_processing_approved = True
@@ -550,7 +552,9 @@ class TestSurvey(APIBaseTest):
         # source_language falls back to the survey's base_language when not provided
         assert mock_generate_survey_translation.call_args.kwargs["source_language"] == "en"
 
-    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @override_settings(
+        CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
+    )
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_uses_survey_base_language_as_source(self, mock_generate_survey_translation) -> None:
         self.organization.is_ai_data_processing_approved = True
@@ -573,7 +577,38 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert mock_generate_survey_translation.call_args.kwargs["source_language"] == "es"
 
-    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @override_settings(CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_when_gateway_unconfigured(self, mock_generate_survey_translation):
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_on_partial_gateway_config(self, mock_generate_survey_translation):
+        # Pins the `and`: a URL without a key must not pass the guard.
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(
+        CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
+    )
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_requires_ai_data_processing_approval(self, mock_generate_survey_translation):
         self.organization.is_ai_data_processing_approved = False
@@ -589,7 +624,9 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_generate_survey_translation.assert_not_called()
 
-    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @override_settings(
+        CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
+    )
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_enforces_object_access_control(self, mock_generate_survey_translation):
         self.organization.available_product_features = [
@@ -623,7 +660,9 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_generate_survey_translation.assert_not_called()
 
-    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @override_settings(
+        CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
+    )
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_rejects_cross_organization_survey_id(self, mock_generate_survey_translation):
         self.organization.is_ai_data_processing_approved = True

@@ -1877,10 +1877,15 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+export const surveysGenerateTranslationsCreateBodyTargetLanguageMax = 64
+
 export const surveysGenerateTranslationsCreateBodyOverwriteDefault = false
 
 export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object({
-    target_language: zod.string().describe('Language code to generate translations for, for example pt-BR.'),
+    target_language: zod
+        .string()
+        .max(surveysGenerateTranslationsCreateBodyTargetLanguageMax)
+        .describe('Language code to generate translations for, for example pt-BR.'),
     source_language: zod
         .string()
         .optional()
