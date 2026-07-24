@@ -80,7 +80,9 @@ out=$(render --set posthog.apiKey=phc_test --set posthog.host=https://eu.i.posth
 assert_contains eu-host 'https://eu.i.posthog.com/i/v1/metrics' "$out"
 
 # --- golden drift guard for the fully default render ---
-default=$(render --set posthog.apiKey=phc_test)
+# Blank lines are stripped before comparing: helm 3 and 4 disagree on
+# blank-line placement between documents, and that isn't drift we care about.
+default=$(render --set posthog.apiKey=phc_test | grep -v '^[[:space:]]*$')
 if [ "${1:-}" = "--update-golden" ]; then
     printf '%s\n' "$default" >golden/default.yaml
     echo "updated golden/default.yaml"
