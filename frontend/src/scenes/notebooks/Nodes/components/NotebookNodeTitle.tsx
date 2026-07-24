@@ -78,7 +78,7 @@ export function NotebookNodeTitle(): JSX.Element {
     const isSqlNode =
         nodeType === NotebookNodeType.Query &&
         (isHogQLQuery(nodeAttributes.query) ||
-            (nodeAttributes.query.source && isHogQLQuery(nodeAttributes.query.source)))
+            (nodeAttributes.query?.source && isHogQLQuery(nodeAttributes.query.source)))
 
     const nodeIndex = getNodeIndex({
         isPythonNode,
