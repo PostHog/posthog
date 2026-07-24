@@ -916,6 +916,19 @@ export const surveyThemes: SurveyTheme[] = [
     },
 ]
 
+// NextToTrigger only makes sense for the Selector widget (position relative to its CSS
+// selector); switching to another widget type leaves a position posthog-js can't resolve,
+// so fall back to Right.
+export function resolveWidgetPosition(
+    widgetType: SurveyWidgetType,
+    currentPosition: SurveyPosition | undefined
+): SurveyPosition | undefined {
+    if (widgetType !== SurveyWidgetType.Selector && currentPosition === SurveyPosition.NextToTrigger) {
+        return SurveyPosition.Right
+    }
+    return currentPosition
+}
+
 export function getMatchingSurveyThemeId(appearance?: Partial<SurveyAppearance> | null): string | null {
     if (!appearance) {
         return 'clean'

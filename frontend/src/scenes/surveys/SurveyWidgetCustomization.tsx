@@ -5,15 +5,9 @@ import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import {
-    AvailableFeature,
-    SurveyAppearance,
-    SurveyPosition,
-    SurveySchedule,
-    SurveyTabPosition,
-    SurveyWidgetType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance, SurveySchedule, SurveyTabPosition, SurveyWidgetType } from '~/types'
 
+import { resolveWidgetPosition } from './constants'
 import { SurveyTabPositionSelector } from './survey-appearance/SurveyTabPositionSelector'
 import { surveysLogic } from './surveysLogic'
 
@@ -53,13 +47,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                             <LemonSelect
                                 value={appearance.widgetType}
                                 onChange={(widgetType) => {
-                                    // NextToTrigger is only available for Selector widget type
-                                    const newPosition =
-                                        widgetType !== SurveyWidgetType.Selector &&
-                                        appearance?.position === SurveyPosition.NextToTrigger
-                                            ? SurveyPosition.Right
-                                            : appearance?.position
-
+                                    const newPosition = resolveWidgetPosition(widgetType, appearance?.position)
                                     onAppearanceChange({ ...appearance, widgetType, position: newPosition })
                                 }}
                                 options={[
