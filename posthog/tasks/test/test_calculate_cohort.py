@@ -9,6 +9,8 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
@@ -1138,6 +1140,39 @@ class TestCohortCalculationTasks(APIBaseTest):
             )
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+
+    @parameterized.expand(
+        [
+            # (exception raised, expected capture_exception call count)
+            ("system_error", Exception("Simulated query processing error"), 1),
+            ("user_query_error", QueryError("Unable to resolve field: distinct_ids"), 0),
+        ]
+    )
+    def test_insert_cohort_from_query_only_captures_system_errors(
+        self, _name: str, raised: Exception, expected_capture_calls: int
+    ) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_query_cohort",
+            is_static=True,
+            count=0,
+            query={"kind": "HogQLQuery", "query": "SELECT distinct_ids FROM persons LIMIT 10"},
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            mock_insert_ch.side_effect = raised
+
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+            self.assertEqual(mock_capture.call_count, expected_capture_calls)
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+            self.assertGreater(cohort.errors_calculating, 0, "Failure should be recorded regardless of error type")
 
     def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(
