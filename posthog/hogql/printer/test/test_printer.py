@@ -447,6 +447,81 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("union all by name", "UNION ALL"),
+            ("union by name", "UNION DISTINCT"),
+            ("intersect by name", "INTERSECT"),
+            ("except by name", "EXCEPT"),
+        ]
+    )
+    def test_by_name_lowered_for_clickhouse(self, operator: str, lowered: str):
+        response = self._select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a")
+        self.assertNotIn("BY NAME", response)
+        self.assertIn(f" {lowered} ", response)
+        self.assertIn("SELECT 4 AS a, 3 AS b", response)
+
+    def test_union_by_name_executes_on_clickhouse(self):
+        sql = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a")
+        self.assertEqual(sync_execute(sql), [(1, 2), (4, 3)])
+
+    def test_union_by_name_nested_set_operand_reorders_every_leaf(self):
+        response = self._select(
+            "select 1 as a, 2 as b union all by name (select 30 as b, 40 as a union all select 50 as b, 60 as a)"
+        )
+        self.assertNotIn("BY NAME", response)
+        self.assertIn("SELECT 40 AS a, 30 AS b", response)
+        self.assertIn("SELECT 60 AS a, 50 AS b", response)
+
+    @parameterized.expand(
+        [
+            ("missing_column", "select 1 as a, 2 as b union all by name select 3 as b", "missing: a"),
+            (
+                "extra_column",
+                "select 1 as a union all by name select 3 as a, 4 as b",
+                "unexpected: b",
+            ),
+            (
+                "duplicate_columns",
+                "select uuid, uuid from events union all by name select uuid from events",
+                "uniquely named columns",
+            ),
+            (
+                "nested_leaf_arity_mismatch",
+                "select 1 as a, 2 as b union all by name (select 3 as b, 4 as a union all select 5 as a, 6 as b, 7 as c)",
+                "number of columns",
+            ),
+        ]
+    )
+    def test_by_name_invalid_column_sets_raise(self, _name: str, query: str, expected_error: str):
+        with self.assertRaises(QueryError) as context:
+            self._select(query)
+        self.assertIn(expected_error, str(context.exception))
+
+    def test_union_by_name_remaps_positional_order_by(self):
+        response = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a order by 1")
+        self.assertIn("SELECT 4 AS a, 3 AS b", response)
+        self.assertIn("ORDER BY 2", response)
+
+    def test_union_by_name_kept_for_postgres_dialect(self):
+        response, _ = prepare_and_print_ast(
+            parse_select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a"),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "postgres",
+        )
+        self.assertIn("UNION ALL BY NAME", response)
+        self.assertIn("SELECT 3 AS b, 4 AS a", response)
+
+    @parameterized.expand([("mysql",), ("snowflake",), ("redshift",)])
+    def test_by_name_rejected_in_warehouse_dialects(self, dialect: str):
+        with self.assertRaises(QueryError) as context:
+            prepare_and_print_ast(
+                parse_select("select 1 as a union all by name select 2 as a"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                cast(HogQLDialect, dialect),
+            )
+        self.assertIn("UNION ALL BY NAME is not supported", str(context.exception))
+
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")

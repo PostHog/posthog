@@ -31,6 +31,12 @@ class RedshiftPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "redshift"
     DIALECT_LABEL: ClassVar[str] = "Redshift"
 
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        # Redshift has no BY NAME set operators; refuse rather than emit SQL the engine rejects.
+        if set_operator.endswith(" BY NAME"):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+        super()._assert_set_operator_supported(set_operator)
+
     def _dialect_error_suffix(self) -> str:
         return "in the Redshift dialect"
 

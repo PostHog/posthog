@@ -258,6 +258,63 @@ def _unify_select_set_columns(
     return columns
 
 
+_BY_NAME_SUFFIX = " BY NAME"
+
+
+def _by_name_column_mismatch_error(canonical: list[str], names: list[str]) -> QueryError:
+    canonical_set, names_set = set(canonical), set(names)
+    details: list[str] = []
+    if missing := [name for name in canonical if name not in names_set]:
+        details.append(f"missing: {', '.join(missing)}")
+    if extra := [name for name in names if name not in canonical_set]:
+        details.append(f"unexpected: {', '.join(extra)}")
+    return QueryError(
+        f"BY NAME requires every branch of the set operation to have the same columns ({'; '.join(details)}). "
+        "Add the missing columns to each branch explicitly, e.g. `NULL AS column_name`."
+    )
+
+
+def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int]) -> None:
+    # ClickHouse resolves bare integer literals in these clauses positionally (enable_positional_arguments
+    # defaults to on), so a reordered select list must carry the ordinals along or `ORDER BY 2` silently
+    # comes to mean a different column.
+    referencing: list[ast.Expr] = [order.expr for order in leaf.order_by or []]
+    referencing.extend(leaf.group_by or [])
+    if leaf.limit_by:
+        referencing.extend(leaf.limit_by.exprs)
+    for expr in referencing:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+            new_index = new_index_by_old.get(expr.value - 1)
+            if new_index is not None:
+                expr.value = new_index + 1
+
+
+def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int]) -> None:
+    """Apply one positional permutation (new position -> old position) to every SELECT leaf of a set
+    operand. Each leaf is validated on the way down, so a nested branch whose select list does not line
+    up with the operand's columns raises instead of being silently truncated."""
+    if isinstance(branch, ast.SelectSetQuery):
+        for sub in branch.select_queries():
+            _permute_set_operand(sub, permutation)
+        branch_type = branch.type
+        if isinstance(branch_type, ast.SelectSetQueryType) and branch_type.columns:
+            names = list(branch_type.columns.keys())
+            branch_type.columns = {names[old]: branch_type.columns[names[old]] for old in permutation}
+        return
+    if len(branch.select) != len(permutation):
+        raise QueryError(
+            "BY NAME requires every branch of the set operation to have the same number of columns "
+            f"(expected {len(permutation)}, got {len(branch.select)})"
+        )
+    leaf_type = branch.type
+    if not isinstance(leaf_type, ast.SelectQueryType) or len(leaf_type.columns) != len(branch.select):
+        raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)})
+    branch.select = [branch.select[old] for old in permutation]
+    names = list(leaf_type.columns.keys())
+    leaf_type.columns = {names[old]: leaf_type.columns[names[old]] for old in permutation}
+
+
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -342,6 +399,8 @@ class Resolver(CloningVisitor):
             limit_percent=node.limit_percent,
             limit_with_ties=node.limit_with_ties,
         )
+        self._lower_by_name_operators(result)
+
         select_types = [
             result.initial_select_query.type,
             *(x.select_query.type for x in result.subsequent_select_queries),
@@ -354,6 +413,40 @@ class Resolver(CloningVisitor):
         self.ctes = parent_ctes
 
         return result
+
+    def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
+        """ClickHouse has no `UNION/INTERSECT/EXCEPT ... BY NAME` syntax, so the operator cannot be
+        printed there. Lower it instead: reorder each BY NAME operand's select lists to the first
+        branch's column order and emit the plain operator. Dialects with native support (DuckDB behind
+        the postgres printer) keep the operator untouched. Differing column sets raise here, where
+        DuckDB's native BY NAME would null-fill — the error tells the user how to close the gap."""
+        if self.dialect != "clickhouse":
+            return
+        if not any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries):
+            return
+        initial = node.initial_select_query
+        if initial.type is None:
+            raise ImpossibleASTError("Set operation branch has no resolved type")
+        canonical = [name for name, _ in _select_type_columns(initial.type)]
+        if len(set(canonical)) != len(canonical) or (
+            isinstance(initial, ast.SelectQuery) and len(initial.select) != len(canonical)
+        ):
+            raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+        index_by_name = {name: index for index, name in enumerate(canonical)}
+        for sub in node.subsequent_select_queries:
+            if not sub.set_operator.endswith(_BY_NAME_SUFFIX):
+                continue
+            branch = sub.select_query
+            if branch.type is None:
+                raise ImpossibleASTError("Set operation branch has no resolved type")
+            names = [name for name, _ in _select_type_columns(branch.type)]
+            if len(set(names)) != len(names):
+                raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+            if set(names) != set(index_by_name):
+                raise _by_name_column_mismatch_error(canonical, names)
+            branch_index_by_name = {name: index for index, name in enumerate(names)}
+            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical])
+            sub.set_operator = cast(ast.SetOperator, sub.set_operator[: -len(_BY_NAME_SUFFIX)])
 
     def visit_values_query(self, node: ast.ValuesQuery):
         resolved_rows: list[list[ast.Expr]] = []
