@@ -366,11 +366,16 @@ export interface searchLogicMeta {
             user: UserType | null,
             sceneLogViewsByRef: Record<string, string>
         ) => SearchItem[]
-        newItems: (featureFlags: FeatureFlagsSet, isDev: boolean | undefined, user: UserType | null) => SearchItem[]
+        newItems: (
+            featureFlags: FeatureFlagsSet,
+            isDev: boolean | undefined,
+            user: UserType | null,
+            arg: string
+        ) => SearchItem[]
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         groupItems: (
             groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
