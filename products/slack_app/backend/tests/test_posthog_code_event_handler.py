@@ -73,6 +73,8 @@ class TestPostHogCodeEventHandler(TestCase):
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
+            ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
+            ("tokens_revoked_routes", "tokens_revoked", "handled_locally", 202, True),
             ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
@@ -140,6 +142,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             real_name="Dev User",
             refreshed_at=timezone.now(),
         )
+
+    @staticmethod
+    def _make_users_info(slack_user_id: str, email: str) -> Any:
+        from unittest.mock import MagicMock
+
+        response = MagicMock()
+        response.data = {"ok": True, "user": {"id": slack_user_id, "profile": {"email": email}}}
+        return response
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -300,13 +310,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
 
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_from_unknown_user_posts_in_thread_failure_reply(
-        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture, mock_webclient_class
     ):
         # A Slack user whose email doesn't map to any PostHog ``User`` in any connected
         # org gets a public in-thread "Sorry, I couldn't find <email>…" reply that names
@@ -315,6 +326,11 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        # The stale-cache guard re-fetches once on a miss; Slack still returns the same
+        # unknown email, so resolution stays unresolved.
+        mock_webclient_class.return_value.users_info.return_value = self._make_users_info(
+            "U123", "stranger@example.com"
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -339,13 +355,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert capture_kwargs.get("event") == "posthog code slack mention received"
         assert capture_kwargs.get("properties", {}).get("posthog_user_identified") is False
 
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_unknown_user_in_unapproved_ext_shared_channel_suppresses_failure_reply(
-        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture, mock_webclient_class
     ):
         # Externally-shared channels that haven't been approved must not receive a
         # public "Sorry, I couldn't find <email>" post — that leaks the integration's
@@ -354,6 +371,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # Analytics still records the event for funnel coverage.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_webclient_class.return_value.users_info.return_value = self._make_users_info(
+            "U123", "stranger@example.com"
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -365,6 +385,37 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_asyncio_run.assert_not_called()
         mock_post_feedback.assert_not_called()
         mock_capture.assert_called_once()
+
+    @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_stale_cached_email_is_refreshed_and_user_resolves(
+        self, mock_sync_connect, mock_asyncio_run, mock_webclient_class
+    ):
+        # The user changed their Slack email to match their PostHog account, but the
+        # profile cache still holds the old address. Matching on the cached email misses;
+        # the resolver must re-fetch fresh from Slack and match on the corrected email so
+        # the mention routes without waiting out the cache TTL. Regression for the
+        # locked-out-after-email-change ticket.
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", "old-address@example.com")
+        mock_client = mock_webclient_class.return_value
+        mock_client.users_info.return_value = self._make_users_info("U123", "dev@example.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        # Fresh lookup happened and the corrected email was persisted back to the cache.
+        mock_client.users_info.assert_called_with(user="U123")
+        assert SlackUserProfileCache.objects.get(slack_user_id="U123").email == "dev@example.com"
+        # Resolution succeeded, so the mention workflow started for the matched user.
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -1327,3 +1378,100 @@ class TestQueueWorkflowDispatch(TestCase):
         # Dispatch adds no reaction — the queue workflow reacts only on
         # messages that actually wait behind another one.
         mock_slack.return_value.client.reactions_add.assert_not_called()
+
+
+class TestWorkspaceTeardown(TestCase):
+    """Slack-side uninstall / token revocation must remove PostHog's record of the
+    install, otherwise the settings UI keeps claiming the workspace is connected
+    while Slack's marketplace shows it as not installed.
+    """
+
+    def setUp(self):
+        from django.utils import timezone
+
+        cache.clear()
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Teardown Org")
+        self.team = Team.objects.create(organization=self.organization, name="Teardown Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-teardown"},
+        )
+        # Cascade targets: a mention mapping and a profile cache row that must go
+        # away with the integration.
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U123",
+            email="dev@example.com",
+            refreshed_at=timezone.now(),
+        )
+
+    def _route(self, event: dict):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        return route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+    @parameterized.expand(
+        [
+            ("app_uninstalled", {"type": "app_uninstalled"}),
+            ("tokens_revoked_bot", {"type": "tokens_revoked", "tokens": {"bot": ["B123"]}}),
+        ]
+    )
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_uninstall_deletes_workspace_integration(self, _name, event, mock_proxy):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        result = self._route(event)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not Integration.objects.filter(kind="slack", integration_id="T12345").exists()
+        # Cascade cleared the dependent rows too.
+        assert not SlackUserProfileCache.objects.filter(slack_user_id="U123").exists()
+        # US region with no loop header fans the teardown out to EU so a dual-owned
+        # workspace is cleaned up on both sides.
+        mock_proxy.assert_called_once()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_tokens_revoked_user_only_keeps_integration_and_drops_link(self, mock_proxy):
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        linker = User.objects.create(email="linked@example.com", distinct_id="linked-1")
+        UserIntegration.objects.create(
+            user=linker,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id="U123",
+            config={"slack_team_id": "T12345"},
+        )
+
+        result = self._route({"type": "tokens_revoked", "tokens": {"oauth": ["U123"]}})
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        # A user-token revocation leaves the bot install intact.
+        assert Integration.objects.filter(kind="slack", integration_id="T12345").exists()
+        # But the affected identity link is dropped.
+        assert not UserIntegration.objects.filter(kind="slack", integration_id="U123").exists()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_uninstall_with_loop_header_does_not_fan_out_again(self, mock_proxy):
+        # A teardown already proxied to us from the other region carries the loop
+        # header; we clean locally but must not bounce it back.
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post(
+            "/slack/event-callback/",
+            HTTP_HOST="us.posthog.com",
+            headers={"x-posthog-region-proxied": "1"},
+        )
+        route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert not Integration.objects.filter(kind="slack", integration_id="T12345").exists()
+        mock_proxy.assert_not_called()

@@ -118,7 +118,16 @@ HANDLED_EVENT_TYPES = [
     "assistant_thread_started",
     "assistant_thread_context_changed",
     "app_home_opened",
+    # Slack-side removal of the app. Without these the ``Integration`` row lingers
+    # after an uninstall, so PostHog keeps claiming the workspace is connected
+    # while Slack's marketplace shows it as not installed.
+    "app_uninstalled",
+    "tokens_revoked",
 ]
+
+# Event types that mean the workspace install is going away, not that a user is
+# interacting with it — routed to teardown, never to the mention/DM pipeline.
+WORKSPACE_TEARDOWN_EVENT_TYPES = frozenset({"app_uninstalled", "tokens_revoked"})
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
@@ -1221,10 +1230,16 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
+def get_slack_email_for_user(
+    probe_integration: Integration, slack_user_id: str, *, force_refresh: bool = False
+) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
     user (profile email hidden) or the lookup fails.
+
+    ``force_refresh=True`` bypasses the ``SlackUserProfileCache`` and re-reads the
+    email straight from Slack — used to recover from a stale cached email so a
+    corrected Slack email re-matches without waiting out the cache TTL.
 
     Every termination path emits a distinct structured log so a silent ``None`` can
     still be diagnosed from logs alone — historically the failure modes collapsed
@@ -1242,7 +1257,7 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
 
     slack_client = SlackIntegration(probe_integration)
     try:
-        user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
+        user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id, force_refresh=force_refresh)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
         if slack_email:
             return slack_email
@@ -1327,28 +1342,54 @@ def resolve_posthog_user_from_event(
     if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
         return linked_user
 
+    # Track whether the caller handed us an email (local-dev override) versus us
+    # fetching it from Slack: the stale-cache retry below only makes sense for
+    # the latter, since a caller-supplied email has no live Slack source to
+    # refresh against.
+    email_from_slack = slack_email is None
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
     if not slack_email:
         return None
-    try:
-        membership = (
-            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
-            .select_related("user")
-            .first()
-        )
-    except Exception:
-        # Don't propagate transient DB errors to the Slack webhook — Slack
-        # retries 5xx and would replay the event. The caller gets ``None`` and
-        # treats it the same as "no membership found".
-        logger.warning(
-            "slack_app_resolve_user_membership_failed",
-            integration_id=probe_integration.id,
-            slack_user_id=slack_user_id,
-            exc_info=True,
-        )
-        return None
-    return membership.user if membership else None
+
+    def _match_membership(email: str) -> User | None:
+        try:
+            membership = (
+                OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=email)
+                .select_related("user")
+                .first()
+            )
+        except Exception:
+            # Don't propagate transient DB errors to the Slack webhook — Slack
+            # retries 5xx and would replay the event. The caller gets ``None`` and
+            # treats it the same as "no membership found".
+            logger.warning(
+                "slack_app_resolve_user_membership_failed",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+                exc_info=True,
+            )
+            return None
+        return membership.user if membership else None
+
+    matched = _match_membership(slack_email)
+    if matched is not None:
+        return matched
+
+    # Stale-cache guard: the cached Slack profile email may be out of date (the
+    # user changed their Slack email after we last cached it). Re-fetch once
+    # straight from Slack and retry the match, so a corrected email routes their
+    # next mention without waiting out the profile-cache TTL.
+    if email_from_slack:
+        fresh_email = get_slack_email_for_user(probe_integration, slack_user_id, force_refresh=True)
+        if fresh_email and fresh_email.casefold() != slack_email.casefold():
+            logger.info(
+                "slack_app_resolve_user_email_refreshed",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+            )
+            return _match_membership(fresh_email)
+    return None
 
 
 def _post_pick_a_project_hint(
@@ -1679,6 +1720,74 @@ def _route_assistant_event(
     )
 
 
+def _teardown_workspace_integrations(slack_team_id: str) -> int:
+    """Delete every Slack ``Integration`` row for the workspace and return the count.
+
+    Cascades clean up the workspace's ``SlackThreadTaskMapping`` /
+    ``SlackUserProfileCache`` / ``SlackSettings`` rows (all ``on_delete=CASCADE``).
+    The Slack token is already dead once Slack tells us the app was uninstalled,
+    so there's nothing to revoke — we just drop our now-stale copy.
+    """
+    if not slack_team_id:
+        return 0
+    # nosemgrep: idor-lookup-without-team — Slack webhook: no request/team context; the
+    # signed envelope's workspace id is the only available scope, and an uninstall must
+    # clear every PostHog project connected to that workspace.
+    deleted, _ = Integration.objects.filter(kind__in=SLACK_INTEGRATION_KINDS, integration_id=slack_team_id).delete()
+    return deleted
+
+
+def _teardown_user_links(slack_team_id: str, slack_user_ids: list[str]) -> int:
+    """Drop the per-user Slack identity links whose user tokens were revoked."""
+    if not slack_team_id or not slack_user_ids:
+        return 0
+    deleted, _ = UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id__in=slack_user_ids,
+        config__slack_team_id=slack_team_id,
+    ).delete()
+    return deleted
+
+
+def _route_workspace_teardown(request: HttpRequest, event: dict, slack_team_id: str, *, proxied: bool) -> str:
+    """Handle ``app_uninstalled`` / ``tokens_revoked`` by removing our record of the install.
+
+    ``app_uninstalled`` (and a ``tokens_revoked`` that revokes the bot token) means
+    the whole install is gone, so we delete the workspace's ``Integration`` rows. A
+    ``tokens_revoked`` carrying only user (``oauth``) tokens leaves the bot install
+    intact — we just drop the affected per-user identity links.
+
+    The workspace's ``Integration`` may live in either Cloud region, and during a
+    cutover both may hold a row, so we fan the event out to the other region once
+    (loop-guarded via the proxy header) to tear its copy down too.
+    """
+    event_type = event.get("type")
+    if event_type == "tokens_revoked":
+        raw_tokens = event.get("tokens")
+        tokens: dict[str, Any] = raw_tokens if isinstance(raw_tokens, dict) else {}
+        bot_tokens = tokens.get("bot")
+        if isinstance(bot_tokens, list) and bot_tokens:
+            deleted = _teardown_workspace_integrations(slack_team_id)
+            logger.info("slack_app_tokens_revoked_bot", slack_team_id=slack_team_id, integrations_deleted=deleted)
+        else:
+            raw_oauth = tokens.get("oauth")
+            oauth_user_ids = (
+                [uid for uid in raw_oauth if isinstance(uid, str) and uid] if isinstance(raw_oauth, list) else []
+            )
+            deleted = _teardown_user_links(slack_team_id, oauth_user_ids)
+            logger.info("slack_app_tokens_revoked_user", slack_team_id=slack_team_id, links_deleted=deleted)
+    else:
+        deleted = _teardown_workspace_integrations(slack_team_id)
+        logger.info("slack_app_uninstalled", slack_team_id=slack_team_id, integrations_deleted=deleted)
+
+    # Fan out to the other region so a workspace owned there (or dual-owned during
+    # cutover) is torn down too. Fire-and-forget: the local cleanup already ran, and
+    # Slack won't usefully retry (we ack retries with 200 without reprocessing).
+    if not proxied and cross_region_routing_enabled():
+        _proxy_event_to_region(request, other_region_domain(request.get_host()))
+    return ROUTE_HANDLED_LOCALLY
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1710,6 +1819,12 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    # Workspace teardown: an uninstall (or token revocation) removes the install,
+    # so drop our record of it before any user-routing logic. Runs regardless of
+    # region — each region cleans its own rows and fans out to the other.
+    if event_type in WORKSPACE_TEARDOWN_EVENT_TYPES:
+        return _route_workspace_teardown(request, event, slack_team_id, proxied=proxied)
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's
