@@ -74,16 +74,18 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     if inputs.snapshot_override is not None:
         snapshot = inputs.snapshot_override
-        team_name, llm_inputs = await asyncio.gather(
+        scanner_id, team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_scanner_id)(inputs.observation_id, inputs.team_id),
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
         )
     else:
-        snapshot, team_name, llm_inputs = await asyncio.gather(
+        loaded, team_name, llm_inputs = await asyncio.gather(
             sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
         )
+        snapshot, scanner_id = loaded
     scanner = scanner_from_snapshot(snapshot)
 
     preamble_text = scanner.preamble(
@@ -100,6 +102,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         video_part=video_part,
         preamble_text=preamble_text,
         team_id=inputs.team_id,
+        scanner_id=scanner_id,
         llm_inputs=llm_inputs,
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
@@ -152,17 +155,32 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     return "".join(plain_parts), segments
 
 
-def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
-    raw = (
+def _load_snapshot(observation_id: UUID, team_id: int) -> tuple[ScannerSnapshot, UUID]:
+    row = (
         ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
-        .values_list("scanner_snapshot", flat=True)
+        .values_list("scanner_snapshot", "scanner_id")
         .first()
     )
-    if raw is None:
+    if row is None:
         raise ScannerFailureError(
             f"ReplayObservation {observation_id} not found for team {team_id}", kind=FailureKind.INTERNAL_ERROR
         )
-    return ScannerSnapshot.load_for(observation_id, raw)
+    raw, scanner_id = row
+    return ScannerSnapshot.load_for(observation_id, raw), scanner_id
+
+
+def _load_scanner_id(observation_id: UUID, team_id: int) -> UUID:
+    """Scanner FK off the observation row — the snapshot doesn't carry it, and the override path skips `_load_snapshot`."""
+    scanner_id = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_id", flat=True)
+        .first()
+    )
+    if scanner_id is None:
+        raise ScannerFailureError(
+            f"ReplayObservation {observation_id} not found for team {team_id}", kind=FailureKind.INTERNAL_ERROR
+        )
+    return scanner_id
 
 
 def _load_team_name(team_id: int) -> str:
@@ -188,6 +206,7 @@ async def _run_mission(
     video_part: types.Part,
     preamble_text: str,
     team_id: int,
+    scanner_id: UUID,
     llm_inputs: ScannerLlmInputs,
 ) -> tuple[BaseScannerOutput, list[SignalFinding]]:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
@@ -197,12 +216,17 @@ async def _run_mission(
     """
     api_key = gemini_api_key()
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
+    # scanner_id + session_id identify the observation (scanner × session) so per-observation cost can be joined back
+    # to `$recording_observed` in LLM analytics — the bare-uuid traces don't encode it.
     client = genai.AsyncClient(
         api_key=api_key,
         posthog_properties={
             "ai_product": "replay_vision",
             "feature": "scanner",
             "scanner_type": snapshot.scanner_type.value,
+            "scanner_id": str(scanner_id),
+            "scanner_name": snapshot.name,
+            "session_id": llm_inputs.session_id,
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)
