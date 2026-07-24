@@ -92,3 +92,24 @@ def add_missing_channel_types(_):
     new_channel_definitions = [x for x in CHANNEL_DEFINITIONS if (x[0], x[1]) not in existing_domain_plus_sources]
     if new_channel_definitions:
         sync_execute(CHANNEL_DEFINITION_DATA_SQL(channel_definitions=new_channel_definitions))
+
+
+# intended to be run in a migration with RunPython. Unlike add_missing_channel_types, this also handles rows
+# whose channel type changed (add_missing only inserts new keys, it can't update an existing one). It deletes
+# just the changed rows and re-inserts them alongside any new ones, so the table is never emptied. The
+# dictionary keeps serving its cached snapshot until the explicit reload at the end, so concurrent queries
+# never observe the brief per-row gap; other nodes' dictionaries refresh within their LIFETIME (at most an hour).
+def update_and_add_channel_types(_):
+    existing = {(x[0], x[1]): (x[2], x[3], x[4]) for x in sync_execute(SELECT_CHANNEL_DEFINITION_SQL)}
+    changed_keys = [
+        (x[0], x[1])
+        for x in CHANNEL_DEFINITIONS
+        if (x[0], x[1]) in existing and existing[(x[0], x[1])] != (x[2], x[3], x[4])
+    ]
+    if changed_keys:
+        pairs = ", ".join(f"({format_value(domain)}, {format_value(kind)})" for domain, kind in changed_keys)
+        sync_execute(
+            f"ALTER TABLE {CHANNEL_DEFINITION_TABLE_NAME} DELETE WHERE (domain, kind) IN ({pairs}) SETTINGS mutations_sync = 2"
+        )
+    add_missing_channel_types(_)
+    sync_execute(f"SYSTEM RELOAD DICTIONARY {CHANNEL_DEFINITION_DICTIONARY_NAME}")
