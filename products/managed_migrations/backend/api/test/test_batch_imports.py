@@ -460,7 +460,7 @@ class TestBatchImportConfigBuilder(BaseTest):
         ]
     )
     def test_from_s3_invalid_auth_combinations(self, _name, kwargs, expected_message):
-        with self.assertRaises(ValueError, msg=expected_message):
+        with self.assertRaisesRegex(ValueError, expected_message):
             self.batch_import.config.from_s3(
                 bucket="b",
                 prefix="",
