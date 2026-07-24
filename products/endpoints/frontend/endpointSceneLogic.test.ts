@@ -228,11 +228,11 @@ describe('endpointSceneLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             logic.actions.loadMaterializationSuggestionSuccess(suggestion as any)
 
-            logic.cache.sqlEditorTabId = 'endpoint-query-2'
+            logic.cache.sqlEditorTabId = 'endpoint-query-test-endpoint-2'
             logic.actions.applyMaterializationSuggestion()
 
             expect((sqlEditorLogic as any).findMounted).toHaveBeenCalledWith(
-                expect.objectContaining({ tabId: 'endpoint-query-latest' })
+                expect.objectContaining({ tabId: 'endpoint-query-test-endpoint-latest' })
             )
             expect(mockEditorLogic.actions.setSuggestedQueryInput).toHaveBeenCalledWith(
                 suggestion.suggested_query,

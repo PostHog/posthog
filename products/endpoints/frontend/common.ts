@@ -35,6 +35,15 @@ export function humanizeQueryKind(kind: NodeKind | string): string {
     return kind.endsWith('Query') ? kind.slice(0, -5) : kind
 }
 
+/**
+ * Unique sqlEditorLogic tab id for an endpoint's embedded SQL editor. The endpoint name must be
+ * part of the id — otherwise every endpoint's latest version shares one editor instance and
+ * navigating between endpoints shows the previous endpoint's SQL and results.
+ */
+export function endpointSqlEditorTabId(endpointName: string, version?: number): string {
+    return `endpoint-query-${endpointName}-${version ?? 'latest'}`
+}
+
 export interface EndpointsDocs {
     url?: PostHogComDocsURL
     title: string

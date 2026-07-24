@@ -12,6 +12,7 @@ import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { endpointSqlEditorTabId } from '../common'
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
 
@@ -41,7 +42,7 @@ export function EndpointQuery(): JSX.Element {
     // If it's a HogQL query, show the embedded SQL editor with results
     if (effectiveQuery && isHogQLQuery(effectiveQuery)) {
         const hogqlQuery = effectiveQuery as HogQLQuery
-        return <EndpointHogQLQuery version={viewingVersion?.version} query={hogqlQuery} />
+        return <EndpointHogQLQuery endpointName={endpoint.name} version={viewingVersion?.version} query={hogqlQuery} />
     }
 
     // For other query types (Insights), show the Query component with editing enabled
@@ -60,8 +61,18 @@ export function EndpointQuery(): JSX.Element {
     )
 }
 
-function EndpointHogQLQuery({ version, query }: { version?: number; query: HogQLQuery }): JSX.Element {
-    const sqlEditorTabId = useMemo(() => `endpoint-query-${version ?? 'latest'}`, [version])
+function EndpointHogQLQuery({
+    endpointName,
+    version,
+    query,
+}: {
+    endpointName: string
+    version?: number
+    query: HogQLQuery
+}): JSX.Element {
+    // The endpoint name must be part of the id — otherwise every endpoint's latest version shares
+    // one editor instance and navigating between endpoints shows the previous endpoint's SQL.
+    const sqlEditorTabId = useMemo(() => endpointSqlEditorTabId(endpointName, version), [endpointName, version])
     const { setLocalQuery, keepSqlEditorMounted } = useActions(endpointSceneLogic)
     const { queryInput, sourceQuery } = useValues(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
@@ -69,6 +80,7 @@ function EndpointHogQLQuery({ version, query }: { version?: number; query: HogQL
     const { setQueryInput, setSourceQuery, runQuery } = useActions(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     )
+    const seededTabIdRef = useRef<string | null>(null)
 
     useEffect(() => {
         // Keep the sqlEditorLogic mounted even when this component unmounts (tab switches)
@@ -76,9 +88,13 @@ function EndpointHogQLQuery({ version, query }: { version?: number; query: HogQL
     }, [sqlEditorTabId]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        // queryInput is null when the logic is freshly mounted — initialize and run.
-        // On remount (tab switch back), the logic is still alive so queryInput is already set.
-        if (queryInput === null) {
+        // Seed the editor when the logic is freshly mounted (queryInput === null), or when we've
+        // navigated to a different endpoint/version (the tab id changed since we last seeded) so a
+        // stale query from a prior endpoint can't survive navigation. A saved-query update on the
+        // same endpoint keeps the same tab id, so it never clobbers the user's in-progress edits.
+        const switchedEndpoint = seededTabIdRef.current !== null && seededTabIdRef.current !== sqlEditorTabId
+        if (queryInput === null || switchedEndpoint) {
+            seededTabIdRef.current = sqlEditorTabId
             setQueryInput(query.query)
             setSourceQuery({
                 kind: NodeKind.DataVisualizationNode,
@@ -92,7 +108,7 @@ function EndpointHogQLQuery({ version, query }: { version?: number; query: HogQL
             })
             runQuery(query.query)
         }
-    }, [query.query, query.variables, query.filters, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [sqlEditorTabId, query.query, query.variables, query.filters, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (queryInput === null) {
