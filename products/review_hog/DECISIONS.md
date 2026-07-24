@@ -232,6 +232,14 @@ tab claimed publication for findings computed against the _viewer's current_ thr
 - **Bot-author guard on `_review_already_posted`**: the publish idempotency marker scan now requires
   `user.type == "Bot"` like the status comment's `_find_marker_comment` always did — on a public repo anyone
   can paste the marker, and a spoofed match silently suppressed the publish.
+- **Deferred residual (2026-07-24, pre-merge safety review):** the drawer's published flag is
+  report-lifetime, not per-turn — `published` = `published_head_sha IS NOT NULL`, while the drawer buckets
+  the latest completed turn. A once-published report whose later turn finalizes without posting (store-only
+  re-run, or publish failure past retries — finalize stamps before publish by design) shows that turn's
+  never-posted findings under "Published". Deferred as a follow-up with the user: the edge needs a
+  once-published report plus a never-posting later turn, and store-only re-runs are currently internal
+  experiments. Fix sketch in ARCHITECTURE.md's known issues (per-turn `published_head_sha ==
+completed_head_sha` on the detail payload).
 
 ### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
 

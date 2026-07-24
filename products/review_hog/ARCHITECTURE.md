@@ -511,6 +511,13 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
   `published_head_sha` (a zero-findings or crashed turn), slots can silently mis-map. Identical rosters are always
   safe. Fix belongs with cross-turn finding identity: key results by `skill_name`(+version) instead of slot, and
   drop persisted selection/results whose recorded roster differs from the run's.
+- **TODO — the drawer's "Published" flag trusts the report-lifetime watermark, not the shown turn.** The
+  reviews API computes `published` as `published_head_sha IS NOT NULL`, while the drawer shows the _latest
+  completed turn_'s findings. A report that published once and later finalizes a turn that never posts
+  (store-only re-run, or `publish_review` failing past retries) shows that turn's findings under
+  "Published" with no not-published banner. Fix: `retrieve` already loads the completed head — expose
+  per-turn truth (`published_head_sha == completed_head_sha`) on the detail payload and gate the drawer's
+  published flag on it.
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
