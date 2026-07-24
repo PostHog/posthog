@@ -720,7 +720,7 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
     assert!(status.is_success());
 
     let event = body.first_event().as_ref().unwrap();
-    let v2 = automatic_fingerprint(FingerprintVersion::V2, event);
+    let v3 = automatic_fingerprint(FingerprintVersion::V3, event);
 
     assert!(event.properties.get("$exception_fingerprints").is_none());
     assert!(event
@@ -729,12 +729,12 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
         .is_none());
     assert_eq!(
         event.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
-    assert_eq!(event.properties["$exception_fingerprint"], json!(v2.value));
+    assert_eq!(event.properties["$exception_fingerprint"], json!(v3.value));
     assert_eq!(
         event.properties["$exception_fingerprint_record"],
-        json!(v2.record)
+        json!(v3.record)
     );
 }
 
@@ -846,7 +846,7 @@ async fn legacy_order_issue_wins_via_legacy_version(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn newer_version_merges_events_the_old_algorithm_splits(db: PgPool) {
     let harness = TestHarness::new(db);
-    // Same crash, cache-busted source URLs: v1 splits on the query string, v2 strips it.
+    // Same crash, cache-busted source URLs: v1 splits on the query string, later versions strip it.
     let input_a = resolved_stack_event("src/app.js?v=abc123");
     let input_b = resolved_stack_event("src/app.js?v=def456");
 
@@ -861,11 +861,11 @@ async fn newer_version_merges_events_the_old_algorithm_splits(db: PgPool) {
     );
     assert_eq!(
         event_a.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
     assert_eq!(
         event_b.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
 
     // One issue for both events, keyed by the shared newest-version fingerprint.
