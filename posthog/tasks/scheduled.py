@@ -115,6 +115,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.email_reputation import check_email_reputation_transitions
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -262,6 +263,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
+    )
+
+    # Email reputation transition notifications - hourly at :20. The evaluator snapshots daily
+    # (06:00 UTC); scanning hourly keeps notification lag small when a run lands late.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        check_email_reputation_transitions.s(),
+        name="check email reputation transitions",
     )
 
     # Re-dispatch orphaned QUEUED task runs whose on_commit dispatch was lost - every 2 minutes

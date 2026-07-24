@@ -1853,6 +1853,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
+                "email_reputation_degraded": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -1873,6 +1874,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
+                "email_reputation_degraded": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2141,6 +2143,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
+                "email_reputation_degraded": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value

@@ -69,6 +69,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
     },
+    email_reputation: {
+        label: 'Email reputation',
+        description: 'When workflow email bounce or spam complaint rates put your email sending at risk',
+    },
 }
 
 export function NotificationTitle({
