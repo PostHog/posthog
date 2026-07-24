@@ -67,3 +67,12 @@ adding or moving menu items. This guide is the _when/why_; the skill is the _how
 `SceneMenuBar.tsx` captures `scene menu bar shown` / `menu opened` / `item clicked` centrally, so you
 don't wire analytics per scene. Just give items a stable `data-attr` (`${RESOURCE_TYPE}-menubar-<action>`)
 so the captured `item` is meaningful.
+
+## Alpha/beta status tags are automatic
+
+`SceneTitleSection` renders the same `ALPHA` / `BETA` tag next to the title that the product/tool shows
+in the navbar. The source of truth is the product manifest — a `tags: ['beta']` (or `['alpha']`) entry in
+`treeItemsProducts`, keyed to the scene via `sceneKey` / `sceneKeys` (see `sceneStatusTags.ts`). Don't
+hand-add a status tag via `nameSuffix`; tag the product in its manifest instead, so the navbar and the
+title stay in sync and graduating out of beta is a one-line change. (Special navbar entries not in the
+product tree, like Inbox, are listed explicitly in `sceneStatusTags.ts`.)
