@@ -45251,6 +45251,7 @@
                 "commands",
                 "files:write",
                 "im:history",
+                "mpim:history",
                 "mpim:read"
             ],
             "type": "string"
