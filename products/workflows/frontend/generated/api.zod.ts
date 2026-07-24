@@ -1395,10 +1395,6 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
             'Not currently tracked — stays at its initial value. Use the workflow logs\/metrics endpoints for run outcome.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
         ),
     hog_flow: zod.uuid().describe('ID of the workflow this batch run belongs to.'),
-    filters: zod
-        .unknown()
-        .optional()
-        .describe("Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters."),
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
 })
 

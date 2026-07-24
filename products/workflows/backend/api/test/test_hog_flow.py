@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -2631,43 +2631,53 @@ class TestHogFlowAPI(APIBaseTest):
     )
     def test_programmatic_batch_dispatch_requires_audience_confirm_token(self, mock_create_invocation):
         # A batch run is an irreversible mass send. Programmatic callers must hold a token only the
-        # blast-radius preview mints, signed over the exact filters being dispatched - so an agent
-        # can't size and fire in one step, and an audience edited after the preview forces a re-preview.
-        # The web builder (session auth) keeps its own confirm UI and stays token-free (covered by the
-        # existing batch job tests, which run as WEB).
+        # blast-radius preview mints, signed over the workflow's stored trigger filters - the audience
+        # the dispatch actually fans out to. A token minted for other (e.g. narrower) filters is
+        # rejected, so an agent can't size one audience and send to another, and an edited trigger
+        # invalidates earlier previews. The web builder (session auth) keeps its own confirm UI and
+        # stays token-free (covered by the existing batch job tests, which run as WEB).
         flow_id = self._create_active_hog_flow()
-        filters: dict[str, Any] = {"properties": []}
+        trigger_filters = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()["trigger"][
+            "filters"
+        ]
 
         no_token = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
-            {"filters": filters},
+            {},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert no_token.status_code == 400, no_token.json()
         assert "workflows-blast-radius" in no_token.json()["detail"]
         mock_create_invocation.assert_not_called()
 
-        preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": filters})
+        narrow_preview = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": [{"key": "email", "type": "person", "value": "x", "operator": "icontains"}]}},
+        )
+        assert narrow_preview.status_code == 200, narrow_preview.json()
+        narrow_token = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"confirm_token": narrow_preview.json()["confirm_token"]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert narrow_token.status_code == 400, narrow_token.json()
+        assert "audience changed" in narrow_token.json()["detail"]
+        mock_create_invocation.assert_not_called()
+
+        preview = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": trigger_filters}
+        )
         assert preview.status_code == 200, preview.json()
         token = preview.json()["confirm_token"]
 
-        wrong_filters = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
-            {
-                "filters": {"properties": [{"key": "email", "type": "person", "value": "x", "operator": "icontains"}]},
-                "confirm_token": token,
-            },
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert wrong_filters.status_code == 400, wrong_filters.json()
-        assert "audience changed" in wrong_filters.json()["detail"]
-
         dispatched = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
-            {"filters": filters, "confirm_token": token},
+            # Caller-supplied filters are ignored: the job snapshots the trigger filters it fans out to.
+            {"filters": {"properties": []}, "confirm_token": token},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert dispatched.status_code == 200, dispatched.json()
+        assert dispatched.json()["filters"] == trigger_filters
         mock_create_invocation.assert_called_once()
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):

@@ -2166,10 +2166,11 @@ class HogFlowViewSet(
             raise exceptions.ValidationError(
                 {"confirm_token": "Invalid - get one from a workflows-blast-radius preview."}
             )
-        # The dispatch fans out to the request's filters when given, else the flow's trigger
-        # audience - hash whichever will actually be used, so a token minted for different
-        # filters (or a since-edited audience) forces a re-preview of the real recipient set.
-        filters = request.data.get("filters") or (hog_flow.trigger or {}).get("filters") or {}
+        # The dispatch always fans out to the flow's stored trigger audience (the resolver reads the
+        # trigger's filters; request filters are never forwarded), so the token must sign exactly
+        # that - a token minted for other filters, or for an audience edited since the preview,
+        # forces a re-preview of the real recipient set.
+        filters = (hog_flow.trigger or {}).get("filters") or {}
         if previewed != _audience_confirm_value(self.team_id, filters):
             raise exceptions.ValidationError(
                 {
@@ -2859,7 +2860,9 @@ class HogFlowViewSet(
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
 
-            batch_job = serializer.save()
+            # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+            # caller-supplied filters are never what actually runs.
+            batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
