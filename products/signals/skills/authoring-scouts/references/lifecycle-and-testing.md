@@ -96,7 +96,7 @@ There's no free test run, and it's slow (async, one run per call): firing the sa
 The loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
-2. Author the scout and register its config (`-config-create`, default `emit=true`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
+2. Create the scout and its config together via `posthog:scout-create-prepare` → `-execute` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
    - `posthog:inbox-reports-list` — the reports it actually wrote.
    - `posthog:scout-runs-list` — run summaries.
