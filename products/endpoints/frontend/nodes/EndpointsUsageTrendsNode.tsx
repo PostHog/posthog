@@ -1,20 +1,25 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    type Series,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+    createXAxisTickCallback,
+} from '@posthog/quill-charts'
 
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { dayjs } from 'lib/dayjs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     AnyResponseType,
     EndpointsUsageTrendsQuery,
     EndpointsUsageTrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
 
 type TrendsDataPoint = {
     date: string
@@ -44,6 +49,7 @@ export function EndpointsUsageTrendsNode(props: {
 
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as EndpointsUsageTrendsQueryResponse | undefined
+    const results = queryResponse?.results as TrendsDataPoint[] | undefined
 
     if (responseLoading) {
         return (
@@ -53,8 +59,6 @@ export function EndpointsUsageTrendsNode(props: {
         )
     }
 
-    const results = queryResponse?.results as TrendsDataPoint[] | undefined
-
     if (!results || results.length === 0) {
         return (
             <div className="flex items-center justify-center h-60 border rounded bg-bg-light text-muted">
@@ -63,24 +67,46 @@ export function EndpointsUsageTrendsNode(props: {
         )
     }
 
-    const { xData, yData } = transformDataForLineGraph(results, props.query.metric)
+    return <EndpointsUsageTrendsChart results={results} metric={props.query.metric} />
+}
 
-    // Use area chart for CPU time and bytes read (sparkline-like), line chart for others
-    const chartType =
-        props.query.metric === 'cpu_seconds' || props.query.metric === 'bytes_read'
-            ? ChartDisplayType.ActionsAreaGraph
-            : ChartDisplayType.ActionsLineGraph
+export function EndpointsUsageTrendsChart({
+    results,
+    metric,
+}: {
+    results: TrendsDataPoint[]
+    metric: string
+}): JSX.Element {
+    // CPU time and bytes read render better as filled areas; other metrics stay plain lines.
+    const isAreaChart = metric === 'cpu_seconds' || metric === 'bytes_read'
+
+    const { labels, series, scale } = useMemo(
+        () => transformDataForChart(results, metric, isAreaChart),
+        [results, metric, isAreaChart]
+    )
+
+    const theme = useChartTheme()
+    const config = useChartConfig<TimeSeriesLineChartConfig>(() => {
+        const formatValue = (value: number): string => `${value.toFixed(scale.decimalPlaces)}${scale.suffix}`
+        return {
+            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: labels, timezone: 'UTC' }) },
+            yAxis: { tickFormatter: formatValue },
+            legend: { show: series.length > 1, position: 'top', interactive: true },
+            tooltip: {
+                placement: 'cursor',
+                pinnable: true,
+                sortedByValue: true,
+                showTotal: series.length > 1,
+                valueFormatter: formatValue,
+                labelFormatter: (label: string) => dayjs(label).format('MMM D, YYYY'),
+            },
+        }
+    }, [labels, series.length, scale])
 
     return (
-        <div className="border rounded bg-bg-light p-2 h-60">
-            <LineGraph
-                xData={xData}
-                yData={yData}
-                visualizationType={chartType}
-                chartSettings={{
-                    showLegend: yData.length > 1,
-                }}
-            />
+        // Quill charts fill a flex parent, so the sized container must be a flex column.
+        <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
+            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
 }
@@ -134,29 +160,16 @@ function getScaleFactor(values: number[], metric: string): ScaleFactor {
     return { divisor: 1, label: getMetricLabel(metric), suffix: '', decimalPlaces: 0 }
 }
 
-function scaleMetricData(
-    values: number[],
-    metric: string
-): {
-    values: number[]
-    label: string
-    settings: { formatting: { suffix: string; decimalPlaces: number } }
-} {
-    const { divisor, label, suffix, decimalPlaces } = getScaleFactor(values, metric)
-    return {
-        values: values.map((v) => v / divisor),
-        label,
-        settings: { formatting: { suffix, decimalPlaces } },
-    }
-}
-
-function transformDataForLineGraph(
+function transformDataForChart(
     results: TrendsDataPoint[],
-    metric: string
+    metric: string,
+    isAreaChart: boolean
 ): {
-    xData: AxisSeries<string>
-    yData: AxisSeries<number>[]
+    labels: string[]
+    series: Series[]
+    scale: ScaleFactor
 } {
+    const fill = isAreaChart ? { fill: { opacity: 0.5 } } : {}
     const hasBreakdown = results.some((r) => r.breakdown !== undefined)
 
     if (hasBreakdown) {
@@ -179,66 +192,40 @@ function transformDataForLineGraph(
         const dates = Object.keys(dateGroups).sort()
 
         // Determine scale based on all values for consistency across breakdowns
-        const allValues = results.map((r) => r.value)
-        const scaleFactor = getScaleFactor(allValues, metric)
+        const scale = getScaleFactor(
+            results.map((r) => r.value),
+            metric
+        )
 
         return {
-            xData: {
-                column: {
-                    name: 'date',
-                    type: { name: 'DATE', isNumerical: false },
-                    label: 'Date',
-                    dataIndex: 0,
-                },
-                data: dates,
-            },
-            yData: breakdowns.map((breakdown, index) => {
-                const breakdownValues = dates.map((date) => dateGroups[date][breakdown] || 0)
-                return {
-                    column: {
-                        name: breakdown,
-                        type: { name: 'FLOAT', isNumerical: true },
-                        label: breakdown,
-                        dataIndex: index + 1,
-                    },
-                    data: breakdownValues.map((v) => v / scaleFactor.divisor),
-                    settings: {
-                        formatting: {
-                            suffix: scaleFactor.suffix,
-                            decimalPlaces: scaleFactor.decimalPlaces,
-                        },
-                    },
-                }
-            }),
+            labels: dates,
+            series: breakdowns.map((breakdown) => ({
+                key: breakdown,
+                label: breakdown,
+                data: dates.map((date) => (dateGroups[date][breakdown] || 0) / scale.divisor),
+                ...fill,
+            })),
+            scale,
         }
     }
 
     // Simple case - no breakdown
-    const rawValues = results.map((r) => r.value)
-    const { values: scaledValues, label: scaledLabel, settings } = scaleMetricData(rawValues, metric)
+    const scale = getScaleFactor(
+        results.map((r) => r.value),
+        metric
+    )
 
     return {
-        xData: {
-            column: {
-                name: 'date',
-                type: { name: 'DATE', isNumerical: false },
-                label: 'Date',
-                dataIndex: 0,
-            },
-            data: results.map((r) => r.date),
-        },
-        yData: [
+        labels: results.map((r) => r.date),
+        series: [
             {
-                column: {
-                    name: metric,
-                    type: { name: 'FLOAT', isNumerical: true },
-                    label: scaledLabel,
-                    dataIndex: 1,
-                },
-                data: scaledValues,
-                settings,
+                key: metric,
+                label: scale.label,
+                data: results.map((r) => r.value / scale.divisor),
+                ...fill,
             },
         ],
+        scale,
     }
 }
 
