@@ -1,13 +1,35 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
+import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
 from temporalio.service import RPCError, RPCStatusCode
 
 if TYPE_CHECKING:
     from temporalio.common import TypedSearchAttributes
+
+logger = structlog.get_logger(__name__)
+
+# gRPC statuses that indicate a transient blip (deadline hit, server briefly
+# unavailable, request cancelled/rate-limited) rather than a real answer about
+# whether the schedule exists. A `describe()` that fails with one of these is
+# worth retrying — client-side call timeouts surface as CANCELLED ("Timeout
+# expired") or DEADLINE_EXCEEDED.
+_TRANSIENT_RPC_STATUS_CODES = frozenset(
+    {
+        RPCStatusCode.CANCELLED,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.ABORTED,
+    }
+)
+
+_SCHEDULE_EXISTS_MAX_ATTEMPTS = 3
+_SCHEDULE_EXISTS_BACKOFF_SECONDS = 0.5
 
 
 @async_to_sync
@@ -158,22 +180,37 @@ async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | Non
 
 @async_to_sync
 async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+    """Check whether a schedule exists. See :func:`a_schedule_exists`."""
+    return await a_schedule_exists(temporal, schedule_id)
 
 
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists. See :func:`schedule_exists`."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+    """Check whether a schedule exists.
+
+    NOT_FOUND is the definitive "no". Transient RPC failures (call timeouts,
+    server temporarily unavailable) are retried a few times with a short backoff
+    so a Temporal blip doesn't fail a caller running this check inline on a
+    user-facing request path.
+    """
+    last_error: RPCError | None = None
+    for attempt in range(_SCHEDULE_EXISTS_MAX_ATTEMPTS):
+        try:
+            await temporal.get_schedule_handle(schedule_id).describe()
+            return True
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return False
+            if e.status not in _TRANSIENT_RPC_STATUS_CODES:
+                raise
+            last_error = e
+            if attempt < _SCHEDULE_EXISTS_MAX_ATTEMPTS - 1:
+                logger.warning(
+                    "Transient RPC error checking schedule existence, retrying",
+                    schedule_id=schedule_id,
+                    attempt=attempt + 1,
+                    status=e.status.name,
+                )
+                await asyncio.sleep(_SCHEDULE_EXISTS_BACKOFF_SECONDS * (attempt + 1))
+
+    assert last_error is not None
+    raise last_error
