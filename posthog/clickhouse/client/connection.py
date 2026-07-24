@@ -2,6 +2,7 @@ import os
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING
@@ -106,7 +107,13 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     return user_dict
 
 
-def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
+@dataclass(frozen=True)
+class ClickHouseCredentials:
+    user: str
+    password: str
+
+
+def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     """
     Retrieve ClickHouse credentials for the specified user.
 
@@ -121,15 +128,12 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need
                                to be retrieved.
-
-    Returns:
-        tuple[str, str]: A tuple containing the username and password associated
-                         with the specified user.
     """
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
+    creds = __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
+    return ClickHouseCredentials(user=creds[0], password=creds[1])
 
 
 class ProxyClient:
@@ -223,8 +227,8 @@ def get_kwargs_for_client(
             "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         }
 
-    (user, password) = get_clickhouse_creds(ch_user)
-    base_kwargs = {"user": user, "password": password}
+    creds = get_clickhouse_creds(ch_user)
+    base_kwargs = {"user": creds.user, "password": creds.password}
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]

@@ -71,7 +71,8 @@ class _ChannelApprovalTestBase(TestCase):
         payload = {"team": {"id": self.slack_team_id}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,

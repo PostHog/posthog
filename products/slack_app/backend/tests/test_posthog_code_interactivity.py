@@ -28,7 +28,8 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
@@ -89,7 +90,8 @@ class TestRepoPickerOptions(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
@@ -635,7 +637,8 @@ class TestInteractivityRegionRouting(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,
@@ -895,7 +898,8 @@ class TestSignalsDismissReport(TestCase):
 
     def _post_interactivity(self, payload: dict) -> Any:
         body_str = f"payload={json.dumps(payload)}"
-        signature, ts = sign_slack_request(body_str.encode(), self.signing_secret)
+        _signed = sign_slack_request(body_str.encode(), self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/interactivity-callback/",
             data=body_str,

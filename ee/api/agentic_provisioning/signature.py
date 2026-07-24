@@ -7,6 +7,7 @@ import re
 import hmac
 import uuid
 import hashlib
+from dataclasses import dataclass
 
 from django.conf import settings
 from django.http.request import RawPostDataException
@@ -151,9 +152,15 @@ def _log_and_capture_event(outcome: str, status_code: int, endpoint: str, **extr
 _SIG_RE = re.compile(r"t=(\d+),v1=([0-9a-fA-F]{64})")
 
 
-def _parse_signature_header(header: str) -> tuple[str, str] | None:
-    """Parse 't=<timestamp>,v1=<hex>' into (timestamp_str, hex). Returns None on failure."""
+@dataclass(frozen=True)
+class ParsedSignature:
+    timestamp: str
+    signature: str
+
+
+def _parse_signature_header(header: str) -> ParsedSignature | None:
+    """Parse 't=<timestamp>,v1=<hex>' into its parts. Returns None on failure."""
     m = _SIG_RE.search(header)
     if not m:
         return None
-    return m.group(1), m.group(2)
+    return ParsedSignature(timestamp=m.group(1), signature=m.group(2))

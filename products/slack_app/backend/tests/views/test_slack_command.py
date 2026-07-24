@@ -72,7 +72,8 @@ class _SlashCommandTestBase(TestCase):
 
     def _post_slash_command(self, payload: dict[str, str]) -> Any:
         body = urlencode(payload).encode()
-        signature, ts = sign_slack_request(body, SIGNING_SECRET)
+        _signed = sign_slack_request(body, SIGNING_SECRET)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             SLASH_COMMAND_PATH,
             data=body,

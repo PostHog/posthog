@@ -32,7 +32,8 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
     def _post(self, payload: dict, signing_secret: str | None = None) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, signing_secret or self.signing_secret)
+        _signed = sign_slack_request(body, signing_secret or self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/workspace/claims/",
             data=body,

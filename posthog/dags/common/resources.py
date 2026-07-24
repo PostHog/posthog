@@ -142,7 +142,8 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         assert context.log is not None
-        user, password = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        creds = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        user, password = creds.user, creds.password
         from django.conf import settings as django_settings
 
         if user == django_settings.CLICKHOUSE_USER:
@@ -181,7 +182,8 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         assert context.log is not None
-        user, password = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
+        creds = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
+        user, password = creds.user, creds.password
         from django.conf import settings as django_settings
 
         if user == django_settings.CLICKHOUSE_USER:

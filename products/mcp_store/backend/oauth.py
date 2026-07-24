@@ -3,6 +3,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import requests
@@ -358,11 +359,17 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
     return client_id, client_secret, returned_auth_method
 
 
-def generate_pkce() -> tuple[str, str]:
+@dataclass(frozen=True)
+class PkcePair:
+    code_verifier: str
+    code_challenge: str
+
+
+def generate_pkce() -> PkcePair:
     code_verifier = secrets.token_urlsafe(64)
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return code_verifier, code_challenge
+    return PkcePair(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
 def is_token_expiring(sensitive: dict) -> bool:
