@@ -14,6 +14,7 @@ import {
     MCPToolDailyStatItem,
     MCPToolDescriptionItem,
     MCPToolFailureItem,
+    MCPToolFailureOccurrenceItem,
     MCPToolNeighborItem,
     MCPToolSampleIntentItem,
     MCPToolStatsItem,
@@ -138,8 +139,10 @@ export interface mcpAnalyticsToolDetailLogicValues {
     dateRangeLabel: string
     descriptions: DescriptionRevision[]
     descriptionsLoading: boolean
-    failureRows: ResultRows
-    failureRowsLoading: boolean
+    failureBuckets: MCPToolFailureItem[]
+    failureBucketsLoading: boolean
+    failureOccurrences: MCPToolFailureOccurrenceItem[]
+    failureOccurrencesLoading: boolean
     intentCoverage: IntentCoverage | null
     intentCoverageLoading: boolean
     interval: IntervalType
@@ -149,6 +152,7 @@ export interface mcpAnalyticsToolDetailLogicValues {
     neighborsBeforeRowsLoading: boolean
     sampleIntentRows: ResultRows
     sampleIntentRowsLoading: boolean
+    selectedFailure: MCPToolFailureItem | null
     summary: ToolSummary | null
     summaryLoading: boolean
     toolName: string
@@ -206,20 +210,35 @@ export interface mcpAnalyticsToolDetailLogicActions {
         descriptions: DescriptionRevision[]
         payload?: any
     }
-    loadFailureRows: () => any
-    loadFailureRowsFailure: (
+    loadFailureBuckets: () => any
+    loadFailureBucketsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadFailureRowsSuccess: (
-        failureRows: ResultRows,
+    loadFailureBucketsSuccess: (
+        failureBuckets: MCPToolFailureItem[],
         payload?: any
     ) => {
-        failureRows: ResultRows
+        failureBuckets: MCPToolFailureItem[]
         payload?: any
+    }
+    loadFailureOccurrences: (bucket: MCPToolFailureItem) => MCPToolFailureItem
+    loadFailureOccurrencesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFailureOccurrencesSuccess: (
+        failureOccurrences: MCPToolFailureOccurrenceItem[],
+        payload?: MCPToolFailureItem
+    ) => {
+        failureOccurrences: MCPToolFailureOccurrenceItem[]
+        payload?: MCPToolFailureItem
     }
     loadIntentCoverage: () => any
     loadIntentCoverageFailure: (
@@ -311,6 +330,9 @@ export interface mcpAnalyticsToolDetailLogicActions {
         topUserRows: ResultRows
         payload?: any
     }
+    selectFailure: (bucket: MCPToolFailureItem | null) => {
+        bucket: MCPToolFailureItem | null
+    }
     setDateFilter: (
         dateFrom: string | null,
         dateTo: string | null
@@ -352,6 +374,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadAllSections: true,
+        selectFailure: (bucket: MCPToolFailureItem | null) => ({ bucket }),
     }),
 
     reducers({
@@ -448,16 +471,39 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 },
             },
         ],
-        failureRows: [
-            [] as ResultRows,
+        failureBuckets: [
+            [] as MCPToolFailureItem[],
             {
-                loadFailureRows: async (): Promise<ResultRows> => {
+                loadFailureBuckets: async (): Promise<MCPToolFailureItem[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailuresQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                     })) as { results?: MCPToolFailureItem[] }
-                    return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
+                    return response?.results ?? []
+                },
+            },
+        ],
+        failureOccurrences: [
+            [] as MCPToolFailureOccurrenceItem[],
+            {
+                loadFailureOccurrences: async (
+                    bucket: MCPToolFailureItem,
+                    breakpoint
+                ): Promise<MCPToolFailureOccurrenceItem[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolFailureOccurrencesQuery,
+                        toolName: props.toolName,
+                        // Raw bucket parts, not the composed label — the backend normalizes them the
+                        // same way it grouped the failures table, so the bucket round-trips exactly.
+                        errorType: bucket.error_type,
+                        errorStatus: bucket.error_status || undefined,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolFailureOccurrenceItem[] }
+                    // Bail if a newer bucket was selected while this request was in flight,
+                    // so a slow earlier bucket can't overwrite the latest one.
+                    breakpoint()
+                    return response?.results ?? []
                 },
             },
         ],
@@ -532,6 +578,28 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         ],
     })),
 
+    reducers({
+        selectedFailure: [
+            null as MCPToolFailureItem | null,
+            {
+                selectFailure: (_, { bucket }) => bucket,
+            },
+        ],
+        // Reset on every (de)selection so a newly opened bucket shows the loading skeleton
+        // instead of the previous bucket's rows.
+        failureOccurrences: {
+            selectFailure: () => [],
+        },
+    }),
+
+    listeners(({ actions }) => ({
+        selectFailure: ({ bucket }) => {
+            if (bucket) {
+                actions.loadFailureOccurrences(bucket)
+            }
+        },
+    })),
+
     selectors({
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
@@ -581,7 +649,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             actions.loadDescriptions()
             actions.loadIntentCoverage()
             actions.loadDailyStats()
-            actions.loadFailureRows()
+            actions.loadFailureBuckets()
             actions.loadSampleIntentRows()
             actions.loadNeighborsBeforeRows()
             actions.loadNeighborsAfterRows()

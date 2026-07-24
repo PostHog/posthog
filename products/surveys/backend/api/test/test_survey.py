@@ -3156,6 +3156,8 @@ class TestSurvey(APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.assertEqual(results, expected)
 
     def test_validate_schedule_on_create(self):
@@ -6471,6 +6473,8 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.assertEqual(results, expected)
 
     @freeze_time("2024-05-01 12:00:00")

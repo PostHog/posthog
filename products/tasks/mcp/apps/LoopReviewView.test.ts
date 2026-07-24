@@ -1,4 +1,6 @@
-jest.mock('@posthog/mcp-ui', () => ({ DescriptionList: () => null }), { virtual: true })
+jest.mock('@posthog/mcp-ui', () => ({ DescriptionList: () => null }), {
+    virtual: true,
+})
 jest.mock('@posthog/quill', () => ({ Button: () => null, Card: () => null, CardContent: () => null }), {
     virtual: true,
 })
@@ -33,15 +35,130 @@ describe('LoopReviewView', () => {
             ['no triggers shows the default overlap policy', {}, 'Manual only · skips overlapping runs'],
             [
                 'cron schedule trigger',
-                { triggers: [{ type: 'schedule', config: { cron_expression: '0 9 * * 1' } }] },
+                {
+                    triggers: [
+                        {
+                            type: 'schedule',
+                            config: { cron_expression: '0 9 * * 1' },
+                        },
+                    ],
+                },
                 'Schedule (0 9 * * 1) · skips overlapping runs',
+            ],
+            [
+                'github trigger without events',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: { repository: 'posthog/code' },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code) · skips overlapping runs',
+            ],
+            [
+                'github trigger lists its events',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['issues', 'pull_request'],
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: issues, pull_request) · skips overlapping runs',
+            ],
+            [
+                'github trigger with an actions filter',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['issues'],
+                                filters: { actions: ['opened'] },
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: issues opened) · skips overlapping runs',
+            ],
+            [
+                'github trigger with singular action alias',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['issues'],
+                                filters: { action: 'opened' },
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: issues opened) · skips overlapping runs',
+            ],
+            [
+                'github trigger with dotted event shorthand',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['issues.opened'],
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: issues opened) · skips overlapping runs',
+            ],
+            [
+                'github push trigger with a branch filter',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['push'],
+                                filters: { branches: ['main'] },
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: push on main) · skips overlapping runs',
+            ],
+            [
+                'github trigger with a label filter',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/code',
+                                events: ['issues'],
+                                filters: { labels: ['bug'] },
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/code: issues labeled bug) · skips overlapping runs',
             ],
             ['paused loop', { enabled: false }, 'Manual only · paused · skips overlapping runs'],
             ['allow policy', { overlap_policy: 'allow' }, 'Manual only · allows overlapping runs'],
             ['cancel_previous policy', { overlap_policy: 'cancel_previous' }, 'Manual only · cancels the previous run'],
             [
                 'unknown policy falls back to the raw value',
-                { overlap_policy: 'defer' as unknown as LoopReviewData['overlap_policy'] },
+                {
+                    overlap_policy: 'defer' as unknown as LoopReviewData['overlap_policy'],
+                },
                 'Manual only · defer',
             ],
         ])('%s', (_label, data, expected) => {

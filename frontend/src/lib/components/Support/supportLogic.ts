@@ -7,7 +7,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
@@ -137,6 +137,23 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
         await new Promise((resolve) => setTimeout(resolve, intervalMs))
     }
     return !!posthog.conversations?.isAvailable()
+}
+
+// Mirrors the widget message serializer cap (WidgetMessageSerializer.message). Support submits post
+// through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
+export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
+
+// Shared over-limit guard for the conversations composer surfaces (support form + side panel). Shows
+// an error toast and returns true when the message exceeds the widget cap, so callers bail before
+// hitting the endpoint and surfacing only a generic send-failure toast.
+export function warnIfMessageTooLong(message: string): boolean {
+    if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
+        lemonToast.error(
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+        )
+        return true
+    }
+    return false
 }
 
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
@@ -783,9 +800,15 @@ export const supportLogic = kea<supportLogicType>([
             // Conversations is where support is headed, so wait for the extension rather than racing
             // it to the (temporary) Zendesk fallback
             if (values.conversationsFlagEnabled && (await waitForConversations())) {
+                // Measure the full outgoing payload (message plus any appended exception) so the
+                // guard matches what the widget endpoint actually receives and rejects
+                const outgoingMessage = appendExceptionToMessage(message, exception_event)
+                if (warnIfMessageTooLong(outgoingMessage)) {
+                    return
+                }
                 try {
                     const response = await posthog.conversations!.sendMessage(
-                        appendExceptionToMessage(message, exception_event),
+                        outgoingMessage,
                         { name: name || undefined, email: email || undefined },
                         true // every form submission starts a new ticket
                     )
@@ -822,8 +845,16 @@ export const supportLogic = kea<supportLogicType>([
                     // The request may have reached the server even though the response failed, so
                     // don't fall back to Zendesk here — that could file the ticket twice
                     posthog.captureException(e)
+                    posthog.capture('support ticket send failed', {
+                        channel: 'conversations',
+                        error: e instanceof Error ? e.message : String(e),
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
                     lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
-                        hideButton: true,
+                        button: EMAIL_SUPPORT_BUTTON,
                     })
                     return
                 }
@@ -1039,9 +1070,18 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
+                    posthog.capture('support ticket send failed', {
+                        channel: 'zendesk',
+                        error: error.message,
+                        status_code: response.status,
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
                     lemonToast.error(
                         `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                        { hideButton: true }
+                        { button: EMAIL_SUPPORT_BUTTON }
                     )
                     // Don't close the form or reset the data so user can try again
                     return
@@ -1070,12 +1110,20 @@ export const supportLogic = kea<supportLogicType>([
                 actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
+                posthog.capture('support ticket send failed', {
+                    channel: 'zendesk',
+                    error: e instanceof Error ? e.message : String(e),
+                    kind,
+                    target_area,
+                    message_length: message?.length,
+                    current_url_length: window.location.href.length,
+                })
 
                 // More helpful error message
                 // Use the same error message regardless of browser
                 lemonToast.error(
                     `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                    { hideButton: true }
+                    { button: EMAIL_SUPPORT_BUTTON }
                 )
                 // Don't close the form or reset the data so user can try again
             }

@@ -214,6 +214,9 @@ class MarketingAnalyticsConfig:
         if self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
             # CTE repurposes campaign_name to hold the channel value
             return [self.campaign_field]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            # Same repurposing as CHANNEL, but source stays a real grouping key
+            return [self.campaign_field, self.source_field]
         elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
             return [self.source_field]
         elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.AD_GROUP:

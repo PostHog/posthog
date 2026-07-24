@@ -111,48 +111,51 @@ def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "side_effect,expected_type,expected_non_retryable,expect_captured",
+    [
+        # Transient outages (DNS/connection/timeout/5xx and malformed responses) are expected and
+        # handled by the workflow's fail-open path, so they must not be captured to error tracking.
+        (requests.Timeout("embedding timeout"), EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE, False, False),
+        (requests.ConnectionError("Name or service not known"), EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE, False, False),
+        (
+            requests.HTTPError(response=MagicMock(status_code=500)),
+            EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+            False,
+            False,
+        ),
+        (KeyError("embedding"), EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE, False, False),
+        # A genuine 4xx rejection is a real bug and stays captured.
+        (requests.HTTPError(response=MagicMock(status_code=400)), "EmbeddingRequestRejected", True, True),
+    ],
+)
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
-def test_embedding_service_timeout_is_classified_as_retryable(
+def test_embedding_failure_classification_and_capture(
     generate_embedding: MagicMock,
     get_team: MagicMock,
     fetch_event_properties: MagicMock,
     render_stacktrace: MagicMock,
+    capture_exception: MagicMock,
+    side_effect: Exception,
+    expected_type: str,
+    expected_non_retryable: bool,
+    expect_captured: bool,
 ) -> None:
     get_team.return_value.organization.is_ai_data_processing_approved = True
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     render_stacktrace.return_value = "TypeError: boom"
-    generate_embedding.side_effect = requests.Timeout("embedding timeout")
+    generate_embedding.side_effect = side_effect
 
     with pytest.raises(ApplicationError) as error:
         generate_issue_created_embedding_activity(_inputs("fingerprint"))
 
-    assert error.value.type == EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE
-    assert error.value.non_retryable is False
-
-
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
-def test_embedding_service_rejected_request_is_non_retryable(
-    generate_embedding: MagicMock,
-    get_team: MagicMock,
-    fetch_event_properties: MagicMock,
-    render_stacktrace: MagicMock,
-) -> None:
-    get_team.return_value.organization.is_ai_data_processing_approved = True
-    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
-    render_stacktrace.return_value = "TypeError: boom"
-    generate_embedding.side_effect = requests.HTTPError(response=MagicMock(status_code=400))
-
-    with pytest.raises(ApplicationError) as error:
-        generate_issue_created_embedding_activity(_inputs("fingerprint"))
-
-    assert error.value.type == "EmbeddingRequestRejected"
-    assert error.value.non_retryable is True
+    assert error.value.type == expected_type
+    assert error.value.non_retryable is expected_non_retryable
+    assert capture_exception.called is expect_captured
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
