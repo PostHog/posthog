@@ -1,7 +1,6 @@
 import posthog from 'posthog-js'
 
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { dayjs } from 'lib/dayjs'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature, IntervalType } from '~/types'
@@ -47,31 +46,6 @@ const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
 
 export function alertIntervalDisplayLabel(interval: AlertCalculationInterval): string {
     return INTERVAL_DISPLAY_LABELS[interval]
-}
-
-export function expectedFirstAlertEvaluation(
-    interval: AlertCalculationInterval,
-    timezone: string,
-    currentTime: dayjs.Dayjs = dayjs()
-): dayjs.Dayjs {
-    const localTime = currentTime.tz(timezone)
-
-    switch (interval) {
-        case AlertCalculationInterval.REAL_TIME:
-            return currentTime.add(2, 'minutes')
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return currentTime.add(15, 'minutes')
-        case AlertCalculationInterval.HOURLY:
-            return currentTime.add(1, 'hour')
-        case AlertCalculationInterval.DAILY:
-            return localTime.add(1, 'day').startOf('day').hour(1)
-        case AlertCalculationInterval.WEEKLY: {
-            const daysUntilNextMonday = (8 - localTime.day()) % 7 || 7
-            return localTime.add(daysUntilNextMonday, 'day').startOf('day').hour(3)
-        }
-        case AlertCalculationInterval.MONTHLY:
-            return localTime.add(1, 'month').startOf('month').hour(4)
-    }
 }
 
 // Twin of _CADENCE_DURATION_MINUTES / _INTERVAL_DURATION_MINUTES in

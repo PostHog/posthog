@@ -15,7 +15,6 @@ import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/f
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     cadenceFinerThanInsightInterval,
-    expectedFirstAlertEvaluation,
     selectAlertCalculationInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import {
@@ -35,7 +34,6 @@ export interface AlertIntervalRowProps {
     trendInterval: string | null | undefined
     nextPlannedEvaluationStale: boolean
     canCheckOngoingInterval: boolean
-    projectTimezone: string
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
@@ -59,7 +57,6 @@ export function AlertIntervalRow({
     trendInterval,
     nextPlannedEvaluationStale,
     canCheckOngoingInterval,
-    projectTimezone,
     onSetAlertFormValue,
 }: AlertIntervalRowProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
@@ -93,17 +90,7 @@ export function AlertIntervalRow({
     }
 
     let nextEvaluation: JSX.Element | null = null
-    if (creatingNewAlert) {
-        nextEvaluation = (
-            <AlertNextEvaluationStatus label="Expected first evaluation">
-                <TZLabel
-                    time={expectedFirstAlertEvaluation(alertForm.calculation_interval, projectTimezone)}
-                    displayTimezone={projectTimezone}
-                    timestampStyle="absolute"
-                />
-            </AlertNextEvaluationStatus>
-        )
-    } else if (alert) {
+    if (!creatingNewAlert && alert) {
         let status: JSX.Element
         if (nextPlannedEvaluationStale) {
             status = <span>We'll recalculate this after you save.</span>

@@ -1,6 +1,5 @@
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -8,7 +7,6 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
 
 import {
-    expectedFirstAlertEvaluation,
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
     selectAlertCalculationInterval,
@@ -29,21 +27,6 @@ describe('alertIntervalHelpers', () => {
             [AlertCalculationInterval.MONTHLY, '-12m'],
         ])('%s returns %s', (interval, expected) => {
             expect(getDefaultSimulationRange(interval)).toBe(expected)
-        })
-    })
-
-    describe('expectedFirstAlertEvaluation', () => {
-        it.each([
-            [AlertCalculationInterval.REAL_TIME, '2026-07-24T16:30:00.000Z', '2026-07-24T16:32:00.000Z'],
-            [AlertCalculationInterval.EVERY_15_MINUTES, '2026-07-24T16:30:00.000Z', '2026-07-24T16:45:00.000Z'],
-            [AlertCalculationInterval.HOURLY, '2026-07-24T16:30:00.000Z', '2026-07-24T17:30:00.000Z'],
-            [AlertCalculationInterval.DAILY, '2026-07-24T16:30:00.000Z', '2026-07-25T05:00:00.000Z'],
-            [AlertCalculationInterval.WEEKLY, '2026-07-24T16:30:00.000Z', '2026-07-27T07:00:00.000Z'],
-            [AlertCalculationInterval.WEEKLY, '2026-07-27T16:30:00.000Z', '2026-08-03T07:00:00.000Z'],
-            [AlertCalculationInterval.MONTHLY, '2026-07-24T16:30:00.000Z', '2026-08-01T08:00:00.000Z'],
-        ])('%s from %s matches the backend first-run schedule', (interval, current, expected) => {
-            const currentTime = dayjs(current)
-            expect(expectedFirstAlertEvaluation(interval, 'America/New_York', currentTime).toISOString()).toBe(expected)
         })
     })
 
