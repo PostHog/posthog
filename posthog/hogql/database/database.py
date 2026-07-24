@@ -605,21 +605,46 @@ class Database(BaseModel):
         """
         import difflib
 
+        suggestions: list[str] = []
+
+        # Deterministic first: the data-plane tables (`ai_events`, `trace_spans`, `metrics`, …)
+        # live *only* under the `posthog.` namespace, so a bare `FROM ai_events` is the single
+        # most common unknown-table mistake. Fuzzy matching scores several of these just below
+        # any sane cutoff (`ai_events`/`posthog.ai_events` ≈ 0.69), so suggest the qualified
+        # name explicitly rather than leaving it to difflib.
+        qualified = self._suggest_posthog_qualified_name(name)
+        if qualified:
+            suggestions.append(qualified)
+
         try:
             candidates = set(self.get_posthog_table_names())
             candidates.update(self._warehouse_table_names)
             candidates.update(self._warehouse_self_managed_table_names)
             candidates.update(self._view_table_names)
         except Exception:
-            return []
+            return suggestions
         # Drop any candidate that matches the input — suggesting `persons` for `persons`
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
-        if not candidates:
-            return []
-        return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
+        candidates = {c for c in candidates if c.casefold() != lowered and c not in suggestions}
+        for match in difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7):
+            if match not in suggestions:
+                suggestions.append(match)
+        return suggestions[:limit]
+
+    def _suggest_posthog_qualified_name(self, name: str) -> str | None:
+        """If `name` is a bare table that only exists under the `posthog.` namespace,
+        return its fully-qualified name (e.g. `ai_events` -> `posthog.ai_events`)."""
+        if "." in name:
+            return None
+        try:
+            qualified = f"posthog.{name}"
+            if qualified in self.get_posthog_table_names(include_hidden=True):
+                return qualified
+        except Exception:
+            return None
+        return None
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []

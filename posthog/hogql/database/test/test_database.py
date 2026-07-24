@@ -224,6 +224,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             Database.create_for(team_id=missing_team_id)
         self.assertIn(str(missing_team_id), str(cm.exception))
 
+    @parameterized.expand(["ai_events", "trace_spans", "metrics"])
+    def test_unknown_bare_data_plane_table_suggests_posthog_prefix(self, bare_name: str):
+        # These tables live only under the `posthog.` namespace; a bare `FROM ai_events`
+        # is the most common unknown-table mistake and fuzzy matching alone misses it.
+        database = Database.create_for(team=self.team)
+        with self.assertRaises(QueryError) as cm:
+            database.get_table(bare_name)
+        self.assertIn(f"Did you mean: posthog.{bare_name}", str(cm.exception))
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
