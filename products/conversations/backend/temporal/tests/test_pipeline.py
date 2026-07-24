@@ -12,7 +12,10 @@ from posthog.models import Organization, Team
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
 from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
-from products.conversations.backend.temporal.ai_reply.activities.persist_reply import _persist_reply_sync
+from products.conversations.backend.temporal.ai_reply.activities.persist_reply import (
+    _persist_reply_sync,
+    _should_publish_reply,
+)
 from products.conversations.backend.temporal.ai_reply.activities.record_triage import _record_triage_sync
 from products.conversations.backend.temporal.ai_reply.activities.refine_queries import _refine_queries
 from products.conversations.backend.temporal.ai_reply.activities.review_reply import _review_reply
@@ -375,6 +378,28 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
     mock_persist.assert_not_called()
 
 
+class TestPersistReplyModeDecision:
+    @parameterized.expand(
+        [
+            ("live_and_snapshot_bot_reply", True, True, "how_to", "bot_reply", True),
+            ("draft_private_snapshot_stays_private", True, False, "how_to", "bot_reply", False),
+            ("live_private_setting_stays_private", True, True, "how_to", "private_note", False),
+            ("workflow_disallows_bot_reply", False, True, "how_to", "bot_reply", False),
+            ("diagnostic_stays_private", True, True, "diagnostic", "bot_reply", False),
+        ]
+    )
+    def test_publish_requires_workflow_snapshot_and_live_mode(
+        self,
+        _name,
+        allow_bot_reply,
+        auto_publishable,
+        ticket_type,
+        mode,
+        expected,
+    ):
+        assert _should_publish_reply(allow_bot_reply, auto_publishable, ticket_type, mode) is expected
+
+
 @pytest.mark.django_db
 class TestPersistReplyActivity:
     def test_creates_private_ai_comment(self):
@@ -412,13 +437,34 @@ class TestPersistReplyActivity:
             ),
             (
                 "allow_true_bot_reply_mode",
-                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": True,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
                 {"widget": {"how_to": "bot_reply"}},
                 False,
             ),
             (
+                "draft_private_snapshot_ignores_later_bot_reply",
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": False,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
+                {"widget": {"how_to": "bot_reply"}},
+                True,
+            ),
+            (
                 "allow_true_private_note_mode",
-                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": False,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
                 {"widget": {"how_to": "private_note"}},
                 True,
             ),
@@ -479,6 +525,7 @@ class TestPersistReplyActivity:
             confidence=0.9,
             ticket_type=call_kwargs["ticket_type"],
             allow_bot_reply=call_kwargs["allow_bot_reply"],
+            auto_publishable=call_kwargs.get("auto_publishable", False),
         )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
