@@ -1,0 +1,29 @@
+{% extends "email/base.html" %} {% load posthog_assets %}
+{% block heading %}Email sending has been re-enabled{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Workflow email sending for project <b>{{ team }}</b> has been re-enabled. Your workflows can deliver email again.
+</p>
+<p>
+    Keep an eye on the Reputation tab: rates are recalculated daily, and keeping bounce and spam complaint rates low protects your deliverability going forward.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri reputation_path %}">View reputation</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri reputation_path %}">{% absolute_uri reputation_path %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.
+{% endblock %}

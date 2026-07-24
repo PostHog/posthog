@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors,
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -34,6 +34,7 @@ import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
+import { workflowsReputationLogic } from './Workflows/Reputation/workflowsReputationLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
@@ -142,6 +143,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
+    const { emailSendingSuspended } = useValues(workflowsReputationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
@@ -329,6 +331,20 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
+            {emailSendingSuspended && (
+                <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
+                    Email sending is suspended for this project because bounce or spam complaint rates crossed critical
+                    thresholds. Workflow emails are not being delivered.{' '}
+                    {emailReputationEnabled && (
+                        <>
+                            Review the <Link to={urls.workflows('reputation')}>Reputation tab</Link>, clean up your
+                            recipient lists, and{' '}
+                        </>
+                    )}
+                    {!emailReputationEnabled && <>Clean up your recipient lists and </>}
+                    contact support to get sending re-enabled.
+                </LemonBanner>
+            )}
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

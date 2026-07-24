@@ -27,6 +27,8 @@ from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
 
 def _attach_messages(request) -> None:
     request.session = {}
@@ -593,6 +595,131 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         rendered = str(self.admin.ai_gateway_credit_history(self.team))
         assert "other-team-secret" not in rendered
         assert "no top-ups recorded" in rendered
+
+
+class TestTeamAdminEmailSendingSuspension(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.suspend_url = f"/admin/posthog/team/{self.team.pk}/suspend-email-sending/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.suspend_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+        suspend_email_patcher = patch("posthog.admin.admins.team_admin.send_email_sending_suspended")
+        unsuspend_email_patcher = patch("posthog.admin.admins.team_admin.send_email_sending_unsuspended")
+        notification_patcher = patch("posthog.admin.admins.team_admin.create_notification")
+        self.mock_suspend_email = suspend_email_patcher.start()
+        self.mock_unsuspend_email = unsuspend_email_patcher.start()
+        self.mock_notification = notification_patcher.start()
+        self.addCleanup(suspend_email_patcher.stop)
+        self.addCleanup(unsuspend_email_patcher.stop)
+        self.addCleanup(notification_patcher.stop)
+
+    def _post(self, data: dict | None = None):
+        request = self.factory.post("/", data or {})
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _get(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _config(self) -> TeamWorkflowsConfig | None:
+        return TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).first()
+
+    def test_get_renders_reason_form(self) -> None:
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.suspend_email_sending_view(self._get(), str(self.team.pk))
+        assert mock_render.call_args.args[1] == "admin/posthog/team/suspend_email_sending_form.html"
+
+    def test_post_without_reason_makes_no_changes(self) -> None:
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "  "}), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.suspend_url
+        config = self._config()
+        assert config is None or config.email_sending_suspended_at is None
+        self.mock_suspend_email.delay.assert_not_called()
+        self.mock_notification.assert_not_called()
+
+    def test_suspend_sets_fields_logs_activity_and_notifies(self) -> None:
+        response = self.admin.suspend_email_sending_view(
+            self._post({"reason": "Hard bounce rate above 5%"}), str(self.team.pk)
+        )
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspended_at is not None
+        assert config.email_sending_suspension_reason == "Hard bounce rate above 5%"
+
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_suspended")
+        assert entry.user == self.user
+        assert (entry.detail or {}).get("context", {}).get("reason") == "Hard bounce rate above 5%"
+
+        assert self.mock_suspend_email.delay.call_args.kwargs["team_id"] == self.team.id
+        assert self.mock_suspend_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
+        assert self.mock_notification.call_count == 1
+
+    def test_suspend_is_idempotent(self) -> None:
+        self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspension_reason == "first"
+        assert self.mock_suspend_email.delay.call_count == 1
+        assert ActivityLog.objects.filter(scope="Team", activity="email_sending_suspended").count() == 1
+
+    def test_unsuspend_clears_fields_logs_activity_and_notifies(self) -> None:
+        self.admin.suspend_email_sending_view(self._post({"reason": "bad rates"}), str(self.team.pk))
+        self.mock_notification.reset_mock()
+
+        response = self.admin.unsuspend_email_sending_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspended_at is None
+        assert config.email_sending_suspension_reason == ""
+
+        assert ActivityLog.objects.filter(scope="Team", activity="email_sending_unsuspended").count() == 1
+        assert self.mock_unsuspend_email.delay.call_args.kwargs["team_id"] == self.team.id
+        assert self.mock_notification.call_count == 1
+
+    def test_unsuspend_is_a_noop_when_not_suspended(self) -> None:
+        response = self.admin.unsuspend_email_sending_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        self.mock_unsuspend_email.delay.assert_not_called()
+        self.mock_notification.assert_not_called()
+        assert not ActivityLog.objects.filter(scope="Team", activity="email_sending_unsuspended").exists()
+
+    @parameterized.expand(
+        [
+            ("suspend", "suspend_email_sending_view"),
+            ("unsuspend", "unsuspend_email_sending_view"),
+        ]
+    )
+    def test_views_require_change_permission(self, _name: str, view_name: str) -> None:
+        with patch.object(self.admin, "has_change_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                getattr(self.admin, view_name)(self._post({"reason": "x"}), str(self.team.pk))
 
 
 class TestTeamAdminFormOverspendAllowance(BaseTest):

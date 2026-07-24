@@ -1132,6 +1132,13 @@ export interface TeamEmailReputationResponseApi {
     readonly reputation: EmailReputationSnapshotApi | null
     /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
     readonly workflows: readonly WorkflowEmailReputationSnapshotApi[]
+    /** True while workflow email sending is suspended for this project to protect deliverability. */
+    readonly email_sending_suspended: boolean
+    /**
+     * When email sending was suspended; null while sending is enabled.
+     * @nullable
+     */
+    readonly email_sending_suspended_at: string | null
 }
 
 /**
