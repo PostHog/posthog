@@ -13,6 +13,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -49,59 +50,6 @@ interface PersistedRow {
     error_kind: string
     function_kind: string
     invocation_globals: string
-}
-
-/**
- * Probe the ClickHouse Kafka MV for our topic in particular. With
- * auto.offset.reset=latest, anything produced before the MV's internal consumer
- * has attached is silently dropped. Send probe rows until one lands in CH so we
- * know the MV is live before the test produces real rows.
- */
-const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
-    const producer = await ActualKafkaProducerWrapper.create(undefined)
-    const probeTeamId = -999_999
-    try {
-        await waitForExpect(async () => {
-            await producer.queueMessages({
-                topic: KAFKA_HOG_INVOCATION_RESULTS,
-                messages: [
-                    {
-                        key: 'probe',
-                        value: JSON.stringify({
-                            team_id: probeTeamId,
-                            function_kind: 'hog_function',
-                            function_id: 'probe',
-                            invocation_id: 'probe',
-                            parent_run_id: '',
-                            status: 'running',
-                            attempts: 0,
-                            is_retry: 0,
-                            scheduled_at: DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
-                            started_at: null,
-                            finished_at: null,
-                            duration_ms: null,
-                            error_kind: '',
-                            error_message: '',
-                            event_uuid: '',
-                            distinct_id: '',
-                            person_id: '',
-                            invocation_globals: '{}',
-                            version: String(BigInt(Date.now()) * 1000n),
-                            is_deleted: 0,
-                        }),
-                    },
-                ],
-            })
-            await producer.flush()
-
-            const result = await clickhouse.query<{ c: number }>(
-                `SELECT count() AS c FROM hog_invocation_results WHERE team_id = ${probeTeamId}`
-            )
-            expect(Number(result[0]?.c ?? 0)).toBeGreaterThan(0)
-        }, 30_000)
-    } finally {
-        await producer.disconnect()
-    }
 }
 
 /**

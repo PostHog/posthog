@@ -1318,7 +1318,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 account_id=account_id,
                 definition_id=write.validated_data["definition"],
                 value=write.validated_data["value"],
-                created_by_id=request.user.id,
+                actor=cast(User, request.user),
             )
         except api.Account_DoesNotExist:
             # The account passed the access pre-check but was deleted before the write committed.

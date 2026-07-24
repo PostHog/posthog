@@ -58,6 +58,18 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     documentation_url = models.URLField(max_length=800, blank=True)
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Exactly one of assigned_user/assigned_role may be set (same convention as ErrorTrackingIssueAssignment).
+    # Defaults to the creator on creation.
+    assigned_user = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        # db_constraint disabled to avoid locking the hot posthog_user table when adding this FK.
+        db_constraint=False,
+    )
+    assigned_role = models.ForeignKey("ee.Role", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
 
     def __str__(self) -> str:
         return self.name

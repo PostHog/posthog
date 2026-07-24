@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -17,6 +18,7 @@ import {
     cadenceFinerThanInsightInterval,
     selectAlertCalculationInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { approximateNextAlertRun } from 'products/alerts/frontend/logic/alertSchedulingStale'
 import {
     AlertType,
     isHogQLAlertConfig,
@@ -61,6 +63,7 @@ export function AlertIntervalRow({
 }: AlertIntervalRowProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { currentTeam } = useValues(teamLogic)
     const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
     const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
     const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
@@ -89,12 +92,21 @@ export function AlertIntervalRow({
         )
     }
 
-    let nextEvaluation: JSX.Element | null = null
-    if (!creatingNewAlert && alert) {
+    let nextEvaluation: JSX.Element | null
+    if (alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME) {
+        nextEvaluation = null
+    } else if (creatingNewAlert || nextPlannedEvaluationStale) {
+        const approximateTime = approximateNextAlertRun(alertForm.calculation_interval, currentTeam?.timezone ?? 'UTC')
+        nextEvaluation = (
+            <AlertNextEvaluationStatus>
+                <span>
+                    Approximately <TZLabel time={approximateTime} />
+                </span>
+            </AlertNextEvaluationStatus>
+        )
+    } else if (alert) {
         let status: JSX.Element
-        if (nextPlannedEvaluationStale) {
-            status = <span>We'll recalculate this after you save.</span>
-        } else if (alert.next_check_at) {
+        if (alert.next_check_at) {
             status = <TZLabel time={alert.next_check_at} />
         } else {
             status = <span>We're calculating this. This can take a few minutes.</span>
@@ -104,6 +116,8 @@ export function AlertIntervalRow({
                 {status}
             </AlertNextEvaluationStatus>
         )
+    } else {
+        nextEvaluation = null
     }
 
     const scheduleLabel =
