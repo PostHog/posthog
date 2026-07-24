@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -1098,6 +1100,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
 
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
     @parameterized.expand(
         [
             ("scheduled", None, False, "2022-01-10T00:00:00+00:00", "scheduled"),
@@ -1119,11 +1124,11 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         mock_get_reports: MagicMock,
         mock_capture_report: MagicMock,
     ) -> None:
-        org_id = str(self.organization.id)
+        org_id = str(uuid4())
         mock_get_reports.return_value = {
             org_id: {
                 "organization_id": org_id,
-                "organization_name": self.organization.name,
+                "organization_name": "Test Org",
                 "ai_generation_count": 5,
             }
         }
@@ -1211,7 +1216,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
         try:
             with pytest.raises(Exception, match="capture down"):
-                task.run(organization_id=str(self.organization.id), report_dict={}, at_date=None)
+                task.run(organization_id=str(uuid4()), report_dict={}, at_date=None)
         finally:
             task.pop_request()
 
