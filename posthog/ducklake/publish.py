@@ -14,6 +14,7 @@ which is scoped to PUBLISHED_PREFIX.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -91,14 +92,7 @@ def build_publish_copy_sql(schema_name: str, table_name: str, destination_uri: s
     ).format(psql.Identifier(schema_name), psql.Identifier(table_name), psql.Literal(destination_uri))
 
 
-def delete_stale_publish_versions(bucket: str, folder: str, keep_versions: Collection[str]) -> None:
-    """Best-effort removal of version folders under the publication's prefix.
-
-    Every object whose key is not inside one of keep_versions is deleted; an empty
-    keep set removes the whole folder (used once a publication is deleted). Runs
-    with the temporal worker's own AWS identity; cross-account delete on the org
-    bucket is granted (scoped to PUBLISHED_PREFIX) by the duckling bucket policy.
-    """
+def _s3_client() -> Any:
     import boto3  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     client_kwargs: dict[str, Any] = {}
@@ -108,16 +102,54 @@ def delete_stale_publish_versions(bucket: str, folder: str, keep_versions: Colle
             "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
         }
-    s3 = boto3.client("s3", **client_kwargs)
+    return boto3.client("s3", **client_kwargs)
+
+
+def delete_stale_publish_versions(
+    bucket: str, folder: str, keep_versions: Collection[str], *, min_age_seconds: int = 0
+) -> None:
+    """Best-effort removal of version folders under the publication's prefix.
+
+    Every object whose key is not inside one of keep_versions is deleted; an empty
+    keep set removes the whole folder (used once a publication is deleted). With
+    min_age_seconds, version folders younger than that are spared too — a reader
+    that resolved the table's url_pattern just before a repoint would otherwise
+    have its files deleted mid-query (same race S3_DELETE_TIME_BUFFER covers for
+    data-import query folders; version names are sortable timestamps). Runs with
+    the temporal worker's own AWS identity; cross-account delete on the org bucket
+    is granted (scoped to PUBLISHED_PREFIX) by the duckling bucket policy.
+    """
+    s3 = _s3_client()
 
     prefix = f"{PUBLISHED_PREFIX}/{folder}/"
     keep_fragments = [f"/{version}/" for version in keep_versions]
+    min_written_at = dt.datetime.now(dt.UTC).timestamp() - min_age_seconds
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        stale: list[ObjectIdentifierTypeDef] = [
-            {"Key": obj["Key"]}
-            for obj in page.get("Contents", [])
-            if not any(fragment in obj["Key"] for fragment in keep_fragments)
-        ]
+        stale: list[ObjectIdentifierTypeDef] = []
+        for obj in page.get("Contents", []):
+            key: str = obj["Key"]
+            if any(fragment in key for fragment in keep_fragments):
+                continue
+            if min_age_seconds > 0:
+                version = key[len(prefix) :].split("/", 1)[0]
+                try:
+                    written_at = dt.datetime.strptime(version, "%Y%m%d%H%M%S").replace(tzinfo=dt.UTC).timestamp()
+                except ValueError:
+                    written_at = 0
+                if written_at > min_written_at:
+                    continue
+            stale.append({"Key": key})
         if stale:
             s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
+
+
+def sum_publish_version_size_bytes(bucket: str, folder: str, version: str) -> int:
+    """Total object size under one published version folder (temporal worker identity)."""
+    s3 = _s3_client()
+
+    total = 0
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=f"{PUBLISHED_PREFIX}/{folder}/{version}/"):
+        total += sum(obj.get("Size", 0) for obj in page.get("Contents", []))
+    return total

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import datetime as dt
 from dataclasses import dataclass
 from datetime import timedelta
@@ -11,7 +12,6 @@ from django.utils import timezone
 import psycopg
 import temporalio.activity
 import temporalio.workflow
-from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
@@ -28,6 +28,7 @@ from posthog.ducklake.publish import (
     publish_folder,
     publish_s3_uri,
     publish_url_pattern,
+    sum_publish_version_size_bytes,
 )
 from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
@@ -36,6 +37,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.util import S3_DELETE_TIME_BUFFER
 
 LOGGER = get_logger(__name__)
 
@@ -72,6 +74,10 @@ class PrunePublishedSnapshotInputs:
     # kept alongside the live version so a half-finished register never strands the
     # table on a deleted folder.
     completed_version: str | None = None
+    # The version the table pointed at before this publish. Kept for one prune
+    # cycle so readers that resolved the old url_pattern just before the repoint
+    # don't lose their files mid-query.
+    superseded_version: str | None = None
 
 
 @dataclass
@@ -126,72 +132,79 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
             keepalives_count=4,
         ) as conn:
             setup_duckgres_session(conn, extensions=("httpfs",))
+            # COPY TO returns the rows it copied — using it instead of a separate
+            # count(*) keeps the count on the same snapshot as the copied data.
             cursor = conn.execute(
-                psql.SQL("SELECT count(*) FROM {}.{}").format(
-                    psql.Identifier(publication.source_schema_name),
-                    psql.Identifier(publication.source_table_name),
-                )
+                build_publish_copy_sql(publication.source_schema_name, publication.source_table_name, destination)
             )
             row = cursor.fetchone()
             row_count = int(row[0]) if row else 0
             if row_count == 0:
                 raise ValueError("Empty modeled tables cannot be published yet.")
-            conn.execute(
-                build_publish_copy_sql(publication.source_schema_name, publication.source_table_name, destination)
-            )
 
     return PublishCopyResult(folder_version=version, row_count=row_count, bucket=bucket, bucket_region=bucket_region)
 
 
 @temporalio.activity.defn
-def publish_table_register_activity(inputs: PublishRegisterInputs) -> None:
-    """Create or repoint the DataWarehouseTable at the freshly published version folder."""
+def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None:
+    """Point the DataWarehouseTable at the freshly published version folder.
+
+    Describes the new snapshot before anything commits, so readers never see new
+    files through stale columns and a failed describe leaves no trace. Returns the
+    version the table pointed at before this publish, so the caller can keep it
+    alive for one more prune cycle.
+    """
     close_old_connections()
-    with transaction.atomic():
-        publication = (
-            ManagedWarehousePublishedTable.objects.for_team(inputs.team_id)
-            .select_for_update()
-            .get(id=inputs.publication_id, deleted=False)
-        )
-        folder = publish_folder(inputs.team_id, publication.id.hex)
-        url_pattern = publish_url_pattern(inputs.bucket, inputs.bucket_region, folder, inputs.folder_version)
-
-        table: DataWarehouseTable | None = None
-        if publication.table_id is not None:
-            table = DataWarehouseTable.objects.filter(team_id=inputs.team_id, id=publication.table_id).first()
-        if table is None:
-            table = DataWarehouseTable.objects.create(
-                team_id=inputs.team_id,
-                name=publication.name,
-                format=DataWarehouseTable.TableFormat.Parquet,
-                url_pattern=url_pattern,
-            )
-            publication.table_id = table.id
-            publication.save(update_fields=["table_id", "updated_at"])
-        else:
-            table.format = DataWarehouseTable.TableFormat.Parquet
-            table.url_pattern = url_pattern
-            table.save(update_fields=["format", "url_pattern"])
-
-    table.set_columns(table.get_columns())
-    table.row_count = inputs.row_count
-    table.save()
-
-    publication.status = ManagedWarehousePublishedTable.Status.COMPLETED
-    publication.folder_version = inputs.folder_version
-    publication.row_count = inputs.row_count
-    publication.last_published_at = timezone.now()
-    publication.last_error = None
-    publication.save(
-        update_fields=[
-            "status",
-            "folder_version",
-            "row_count",
-            "last_published_at",
-            "last_error",
-            "updated_at",
-        ]
+    publication = ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).get(
+        id=inputs.publication_id, deleted=False
     )
+    folder = publish_folder(inputs.team_id, publication.id.hex)
+    url_pattern = publish_url_pattern(inputs.bucket, inputs.bucket_region, folder, inputs.folder_version)
+
+    table: DataWarehouseTable | None = None
+    if publication.table_id is not None:
+        table = DataWarehouseTable.objects.filter(team_id=inputs.team_id, id=publication.table_id).first()
+    if table is None:
+        table = DataWarehouseTable(
+            team_id=inputs.team_id,
+            name=publication.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=url_pattern,
+        )
+    else:
+        table.format = DataWarehouseTable.TableFormat.Parquet
+        table.url_pattern = url_pattern
+
+    columns = table.get_columns()
+    size_in_s3_mib = sum_publish_version_size_bytes(inputs.bucket, folder, inputs.folder_version) / (1024 * 1024)
+
+    superseded_version = publication.folder_version
+    with transaction.atomic():
+        table.save()
+        table.set_columns(columns)
+        table.row_count = inputs.row_count
+        table.size_in_s3_mib = size_in_s3_mib
+        table.save()
+
+        publication.table_id = table.id
+        publication.status = ManagedWarehousePublishedTable.Status.COMPLETED
+        publication.folder_version = inputs.folder_version
+        publication.row_count = inputs.row_count
+        publication.last_published_at = timezone.now()
+        publication.last_error = None
+        publication.save(
+            update_fields=[
+                "table_id",
+                "status",
+                "folder_version",
+                "row_count",
+                "last_published_at",
+                "last_error",
+                "updated_at",
+            ]
+        )
+
+    return superseded_version
 
 
 @temporalio.activity.defn
@@ -217,11 +230,17 @@ def prune_published_snapshot_activity(inputs: PrunePublishedSnapshotInputs) -> N
         raise ValueError(f"No managed warehouse bucket recorded for organization {team.organization_id}")
 
     keep_versions: set[str] = set()
+    min_age_seconds = 0
     if not publication.deleted:
         keep_versions = {
-            version for version in (publication.folder_version, inputs.completed_version) if version is not None
+            version
+            for version in (publication.folder_version, inputs.completed_version, inputs.superseded_version)
+            if version is not None
         }
-    delete_stale_publish_versions(bucket, publish_folder(inputs.team_id, publication.id.hex), keep_versions)
+        min_age_seconds = S3_DELETE_TIME_BUFFER
+    delete_stale_publish_versions(
+        bucket, publish_folder(inputs.team_id, publication.id.hex), keep_versions, min_age_seconds=min_age_seconds
+    )
 
 
 @temporalio.activity.defn
@@ -253,7 +272,7 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30)),
             )
-            await temporalio.workflow.execute_activity(
+            superseded_version = await temporalio.workflow.execute_activity(
                 publish_table_register_activity,
                 PublishRegisterInputs(
                     team_id=inputs.team_id,
@@ -273,6 +292,7 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                         team_id=inputs.team_id,
                         publication_id=inputs.publication_id,
                         completed_version=copy_result.folder_version,
+                        superseded_version=superseded_version,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
@@ -319,6 +339,9 @@ class DuckgresPrunePublishedSnapshotWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: PrunePublishedSnapshotInputs) -> None:
+        # Give queries that resolved the table's url_pattern just before the
+        # publication was deleted time to finish before their files disappear.
+        await asyncio.sleep(S3_DELETE_TIME_BUFFER)
         await temporalio.workflow.execute_activity(
             prune_published_snapshot_activity,
             inputs,
