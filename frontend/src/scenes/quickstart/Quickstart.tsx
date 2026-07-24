@@ -1629,8 +1629,17 @@ function QuickstartRunStatus({
                         ? 'Deploy your changes and data starts flowing.'
                         : 'Review the changes and merge when ready.'}
                 </p>
+                {(() => {
+                    // Surface what we can parse from the PR URL: repo and PR number
+                    const match = progress.prUrl?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
+                    return match ? (
+                        <div className="text-sm text-secondary font-mono">
+                            {match[1]} #{match[2]}
+                        </div>
+                    ) : null
+                })()}
                 {!progress.prMerged && (
-                    <div>
+                    <div className="w-fit">
                         <LemonButton type="primary" size="small" to={progress.prUrl} targetBlank>
                             Review the pull request
                         </LemonButton>
