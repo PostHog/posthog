@@ -182,3 +182,28 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestIllegalColumnErrorIsUserFacing(TestCase):
+    """ILLEGAL_COLUMN (code 44) is raised for user query mistakes such as passing a non-constant
+    array to transform(). It must surface as an exposed 4xx error classified USER_ERROR rather than
+    being captured as an internal ServerException."""
+
+    def test_illegal_column_is_exposed_and_user_error(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Argument at index 2 for function transform must be constant. Stack trace: ...",
+            code=44,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+    def test_illegal_column_message_omits_internals(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Argument at index 2 for function transform must be constant. Stack trace: ...",
+            code=44,
+        )
+        message = str(wrap_clickhouse_query_error(server_error))
+        assert "DB::Exception" not in message
+        assert "Stack trace" not in message
+        assert "must be constant" in message
