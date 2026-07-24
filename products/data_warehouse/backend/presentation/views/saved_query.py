@@ -106,9 +106,10 @@ DEPRECATED_FAST_SYNC_FREQUENCIES = {"1min", "5min"}
 
 SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT = (
     "True when this team's DAG owns the materialization cadence through a single schedule, so "
-    "`sync_frequency` cannot be set per view and writes to it are rejected. False when the cadence "
-    "is editable here, either because per-node DAG schedules are in use or because the team is on "
-    "the v1 backend."
+    "`sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG "
+    "schedules are in use or the team is on the v1 backend. False does not on its own mean the "
+    "cadence is writable: a view belonging to a managed viewset rejects every update regardless, "
+    "which `managed_viewset_kind` reports."
 )
 
 
@@ -971,10 +972,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return context
 
     def _sync_frequency_managed_by_dag(self) -> bool:
-        """Mirror of the rejection rule in `DataWarehouseSavedQuerySerializer.update`.
+        """Whether the DAG's single schedule owns cadence for this team.
 
         On single-schedule v2 the DAG's one schedule owns cadence, so per-view frequency writes are
-        rejected; per-node (tiered) schedules and the v1 backend both accept them.
+        rejected; per-node (tiered) schedules and the v1 backend both accept them. This covers only
+        that one of `update()`'s rejections — it is team-scoped, so the per-view managed-viewset
+        rejection is not and cannot be reflected here.
         """
         from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
@@ -982,6 +985,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             "data-modeling-backend-v2",
             str(self.team.uuid),
             groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            send_feature_flag_events=False,
         )
         return bool(v2_enabled) and not tiered_schedules_enabled(self.team)
 

@@ -154,10 +154,11 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
-    // Only single-schedule v2 teams lose the control, since their cadence lives on the DAG's one
-    // schedule and per-view writes are rejected. The server decides: the flag that distinguishes
-    // per-node schedules is evaluated server-side and never reaches the frontend.
-    const isDagSchedulesOnly = !!savedQuery?.sync_frequency_managed_by_dag
+    // The two ways a cadence write gets rejected. Single-schedule v2 teams have the cadence on the
+    // DAG's one schedule, which the server tells us because the flag that distinguishes per-node
+    // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
+    // every update regardless of team.
+    const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -220,7 +221,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    {kind !== 'endpoint' && !isDagSchedulesOnly && (
+                                    {kind !== 'endpoint' && canEditSyncFrequency && (
                                         <LemonSelect
                                             className="h-9"
                                             disabledReason={sync || materializationAccessReason}

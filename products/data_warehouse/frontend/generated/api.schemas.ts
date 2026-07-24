@@ -823,7 +823,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly description: string
     /** @nullable */
     readonly sync_frequency: string | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when the cadence is editable here, either because per-node DAG schedules are in use or because the team is on the v1 backend. */
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
@@ -953,7 +953,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when the cadence is editable here, either because per-node DAG schedules are in use or because the team is on the v1 backend. */
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
@@ -1071,7 +1071,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when the cadence is editable here, either because per-node DAG schedules are in use or because the team is on the v1 backend. */
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag?: boolean
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
