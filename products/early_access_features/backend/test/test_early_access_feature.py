@@ -723,7 +723,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["assignee"] == {"type": "user", "id": other_user.id}
-        feature.refresh_from_db()
+        # Re-fetch instead of refresh_from_db: mypy's narrowing of the assigned_* attributes
+        # would otherwise persist across the refresh and flag later assertions as unreachable
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
         assert feature.assigned_user == other_user
         assert feature.assigned_role is None
 
@@ -734,7 +736,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["assignee"] == {"type": "role", "id": str(role.id)}
-        feature.refresh_from_db()
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
         assert feature.assigned_user is None
         assert feature.assigned_role == role
 
@@ -745,7 +747,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["assignee"] is None
-        feature.refresh_from_db()
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
         assert feature.assigned_user is None
         assert feature.assigned_role is None
 
