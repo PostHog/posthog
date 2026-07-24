@@ -206,6 +206,37 @@ describe('BrowserPool', () => {
         expect(pool.stats.activePages).toBe(0)
     })
 
+    describe('assertHeadlessShell', () => {
+        function mockBrowserWithSpawnfile(spawnfile: string | undefined): jest.Mocked<Browser> {
+            const browser = mockBrowser()
+            ;(browser as any).process = () => (spawnfile === undefined ? null : { spawnfile })
+            return browser
+        }
+
+        it('passes when the launched binary is chrome-headless-shell', async () => {
+            puppeteerCapture.launch.mockResolvedValue(mockBrowserWithSpawnfile('/usr/local/bin/chrome-headless-shell'))
+
+            pool = new BrowserPool(100)
+            await expect(pool.assertHeadlessShell()).resolves.not.toThrow()
+        })
+
+        it.each([
+            { label: 'stock chromium', spawnfile: '/usr/bin/chromium' },
+            { label: 'stock chrome', spawnfile: '/usr/bin/google-chrome' },
+            { label: 'no process', spawnfile: undefined },
+        ])('throws an actionable error for $label', async ({ spawnfile }) => {
+            if (spawnfile === undefined) {
+                delete process.env.PUPPETEER_EXECUTABLE_PATH
+            } else {
+                process.env.PUPPETEER_EXECUTABLE_PATH = spawnfile
+            }
+            puppeteerCapture.launch.mockResolvedValue(mockBrowserWithSpawnfile(spawnfile))
+
+            pool = new BrowserPool(100)
+            await expect(pool.assertHeadlessShell()).rejects.toThrow(/PUPPETEER_EXECUTABLE_PATH/)
+        })
+    })
+
     describe('proxy resolution', () => {
         it.each([
             { source: 'HTTPS_PROXY', env: 'HTTPS_PROXY' as const },

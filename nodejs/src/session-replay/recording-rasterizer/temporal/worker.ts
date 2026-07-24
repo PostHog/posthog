@@ -116,9 +116,11 @@ async function main(): Promise<void> {
     log.info({ address }, 'connected to temporal')
 
     const pool = new BrowserPool()
-    await pool.launch()
+    // Verify the browser is chrome-headless-shell before accepting work — otherwise a
+    // wrong binary only surfaces mid-render as a cryptic puppeteer-capture error.
+    await pool.assertHeadlessShell()
 
-    log.info('browser pool launched')
+    log.info('browser pool launched — verified chrome-headless-shell')
 
     const playerHtml = await playerHtmlCache.load()
     log.info({ path: config.playerHtmlPath }, 'player html loaded')
