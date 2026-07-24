@@ -93,7 +93,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     const isInitialTicketPrompt =
         firstMessage?.type === 'human' &&
         'content' in firstMessage &&
-        firstMessage.content.startsWith('/ticket') &&
+        isTicketCommand(firstMessage.content) &&
         lastMessage?.type === 'ai' &&
         'content' in lastMessage &&
         lastMessage.content.includes("I'll help you create a support ticket")
@@ -133,7 +133,7 @@ export function getTicketSummaryData(
     let ticketCommandIndex = -1
     for (let i = threadGrouped.length - 1; i >= 0; i--) {
         const msg = threadGrouped[i]
-        if (msg?.type === 'human' && 'content' in msg && msg.content.startsWith('/ticket')) {
+        if (msg?.type === 'human' && 'content' in msg && isTicketCommand(msg.content)) {
             ticketCommandIndex = i
             break
         }

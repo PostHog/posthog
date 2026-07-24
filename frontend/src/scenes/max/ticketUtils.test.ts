@@ -20,6 +20,17 @@ const DENIAL =
 
 describe('ticketUtils', () => {
     describe('getTicketSummaryData', () => {
+        it('does not treat a near-miss like /tickets as a ticket command', () => {
+            const thread = [
+                human('How do I create an insight?'),
+                ai('You can create an insight by...'),
+                human('/tickets'),
+                ai("/tickets isn't a recognized slash command. You might be looking for /ticket (singular)."),
+            ]
+
+            expect(getTicketSummaryData(thread, false)).toBeNull()
+        })
+
         it('does not treat an eligibility denial as a ticket summary', () => {
             const thread = [
                 human('How do I create an insight?'),

@@ -191,6 +191,7 @@ export interface maxThreadLogicValues {
     activeMultiQuestionForm: MultiQuestionForm | null
     agentMode: AgentMode | null
     agentModeLockedByUser: boolean
+    canCreateTicket: boolean
     cancelCount: number
     cancelLoading: boolean
     contextDisabledReason: string | undefined
@@ -691,13 +692,13 @@ export interface maxThreadLogicMeta {
             question: string,
             queueDisabledReason: string | undefined
         ) => string | undefined
+        canCreateTicket: (billing: BillingType | null, isCurrentOrganizationNew: boolean) => boolean
         filteredCommands: (
             question: string,
             featureFlags: FeatureFlagsSet,
             threadLoading: boolean,
             conversation: Conversation | null,
-            billing: BillingType | null,
-            isCurrentOrganizationNew: boolean
+            canCreateTicket: any
         ) => SlashCommand[]
         showDeepResearchModeToggle: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
         showContextUI: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
@@ -2854,20 +2855,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        canCreateTicket: [
+            (s) => [s.billing, s.isCurrentOrganizationNew],
+            (billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean =>
+                canCreateSupportTicket(billing, isCurrentOrganizationNew),
+        ],
+
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation, s.billing, s.isCurrentOrganizationNew],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation, s.canCreateTicket],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
                 conversation: Conversation | null,
-                billing: BillingType | null,
-                isCurrentOrganizationNew: boolean
+                canCreateTicket: boolean
             ): SlashCommand[] => {
                 // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
-                // /ticket mirrors the in-app support panel: only offer it to orgs eligible to contact support.
-                const canTicket = canCreateSupportTicket(billing, isCurrentOrganizationNew)
 
                 return MAX_SLASH_COMMANDS.filter(
                     (command) =>
@@ -2875,7 +2879,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
                         (!command.hiddenInSandbox || !isSandboxRuntime) &&
-                        (command.name !== SlashCommandName.SlashTicket || canTicket)
+                        // /ticket mirrors the in-app support panel: only offer it to eligible orgs.
+                        (command.name !== SlashCommandName.SlashTicket || canCreateTicket)
                 )
             },
         ],
