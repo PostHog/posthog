@@ -165,7 +165,10 @@ class Command(BaseCommand):
             sys.stderr = stderr_capture
 
             try:
-                call_command("makemigrations", "--check", "--dry-run")
+                # --noinput forces Django's NonInteractiveMigrationQuestioner so a missing
+                # migration for a non-null field is reported cleanly instead of crashing with
+                # EOFError when it tries to prompt for a default in a non-TTY environment.
+                call_command("makemigrations", "--check", "--dry-run", "--noinput")
                 # Exit code 0 means no migrations needed
                 return ""
             except SystemExit:
