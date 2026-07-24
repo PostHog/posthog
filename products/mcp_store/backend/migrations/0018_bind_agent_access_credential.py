@@ -17,7 +17,7 @@ def bind_existing_agent_access_credentials(apps: Any, _schema_editor: Any) -> No
     server_ids = {access.gateway_server_id for access in accesses}
     shared_by_server: dict[tuple[int, Any], Any] = {}
     personal_by_owner: dict[tuple[int, Any, int], Any] = {}
-    installations = MCPServerInstallation.objects.filter(gateway_server_id__in=server_ids).order_by("created_at")
+    installations = MCPServerInstallation.objects.filter(gateway_server_id__in=server_ids).order_by("id")
     for installation in installations.iterator(chunk_size=500):
         if installation.scope == "shared":
             shared_by_server.setdefault((installation.team_id, installation.gateway_server_id), installation.id)

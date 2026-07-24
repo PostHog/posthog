@@ -17,7 +17,7 @@ def backfill_gateway_servers(apps, schema_editor):
     installations = (
         MCPServerInstallation.objects.filter(gateway_server__isnull=True)
         .select_related("template")
-        .order_by("created_at")
+        .order_by("id")
         .iterator(chunk_size=500)
     )
     pending_links: list[Any] = []
