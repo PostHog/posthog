@@ -28,13 +28,7 @@ export function parseSkillFrontmatter(content: string): {
 
 /** YAML 1.2 core-schema booleans: `true`/`True`/`TRUE` (quoted forms too). */
 function parseYamlBoolean(value: string | null): boolean {
-  if (value === null) return false;
-  // extractYamlValue's plain-scalar path keeps trailing `# ...` comments
-  // (YAML only treats `#` as a comment after whitespace), so strip one here —
-  // otherwise `true  # manual only` misparses to false and a later manifest
-  // save would silently drop the field from disk.
-  const withoutComment = value.replace(/\s+#.*$/, "").trim();
-  return unquoteYamlScalar(withoutComment).toLowerCase() === "true";
+  return value !== null && value.toLowerCase() === "true";
 }
 
 /**
@@ -116,7 +110,8 @@ function extractYamlValue(yaml: string, key: string): string | null {
       return collectIndentedLines(lines, i + 1).join("\n");
     }
 
-    // Quoted string (single or double)
+    // Quoted string (single or double). Quoted content is literal in YAML —
+    // a `#` inside never starts a comment, so no comment stripping here.
     if (
       (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
       (rawValue.startsWith('"') && rawValue.endsWith('"'))
@@ -124,8 +119,10 @@ function extractYamlValue(yaml: string, key: string): string | null {
       return rawValue.slice(1, -1);
     }
 
-    // Plain scalar
-    return rawValue;
+    // Plain scalar: a `#` preceded by whitespace starts a trailing comment.
+    // Stripping it may uncover a quoted scalar (`"true" # manual only`).
+    const withoutComment = rawValue.replace(/\s+#.*$/, "").trim();
+    return unquoteYamlScalar(withoutComment);
   }
 
   return null;

@@ -47,6 +47,11 @@ describe("parseSkillFrontmatter disable-model-invocation", () => {
       `---\nname: a\ndescription: d\ndisable-model-invocation: false # keep automatic\n---\nbody`,
       false,
     ],
+    [
+      "quoted string that only starts with true",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: "true # manual only"\n---\nbody`,
+      false,
+    ],
   ])("parses %s", (_label, content, expected) => {
     expect(parseSkillFrontmatter(content)?.disableModelInvocation).toBe(
       expected,
