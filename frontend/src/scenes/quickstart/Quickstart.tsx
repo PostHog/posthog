@@ -1580,7 +1580,13 @@ function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIn
     )
 }
 
-const CLOUD_PATH_STEPS = ['Connect GitHub', 'Pick your repo', 'Review the PR', 'Merge and deploy', 'See your data']
+const CLOUD_PATH_STEPS = [
+    'Connect GitHub',
+    'Pick your repo',
+    'Agent writes the integration',
+    'Review and merge',
+    'See your data',
+]
 const LOCAL_PATH_STEPS = [
     'Copy the command',
     'Run it in your terminal',
@@ -1674,7 +1680,18 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                     />
                 )}
                 {effectiveMode === 'cloud' ? (
-                    <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
+                    cloudRunPinned ? (
+                        // Compact status line: the horizontal timeline is the only timeline on this
+                        // page, so the run renders as a one-line progress summary instead of the
+                        // shared vertical checklist
+                        <QuickstartWizardProgress
+                            fallback={<WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />}
+                        >
+                            {(progress) => <QuickstartInstallationProgress progress={progress} />}
+                        </QuickstartWizardProgress>
+                    ) : (
+                        <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
+                    )
                 ) : effectiveMode === 'local' ? (
                     isLocalRunActive ? (
                         <InstallationProgressView mode="local" />
