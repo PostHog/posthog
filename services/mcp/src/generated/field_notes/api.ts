@@ -16,7 +16,7 @@ export const FieldNotesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -39,7 +39,7 @@ export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -52,7 +52,7 @@ export const FieldNotesPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -81,11 +81,11 @@ export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
     field_note_status: zod
         .enum(['pending', 'acknowledged', 'resolved', 'dismissed'])
         .describe(
-            '* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed'
+            '\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
         )
         .optional()
         .describe(
-            'Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed'
+            'Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
         ),
     resolution: zod
         .string()

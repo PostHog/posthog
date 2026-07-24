@@ -139,6 +139,23 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
     return !!posthog.conversations?.isAvailable()
 }
 
+// Mirrors the widget message serializer cap (WidgetMessageSerializer.message). Support submits post
+// through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
+export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
+
+// Shared over-limit guard for the conversations composer surfaces (support form + side panel). Shows
+// an error toast and returns true when the message exceeds the widget cap, so callers bail before
+// hitting the endpoint and surfacing only a generic send-failure toast.
+export function warnIfMessageTooLong(message: string): boolean {
+    if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
+        lemonToast.error(
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+        )
+        return true
+    }
+    return false
+}
+
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
 // reports we still fold the exception in so it survives on email-channel tickets and when the
 // agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
@@ -783,9 +800,15 @@ export const supportLogic = kea<supportLogicType>([
             // Conversations is where support is headed, so wait for the extension rather than racing
             // it to the (temporary) Zendesk fallback
             if (values.conversationsFlagEnabled && (await waitForConversations())) {
+                // Measure the full outgoing payload (message plus any appended exception) so the
+                // guard matches what the widget endpoint actually receives and rejects
+                const outgoingMessage = appendExceptionToMessage(message, exception_event)
+                if (warnIfMessageTooLong(outgoingMessage)) {
+                    return
+                }
                 try {
                     const response = await posthog.conversations!.sendMessage(
-                        appendExceptionToMessage(message, exception_event),
+                        outgoingMessage,
                         { name: name || undefined, email: email || undefined },
                         true // every form submission starts a new ticket
                     )

@@ -258,33 +258,28 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
+    // The IconInsight* glyphs carry their own multi-color palette (--insight-icon-*);
+    // structural parts follow currentColor, so no iconColor override here.
     'insight/funnels': {
         icon: <IconInsightFunnels />,
-        iconColor: ['var(--color-insight-funnel-light)'],
     },
     'insight/trends': {
         icon: <IconInsightTrends />,
-        iconColor: ['var(--color-insight-trends-light)'],
     },
     'insight/retention': {
         icon: <IconInsightRetention />,
-        iconColor: ['var(--color-insight-retention-light)'],
     },
     'insight/paths': {
         icon: <IconInsightUserPaths />,
-        iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
     'insight/lifecycle': {
         icon: <IconInsightLifecycle />,
-        iconColor: ['var(--color-insight-lifecycle-light)'],
     },
     'insight/stickiness': {
         icon: <IconInsightStickiness />,
-        iconColor: ['var(--color-insight-stickiness-light)'],
     },
     'insight/hog': {
         icon: <IconBracketsChart />,
-        iconColor: ['var(--color-insight-sql-light)'],
     },
     team_activity: {
         icon: <IconNotification />,

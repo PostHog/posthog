@@ -2651,7 +2651,14 @@ class HogFlowViewSet(
                     {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
                 )
             if not hog_flow or not hog_flow.draft:
-                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+                raise exceptions.ValidationError(
+                    {
+                        "use_draft": (
+                            "This workflow has no staged draft to test. Stage one by editing the "
+                            "workflow first, or omit use_draft to test the live config."
+                        )
+                    }
+                )
             # The draft's actions are stripped of secrets, and this inline path bypasses the worker's
             # manager (which normally decrypts), so fold the draft's secrets back in before dispatch.
             draft = dict(hog_flow.draft)
