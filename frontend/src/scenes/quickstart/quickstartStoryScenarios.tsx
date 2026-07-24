@@ -105,9 +105,8 @@ export interface ScenarioResources {
 
 /** One place to shape every data source the scene reads, so each story is a plain scenario.
  *
- * Pass `installation` for pre-install stories: useInstallationComplete polls loadCurrentTeam
- * every 2s, so the team endpoints must serve the story's installation state — an imperative
- * decorator alone gets overwritten by the first poll. */
+ * Pass `installation` for pre-install stories: every route that answers with a team payload
+ * must agree with the story's installation state, or a stray reload flips the page. */
 export const scenarioMocks = (
     signals: Partial<QuickstartToolSignals>,
     resources: ScenarioResources = {},
@@ -159,9 +158,8 @@ export const scenarioMocks = (
             '/api/environments/:team_id/query': { results: [signalsRow(signals)] },
         },
         patch: {
-            // Every route whose response body is a team must agree with the story's installation
-            // state — the default handlers answer with an installed MOCK_DEFAULT_TEAM, and a single
-            // stray team payload (e.g. the scene's team PATCH) flips useInstallationComplete
+            // The default handlers answer with an installed MOCK_DEFAULT_TEAM, and a single
+            // stray team payload (e.g. the scene's team PATCH) would flip the page's state
             '/api/environments/:team_id/': mockTeam,
             '/api/environments/:team_id/add_product_intent/': mockTeam,
         },
@@ -193,9 +191,17 @@ export const richScenarioDecorators = [
 ]
 
 // The activation data cache is keyed by team id, which every story shares — drop it
-// between stories so each scenario's mocks actually load
+// between stories so each scenario's mocks actually load. Same for the install-dismissal
+// flag, which is localStorage-persisted per team.
 export const CacheBuster = (Story: React.ComponentType): JSX.Element => {
     clearQuickstartActivationCache()
+    localStorage.removeItem(`quickstart-install-dismissed-${MOCK_DEFAULT_TEAM.id}`)
+    return <Story />
+}
+
+/** Marks the focused install view as dismissed before the scene mounts */
+export const installDismissedDecorator = (Story: React.ComponentType): JSX.Element => {
+    localStorage.setItem(`quickstart-install-dismissed-${MOCK_DEFAULT_TEAM.id}`, 'true')
     return <Story />
 }
 

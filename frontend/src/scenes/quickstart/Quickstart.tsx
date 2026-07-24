@@ -37,9 +37,9 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -59,7 +59,6 @@ import {
 import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/legacy/sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
-import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { LogsSDKInstructions } from 'scenes/onboarding/legacy/sdks/logs/LogsSDKInstructions'
 import { SDKGrid } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKGrid'
 import { ProductAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/product-analytics/ProductAnalyticsSDKInstructions'
@@ -78,7 +77,6 @@ import {
     useLocalWizardRunActive,
 } from 'scenes/onboarding/shared/wizard-sync/InstallationProgressView'
 import { WizardCloudRunBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCloudRunBlock'
-import { wizardCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/wizardCloudRunLogic'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -1549,53 +1547,6 @@ const INSTALL_MODE_CARDS: {
     },
 ]
 
-// Nielsen: visibility of system status. Each install mode previews its full path upfront;
-// live progress views take over once a run is actually moving.
-function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIndex: number }): JSX.Element {
-    return (
-        <div className="flex w-full">
-            {steps.map((step, index) => (
-                <div key={step} className="flex-1 min-w-0">
-                    <div className="flex items-center">
-                        <span
-                            className={cn(
-                                'flex items-center justify-center w-5 h-5 rounded-full border text-xs shrink-0',
-                                index === activeIndex ? 'border-accent text-accent font-semibold' : 'text-muted'
-                            )}
-                        >
-                            {index + 1}
-                        </span>
-                        {index < steps.length - 1 && <span className="flex-1 h-px bg-border mx-2" />}
-                    </div>
-                    <div
-                        className={cn(
-                            'mt-1.5 text-xs pr-3',
-                            index === activeIndex ? 'text-primary font-medium' : 'text-muted'
-                        )}
-                    >
-                        {step}
-                    </div>
-                </div>
-            ))}
-        </div>
-    )
-}
-
-const CLOUD_PATH_STEPS = [
-    'Connect GitHub',
-    'Pick your repo',
-    'Agent writes the integration',
-    'Review and merge',
-    'See your data',
-]
-const LOCAL_PATH_STEPS = [
-    'Copy the command',
-    'Run it in your terminal',
-    'Review the changes',
-    'Run your app',
-    'See your data',
-]
-
 // A cloud run's status at quickstart altitude: healthy-and-working, failed-with-a-way-out,
 // or finished-with-the-PR. Sub-step detail stays behind the header chip's dialog.
 function QuickstartRunStatus({
@@ -1619,64 +1570,34 @@ function QuickstartRunStatus({
         )
     }
     if (progress.prUrl) {
+        // Merging, deploying, and the first event all happen outside our sight, so this is
+        // the terminal state from our side: hand over the PR and let the user take it from there.
+        const match = progress.prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
         return (
             <div className="flex flex-col gap-2" role="status">
-                <div className="font-semibold text-sm">
-                    {progress.prMerged ? 'Pull request merged' : 'The agent opened a pull request'}
-                </div>
+                <div className="font-semibold text-sm">The agent opened a pull request</div>
                 <p className="text-secondary text-sm mb-0">
-                    {progress.prMerged
-                        ? 'Deploy your changes and data starts flowing.'
-                        : 'Review the changes and merge when ready.'}
+                    Review the changes, merge, and deploy. Events start flowing once your app runs with the new code.
                 </p>
-                {(() => {
-                    // Surface what we can parse from the PR URL: repo and PR number
-                    const match = progress.prUrl?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
-                    return match ? (
-                        <div className="text-sm text-secondary font-mono">
-                            {match[1]} #{match[2]}
-                        </div>
-                    ) : null
-                })()}
-                {!progress.prMerged && (
-                    <div className="w-fit">
-                        <LemonButton type="primary" size="small" to={progress.prUrl} targetBlank>
-                            Review the pull request
-                        </LemonButton>
+                {match && (
+                    <div className="text-sm text-secondary font-mono">
+                        {match[1]} #{match[2]}
                     </div>
                 )}
-                <p className="text-secondary text-xs mb-0">
-                    {progress.prMerged
-                        ? 'This page switches to your tools as soon as the first event arrives.'
-                        : 'Already merged it? Deploy your changes. This page switches to your tools as soon as the first event arrives.'}
-                </p>
+                <div className="w-fit">
+                    <LemonButton type="primary" size="small" to={progress.prUrl} targetBlank>
+                        Review the pull request
+                    </LemonButton>
+                </div>
             </div>
         )
     }
     return (
-        <div className="flex flex-col gap-2" role="status" aria-live="polite">
-            <div className="flex items-center gap-2">
-                <Spinner className="text-base" />
-                <span className="text-sm font-medium">
-                    {currentTaskLabel(progress) ?? 'The agent is working on your integration'}
-                </span>
-            </div>
-            {progress.steps.length > 0 && (
-                <div className="flex items-center gap-2">
-                    <LemonProgress
-                        percent={
-                            (progress.steps.filter((step) => step.status === 'completed').length /
-                                progress.steps.length) *
-                            100
-                        }
-                        className="flex-1"
-                    />
-                    <span className="text-xs text-secondary tabular-nums whitespace-nowrap">
-                        {progress.steps.filter((step) => step.status === 'completed').length} of {progress.steps.length}{' '}
-                        steps
-                    </span>
-                </div>
-            )}
+        <div className="flex items-center gap-2" role="status" aria-live="polite" data-attr="quickstart-run-status">
+            <Spinner className="text-base" />
+            <span className="text-sm font-medium">
+                {currentTaskLabel(progress) ?? 'The agent is working on your integration'}
+            </span>
         </div>
     )
 }
@@ -1694,7 +1615,6 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
     const { openToolSetupModal } = useActions(quickstartLogic)
 
     const isLocalRunActive = useLocalWizardRunActive()
-    const { isGithubConnected, selectedRepository } = useValues(wizardCloudRunLogic)
     const offerCloud = cloudRunEnabled && isCloudOrDev
     const [mode, setMode] = useState<QuickstartInstallMode>(offerCloud ? 'cloud' : 'local')
     const cloudRunPinned = !!activeCloudRun
@@ -1749,36 +1669,14 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                 </div>
             </div>
             <div className="rounded border bg-surface-primary p-4 flex flex-col gap-4 h-full">
-                {effectiveMode === 'cloud' && cloudRunPinned ? (
-                    <QuickstartWizardProgress
-                        fallback={<WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />}
-                    >
-                        {(progress) => (
-                            <>
-                                <InstallPathTimeline
-                                    steps={CLOUD_PATH_STEPS}
-                                    activeIndex={progress.prMerged ? 4 : progress.prUrl ? 3 : 2}
-                                />
-                                <QuickstartRunStatus progress={progress} onRetryLocally={runItYourself} />
-                            </>
-                        )}
-                    </QuickstartWizardProgress>
-                ) : effectiveMode !== 'manual' ? (
-                    <InstallPathTimeline
-                        steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
-                        activeIndex={
-                            effectiveMode === 'cloud'
-                                ? selectedRepository || isGithubConnected
-                                    ? 1
-                                    : 0
-                                : isLocalRunActive
-                                  ? 1
-                                  : 0
-                        }
-                    />
-                ) : null}
                 {effectiveMode === 'cloud' ? (
-                    cloudRunPinned ? null : (
+                    cloudRunPinned ? (
+                        <QuickstartWizardProgress
+                            fallback={<WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />}
+                        >
+                            {(progress) => <QuickstartRunStatus progress={progress} onRetryLocally={runItYourself} />}
+                        </QuickstartWizardProgress>
+                    ) : (
                         <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
                     )
                 ) : effectiveMode === 'local' ? (
@@ -1829,8 +1727,9 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
 }
 
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
-// methods live inline as a master-detail choice.
-function QuickstartFocusedInstall({ onSkip }: { onSkip: () => void }): JSX.Element {
+// methods live inline as a master-detail choice. There is no install detection: the user
+// leaves this view themselves, and merging/deploying happen outside our sight.
+function QuickstartFocusedInstall({ onDismiss }: { onDismiss: () => void }): JSX.Element {
     const intro = (
         <div>
             <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
@@ -1844,14 +1743,11 @@ function QuickstartFocusedInstall({ onSkip }: { onSkip: () => void }): JSX.Eleme
     return (
         <section className="flex flex-col gap-4">
             <QuickstartInstallSwitcher intro={intro} />
-            <button
-                type="button"
-                className="text-xs text-muted hover:text-primary cursor-pointer w-fit bg-transparent border-0 p-0"
-                onClick={onSkip}
-                data-attr="quickstart-skip-install-detection"
-            >
-                Skip this and show my tools
-            </button>
+            <div>
+                <LemonButton type="secondary" size="small" onClick={onDismiss} data-attr="quickstart-install-continue">
+                    Continue to PostHog
+                </LemonButton>
+            </div>
         </section>
     )
 }
@@ -1863,17 +1759,24 @@ export function Quickstart(): JSX.Element {
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const installationComplete = useInstallationComplete('ingested_event')
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
+    // A plain read, not detection: no polling, no live flips. The flag is only a lower bound
+    // anyway (mobile SDKs often miss it), so leaving the install view is the user's call.
+    const installationComplete = !!currentTeam?.ingested_event
 
-    // Skipping install detection is an escape hatch for users whose data is a long way off
-    // (persisted per project). Hook lives above the early return per rules-of-hooks.
-    const skipKey = `quickstart-install-skipped-${currentTeamId ?? 'unknown'}`
-    const [installSkipped, setInstallSkipped] = useState(() => localStorage.getItem(skipKey) === 'true')
-    const skipInstallDetection = (): void => {
-        captureQuickstartAction('skip_install_detection')
-        localStorage.setItem(skipKey, 'true')
-        setInstallSkipped(true)
+    // Dismissal is the normal exit from the focused install view, persisted per project.
+    // Hook lives above the early return per rules-of-hooks.
+    const dismissKey = `quickstart-install-dismissed-${currentTeamId ?? 'unknown'}`
+    const [installDismissed, setInstallDismissed] = useState(() => localStorage.getItem(dismissKey) === 'true')
+    const dismissFocusedInstall = (): void => {
+        captureQuickstartAction('dismiss_focused_install')
+        localStorage.setItem(dismissKey, 'true')
+        setInstallDismissed(true)
+    }
+    const reopenFocusedInstall = (): void => {
+        captureQuickstartAction('reopen_focused_install')
+        localStorage.removeItem(dismissKey)
+        setInstallDismissed(false)
     }
     const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
     if (!isQuickstartHomepageEnabled(quickstartVariant)) {
@@ -1883,7 +1786,7 @@ export function Quickstart(): JSX.Element {
     // test2 stops at the product cards: no guides, companions, or publications below
     const showBelowCardsSections = quickstartVariant === 'test'
     // test2 pre-ingestion: the page has one job (first event), so product cards wait for data
-    const focusedInstall = quickstartVariant === 'test2' && !installationComplete && !installSkipped
+    const focusedInstall = quickstartVariant === 'test2' && !installationComplete && !installDismissed
 
     return (
         // Capped and centered like onboarding's product selection: full-width reads stretched
@@ -1946,7 +1849,17 @@ export function Quickstart(): JSX.Element {
                 </section>
             </div>
 
-            {focusedInstall && <QuickstartFocusedInstall onSkip={skipInstallDetection} />}
+            {focusedInstall && <QuickstartFocusedInstall onDismiss={dismissFocusedInstall} />}
+
+            {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
+                <LemonBanner
+                    type="info"
+                    action={{ children: 'Back to setup', onClick: reopenFocusedInstall }}
+                    className="mb-0"
+                >
+                    No events have arrived in this project yet. Your tools light up once data starts flowing.
+                </LemonBanner>
+            )}
 
             {quickstartVariant === 'test2' && !focusedInstall && <QuickstartHeroAnswerCard />}
 

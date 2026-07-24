@@ -9,6 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import {
     CacheBuster,
+    installDismissedDecorator,
     installationStateDecorator,
     richScenarioDecorators,
     scenarioMocks,
@@ -64,6 +65,15 @@ export const FocusedInstall: Story = {
     decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}, {}, 'not_started'))],
 }
 
+/** Pre-ingestion but dismissed: the normal page with a waiting banner linking back to setup */
+export const InstallDismissedBanner: Story = {
+    decorators: [
+        installDismissedDecorator,
+        installationStateDecorator('not_started'),
+        mswDecorator(scenarioMocks({}, {}, 'not_started')),
+    ],
+}
+
 /** State B: a wizard run is active pre-ingestion, so its progress is the page hero */
 export const WizardRunning: Story = {
     decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}, {}, 'running'))],
@@ -71,7 +81,7 @@ export const WizardRunning: Story = {
     play: async () => {
         await waitFor(
             () => {
-                const installationProgress = document.querySelector('[data-attr="quickstart-installation-progress"]')
+                const installationProgress = document.querySelector('[data-attr="quickstart-run-status"]')
                 if (!installationProgress?.textContent?.includes('Installing the PostHog SDK')) {
                     throw new Error('Quickstart installation task is not ready')
                 }
