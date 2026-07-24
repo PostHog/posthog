@@ -1,6 +1,6 @@
-import { decompress as zstdDecompress } from '@mongodb-js/zstd'
+import { compress as zstdCompress, decompress as zstdDecompress } from '@mongodb-js/zstd'
 import { promisify } from 'node:util'
-import { gunzip, gzip } from 'node:zlib'
+import { gunzip } from 'node:zlib'
 import { Counter, Gauge } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/common/outputs'
@@ -72,7 +72,7 @@ export interface HogInvocationResultRow {
     event_uuid: string
     distinct_id: string
     person_id: string
-    invocation_globals: string // globals JSON (inputs/groups/person stripped) — gzip+base64'd on produce
+    invocation_globals: string // globals JSON (inputs/groups/person stripped) — zstd+base64'd on produce (older rows: gzip+base64 or raw JSON)
     version: string // microsecond-precision UInt64; serialized as string to dodge JS's 53-bit precision
     is_deleted: 0 | 1
 }
@@ -241,16 +241,21 @@ const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string 
     return '{}'
 }
 
-const gzipAsync = promisify(gzip)
 const gunzipAsync = promisify(gunzip)
 
+// Level 3 (the library default) compresses our payloads ~4x faster than the
+// gzip codec it replaced at a near-identical ratio (within ~4%, measured on
+// production samples), so the metered-bytes savings hold while the CPU cost
+// per row drops.
+const ZSTD_COMPRESSION_LEVEL = 3
+
 // `invocation_globals` is the bulk of every lifecycle row. Warpstream meters
-// the uncompressed message bytes, so gzipping this one field before produce
+// the uncompressed message bytes, so compressing this one field before produce
 // directly cuts cyclotron throughput. The row envelope stays plain JSON — only
 // this field is opaque — so the ClickHouse Kafka engine still parses the
 // message as JSONEachRow. `decodeInvocationGlobals` is the inverse.
 const compressInvocationGlobals = async (globalsJson: string): Promise<string> => {
-    return (await gzipAsync(globalsJson)).toString('base64')
+    return (await zstdCompress(Buffer.from(globalsJson), ZSTD_COMPRESSION_LEVEL)).toString('base64')
 }
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
