@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { MailHog } from 'lib/components/hedgehogs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -8,7 +9,6 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import MailHog from '~/assets/hedgehog/mail-hog.png'
 import { SubscriptionResourceType, SubscriptionType } from '~/types'
 
 import { subscriptionsLogic } from '../subscriptionsLogic'
@@ -88,7 +88,7 @@ export function ManageSubscriptions({
                                 </>
                             ) : (
                                 <SubscriptionEmptyState
-                                    illustration={MailHog}
+                                    illustration={<MailHog className="object-contain shrink-0 w-24 h-20" />}
                                     title={`${capitalizeFirstLetter(subscriptionResourceNoun)} subscriptions`}
                                     description={`Send an up-to-date snapshot of this ${subscriptionResourceNoun} to Slack or email on a schedule.`}
                                     actionLabel="Create subscription"

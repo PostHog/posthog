@@ -59,7 +59,7 @@ export function SubscriptionEmptyState({
     onAction,
 }: {
     icon?: ReactNode
-    illustration?: string
+    illustration?: ReactNode
     title: string
     description: string
     actionLabel: string
@@ -92,7 +92,7 @@ export function SubscriptionEmptyState({
         <LemonCard hoverEffect={false} className="p-6">
             <div className="flex gap-3 items-start">
                 {illustration ? (
-                    <img src={illustration} alt="" className="object-contain shrink-0 w-24 h-20" />
+                    illustration
                 ) : (
                     <div className="flex items-center justify-center rounded bg-surface-primary shrink-0 size-12 text-2xl">
                         {icon}

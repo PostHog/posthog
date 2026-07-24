@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
 
+import { MailHog } from 'lib/components/hedgehogs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,7 +12,6 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import MailHog from '~/assets/hedgehog/mail-hog.png'
 import { SubscriptionResourceType, SubscriptionType } from '~/types'
 
 import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
@@ -152,7 +152,7 @@ export function TabbedManageSubscriptions({
             } yet. Add one to send an up-to-date snapshot to Slack or email on a schedule.`,
             emptyState: (
                 <SubscriptionEmptyState
-                    illustration={MailHog}
+                    illustration={<MailHog className="object-contain shrink-0 w-24 h-20" />}
                     title={`${isInsightContext ? 'Insight' : 'Dashboard'} subscriptions`}
                     description={`Send an up-to-date snapshot of this ${
                         isInsightContext ? 'insight' : 'dashboard'
