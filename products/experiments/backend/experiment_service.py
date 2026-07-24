@@ -2416,18 +2416,21 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        if experiment.repository:
-            return experiment.repository
         github = tasks_repo_selection.resolve_team_github_integration(experiment.team_id, team=experiment.team)
         if github is None:
             return None
-        repos = {
-            full_name
-            for repo in github.list_all_cached_repositories(max_repos=2)
+        cached = {
+            full_name.lower()
+            for repo in github.list_all_cached_repositories(max_repos=1000)
             if (full_name := repo.get("full_name"))
         }
-        if len(repos) == 1:
-            return repos.pop()
+        if experiment.repository:
+            # An explicit repo must still belong to this team's installation — GitHub
+            # installations can be shared, so an unchecked name could reach another
+            # project's private repository through the shared credential.
+            return experiment.repository if experiment.repository.lower() in cached else None
+        if len(cached) == 1:
+            return cached.pop()
         return None
 
     def _report_experiment_ended(

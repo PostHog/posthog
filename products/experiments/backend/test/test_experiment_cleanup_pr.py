@@ -56,6 +56,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_cleanup_pr_fires_only_when_flag_on_and_opted_in(
         self,
         _name,
@@ -63,10 +64,14 @@ class TestExperimentCleanupPr(APIBaseTest):
         open_cleanup_pr,
         conclusion,
         expect_task_created,
+        mock_resolve_github,
         mock_create_task,
         mock_feature_enabled,
         _mock_report,
     ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
+        )
         mock_feature_enabled.return_value = flag_enabled
         task_id = uuid4()
         mock_create_task.return_value = SimpleNamespace(task_id=task_id)
@@ -95,10 +100,18 @@ class TestExperimentCleanupPr(APIBaseTest):
     @parameterized.expand(
         [
             # (name, experiment_repository, cached_repos, expected_repository or None for skip)
-            ("explicit_field_wins", "acme/monorepo", [{"full_name": "acme/web"}], "acme/monorepo"),
+            (
+                "explicit_field_wins",
+                "acme/monorepo",
+                [{"full_name": "acme/monorepo"}, {"full_name": "acme/web"}],
+                "acme/monorepo",
+            ),
+            ("explicit_case_insensitive", "acme/monorepo", [{"full_name": "Acme/Monorepo"}], "acme/monorepo"),
+            ("explicit_not_in_installation_skips", "evil/other", [{"full_name": "acme/web"}], None),
             ("single_cached_repo", None, [{"full_name": "acme/web"}], "acme/web"),
             ("multiple_repos_skips", None, [{"full_name": "acme/web"}, {"full_name": "acme/api"}], None),
             ("no_github_integration", None, None, None),
+            ("explicit_but_no_integration_skips", "acme/monorepo", None, None),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
