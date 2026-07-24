@@ -7,6 +7,8 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from '
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -47,6 +49,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
+import { dashboardFiltersIgnoredOnSqlInsight } from './sqlFiltersWarning'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -328,6 +331,17 @@ function InsightCardInternal(
     const closeAlertModal = useCallback(() => setAlertModal(null), [])
     const hasResults = !!insight?.result || !!(insight as any)?.results
 
+    // A SQL insight without a `{filters}` placeholder silently drops the dashboard's property filters,
+    // so the tile shows unfiltered numbers that look filtered. Warn instead of quietly misleading.
+    const sqlFiltersIgnored = useMemo(
+        () =>
+            dashboardFiltersIgnoredOnSqlInsight(
+                insight.query,
+                tile?.filters_overrides?.properties ?? filtersOverride?.properties
+            ),
+        [insight.query, tile?.filters_overrides?.properties, filtersOverride?.properties]
+    )
+
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
         // Check for access denied - use the same logic as other components
@@ -459,6 +473,13 @@ function InsightCardInternal(
                         onCreateAnomalyAlert={openCreateAnomalyAlertModal}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
+                    {sqlFiltersIgnored && (
+                        <LemonBanner type="warning" className="mx-2 mb-2 text-xs">
+                            The dashboard's property filters aren't applied to this SQL insight because its query has no{' '}
+                            <code>{'{filters}'}</code> placeholder. Add <code>{'{filters}'}</code> to the query's{' '}
+                            <code>WHERE</code> clause to apply them.
+                        </LemonBanner>
+                    )}
                     {vizContent}
                 </BindLogic>
             </ErrorBoundary>
