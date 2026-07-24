@@ -286,16 +286,14 @@ class TestPublishGaugesLoop:
             await breaker.record_outcome(success=False, model="claude-fable-5")
 
         original_pipeline = fake_redis.pipeline
-        pipeline_calls = MagicMock(wraps=original_pipeline)
-        fake_redis.pipeline = pipeline_calls
-
-        task = _asyncio.create_task(publish_anthropic_breaker_gauges_loop(breaker, interval_seconds=10))
-        await _asyncio.sleep(0.05)
-        task.cancel()
-        try:
-            await task
-        except _asyncio.CancelledError:
-            pass
+        with patch.object(fake_redis, "pipeline", wraps=original_pipeline) as pipeline_calls:
+            task = _asyncio.create_task(publish_anthropic_breaker_gauges_loop(breaker, interval_seconds=10))
+            await _asyncio.sleep(0.05)
+            task.cancel()
+            try:
+                await task
+            except _asyncio.CancelledError:
+                pass
 
         assert pipeline_calls.call_count == 1
         assert ANTHROPIC_CIRCUIT_BREAKER_OPEN._value.get() == 1
