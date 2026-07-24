@@ -7381,9 +7381,9 @@ export interface InsightApi {
      *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-     *         callers (personal API keys, OAuth) only receive it when passing the
-     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+     *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+     *         must opt in the same way. Do not rely on it being present.
      *
      * @deprecated
      */
@@ -7509,9 +7509,9 @@ export interface PatchedInsightApi {
      *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-     *         callers (personal API keys, OAuth) only receive it when passing the
-     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+     *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+     *         must opt in the same way. Do not rely on it being present.
      *
      * @deprecated
      */
