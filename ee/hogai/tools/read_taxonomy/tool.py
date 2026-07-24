@@ -3,12 +3,14 @@ from typing import Any, Literal, Self, Union
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, ValidationError, create_model
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 from .core import (
@@ -93,6 +95,12 @@ class ReadTaxonomyTool(MaxTool):
 
         try:
             res = execute_taxonomy_query(validated_query, toolkit, self._team, self._user)
+        except (ClickHouseAtCapacity, ConcurrencyLimitExceeded) as e:
+            # ClickHouse is momentarily over its concurrency cap for the Max user. This is expected
+            # and self-resolving, so surface it as a transient error to retry rather than an internal bug.
+            raise MaxToolTransientError(
+                "The data warehouse is momentarily at capacity. This is temporary, so retry the request shortly."
+            ) from e
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
 

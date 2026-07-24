@@ -1073,16 +1073,16 @@ class TestRootNodeTools(BaseTest):
 
     @parameterized.expand(
         [
-            ("fatal", MaxToolFatalError("Fatal error"), "never"),
-            ("transient", MaxToolTransientError("Transient error"), "once"),
-            ("retryable", MaxToolRetryableError("Retryable error"), "adjusted"),
+            ("fatal", MaxToolFatalError("Fatal error"), "never", True),
+            # Transient errors (rate limits) are benign and self-resolving, so they must stay out of error tracking.
+            ("transient", MaxToolTransientError("Transient error"), "once", False),
+            ("retryable", MaxToolRetryableError("Retryable error"), "adjusted", True),
         ]
     )
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
-    async def test_all_error_types_are_logged_with_retry_strategy(
-        self, name, error, expected_strategy, read_taxonomy_mock
+    async def test_error_types_capture_policy_by_retry_strategy(
+        self, name, error, expected_strategy, expected_capture, read_taxonomy_mock
     ):
-        """Test that all MaxToolError types are logged with their retry strategy."""
         read_taxonomy_mock.side_effect = error
 
         node = _create_agent_tools_node(self.team, self.user)
@@ -1102,13 +1102,16 @@ class TestRootNodeTools(BaseTest):
         with patch("ee.hogai.core.agent_modes.executables.capture_exception") as mock_capture:
             _ = await node.arun(state, {})
 
-            mock_capture.assert_called_once()
-            call_kwargs = mock_capture.call_args.kwargs
-            captured_error = mock_capture.call_args.args[0]
+            if expected_capture:
+                mock_capture.assert_called_once()
+                call_kwargs = mock_capture.call_args.kwargs
+                captured_error = mock_capture.call_args.args[0]
 
-            self.assertIsInstance(captured_error, MaxToolError)
-            self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
-            self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
+                self.assertIsInstance(captured_error, MaxToolError)
+                self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
+                self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
+            else:
+                mock_capture.assert_not_called()
 
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
