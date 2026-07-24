@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -295,16 +296,61 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "DataWarehouseNode":
             property_field = ast.Field(chain=[math_property])
+            timestamp_field = self.goal.schema_map.get("timestamp_field", "timestamp")
+            timestamp_expr: ast.Expr = ast.Field(chain=[timestamp_field])
         else:
             property_field = ast.Field(chain=["events", "properties", math_property])
+            timestamp_expr = ast.Field(chain=["events", "timestamp"])
+
+        value_per_row = self._to_base_currency(property_field, timestamp_expr)
 
         return ast.Call(
             name="round",
             args=[
-                ast.Call(name="sum", args=[ast.Call(name="toFloat", args=[property_field])]),
+                ast.Call(name="sum", args=[value_per_row]),
                 ast.Constant(value=self.config.decimal_precision),
             ],
         )
+
+    def _to_base_currency(self, property_field: ast.Expr, timestamp_expr: ast.Expr) -> ast.Expr:
+        """Turn a raw revenue property into a float in the team's base currency.
+
+        When the goal declares a math_property_revenue_currency, convert each value at the exchange
+        rate of its own event day. Without it, the value is assumed to already be in the base currency
+        and is only cast to float, which keeps goals that never set a currency behaving as before.
+        """
+        amount = ast.Call(name="toFloat", args=[property_field])
+        currency = self.goal.math_property_revenue_currency
+        if currency is None:
+            return amount
+
+        base_currency = ast.Constant(value=self.team.base_currency)
+        date = ast.Call(name="_toDate", args=[timestamp_expr])
+
+        if currency.property:
+            if self.goal.kind == "DataWarehouseNode":
+                currency_from: ast.Expr = ast.Field(chain=[currency.property])
+            else:
+                currency_from = ast.Field(chain=["events", "properties", currency.property])
+            currency_from = ast.Call(
+                name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
+            )
+            # A row can be missing the currency property or carry an empty string; treat those as already
+            # in the base currency rather than letting convertCurrency null the whole amount out.
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="isNull", args=[currency_from]),
+                    amount,
+                    ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)]),
+                ],
+            )
+
+        if currency.static:
+            currency_from = ast.Constant(value=currency.static.value)
+            return ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)])
+
+        return amount
 
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
@@ -1222,8 +1268,8 @@ class ConversionGoalProcessor:
             math_property = self.goal.math_property
             if math_property:
                 property_field = ast.Field(chain=["events", "properties", math_property])
-                to_float_expr = ast.Call(name="toFloat", args=[property_field])
-                return ast.Call(name="coalesce", args=[to_float_expr, ast.Constant(value=0.0)])
+                value = self._to_base_currency(property_field, ast.Field(chain=["events", "timestamp"]))
+                return ast.Call(name="coalesce", args=[value, ast.Constant(value=0.0)])
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
