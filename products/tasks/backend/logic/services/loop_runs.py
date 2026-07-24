@@ -589,7 +589,10 @@ def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
     # copy primitive must not trust it anyway): every source path has to sit under the
     # owning loop's own bundle prefix, and the target segments are re-sanitized, or a
     # forged entry would read or write arbitrary bucket keys via the recovery path.
-    loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, task_run.task.loop_id)}/"
+    loop_id = task_run.task.loop_id
+    if loop_id is None:
+        raise ValueError("skill bundle seeds on a run without a loop")
+    loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, loop_id)}/"
 
     run_prefix = task_run.get_artifact_s3_prefix()
     manifest = list(task_run.artifacts or [])
