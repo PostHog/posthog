@@ -44,6 +44,7 @@ the row lists both.
 
 | Source                           | Comm method                 | Primary library                                                 | Tracked transport           |
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
@@ -678,7 +679,6 @@ doesn't conflict with concurrent PRs.
 - \*\*Migrate
 - \*\*Switch
 - ab_tasty
-- ably
 - abnormal_security
 - acast
 - acculynx
