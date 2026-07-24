@@ -823,6 +823,23 @@ describe('maxThreadLogic', () => {
             expect(logic.values.queuedMessages).toEqual([{ ...queueMessage, content: 'Updated' }])
         })
 
+        it('blocks editing a queued message into /ticket for orgs that cannot contact support', async () => {
+            const updateSpy = jest.spyOn(api.conversations.queue, 'update')
+            const toastSpy = jest.spyOn(lemonToast, 'warning')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: 'Original', created_at: new Date().toISOString() },
+            ])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.updateQueuedMessage('queue-1', '/ticket')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(updateSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalled()
+        })
+
         it('deletes queued messages from the API', async () => {
             const queueMessage = {
                 id: 'queue-1',

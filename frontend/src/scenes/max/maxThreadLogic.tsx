@@ -1795,7 +1795,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueueLimit(0)
                 return
             }
-            // Queued messages replay server-side without going back through askMax, so gate here too.
+            // askMax (currently the only caller) already gates /ticket before enqueueing; this guards
+            // the queue mutation itself so future callers can't slip an ineligible /ticket into the
+            // queue, which drains server-side where the command is not gated.
             if (isTicketCommand(content) && !canCreateSupportTicket(values.billing, values.isCurrentOrganizationNew)) {
                 showTicketIneligibleToast()
                 return
@@ -1841,6 +1843,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!values.queueingEnabled || !values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
+                return
+            }
+            // The queued-message edit UI calls this directly, without going through askMax, and the
+            // queue drains server-side — so an edit to /ticket must be gated here.
+            if (isTicketCommand(content) && !canCreateSupportTicket(values.billing, values.isCurrentOrganizationNew)) {
+                showTicketIneligibleToast()
                 return
             }
             try {
