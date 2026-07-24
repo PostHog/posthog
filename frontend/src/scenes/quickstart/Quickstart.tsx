@@ -1588,10 +1588,11 @@ const LOCAL_PATH_STEPS = [
     'See your data',
 ]
 
-// The install decision as radio cards: all three options visible and self-describing, since a
-// first-time user makes this choice exactly once. Same rules as onboarding's WizardInstallOptions:
-// a cloud run pins the view to its progress; a failed run falls back to the command.
-function QuickstartInstallSwitcher(): JSX.Element {
+// The install decision as a master-detail layout: intro and stacked radio cards on the
+// left, the chosen mode's expanded content on the right. Same rules as onboarding's
+// WizardInstallOptions: a cloud run pins the view to its progress; a failed run falls
+// back to the command.
+function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useValues(preflightLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
@@ -1611,42 +1612,45 @@ function QuickstartInstallSwitcher(): JSX.Element {
     const cards = INSTALL_MODE_CARDS.filter((card) => card.value !== 'cloud' || offerCloud)
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-3" role="radiogroup">
-                {cards.map((card) => {
-                    const selected = effectiveMode === card.value
-                    const disabled = cloudRunPinned && card.value !== 'cloud'
-                    return (
-                        <button
-                            key={card.value}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected}
-                            disabled={disabled}
-                            title={disabled ? 'A cloud run is in progress.' : undefined}
-                            className={cn(
-                                'text-left rounded border p-3 bg-bg-light transition-colors flex flex-col justify-start gap-1',
-                                selected ? 'border-accent' : 'hover:border-secondary',
-                                disabled && 'opacity-50 cursor-not-allowed'
-                            )}
-                            onClick={() => {
-                                if (card.value !== effectiveMode) {
-                                    captureQuickstartAction('install_mode_selected', undefined, {
-                                        mode: card.value,
-                                    })
-                                }
-                                setMode(card.value)
-                            }}
-                            data-attr={`quickstart-wizard-mode-${card.value}`}
-                        >
-                            <span className="text-lg">{card.icon}</span>
-                            <div className="font-semibold text-sm min-h-10">{card.title}</div>
-                            <div className="text-secondary text-xs">{card.description}</div>
-                        </button>
-                    )
-                })}
+        <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6 items-start">
+            <div className="flex flex-col gap-4">
+                {intro}
+                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-2" role="radiogroup">
+                    {cards.map((card) => {
+                        const selected = effectiveMode === card.value
+                        const disabled = cloudRunPinned && card.value !== 'cloud'
+                        return (
+                            <button
+                                key={card.value}
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                disabled={disabled}
+                                title={disabled ? 'A cloud run is in progress.' : undefined}
+                                className={cn(
+                                    'text-left rounded border p-3 bg-bg-light transition-colors flex flex-col justify-start gap-1',
+                                    selected ? 'border-accent' : 'hover:border-secondary',
+                                    disabled && 'opacity-50 cursor-not-allowed'
+                                )}
+                                onClick={() => {
+                                    if (card.value !== effectiveMode) {
+                                        captureQuickstartAction('install_mode_selected', undefined, {
+                                            mode: card.value,
+                                        })
+                                    }
+                                    setMode(card.value)
+                                }}
+                                data-attr={`quickstart-wizard-mode-${card.value}`}
+                            >
+                                <span className="text-lg">{card.icon}</span>
+                                <div className="font-semibold text-sm min-h-10">{card.title}</div>
+                                <div className="text-secondary text-xs">{card.description}</div>
+                            </button>
+                        )
+                    })}
+                </div>
             </div>
-            <div className="w-full rounded border bg-surface-primary p-4 flex flex-col gap-4">
+            <div className="rounded border bg-surface-primary p-4 flex flex-col gap-4">
                 {effectiveMode !== 'manual' && (
                     <InstallPathTimeline
                         steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
@@ -1699,26 +1703,32 @@ function QuickstartInstallSwitcher(): JSX.Element {
 }
 
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
-// methods live inline as switcher modes: cloud wizard, local wizard, manual per-tool setup.
+// methods live inline as a master-detail choice.
 function QuickstartFocusedInstall(): JSX.Element {
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const isLocalRunActive = useLocalWizardRunActive()
 
-    return (
-        <section className="max-w-2xl flex flex-col gap-6">
-            <div>
-                <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
-                <p className="text-secondary mb-0">
-                    Install the PostHog SDK to start sending data. The setup agent can write the integration for you, or
-                    you can install it yourself.
-                </p>
-            </div>
+    const intro = (
+        <div>
+            <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
+            <p className="text-secondary mb-0">
+                Install the PostHog SDK to start sending data. The setup agent can write the integration for you, or you
+                can install it yourself.
+            </p>
+        </div>
+    )
 
-            {isLocalRunActive && !activeCloudRun ? (
+    if (isLocalRunActive && !activeCloudRun) {
+        return (
+            <section className="max-w-2xl flex flex-col gap-6">
+                {intro}
                 <InstallationProgressView mode="local" />
-            ) : (
-                <QuickstartInstallSwitcher />
-            )}
+            </section>
+        )
+    }
+    return (
+        <section className="max-w-5xl">
+            <QuickstartInstallSwitcher intro={intro} />
         </section>
     )
 }
