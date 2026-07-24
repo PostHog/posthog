@@ -53,6 +53,15 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
     duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    // Cookieless server hash mode
+    cookieless_missing_timestamp: 'Dropped a cookieless event with no timestamp',
+    cookieless_timestamp_out_of_range: 'Dropped a cookieless event whose timestamp was out of range',
+    cookieless_missing_user_agent: 'Dropped a cookieless event with no user agent',
+    cookieless_missing_ip: 'Dropped a cookieless event with no IP address',
+    cookieless_missing_host: 'Dropped a cookieless event with no host',
+    cookieless_team_disabled:
+        'Dropped a cookieless event because "Cookieless server hash mode" is disabled for this project. Enable it in project settings to ingest these events.',
+    cookieless_globally_disabled: 'Dropped a cookieless event because cookieless mode is disabled on this instance',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.

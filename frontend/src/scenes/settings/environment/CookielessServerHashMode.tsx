@@ -62,6 +62,11 @@ export function CookielessServerHashModeSetting(): JSX.Element {
     return (
         <>
             <LemonBanner type="info" className="mb-4">
+                Cookieless tracking has to be turned on in two places: your SDK config and this setting. If your SDK
+                sends cookieless events while this setting is disabled, those events are dropped on ingestion, so make
+                sure both are enabled.
+                <br />
+                <br />
                 When Cookieless server hash mode is enabled, IP-based transformations like GeoIP enrichment and bot
                 detection will not enrich events. The IP is hashed into the distinct ID and stripped before
                 transformations run.

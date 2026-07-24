@@ -68,12 +68,14 @@ export const INGESTION_WARNING_TYPES = {
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
-    // Cookieless mode — events missing the data required to compute a cookieless distinct id
+    // Cookieless mode — events dropped because they can't be processed in cookieless server hash mode
     cookieless_missing_timestamp: { category: 'event', severity: 'error' },
     cookieless_timestamp_out_of_range: { category: 'event', severity: 'error' },
     cookieless_missing_user_agent: { category: 'event', severity: 'error' },
     cookieless_missing_ip: { category: 'event', severity: 'error' },
     cookieless_missing_host: { category: 'event', severity: 'error' },
+    cookieless_team_disabled: { category: 'event', severity: 'error' },
+    cookieless_globally_disabled: { category: 'event', severity: 'error' },
 
     // Heatmaps — rejected $heatmap_data payloads
     invalid_heatmap_data: { category: 'event', severity: 'warning' },

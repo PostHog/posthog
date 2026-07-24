@@ -1035,6 +1035,62 @@ describe('CookielessManager', () => {
                     },
                 })
             })
+
+            it('should emit warning when the project setting is disabled', async () => {
+                // The SDK sends cookieless events but the project setting is still off — the events
+                // are dropped, and without this warning that data loss would be silent.
+                await setModeForTeam(CookielessServerHashMode.Disabled)
+
+                const response = await infra.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_team_disabled')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_team_disabled',
+                    details: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                    },
+                })
+            })
+
+            it('should emit warning when cookieless is globally disabled', async () => {
+                const disabledManager = new CookielessManager(
+                    { ...infra.config, COOKIELESS_DISABLED: true },
+                    infra.redisPool
+                )
+                try {
+                    const response = await disabledManager.doBatch([
+                        { event, team, message, headers: createTestEventHeaders() },
+                    ])
+                    expect(response.length).toBe(1)
+                    const result = response[0]
+
+                    expect(result.type).toBe(PipelineResultType.DROP)
+                    if (result.type === PipelineResultType.DROP) {
+                        expect(result.reason).toBe('cookieless_globally_disabled')
+                    }
+                    expect(result.warnings).toHaveLength(1)
+                    expect(result.warnings[0]).toMatchObject({
+                        type: 'cookieless_globally_disabled',
+                        details: {
+                            eventUuid: event.uuid,
+                            event: event.event,
+                            distinctId: event.distinct_id,
+                        },
+                    })
+                } finally {
+                    disabledManager.shutdown()
+                }
+            })
         })
     })
 

@@ -246,7 +246,12 @@ describe('IngestionConsumer', () => {
             )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+            // The event is dropped (not ingested)...
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            // ...but an ingestion warning is emitted so the drop isn't silent.
+            const warnings = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_ingestion_warnings_test')
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0].value).toMatchObject({ type: 'cookieless_team_disabled' })
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {

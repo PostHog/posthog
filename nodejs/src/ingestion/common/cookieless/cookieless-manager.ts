@@ -300,7 +300,7 @@ export class CookielessManager {
     async doBatch(events: IncomingEventWithTeam[]): Promise<PipelineResult<IncomingEventWithTeam>[]> {
         if (this.config.disabled) {
             // cookieless is globally disabled, don't do any processing just drop all cookieless events
-            return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
+            return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled', 'cookieless_globally_disabled')
         }
         try {
             return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
@@ -364,8 +364,23 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode == null ||
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
             ) {
-                // if the specific team doesn't have cookieless enabled, drop the event
-                results[i] = drop('cookieless_team_disabled')
+                // The SDK sent a cookieless event but the project's "Cookieless server hash mode"
+                // setting is still disabled, so we can't process it. Drop it, but emit a warning so
+                // the data loss is visible rather than silent.
+                results[i] = drop(
+                    'cookieless_team_disabled',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_team_disabled',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
@@ -700,11 +715,27 @@ export class CookielessManager {
 
     dropAllCookielessEvents(
         events: IncomingEventWithTeam[],
-        dropCause: string
+        dropCause: string,
+        warningType: IngestionWarningType
     ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-                return drop(dropCause)
+                const { event } = incomingEvent
+                // Emit a warning so this drop is visible rather than silent data loss.
+                return drop(
+                    dropCause,
+                    [],
+                    [
+                        {
+                            type: warningType,
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
             } else {
                 return ok(incomingEvent)
             }
