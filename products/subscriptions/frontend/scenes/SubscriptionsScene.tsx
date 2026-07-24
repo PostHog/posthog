@@ -7,12 +7,10 @@ import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -109,11 +107,9 @@ export function SubscriptionsScene(): JSX.Element {
         subscriptionsSorting,
         targetTypeFilter,
         subscriptionModalId,
+        aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const { currentOrganization } = useValues(organizationLogic)
-    const aiSubscriptionsAvailable = aiSubscriptionsEnabled && !!currentOrganization?.is_ai_data_processing_approved
 
     const isFiltered =
         Boolean(search.trim()) ||
