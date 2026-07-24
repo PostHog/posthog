@@ -25,6 +25,7 @@ from products.mcp_store.backend.agents import (
 )
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
+    MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -392,6 +393,57 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         admin_response = self.client.get(self._api_url())
         admin_result = next(result for result in admin_response.json()["results"] if result["id"] == server["id"])
         assert admin_result["is_team_enabled"] is False
+
+    @parameterized.expand([("list", False), ("retrieve", True)])
+    def test_member_metadata_is_visible_only_to_admins(self, _name: str, retrieve: bool) -> None:
+        self._make_admin()
+        server, own_installation, _tool = self._server_with_personal_tool()
+        other_user = self._create_user("other-gateway-member@posthog.com")
+        other_installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=other_user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "other-secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            user=other_user,
+            revoked_by=self.user,
+        )
+        url = self._api_url(f"{server.id}/") if retrieve else self._api_url()
+
+        admin_response = self.client.get(url)
+
+        assert admin_response.status_code == status.HTTP_200_OK
+        admin_payload = (
+            admin_response.json()
+            if retrieve
+            else next(result for result in admin_response.json()["results"] if result["id"] == str(server.id))
+        )
+        assert {connection["installation_id"] for connection in admin_payload["connections"]} == {
+            str(own_installation.id),
+            str(other_installation.id),
+        }
+        assert admin_payload["revoked_user_ids"] == [other_user.id]
+
+        self._make_member()
+        member_response = self.client.get(url)
+
+        assert member_response.status_code == status.HTTP_200_OK
+        member_payload = (
+            member_response.json()
+            if retrieve
+            else next(result for result in member_response.json()["results"] if result["id"] == str(server.id))
+        )
+        assert member_payload["connections"] == []
+        assert member_payload["revoked_user_ids"] == []
+        assert member_payload["your_connection"]["installation_id"] == str(own_installation.id)
+        assert member_payload["is_revoked_for_you"] is False
 
     def test_team_policy_is_a_ceiling_for_member_and_legacy_tool_views(self) -> None:
         self._make_admin()

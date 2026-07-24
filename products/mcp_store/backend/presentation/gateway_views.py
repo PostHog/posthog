@@ -251,7 +251,9 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     )
     created_by = UserBasicSerializer(read_only=True, help_text="Who registered the server.")
     tool_count = serializers.SerializerMethodField(help_text="Number of live tools known for this server.")
-    connections = serializers.SerializerMethodField(help_text="Members with a personal connection to this server.")
+    connections = serializers.SerializerMethodField(
+        help_text="Members with a personal connection to this server. Only project admins receive this list."
+    )
     your_connection = serializers.SerializerMethodField(
         help_text="The requesting user's own connection, or null when not connected."
     )
@@ -260,7 +262,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     )
     agents = serializers.SerializerMethodField(help_text="Agents this server is shared with.")
     revoked_user_ids = serializers.SerializerMethodField(
-        help_text="Ids of members whose access an admin has turned off."
+        help_text="Ids of members whose access an admin has turned off. Only project admins receive this list."
     )
     is_revoked_for_you = serializers.SerializerMethodField(
         help_text="True when an admin has turned this server off for the requesting user."
@@ -319,6 +321,8 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(GatewayConnectionSerializer(many=True))
     def get_connections(self, obj: MCPGatewayServer) -> list[dict[str, Any]]:
+        if not self.context.get("is_admin"):
+            return []
         return [
             _connection_payload(installation)
             for installation in obj.installations.all()
@@ -378,6 +382,8 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
     def get_revoked_user_ids(self, obj: MCPGatewayServer) -> list[int]:
+        if not self.context.get("is_admin"):
+            return []
         return [revocation.user_id for revocation in obj.member_revocations.all()]
 
     @extend_schema_field(serializers.BooleanField())
@@ -837,6 +843,12 @@ class MCPGatewayServerViewSet(
         if self.action in ("update", "partial_update"):
             return MCPGatewayServerUpdateSerializer
         return MCPGatewayServerSerializer
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if not getattr(self, "swagger_fake_view", False):
+            context["is_admin"] = self._is_project_admin()
+        return context
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._require_project_admin()

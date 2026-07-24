@@ -499,7 +499,7 @@ export interface MCPGatewayServerApi {
     readonly template_id: string | null
     /** Number of live tools known for this server. */
     readonly tool_count: number
-    /** Members with a personal connection to this server. */
+    /** Members with a personal connection to this server. Only project admins receive this list. */
     readonly connections: readonly GatewayConnectionApi[]
     /** The requesting user's own connection, or null when not connected. */
     readonly your_connection: GatewayYourConnectionApi | null
@@ -507,7 +507,7 @@ export interface MCPGatewayServerApi {
     readonly shared_credential: GatewaySharedCredentialApi | null
     /** Agents this server is shared with. */
     readonly agents: readonly GatewayAgentAccessApi[]
-    /** Ids of members whose access an admin has turned off. */
+    /** Ids of members whose access an admin has turned off. Only project admins receive this list. */
     readonly revoked_user_ids: readonly number[]
     /** True when an admin has turned this server off for the requesting user. */
     readonly is_revoked_for_you: boolean
