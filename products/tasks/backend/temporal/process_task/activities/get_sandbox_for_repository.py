@@ -314,6 +314,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
+        if sandbox.config.image_fallback:
+            emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
         metrics_snapshot_kind = snapshot_kind if snapshot_source != "none" else "none"
         increment_snapshot_usage(used_snapshot, snapshot_source=snapshot_source, snapshot_kind=metrics_snapshot_kind)

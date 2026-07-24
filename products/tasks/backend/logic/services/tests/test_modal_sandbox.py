@@ -31,6 +31,8 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
+    FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
+    PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _attach_local_package_mounts,
@@ -364,6 +366,41 @@ class TestAttachLocalPackageMounts:
             copy=False,
         )
         assert result is final_image
+
+    def test_mount_only_overlay_adds_no_build_layers(self, tmp_path: Path) -> None:
+        # Sandbox filesystem snapshots (resume snapshots, the published dev-stack image)
+        # cannot take Modal build steps — a run_commands/apt_install layer fails the image
+        # build at sandbox create and forfeits the snapshot. Mount-only must stay build-free
+        # even when the local packages declare registry dependencies.
+        source_path = tmp_path / "agent"
+        build_output_path = source_path / "dist"
+        build_output_path.mkdir(parents=True)
+        (source_path / "package.json").write_text(
+            json.dumps({"dependencies": {"@openai/codex": "0.140.0", "zod": "^4.2.0"}})
+        )
+        package = LocalPackage(
+            name="agent",
+            source_path=source_path,
+            sandbox_install_path="/scripts/node_modules/@posthog/agent",
+        )
+        snapshot_image = MagicMock()
+        mounted_image = MagicMock()
+        snapshot_image.add_local_dir.return_value = mounted_image
+
+        with patch(
+            "products.tasks.backend.logic.services.modal_sandbox.get_local_posthog_code_packages",
+            return_value=(package,),
+        ):
+            result = _attach_local_package_mounts(snapshot_image, SandboxTemplate.VM_BASE, install_dependencies=False)
+
+        snapshot_image.apt_install.assert_not_called()
+        snapshot_image.run_commands.assert_not_called()
+        snapshot_image.add_local_dir.assert_called_once_with(
+            str(build_output_path),
+            "/scripts/node_modules/@posthog/agent/dist",
+            copy=False,
+        )
+        assert result is mounted_image
 
 
 class TestModalSandboxAgentServer:
@@ -719,7 +756,7 @@ class TestModalSandboxAgentServer:
         image = MagicMock()
         image.object_id = "snapshot-123"
 
-        def snapshot_filesystem(ttl: Any = None) -> Any:
+        def snapshot_filesystem(timeout: int = 55, ttl: Any = None) -> Any:
             events.append("snapshot")
             return image
 
@@ -731,7 +768,9 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-123"
         mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
         exec_process.wait.assert_called_once_with()
-        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(ttl=None)
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(
+            timeout=FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
+        )
         assert events == ["wait", "snapshot"]
 
 
@@ -1031,6 +1070,79 @@ class TestModalSandboxCreateAllowlist:
         assert mock_create.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
 
 
+class TestModalSandboxCreateImageFallback:
+    """A failed create with an overlaid image must downgrade one step at a time (bare
+    snapshot / bare custom image) instead of jumping to the clean base image — jumping
+    straight to base silently forfeits the prebaked stack the run was routed onto."""
+
+    def _create_failing_on(self, config: SandboxConfig, *, failing_image: Any, loaded_image: Any) -> tuple[Any, list]:
+        mock_sb = MagicMock()
+        mock_sb.object_id = "sb-created"
+        # A snapshot-restored sandbox is health-probed after create; make the probe pass.
+        mock_sb.exec.return_value.poll.return_value = 0
+        images_tried: list[Any] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            images_tried.append(kwargs["image"])
+            if kwargs["image"] is failing_image:
+                raise RuntimeError("image build failed")
+            return mock_sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=loaded_image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=loaded_image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=failing_image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+        return sandbox, images_tried
+
+    def test_custom_image_overlay_failure_falls_back_to_bare_custom_image(self):
+        # The verified failure mode: the local package overlay on the published dev-stack
+        # image failed to build and the run silently landed on the clean VM base.
+        config = SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
+        bare_custom = MagicMock(name="bare_custom")
+        overlaid_custom = MagicMock(name="overlaid_custom")
+
+        sandbox, images_tried = self._create_failing_on(config, failing_image=overlaid_custom, loaded_image=bare_custom)
+
+        assert images_tried == [overlaid_custom, bare_custom]
+        assert sandbox.config.image_fallback is not None
+        assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
+
+    def test_snapshot_overlay_failure_falls_back_to_bare_snapshot(self):
+        config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
+        bare_snapshot = MagicMock(name="bare_snapshot")
+        overlaid_snapshot = MagicMock(name="overlaid_snapshot")
+
+        sandbox, images_tried = self._create_failing_on(
+            config, failing_image=overlaid_snapshot, loaded_image=bare_snapshot
+        )
+
+        assert images_tried == [overlaid_snapshot, bare_snapshot]
+        # The run still restored from the snapshot — the downgrade only cost the overlay.
+        assert sandbox.config.snapshot_restored is True
+        assert sandbox.config.image_fallback is not None
+
+
 class TestResourceCreateKwargs:
     def test_flat_scalars_when_not_burstable(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16)
@@ -1170,3 +1282,16 @@ class TestModalSandboxCreateSnapshot:
         mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
             "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
         )
+
+    def test_publish_filesystem_image_uses_published_image_snapshot_timeout(self, mock_sandbox: Any):
+        # The dev-stack bake snapshots multiple GB of docker state; Modal's 55s default
+        # (and the regular snapshot budget) time out under it and fail the whole bake.
+        image = MagicMock(object_id="im-123")
+        mock_sandbox._sandbox.snapshot_filesystem.return_value = image
+
+        assert mock_sandbox.publish_filesystem_image("posthog-dev-stack") == "im-123"
+
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(
+            timeout=PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
+        )
+        image.publish.assert_called_once_with("posthog-dev-stack")

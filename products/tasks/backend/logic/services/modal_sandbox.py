@@ -10,6 +10,7 @@ import logging
 import tempfile
 import threading
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -36,6 +37,7 @@ from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    DEV_STACK_IMAGE_NAME,
     POSTHOG_EXEC_PERMISSION_REGEX,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
@@ -126,6 +128,13 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
+
+# Modal's snapshot_filesystem default timeout is 55s, which multi-GB sandbox filesystems
+# routinely exceed. Regular snapshots stay under the 10-minute budget of the activities
+# that take them; published-image snapshots (the prebaked dev-stack bake, with gigabytes
+# of docker state) get a far larger budget bounded only by the bake activity timeout.
+FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS = 8 * 60
+PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS = 30 * 60
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -283,6 +292,15 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
 
 
+@dataclass(frozen=True)
+class ImageCandidate:
+    """One entry of the ordered image-downgrade chain a sandbox is created from."""
+
+    image: modal.Image
+    label: str
+    restored_from_snapshot: bool = False
+
+
 def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) -> str:
     if existing == candidate:
         return existing
@@ -298,7 +316,9 @@ def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) ->
     return f"{existing} {candidate}"
 
 
-def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
+def _attach_local_package_mounts(
+    image: modal.Image, template: SandboxTemplate, *, install_dependencies: bool = True
+) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
     and local packages are available.
@@ -306,6 +326,14 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     Install external runtime dependencies that are missing from the published image
     before mounting the compiled output. The published package can lag behind a local
     branch, but running npm inside it would also process unpublished workspace packages.
+
+    ``install_dependencies=False`` skips that npm-install build layer and attaches the
+    mounts only. Sandbox filesystem snapshots (resume/repo snapshots, the published
+    dev-stack image) cannot take Modal build steps — the image build fails and the
+    sandbox loses the snapshot entirely — while the mounts are attached at create time
+    without a build. Runtime dependencies a local branch added over the published
+    package are then missing; that dev-only gap surfaces as an agent-server import
+    error rather than silently forfeiting the snapshot.
     """
     if template not in AGENT_SERVER_TEMPLATES:
         return image
@@ -314,7 +342,12 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
         return image
 
     dependencies = get_local_package_runtime_dependencies(packages)
-    if dependencies:
+    if dependencies and not install_dependencies:
+        logger.info(
+            "Skipping local package dependency install on snapshot-derived image; attaching dist mounts only",
+            extra={"packages": sorted(dependencies)},
+        )
+    elif dependencies:
         if any("@openai/codex" in package_dependencies for package_dependencies in dependencies.values()):
             image = image.apt_install("musl")
 
@@ -520,19 +553,23 @@ class ModalSandbox(SandboxBase):
             modal.enable_output()
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
-            image = base_image
+            custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
             if config.custom_image_name:
                 try:
+                    custom_image_bare = modal.Image.from_name(config.custom_image_name)
+                    # The prebaked dev-stack image is a published sandbox filesystem snapshot,
+                    # which Modal cannot layer build steps on — mount-only overlay for it.
                     custom_image = _attach_local_package_mounts(
-                        modal.Image.from_name(config.custom_image_name), config.template
+                        custom_image_bare,
+                        config.template,
+                        install_dependencies=config.custom_image_name != DEV_STACK_IMAGE_NAME,
                     )
-                    image = custom_image
                 except Exception as e:
                     logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
                     capture_exception(e)
-            used_custom_image = custom_image is not None
             config.snapshot_restored = False
+            config.image_fallback = None
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
             # No default-fill: a directory snapshot must arrive with an explicit allowed mount
@@ -540,15 +577,11 @@ class ModalSandbox(SandboxBase):
             # snapshot that upstream validation invalidated (mount path stripped).
             snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
-            used_snapshot_image = False
 
             if config.snapshot_external_id:
                 snapshot_external_id = config.snapshot_external_id
                 try:
                     snapshot_image = modal.Image.from_id(config.snapshot_external_id)
-                    if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
-                        image = _attach_local_package_mounts(snapshot_image, config.template)
-                        used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
@@ -562,12 +595,40 @@ class ModalSandbox(SandboxBase):
                         snapshot_mount_path = metadata_mount_path
                     try:
                         snapshot_image = modal.Image.from_id(snapshot.external_id)
-                        if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
-                            image = _attach_local_package_mounts(snapshot_image, config.template)
-                            used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
+
+            # Creation candidates, best first. Each later entry is a downgrade attempted only
+            # when creating from the previous image fails (e.g. its overlay image build errors),
+            # so a broken overlay costs the local packages, never the snapshot or custom image.
+            candidates: list[ImageCandidate] = []
+            if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                overlaid_snapshot = _attach_local_package_mounts(
+                    snapshot_image, config.template, install_dependencies=False
+                )
+                if overlaid_snapshot is not snapshot_image:
+                    candidates.append(
+                        ImageCandidate(
+                            overlaid_snapshot,
+                            f"snapshot image {snapshot_external_id} with local package overlay",
+                            restored_from_snapshot=True,
+                        )
+                    )
+                candidates.append(
+                    ImageCandidate(
+                        snapshot_image, f"snapshot image {snapshot_external_id}", restored_from_snapshot=True
+                    )
+                )
+            if custom_image is not None and custom_image_bare is not None:
+                if custom_image is not custom_image_bare:
+                    candidates.append(
+                        ImageCandidate(
+                            custom_image, f"custom image {config.custom_image_name} with local package overlay"
+                        )
+                    )
+                candidates.append(ImageCandidate(custom_image_bare, f"custom image {config.custom_image_name}"))
+            candidates.append(ImageCandidate(base_image, "base image"))
 
             secrets = []
             if config.environment_variables:
@@ -582,7 +643,6 @@ class ModalSandbox(SandboxBase):
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
-                "image": image,
                 "timeout": config.ttl_seconds,
                 **_resource_create_kwargs(config),
                 "region": region,
@@ -598,36 +658,7 @@ class ModalSandbox(SandboxBase):
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            try:
-                modal_output: StringIO | None
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = used_snapshot_image
-            except Exception as e:
-                if not used_snapshot_image and not used_custom_image:
-                    raise
-                fallback_image = custom_image if used_snapshot_image and custom_image is not None else base_image
-                logger.warning(
-                    f"Failed to create sandbox with {'snapshot' if used_snapshot_image else 'custom'} image, "
-                    f"falling back to {'custom' if fallback_image is custom_image else 'base'} image: {e}"
-                )
-                capture_exception(e)
-                create_kwargs["image"] = fallback_image
-                try:
-                    with capture_modal_output_if_debug() as modal_output:
-                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                        config.snapshot_restored = False
-                except Exception as fallback_error:
-                    if fallback_image is base_image:
-                        raise
-                    logger.warning(
-                        f"Failed to create sandbox with custom image, falling back to base image: {fallback_error}"
-                    )
-                    capture_exception(fallback_error)
-                    create_kwargs["image"] = base_image
-                    with capture_modal_output_if_debug() as modal_output:
-                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                        config.snapshot_restored = False
+            sb, modal_output = cls._create_from_image_candidates(create_kwargs, candidates, config)
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
@@ -696,6 +727,43 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _create_from_image_candidates(
+        create_kwargs: dict[str, object],
+        candidates: list[ImageCandidate],
+        config: SandboxConfig,
+    ) -> tuple[modal.Sandbox, StringIO | None]:
+        """Create the sandbox from the best image candidate that works, downgrading in order.
+
+        A downgrade is recorded on ``config.image_fallback`` so callers can surface it in
+        run-visible logs instead of the run silently landing on a lesser image. The last
+        candidate's failure propagates.
+        """
+        for index, candidate in enumerate(candidates):
+            create_kwargs["image"] = candidate.image
+            try:
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            except Exception as e:
+                if index == len(candidates) - 1:
+                    raise
+                logger.warning(
+                    f"Failed to create sandbox with {candidate.label}, "
+                    f"falling back to {candidates[index + 1].label}: {e}"
+                )
+                capture_exception(e)
+                continue
+            config.snapshot_restored = candidate.restored_from_snapshot
+            if index > 0:
+                config.image_fallback = f"{candidates[0].label} -> {candidate.label}"
+            return sb, modal_output
+        raise SandboxProvisionError(
+            "No sandbox image candidates to create from",
+            {"config_name": config.name},
+            cause=RuntimeError("empty image candidate list"),
+        )
 
     @staticmethod
     def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
@@ -1270,25 +1338,32 @@ class ModalSandbox(SandboxBase):
             timeout_seconds=15,
         )
 
-    def create_snapshot(self) -> str:
+    def _snapshot_filesystem_image(
+        self, publish_name: str | None = None, *, timeout_seconds: int = FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS
+    ) -> str:
+        """Guarded filesystem snapshot, optionally published under a Modal image name.
+
+        Returns the snapshot image's object id.
+        """
         if not self.is_running():
             raise SandboxNotRunningError(
-                f"Sandbox not in running state.",
+                "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        error_context = {"sandbox_id": self.id, **({"publish_name": publish_name} if publish_name else {})}
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
             # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
-            image = self._sandbox.snapshot_filesystem(ttl=None)
-
-            snapshot_id = image.object_id
-
-            logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
-
-            return snapshot_id
+            image = self._sandbox.snapshot_filesystem(timeout=timeout_seconds, ttl=None)
+            if publish_name is not None:
+                image.publish(publish_name)
+                logger.info(f"Published filesystem image {publish_name} ({image.object_id}) from sandbox {self.id}")
+            else:
+                logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {image.object_id}")
+            return image.object_id
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
@@ -1296,16 +1371,17 @@ class ModalSandbox(SandboxBase):
             logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
             raise SnapshotTimeoutError(
                 f"Transient error creating snapshot: {e}",
-                {"sandbox_id": self.id, "error": str(e)},
+                {**error_context, "error": str(e)},
                 cause=e,
                 capture=False,
             )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
-                f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
-            )
+            raise SnapshotCreationError(f"Failed to create snapshot: {e}", {**error_context, "error": str(e)}, cause=e)
+
+    def create_snapshot(self) -> str:
+        return self._snapshot_filesystem_image()
 
     def create_directory_snapshot(self, path: str) -> str:
         if not self.is_running():
@@ -1349,6 +1425,15 @@ class ModalSandbox(SandboxBase):
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
+
+    def publish_filesystem_image(self, publish_name: str) -> str:
+        """Snapshot the filesystem and publish it as a named Modal image.
+
+        Republishing an existing name moves it to the new snapshot, so a fixed name
+        (e.g. the prebaked dev-stack image) can be refreshed without touching its
+        consumers. Returns the snapshot image's object id.
+        """
+        return self._snapshot_filesystem_image(publish_name, timeout_seconds=PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS)
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

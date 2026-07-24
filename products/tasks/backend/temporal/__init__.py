@@ -1,4 +1,6 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
+from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
 from .build_image.workflow import BuildSandboxImageWorkflow
 from .create_snapshot.activities import (
@@ -63,6 +65,7 @@ WORKFLOWS = [
     RunTaskAutomationWorkflow,
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
+    BakeDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -117,4 +120,6 @@ ACTIVITIES = [
     scan_image_spec,
     build_and_publish_image,
     mark_image_build_failed,
+    # bake_dev_stack_image activities
+    bake_and_publish_dev_stack_image,
 ]

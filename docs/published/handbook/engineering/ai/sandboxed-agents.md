@@ -264,7 +264,7 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 ### Runtime selection (gVisor vs Modal VM)
 
 Production sandboxes run on one of two Modal runtimes,
-chosen per run in `get_task_processing_context` (`_is_modal_vm_sandbox_enabled`)
+chosen per run in `get_task_processing_context` (`_resolve_modal_vm_sandbox`)
 and forked in `provision_sandbox`:
 
 - **gVisor** (`SandboxTemplate.DEFAULT_BASE`) — the historical default: a gVisor kernel-sandboxed container.
@@ -273,13 +273,41 @@ and forked in `provision_sandbox`:
   Custom base images layer on this base, and it is what image-builder runs execute on.
 
 Selection is driven by the `tasks-modal-vm-sandbox` flag's JSON payload,
-which carries two origin allowlists:
+which carries two origin allowlists and an optional default image:
 
 - `origin_products` — origins allowed on the VM runtime when a custom image is resolved for the run
   (custom images cannot run under gVisor).
 - `default_base_origin_products` — origins that default to the bare VM base image **even without a custom image**.
   This is the knob for making the VM runtime the default for standard cloud runs;
   we widen it origin-by-origin (and, later, the flag's release condition) as the rollout expands.
+- `default_custom_image` — a Modal image name that VM runs fall back to when no custom image was picked.
+  Because the flag's payload variants are org-targeted, this routes _which default VM image an org gets_:
+  PostHog's own org points at the prebaked dev-stack image (below), everyone else keeps the plain VM base.
+  A user- or environment-selected custom image always wins over this default,
+  and provisioning falls back to the plain VM base if the named image is missing.
+
+#### The prebaked dev-stack image
+
+`hogli start` on a fresh VM pays for multi-gigabyte docker pulls and the full Django + persons +
+ClickHouse migration history — and dead-ends anyway, because the lean VM base lacks the dev
+toolchain flox provides on dev machines (brotli, phrocs, Go, Rust). For runs on the PostHog
+monorepo we bake all of that ahead of time:
+the `bake-dev-stack-image` Temporal workflow boots a plain VM-base sandbox,
+runs `bake-posthog-dev-stack.sh` inside it (install the dev toolchain, pre-pull the dev compose
+images, bring the stack up, run the Django and Rust-driven migrations, shut down cleanly),
+snapshots the filesystem, and publishes it under the fixed
+Modal image name `posthog-dev-stack` (see `products/tasks/backend/logic/services/dev_stack_image.py`).
+It is dispatched on two cadences, both gated per region on the `tasks-dev-stack-image-bake` flag
+via a `region` person property: a nightly full rebake that keeps the heavy state (migrations,
+docker pulls) close to master, and — mirroring the custom-image refresh fanout — a ten-minute
+sweep that rebakes as soon as the VM base image digest moves (e.g. an agent-server release),
+at most once per new digest.
+`python manage.py bake_dev_stack_image` triggers a bake manually and bypasses the flag.
+Pointing an org's `default_custom_image` payload key at that name gives its VM runs warm docker
+state and already-migrated databases, so a task-time `hogli start` only applies the migrations
+that landed since the last bake. The bake must run on the real VM runtime —
+dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
+snapshot rather than a spec-built image.
 
 Runs with a restricted-egress `SandboxEnvironment` (a custom domain allowlist) always stay on gVisor —
 Modal's outbound domain allowlist is a gVisor-only feature.

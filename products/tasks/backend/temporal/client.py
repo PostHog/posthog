@@ -18,8 +18,10 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
+from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
     SEND_STEER_SIGNAL,
@@ -506,6 +508,29 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
+def execute_bake_dev_stack_image_workflow(publish_name: str = DEV_STACK_IMAGE_NAME) -> None:
+    """Start (or restart) the bake of the prebaked PostHog dev-stack VM image.
+
+    TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
+    fresh one instead of blocking it.
+    """
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "bake-dev-stack-image",
+            BakeDevStackImageInput(publish_name=publish_name),
+            id=f"bake-dev-stack-image-{publish_name}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            # A single workflow attempt: each bake is a full 15-25 minute stack build, the
+            # activity inside already retries once, and the nightly schedule plus the
+            # base-digest sweep are the outer retry loop. Workflow-level retries would
+            # multiply with the activity's into up to four consecutive bakes.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
     )
 

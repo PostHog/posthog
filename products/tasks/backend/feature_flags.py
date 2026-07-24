@@ -4,12 +4,44 @@ from django.conf import settings
 
 import posthoganalytics
 
-from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG
+from posthog.utils import get_instance_region
+
+from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
+    DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+)
 
 logger = logging.getLogger(__name__)
 
 NATIVE_STEERING_SIGNALS_FEATURE_FLAG = "tasks-native-steering-signals"
 NATIVE_STEERING_SIGNALS_DISTINCT_ID = "tasks-native-steering-signals"
+
+DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
+
+
+def is_dev_stack_image_bake_enabled() -> bool:
+    """Gates the nightly prebaked dev-stack image bake (a paid Modal VM run per tick).
+
+    The bake publishes into the region's own Modal workspace, so the flag is evaluated
+    with the deployment region as a person property — release conditions can enable one
+    region at a time (`region = US` first). Fail-closed: a flag-service error must not
+    start a bake, and local dev (where the analytics SDK is disabled) always resolves
+    False — use `manage.py bake_dev_stack_image` to bake manually."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+                distinct_id=DEV_STACK_IMAGE_BAKE_DISTINCT_ID,
+                # Same region vocabulary as other region-conditioned flags: US / EU / DEV.
+                person_properties={"region": get_instance_region() or "DEV"},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("dev_stack_image_bake_flag_check_failed")
+        return False
 
 
 def is_native_steering_signals_enabled() -> bool:

@@ -19,3 +19,30 @@ def refresh_stale_sandbox_custom_images_task() -> None:
     )
 
     refresh_stale_sandbox_custom_images()
+
+
+@shared_task(ignore_result=True)
+def bake_dev_stack_image_task() -> None:
+    """Dispatch the nightly rebake of the prebaked PostHog dev-stack VM image."""
+    from products.tasks.backend.feature_flags import (
+        is_dev_stack_image_bake_enabled,  # noqa: PLC0415 — keeps posthoganalytics off the import path
+    )
+
+    if not is_dev_stack_image_bake_enabled():
+        return
+
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keeps the Temporal client off the import path
+        execute_bake_dev_stack_image_workflow,
+    )
+
+    execute_bake_dev_stack_image_workflow()
+
+
+@shared_task(ignore_result=True)
+def refresh_dev_stack_image_task() -> None:
+    """Rebake the prebaked dev-stack image when the VM base image digest changes."""
+    from products.tasks.backend.logic.services.dev_stack_image import (  # noqa: PLC0415 — keeps the service deps off the import path
+        refresh_dev_stack_image_if_base_changed,
+    )
+
+    refresh_dev_stack_image_if_base_changed()

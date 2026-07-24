@@ -115,6 +115,10 @@ class SandboxConfig(BaseModel):
     outbound_domain_allowlist: list[str] | None = None
     # VM runtime only — custom images layer on the VM base; snapshot restores take precedence.
     custom_image_name: str | None = None
+    # Set by the provider when the sandbox could not be created from the intended image and a
+    # downgraded one was used instead (e.g. published custom image -> plain base). Human-readable,
+    # surfaced in the run log so image downgrades are never silent.
+    image_fallback: str | None = None
 
     @model_validator(mode="before")
     @classmethod
