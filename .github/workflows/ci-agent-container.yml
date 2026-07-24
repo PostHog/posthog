@@ -116,7 +116,23 @@ jobs:
                       depot_project: 6gmww256q5
                       push_to_ecr: 'false'
 
+        # ECR routing resolved once so the push target can't drift from the digest/smoke
+        # pull target: master → <image> via the master role; else → <image>-prs via the prs role.
+        env:
+            ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && matrix.image || format('{0}-prs', matrix.image) }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+
         steps:
+            - name: Assert master publish role is configured
+              if: github.ref == 'refs/heads/master'
+              env:
+                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$MASTER_ROLE" ]]; then
+                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    exit 1
+                  fi
+
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -134,7 +150,10 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: ${{ matrix.image }}
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # ECR repo + role resolved once at job level (see env above). Unused for the
+                  # push_to_ecr:'false' matrix entry (ghcr-only). ghcr/dockerhub unchanged.
+                  ecr-image-name: ${{ env.ECR_IMAGE }}
+                  aws-role-to-assume: ${{ env.ECR_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -166,7 +185,7 @@ jobs:
                   # report the GHCR reference instead so the step summary stays
                   # useful and the smoke-test step downstream has a pullable ref.
                   if [ "$PUSH_TO_ECR" = "true" ]; then
-                      IMAGE_BASE="$ECR_REGISTRY/$IMAGE_NAME"
+                      IMAGE_BASE="$ECR_REGISTRY/$ECR_IMAGE"
                   else
                       IMAGE_BASE="ghcr.io/posthog/$IMAGE_NAME"
                   fi
@@ -210,7 +229,7 @@ jobs:
                   # Mirror the digest-step logic: GHCR-only images smoke-test
                   # against their GHCR ref since there's no ECR copy.
                   if [ "$PUSH_TO_ECR" = "true" ]; then
-                      IMAGE_REF="${ECR_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                      IMAGE_REF="${ECR_REGISTRY}/${ECR_IMAGE}@${IMAGE_DIGEST}"
                   else
                       IMAGE_REF="ghcr.io/posthog/${IMAGE_NAME}@${IMAGE_DIGEST}"
                   fi

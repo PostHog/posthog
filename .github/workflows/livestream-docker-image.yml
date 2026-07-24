@@ -33,7 +33,23 @@ jobs:
         outputs:
             sha: ${{ steps.push.outputs.digest }}
 
+        # ECR routing resolved once so the push target can't drift from any reader:
+        # master → livestream via the master role; everything else → livestream-prs via the prs role.
+        env:
+            ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'livestream' || 'livestream-prs' }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+
         steps:
+            - name: Assert master publish role is configured
+              if: github.ref == 'refs/heads/master'
+              env:
+                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$MASTER_ROLE" ]]; then
+                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    exit 1
+                  fi
+
             - name: Check out livestream code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -47,7 +63,9 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: livestream
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # ECR repo + role resolved once at job level (see env above). ghcr/legacy paths unchanged.
+                  ecr-image-name: ${{ env.ECR_IMAGE }}
+                  aws-role-to-assume: ${{ env.ECR_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
