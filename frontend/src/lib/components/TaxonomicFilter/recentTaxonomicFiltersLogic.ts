@@ -11,6 +11,7 @@ import {
     META_GROUP_TYPES,
     SelectingKeyOnly,
     TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from './types'
@@ -56,6 +57,22 @@ export function hasRecentContext(item: unknown): item is Record<string, any> & {
 export function stripRecentContext<T extends Record<string, any>>(item: T): Omit<T, '_recentContext'> {
     const { _recentContext: _, ...clean } = item
     return clean
+}
+
+/**
+ * The value a selection of `item` should commit. Recents are persisted as bare
+ * `{ name, id? }`, so the source group's `getValue` can read fields they lack
+ * (e.g. Event metadata reads `id`) — prefer the canonical sourceValue recorded
+ * at first selection. Every commit path should resolve values through this.
+ */
+export function resolveTaxonomicItemValue(
+    item: TaxonomicDefinitionTypes,
+    group: TaxonomicFilterGroup | undefined
+): TaxonomicFilterValue | null {
+    if (hasRecentContext(item)) {
+        return item._recentContext.sourceValue ?? group?.getValue?.(item) ?? null
+    }
+    return group?.getValue?.(item) ?? null
 }
 
 export function isCompleteRecentPropertyFilter(propertyFilter: AnyPropertyFilter | undefined): boolean {

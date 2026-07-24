@@ -22,6 +22,7 @@ import {
     expandRecentsForDisplay,
     hasRecentContext,
     recentTaxonomicFiltersLogic,
+    resolveTaxonomicItemValue,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -2154,8 +2155,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
-                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
+                    const itemValue = selectedItem ? resolveTaxonomicItemValue(selectedItem, itemGroup) : null
+                    actions.selectItem(itemGroup, itemValue, selectedItem, {
                         position: values.index,
                     })
                 }

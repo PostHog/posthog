@@ -1248,6 +1248,45 @@ describe('infiniteListLogic', () => {
         )
     })
 
+    describe('keyboard-selecting a recent item', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        it('selectSelected commits the recorded sourceValue for a bare recent whose source group getValue reads fields recents lack', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            // Event metadata's getValue reads `id`, which persisted recents don't keep
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventMetadata,
+                groupName: 'Event metadata',
+                value: 'event',
+                item: { name: 'event' },
+            })
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventMetadata,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(hasRecentContext(listLogic.values.selectedItem)).toBe(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.selectSelected()).toDispatchActions([
+                ({ type, payload }) =>
+                    type === listLogic.actionTypes.selectItem &&
+                    payload.group.type === TaxonomicFilterGroupType.EventMetadata &&
+                    payload.value === 'event',
+            ])
+        })
+    })
+
     describe('committed selection promotion', () => {
         beforeEach(() => {
             localStorage.clear()

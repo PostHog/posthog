@@ -48,7 +48,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
-import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { recentTaxonomicFiltersLogic, resolveTaxonomicItemValue } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
@@ -388,7 +388,9 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            // Resolves recent rows via their recorded sourceValue — mirrors the
+            // legacy InfiniteList (bare `{ name }` recents lack getValue's fields).
+            const itemValue = resolveTaxonomicItemValue(mergedItem, entry.group)
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
                 groupType: entry.group.type,

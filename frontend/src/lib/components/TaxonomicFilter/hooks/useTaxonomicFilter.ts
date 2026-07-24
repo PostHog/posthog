@@ -26,6 +26,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import {
     hasRecentContext,
     recentTaxonomicFiltersLogic,
+    resolveTaxonomicItemValue,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
@@ -513,7 +514,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         const list = readActiveList()
         const selected = list?.itemAtIndex()
         if (selected && activeGroup) {
-            const itemValue = activeGroup.getValue?.(selected) ?? null
+            const itemValue = resolveTaxonomicItemValue(selected, activeGroup)
             selectItem(activeGroup, itemValue, selected)
         } else {
             onEnter?.(searchQuery)
