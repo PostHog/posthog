@@ -6058,6 +6058,7 @@ export type MarketingAnalyticsDrillDownLevelApi =
 
 export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
+    ChannelSource: 'channel_source',
     Source: 'source',
     Campaign: 'campaign',
     AdGroup: 'ad_group',

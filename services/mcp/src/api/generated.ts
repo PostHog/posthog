@@ -6496,6 +6496,7 @@ export namespace Schemas {
 
     export const MarketingAnalyticsDrillDownLevel = {
       Channel: 'channel',
+      ChannelSource: 'channel_source',
       Source: 'source',
       Campaign: 'campaign',
       AdGroup: 'ad_group',
