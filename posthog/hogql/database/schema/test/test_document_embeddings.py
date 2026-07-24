@@ -1,9 +1,11 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
@@ -107,3 +109,18 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is not None
         assert inner_query.limit is not None
         assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"
+
+    @parameterized.expand(
+        [
+            ("no model_name filter", "SELECT document_id FROM document_embeddings LIMIT 10"),
+            (
+                "unknown model_name",
+                "SELECT document_id FROM document_embeddings WHERE model_name = 'not-a-real-model' LIMIT 10",
+            ),
+        ]
+    )
+    def test_missing_or_unknown_model_name_raises_exposed_error(self, _name: str, query: str):
+        # An ExposedHogQLError is catchable by the SQL agent's validation loop and surfaces as a
+        # proper query error from the query runner, unlike the bare ValueError this used to raise.
+        with pytest.raises(ExposedHogQLError, match="requires a `model_name`"):
+            self._get_inner_query(query)
