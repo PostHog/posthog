@@ -550,13 +550,35 @@ async fn deployment_rollout_reassigns_partitions() {
         .expect("register old-1 failed")
         .into_inner();
 
-    // Wait for initial assignment across both consumers
+    // Wait for initial assignment to settle across both consumers.
+    //
+    // The two Register RPCs write to etcd sequentially, and each runs a k3s
+    // controller-discovery lookup first. If the second write lands outside the
+    // assigner's rebalance debounce window (e.g. when the k3s API server is
+    // slow under CI load), the assigner first assigns all partitions to
+    // consumer A, then rebalances half to B via handoffs rather than in one
+    // direct assignment. Drive any such in-flight handoffs here, exactly as a
+    // real consumer would, so we converge on steady state regardless of which
+    // path the assigner took, instead of hanging on a transient handoff.
     let check_store = Arc::clone(&store);
     let check_names = old_names.clone();
     wait_for_condition(E2E_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         let names = check_names.clone();
         async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            for h in &handoffs {
+                match h.phase {
+                    kafka_assigner::types::HandoffPhase::Warming => {
+                        signal_ready(&store, &h.topic_partition()).await;
+                    }
+                    kafka_assigner::types::HandoffPhase::Complete => {
+                        signal_released(&store, &h.topic_partition()).await;
+                    }
+                    kafka_assigner::types::HandoffPhase::Ready => {}
+                }
+            }
+
             let a = store.list_assignments().await.unwrap_or_default();
             let h = store.list_handoffs().await.unwrap_or_default();
             a.len() == NUM_PARTITIONS as usize

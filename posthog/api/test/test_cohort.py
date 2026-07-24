@@ -105,6 +105,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
 
         # Sort 'changes' lists for order-insensitive comparison
@@ -360,6 +362,24 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
+
+    @parameterized.expand(
+        [
+            # A group with none of properties/action_id/event_id used to raise an uncaught
+            # ValueError from Group.__init__ and surface as a 500.
+            ("missing_all_keys", [{"days": 5}], "properties or action_id or event_id"),
+            # A falsy-but-non-list value used to slip past validation and get persisted as-is.
+            ("empty_string", "", "must be a list"),
+            ("non_dict_entry", ["not-a-dict"], "must be an object"),
+        ]
+    )
+    def test_creating_cohort_with_malformed_groups_returns_400(self, _name, groups, expected_detail):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""

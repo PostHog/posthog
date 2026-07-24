@@ -14,8 +14,8 @@ class TestSharedBlobCache extends SharedBlobCache {
         return this.readCache()
     }
 
-    write(bytes: Uint8Array, validator?: string): Promise<void> {
-        return this.writeCache(bytes, validator)
+    write(bytes: Uint8Array): Promise<void> {
+        return this.writeCache(bytes)
     }
 
     acquire(token: string): Promise<boolean> {
@@ -70,7 +70,6 @@ const NAMESPACE = 'test-blob'
 const BYTES_KEY = `mcp:shared-blob:${NAMESPACE}:bytes`
 const FRESH_KEY = `mcp:shared-blob:${NAMESPACE}:fresh`
 const LOCK_KEY = `mcp:shared-blob:${NAMESPACE}:lock`
-const ETAG_KEY = `mcp:shared-blob:${NAMESPACE}:etag`
 
 describe('SharedBlobCache', () => {
     let redis: MockRedis
@@ -89,24 +88,6 @@ describe('SharedBlobCache', () => {
         expect(cached).toEqual({ bytes, fresh: true })
         expect(redis._store.has(BYTES_KEY)).toBe(true)
         expect(redis._store.has(FRESH_KEY)).toBe(true)
-    })
-
-    it('leaves the etag untouched and rejects when the bytes write fails', async () => {
-        // Ordering guard: bytes must land before the validator. If a bytes SET
-        // fails, the etag must keep its old value so a later conditional refresh
-        // can't send a new validator that no longer matches the cached bytes.
-        redis._store.set(ETAG_KEY, 'etag-old')
-        redis.set = vi.fn(async (key: string, ...rest: (string | number)[]) => {
-            if (key === BYTES_KEY) {
-                throw new Error('bytes write failed')
-            }
-            redis._store.set(key, String(rest[0]))
-            return 'OK'
-        })
-        const cache = new TestSharedBlobCache(redis, NAMESPACE)
-
-        await expect(cache.write(new Uint8Array([1, 2, 3]), 'etag-new')).rejects.toThrow('bytes write failed')
-        expect(redis._store.get(ETAG_KEY)).toBe('etag-old')
     })
 
     it('marks cached bytes stale after the freshness window', async () => {

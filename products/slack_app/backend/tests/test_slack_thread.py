@@ -200,7 +200,7 @@ def _button_texts(action_block: dict) -> list[str]:
 
 
 class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
-    """A ``task_url=None`` payload signals the recipient does not have PostHog Code access.
+    """A ``task_url=None`` payload signals the recipient does not have PostHog Desktop access.
 
     Each renderer must drop the PostHog button (or the entire actions block when
     that was the only button) so the message stays useful without dangling at a

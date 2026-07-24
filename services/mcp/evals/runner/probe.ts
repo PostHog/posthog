@@ -1,13 +1,15 @@
 /**
  * Deterministic probe runner — no LLM. Connects to a LIVE MCP server,
- * verifies every tool the benchmark references is advertised, executes each
- * task's read-only probe call, and prints/writes a score summary.
+ * verifies every required tool (the expected path + probe tool) is advertised,
+ * executes each task's read-only probe call, and prints/writes a score summary.
+ * Acceptable tools are optional alternatives (often feature-gated), so a missing
+ * one is not a failure.
  *
  * Usage:
  *   LIVE_MCP_URL=http://localhost:9876 LIVE_MCP_TOKEN=phx_... \
  *     pnpm exec tsx evals/runner/probe.ts [--out score.json]
  *
- * Exit code is non-zero when any referenced tool is missing or any probe
+ * Exit code is non-zero when any required tool is missing or any probe
  * fails, so the campaign (or CI) can gate on it directly.
  */
 
@@ -17,7 +19,7 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import { writeFileSync } from 'node:fs'
 import process from 'node:process'
 
-import { loadBenchmark, referencedTools, type BenchmarkTask } from '../benchmark/schema'
+import { loadBenchmark, referencedTools, requiredTools, type BenchmarkTask } from '../benchmark/schema'
 import { formatSummary, summarize, type ProbeResult, type ToolMiss } from './results'
 
 interface AdvertisedTool {
@@ -102,7 +104,7 @@ async function main(): Promise<void> {
         )
 
         const toolMisses: ToolMiss[] = benchmark.tasks.flatMap((task) =>
-            referencedTools(task)
+            requiredTools(task)
                 .filter((tool) => !advertised.has(tool))
                 .map((tool) => ({ task_id: task.id, tool }))
         )

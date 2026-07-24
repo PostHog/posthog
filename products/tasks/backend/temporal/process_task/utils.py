@@ -195,7 +195,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
 
 # Applied at fire time when a loop leaves its model unset ("" / None): a blank
 # model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops.
+# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
     RuntimeAdapter.CODEX.value: "gpt-5",
@@ -375,7 +375,7 @@ def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# (notably the PostHog Desktop CLI) that still pass ``github_user_token`` on the run request.
 # The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -615,8 +615,8 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
     Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
-    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
-    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
+    origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -990,7 +990,7 @@ def _resolve_sandbox_github_token(
     Resolution order for ``USER`` authorship:
 
     1. Caller-supplied token cached at run-create time (backward compat for the
-       PostHog Code CLI — wins when present so self-managed tokens still work).
+       PostHog Desktop CLI — wins when present so self-managed tokens still work).
     2. Server-side ``UserIntegration`` for the acting user, refreshing on demand.
     3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
@@ -1201,7 +1201,7 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     """Return git author/committer env vars for the sandbox.
 
     Runs with user authorship are attributed to the acting user.
-    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
+    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Desktop" /
     code@posthog.com).
     """
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:

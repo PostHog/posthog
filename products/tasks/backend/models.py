@@ -60,7 +60,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
 
@@ -144,6 +144,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
         # GitHub event or API. See products/tasks/docs/LOOPS.md.
         LOOP = "loop", "Loop"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -231,7 +233,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     archived = models.BooleanField(
         default=False,
         help_text=(
-            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "If true, the task is hidden from default list responses. Used by PostHog Desktop clients "
             "to share archive state across desktop and mobile."
         ),
     )
@@ -1143,6 +1145,10 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
     # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
     context_target = models.JSONField(default=dict, blank=True)
+    # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
+    # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
+    # get_skill_bundle_s3_prefix()) are copied into every fired run so the sandbox installs them.
+    skill_bundles = models.JSONField(default=list, blank=True)
     internal = models.BooleanField(
         default=False,
         help_text="If true, this loop is for internal use and should not be exposed to end users.",
@@ -1172,6 +1178,16 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
 
     def __str__(self):
         return self.name
+
+    @staticmethod
+    def skill_bundle_s3_prefix_for(team_id: int, loop_id: "uuid.UUID | str") -> str:
+        """Base prefix for a loop's skill bundle objects in S3, computable from ids so
+        seeding can validate snapshot paths without loading the row."""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{team_id}/loop_{loop_id}"
+
+    def get_skill_bundle_s3_prefix(self) -> str:
+        return Loop.skill_bundle_s3_prefix_for(self.team_id, self.id)
 
     def _get_before_update(self, **kwargs: Any) -> "Loop | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
@@ -1369,7 +1385,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # Local url-based MCP servers imported from the creating client (PostHog Desktop),
     # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
     # header values carry credentials; never exposed through API responses.
     imported_mcp_servers = EncryptedJSONStringField(
@@ -2451,7 +2467,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 
 class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Code access."""
+    """Invite codes for PostHog Desktop access."""
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
@@ -2496,7 +2512,7 @@ class CodeInvite(UUIDModel):
 
 
 class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Code invite."""
+    """Tracks each redemption of a PostHog Desktop invite."""
 
     invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
@@ -2519,7 +2535,7 @@ TASK_PRESENCE_TTL_SECONDS = 60
 class TaskPresence(TeamScopedRootMixin):
     """Per-device 'this user is actively watching this task' beacon.
 
-    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    Created/refreshed by the desktop and mobile PostHog Desktop clients while a
     task screen is foregrounded. The push fanout consults this table to skip
     devices that are demonstrably already watching the task, so we don't fire
     phantom notifications at a phone while the user is mid-conversation with

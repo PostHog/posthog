@@ -62,8 +62,10 @@ def _create_org_member_with_github(email: str, organization: Organization, login
     return user
 
 
-def _reviewer(login: str) -> ReviewerContent:
-    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[], reason=None)
+def _reviewer(login: str, *, is_skill_owner: bool = False) -> ReviewerContent:
+    return ReviewerContent(
+        github_login=login, github_name=None, relevant_commits=[], reason=None, is_skill_owner=is_skill_owner
+    )
 
 
 @pytest.mark.django_db
@@ -98,6 +100,39 @@ def test_resolve_autostart_assignee(
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, team):
+    # The owner guardrail places editor-controlled `LLMSkillOwner`s first in suggested_reviewers, but
+    # the autostart path mints a full-scope OAuth token as the chosen reviewer. Selecting an owner as
+    # that identity would let a skill editor name a privileged teammate as owner and have the agent run
+    # as them, so owner-provenance entries must be excluded from identity selection.
+    # Both resolve to real org members with linked GitHub — so "ownercat" being skipped is the guard
+    # working, not just an unresolvable login.
+    _create_org_member_with_github("owner@example.com", organization, "OwnerCat")
+    author = _create_org_member_with_github("author@example.com", organization, "AuthorCat")
+
+    # Owner is listed first; the commit-authorship reviewer (author) must still be the one chosen.
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("ownercat", is_skill_owner=True), _reviewer("authorcat")],
+        team_default_priority=Priority.P4,
+    )
+    assert assignee is not None
+    assert assignee.id == author.id
+
+    # An owner-only list resolves to nobody — the caller then falls back to the signals-enabling member.
+    assert (
+        _resolve_autostart_assignee(
+            team_id=team.id,
+            report_priority=Priority.P0,
+            reviewers_content=[_reviewer("ownercat", is_skill_owner=True)],
+            team_default_priority=Priority.P4,
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(

@@ -55,7 +55,11 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
             const { created_by } = item
             return (
                 <div className="flex flex-row items-center flex-nowrap">
-                    {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                    {created_by ? (
+                        <ProfilePicture user={created_by} size="md" showName />
+                    ) : (
+                        <span className="text-secondary">—</span>
+                    )}
                 </div>
             )
         },

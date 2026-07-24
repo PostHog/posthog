@@ -29,10 +29,17 @@ from products.tasks.backend.presentation.serializers_loops import (
     LoopRunPageSerializer,
     LoopRunsQuerySerializer,
     LoopSerializer,
+    LoopSkillBundlesWriteSerializer,
     LoopWriteSerializer,
 )
 
 MAX_LOOP_TRIGGER_PAYLOAD_BYTES = 64 * 1024
+# Whole-request ceiling for the skill_bundles replace, enforced from Content-Length
+# before request.data parses. This is the authoritative parse bound for the endpoint:
+# DRF parses JSON from the request stream, where Django's DATA_UPLOAD_MAX_MEMORY_SIZE
+# is not guaranteed to apply, so the gate must not assume a larger backstop. 20MB fits
+# one 10MB decoded bundle plus base64 overhead and dependencies.
+MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES = 20 * 1024 * 1024
 
 
 def _loop_limit_response(exc: "loops_facade.LoopLimitError") -> Response:
@@ -142,7 +149,9 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # (`runs`), so a service that triggers can also poll the outcome. Everything else (CRUD,
     # manual run, preview) stays session/PAT/OAuth-only.
     psak_allowed_actions = ["trigger", "runs"]
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    # "put" is routed only by the skill_bundles action (wholesale replace); the loop
+    # resource itself stays PATCH-only.
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
     pagination_class = LoopsPagination
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
@@ -275,6 +284,53 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not deleted:
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Replace a loop's skill bundles",
+        description=(
+            "Replaces the loop's attached skill bundles wholesale: zipped local skills whose "
+            "contents are seeded into every fired run's sandbox. Send an empty list to detach "
+            "every skill. Owner-only on team loops, like other identity-bearing configuration."
+        ),
+        request=LoopSkillBundlesWriteSerializer,
+        responses={
+            200: LoopSerializer,
+            403: OpenApiResponse(description="Not permitted to change this loop's skills"),
+            404: OpenApiResponse(description="Loop not found"),
+            411: OpenApiResponse(description="Content-Length header missing"),
+            413: OpenApiResponse(description="Request body exceeds the skill bundle size ceiling"),
+        },
+    )
+    @action(detail=True, methods=["put"], url_path="skill_bundles", required_scopes=["loop:write"])
+    def skill_bundles(self, request, pk=None, **kwargs):
+        # Same shape as `trigger`'s payload gate: require a declared length, then reject
+        # oversized requests from it, all before request.data parses (and retains) the
+        # body. This gate is the endpoint's authoritative parse bound — see the note on
+        # MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES.
+        content_length = _content_length(request)
+        if content_length <= 0:
+            return Response(
+                {"detail": "A Content-Length header is required."},
+                status=status.HTTP_411_LENGTH_REQUIRED,
+            )
+        if content_length > MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES:
+            return Response(
+                {"detail": (f"Skill bundle request exceeds {MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES // (1024 * 1024)}MB.")},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        serializer = LoopSkillBundlesWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            loop = loops_facade.replace_loop_skill_bundles(
+                pk, self.team_id, request.user, bundles=list(serializer.validated_data["bundles"])
+            )
+        except loops_facade.LoopPermissionError as exc:
+            raise PermissionDenied(str(exc))
+        except loops_facade.LoopValidationError as exc:
+            raise ValidationError(str(exc))
+        if loop is None:
+            raise NotFound()
+        return Response(LoopSerializer(loop).data)
 
     @extend_schema(
         summary="Run a loop manually",

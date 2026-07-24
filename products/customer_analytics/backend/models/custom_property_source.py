@@ -33,6 +33,10 @@ class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Up
     key_column = models.CharField(max_length=400)
     # Person path: {warehouse_column: person_property_name} for the columns this source maps.
     column_property_map = models.JSONField(null=True, blank=True, default=None)
+    # Person path: {warehouse_column: description} — the human-facing description for each mapped
+    # column, seeded from the warehouse column's information_schema description. Keyed by warehouse
+    # column so it pairs with column_property_map; entries are optional.
+    column_descriptions = models.JSONField(null=True, blank=True, default=None)
 
     is_enabled = models.BooleanField(default=True)
     consecutive_failures = models.PositiveIntegerField(default=0)

@@ -144,7 +144,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             <testcase classname="pkg.test_a.TestA" name="test_fast" time="0.1"/>
             <testcase classname="pkg.test_a.TestA" name="test_slow" time="2.0"/>
             <testcase classname="pkg.test_a.TestA" name="test_rerun" time="0.2">
-              <rerunFailure message="x"/>
+              <flakyFailure message="x" time="0.3"/>
             </testcase>
             <testcase classname="pkg.test_a.TestA" name="test_fail" time="0.1"><failure message="x"/></testcase>
         """,
@@ -160,8 +160,8 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.info.total == 7
     assert shard.start == datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     assert (shard.end - shard.start).total_seconds() == pytest.approx(10.0)
-    assert shard.testcase_seconds == pytest.approx(2.4)
-    assert shard.overhead_seconds == pytest.approx(7.6)
+    assert shard.testcase_seconds == pytest.approx(2.7)
+    assert shard.overhead_seconds == pytest.approx(7.3)
     assert shard.junit_filename == "junit-core.xml"
     assert [t.name for t in shard.tests] == ["test_fast", "test_slow", "test_rerun", "test_fail"]
     assert shard.tests[0].nodeid == "pkg/test_a/TestA::test_fast"
@@ -169,6 +169,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[0].end == datetime(2026, 5, 4, 10, 0, 0, 100000, tzinfo=UTC)
     assert shard.tests[1].start == shard.tests[0].end
     assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
+    assert shard.tests[2].duration_seconds == pytest.approx(0.5)
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
@@ -197,9 +198,13 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             '<testcase name="t"><properties><property name="posthog.reruns" value="garbage"/></properties></testcase>',
             ("passed", 1),
         ),
+        # Playwright's JUnit reporter uses flakyFailure/flakyError for attempts
+        # that failed before the final successful retry.
+        ('<testcase name="t"><flakyFailure message="x"/></testcase>', ("rerun_passed", 2)),
+        ('<testcase name="t"><flakyError message="x"/></testcase>', ("rerun_passed", 2)),
     ],
 )
-def test_classify_testcase_reads_rerun_property(testcase_xml: str, expected: tuple[str, int]) -> None:
+def test_classify_testcase_reads_retry_attempts(testcase_xml: str, expected: tuple[str, int]) -> None:
     assert report_test_timings.classify_testcase(ElementTree.fromstring(testcase_xml)) == expected
 
 
@@ -524,6 +529,47 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
 
     assert tracer.spans[1].attributes["test.owner_team"] == "team-devex"
     assert "test.owner_team" not in tracer.spans[2].attributes
+
+
+def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Products run pytest with `--rootdir ../..`, so real product JUnit `file`/`classname`
+    # are already repo-relative; the span must carry them through, not double-prefix them.
+    _write_shard_xml(
+        tmp_path / "product-junit-results-1",
+        filename="junit-product-warehouse_sources.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="products.warehouse_sources.backend.migrations.test.test_migration_0075.TestBackfillApiVersion" '
+            'file="products/warehouse_sources/backend/migrations/test/test_migration_0075.py" name="test_backfill" time="1.0"/>'
+        ),
+    )
+    shard = report_test_timings.collect_shards(tmp_path)[0]
+    assert shard.info.suite == "product"
+    assert shard.info.segment == "warehouse_sources"
+    assert report_test_timings.job_trace_name("Backend CI", shard.info) == "Backend CI / warehouse_sources (1)"
+
+    tracer = _FakeTracer()
+    owner_paths: list[str] = []
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    def owner_of(file: str) -> str:
+        owner_paths.append(file)
+        return "team-data-warehouse"
+
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / warehouse_sources (1)", owner_of)
+
+    test_span = tracer.spans[1]
+    expected_file = "products/warehouse_sources/backend/migrations/test/test_migration_0075.py"
+    assert (
+        test_span.name
+        == "products/warehouse_sources/backend/migrations/test/test_migration_0075/TestBackfillApiVersion::test_backfill"
+    )
+    assert test_span.attributes["test.selector"] == f"{expected_file}::TestBackfillApiVersion::test_backfill"
+    assert test_span.attributes["test.owner_team"] == "team-data-warehouse"
+    assert owner_paths == [expected_file]
 
 
 # ---------- workflow context ----------

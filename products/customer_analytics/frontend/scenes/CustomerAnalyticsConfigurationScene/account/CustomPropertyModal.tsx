@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -15,6 +15,7 @@ import {
     LemonTag,
     LemonTextArea,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
@@ -67,7 +68,8 @@ function PersonSourceEditor(): JSX.Element {
         selectedTableColumns,
         selectedTableColumnsLoading,
     } = useValues(customPropertyDefinitionsLogic)
-    const { setCustomPropertyFormValue, loadSelectedTableColumns } = useActions(customPropertyDefinitionsLogic)
+    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
+        useActions(customPropertyDefinitionsLogic)
     const { groupTypes } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
@@ -76,7 +78,19 @@ function PersonSourceEditor(): JSX.Element {
     const noTables = !warehouseTablesLoading && warehouseTables.length === 0
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
-    const columnOptions = selectedTableColumns.map((column) => ({ key: column, label: column }))
+    const columnByName = new Map(selectedTableColumns.map((column) => [column.name, column]))
+    // Each column option renders its name with a tag for its warehouse type, so a picker shows what
+    // kind of value it holds without leaving the modal.
+    const columnOptions = selectedTableColumns.map((column) => ({
+        key: column.name,
+        label: column.name,
+        labelComponent: (
+            <span className="flex items-center gap-2">
+                <span>{column.name}</span>
+                <LemonTag type="muted">{column.type}</LemonTag>
+            </span>
+        ),
+    }))
     const groupTypeOptions = Array.from(groupTypes.values()).map((groupType) => ({
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
@@ -118,26 +132,32 @@ function PersonSourceEditor(): JSX.Element {
                 <LemonField
                     name="warehouseTable"
                     label="Warehouse table"
-                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s.`}
+                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s. Type to search all synced tables.`}
                 >
                     {({ value, onChange }) => (
-                        <LemonSearchableSelect
-                            value={value}
-                            onChange={(newValue) => {
+                        <LemonInputSelect
+                            mode="single"
+                            value={value ? [value] : []}
+                            onChange={(newValues) => {
+                                const newValue = newValues[0] ?? null
                                 onChange(newValue)
                                 // Columns are table-specific, so a table change invalidates the picks and
                                 // loads the new table's columns for the pickers below.
                                 setCustomPropertyFormValue('keyColumn', null)
-                                setMappings(mappings.map((mapping) => ({ ...mapping, column: '' })))
+                                setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
+                                // Also load on clear (tableId null) so the pickers below drop the previous
+                                // table's stale columns; the loader returns an empty list for null.
                                 loadSelectedTableColumns({ tableId: newValue })
                             }}
+                            // Search runs on the backend so the whole synced catalog is reachable, not just
+                            // the first page loaded into the picker.
+                            onInputChange={(search) => loadWarehouseTables({ search })}
                             options={warehouseTables.map((table) => ({
-                                value: table.id,
+                                key: table.id,
                                 label: table.hogql_name || table.name,
                             }))}
                             loading={warehouseTablesLoading}
                             placeholder="Select a warehouse table"
-                            fullWidth
                         />
                     )}
                 </LemonField>
@@ -168,20 +188,34 @@ function PersonSourceEditor(): JSX.Element {
                         Map each warehouse column to the {entityLabel} property name it should set.
                     </span>
                     {mappings.map((mapping, index) => (
-                        <div key={index} className="flex flex-col gap-1">
+                        <div key={index} className="flex flex-col gap-1 border rounded p-2">
                             <div className="flex items-center gap-2">
                                 <div className="flex-1">
                                     <LemonInputSelect
                                         mode="single"
                                         allowCustomValues
                                         value={mapping.column ? [mapping.column] : []}
-                                        onChange={(newValues) =>
+                                        onChange={(newValues) => {
+                                            const column = newValues[0] ?? ''
+                                            const columnMeta = columnByName.get(column)
                                             setMappings(
                                                 mappings.map((m, i) =>
-                                                    i === index ? { ...m, column: newValues[0] ?? '' } : m
+                                                    i === index
+                                                        ? {
+                                                              ...m,
+                                                              column,
+                                                              // Seed the property name and description from the
+                                                              // column when they're still empty, so a mapping is
+                                                              // one click when the warehouse names are good.
+                                                              property: m.property.trim() ? m.property : column,
+                                                              description: m.description.trim()
+                                                                  ? m.description
+                                                                  : (columnMeta?.description ?? ''),
+                                                          }
+                                                        : m
                                                 )
                                             )
-                                        }
+                                        }}
                                         options={columnOptions}
                                         loading={selectedTableColumnsLoading}
                                         placeholder="Warehouse column"
@@ -208,6 +242,15 @@ function PersonSourceEditor(): JSX.Element {
                                     onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
                                 />
                             </div>
+                            <LemonInput
+                                value={mapping.description}
+                                onChange={(description) =>
+                                    setMappings(mappings.map((m, i) => (i === index ? { ...m, description } : m)))
+                                }
+                                placeholder="Description (optional)"
+                                size="small"
+                                fullWidth
+                            />
                             {columnMappingWarnings[index] && (
                                 <span className="text-warning text-xs">{columnMappingWarnings[index]}</span>
                             )}
@@ -216,15 +259,32 @@ function PersonSourceEditor(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
-                        onClick={() => setMappings([...mappings, { column: '', property: '' }])}
+                        onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
                     >
                         Add mapping
                     </LemonButton>
                 </div>
             )}
-            <LemonField name="isEnabled">
+            <LemonField
+                name="isEnabled"
+                help={`When on, this table's syncs update the mapped ${entityLabel} properties, and each sync backfills changed rows. Turn it off to stop updating those properties without deleting the mapping; values already synced stay.`}
+            >
                 {({ value, onChange }) => (
-                    <LemonSwitch checked={value} onChange={onChange} label="Sync enabled" bordered />
+                    <LemonSwitch
+                        checked={value}
+                        onChange={onChange}
+                        label={
+                            <span className="flex items-center gap-1">
+                                Sync enabled
+                                <Tooltip
+                                    title={`Keeps the mapped ${entityLabel} properties updated from this warehouse table on every sync. Disabling stops updates; it doesn't remove values already written.`}
+                                >
+                                    <IconInfo className="text-secondary" />
+                                </Tooltip>
+                            </span>
+                        }
+                        bordered
+                    />
                 )}
             </LemonField>
         </>
@@ -304,6 +364,7 @@ export function CustomPropertyModal(): JSX.Element {
         definitionsLoading,
         editingReferences,
         newWorkflowUrlLoading,
+        targetTypeLocked,
     } = useValues(customPropertyDefinitionsLogic)
     const {
         closeModal,
@@ -391,7 +452,7 @@ export function CustomPropertyModal(): JSX.Element {
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
                 </LemonField>
-                {profileTargetAvailable && (
+                {profileTargetAvailable && !targetTypeLocked && (
                     <LemonField
                         name="targetType"
                         label="Attach to"

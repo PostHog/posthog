@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
@@ -9,6 +10,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { toSentenceCase } from 'lib/utils/strings'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
@@ -363,11 +366,16 @@ export interface searchLogicMeta {
             user: UserType | null,
             sceneLogViewsByRef: Record<string, string>
         ) => SearchItem[]
-        newItems: (featureFlags: FeatureFlagsSet, isDev: boolean | undefined, user: UserType | null) => SearchItem[]
+        newItems: (
+            featureFlags: FeatureFlagsSet,
+            isDev: boolean | undefined,
+            user: UserType | null,
+            arg: string
+        ) => SearchItem[]
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         groupItems: (
             groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
@@ -661,6 +669,9 @@ export const searchLogic = kea<searchLogicType>([
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
+                const productSearchKeywords: Record<string, string[]> = {
+                    'Product analytics': ['insights'],
+                }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
@@ -683,6 +694,7 @@ export const searchLogic = kea<searchLogicType>([
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
+                    searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {
@@ -782,11 +794,12 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev, s.user],
+            (s) => [s.featureFlags, s.isDev, s.user, (_, props: SearchLogicProps) => props.logicKey],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isDev: boolean | undefined,
-                user: null | import('~/types').UserType
+                user: null | import('~/types').UserType,
+                logicKey: string
             ): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
@@ -799,7 +812,7 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
-                return filteredItems.map((item) => {
+                const items: SearchItem[] = filteredItems.map((item) => {
                     // Format display name:
                     // "Insight/Lifecycle" -> "New Lifecycle insight"
                     // "Data/Destination" -> "New Destination" (no suffix for Data)
@@ -832,6 +845,31 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+
+                // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
+                // triggered from within the SQL editor). Scoped to the command palette: it relies on
+                // onSelect + newInternalTab, and only the 'command' Search surface honors onSelect —
+                // the new-tab scene and AI-first homepage are href-only and would render a dead item.
+                if (logicKey === 'command') {
+                    items.push({
+                        id: 'new-sql-query-tab',
+                        name: 'New SQL query',
+                        displayName: 'New SQL query',
+                        category: 'create',
+                        productCategory: null,
+                        itemType: 'insight/hog',
+                        searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
+                        record: { type: 'insight', iconType: 'insight/hog' },
+                        onSelect: () => {
+                            const onSqlEditor =
+                                removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
+                            const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
+                            newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
+                        },
+                    })
+                }
+
+                return items
             },
         ],
         peopleItems: [
