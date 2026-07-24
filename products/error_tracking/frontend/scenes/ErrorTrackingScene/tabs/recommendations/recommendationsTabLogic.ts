@@ -194,7 +194,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             try {
                 const response = await api.errorTracking.listRecommendations()
                 actions.setRecommendations(response.results)
-                posthog.capture('error_tracking_recommendations_viewed', {
+                posthog.capture('error_tracking_recommendations_loaded', {
                     open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
                     completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
                     dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
