@@ -16,6 +16,12 @@ def forwards(apps, schema_editor):
         if job_inputs is None:
             continue
 
+        # job_inputs is an EncryptedJSONField whose decrypt path can return a plain str
+        # (when the stored value was a JSON string rather than an object). Only dict rows
+        # have the .get(...) shape every branch below assumes, so skip anything else.
+        if not isinstance(job_inputs, dict):
+            continue
+
         if source_type == "BigQuery":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
