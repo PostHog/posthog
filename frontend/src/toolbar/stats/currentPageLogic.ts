@@ -21,7 +21,7 @@ const replaceWithWildcard = (part: string): string => {
     return part
 }
 
-const autoWildcardHref = (url: string): string => {
+export const autoWildcardHref = (url: string): string => {
     const urlParts = url.split('?')
 
     url = urlParts[0]
@@ -35,6 +35,10 @@ const autoWildcardHref = (url: string): string => {
 
         for (let i = 0; i < queryParams.length; i++) {
             const [key, value] = queryParams[i].split('=')
+            // Params without a value (e.g. `?gclid` or a trailing `&flag`) have no `=`, so leave them untouched
+            if (value === undefined) {
+                continue
+            }
             queryParams[i] = `${key}=${replaceWithWildcard(value)}`
         }
 

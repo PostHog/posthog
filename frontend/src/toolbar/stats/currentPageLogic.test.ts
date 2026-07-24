@@ -1,4 +1,4 @@
-import { withoutPostHogInit } from '~/toolbar/stats/currentPageLogic'
+import { autoWildcardHref, withoutPostHogInit } from '~/toolbar/stats/currentPageLogic'
 
 const posthogInitHashParam =
     '__posthog={%22action%22:%20%22ph_authorize%22,%20%22token%22:%20%the-ph-token%22,%20%22temporaryToken%22:%20%the-posthog-token%22,%20%22actionId%22:%20null,%20%22userIntent%22:%20%22heatmaps%22,%20%22toolbarVersion%22:%20%22toolbar%22,%20%22apiURL%22:%20%22https://eu.posthog.com%22,%20%22dataAttributes%22:%20[%22data-attr%22],%20%22instrument%22:%20true,%20%22userEmail%22:%20%user-email@gmail.com%22,%20%22distinctId%22:%20%the-distinct-id%22}'
@@ -31,6 +31,19 @@ describe('current page logic', () => {
             expect(withoutPostHogInit('https://*.wat.io/category/*/product/1/?something=a#myfragment')).toBe(
                 'https://*.wat.io/category/*/product/1/?something=a#myfragment'
             )
+        })
+    })
+
+    describe('auto wildcarding href', () => {
+        it.each([
+            // valueless query params (no `=`) must not crash and should be preserved as-is
+            ['https://wat.io/?gclid', 'https://wat.io/\\?gclid'],
+            ['https://wat.io/?debug&something=a', 'https://wat.io/\\?debug&something=a'],
+            ['https://wat.io/?something=a&flag', 'https://wat.io/\\?something=a&flag'],
+            // values are still wildcarded
+            ['https://wat.io/?id=1234', 'https://wat.io/\\?id=*'],
+        ])('handles %s', (input, expected) => {
+            expect(autoWildcardHref(input)).toBe(expected)
         })
     })
 })
