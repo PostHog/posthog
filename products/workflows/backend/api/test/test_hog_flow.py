@@ -814,6 +814,15 @@ class TestHogFlowAPI(APIBaseTest):
                 "cohorts",
             ),
             ("conditional_branch_non_list", "conditional_branch", {"conditions": "not-a-list"}, "conditions"),
+            # A cohort without a numeric percentage makes the runtime's cumulative sum NaN, silently
+            # routing everyone to the last cohort instead of splitting.
+            ("random_cohort_branch_no_percentage", "random_cohort_branch", {"cohorts": [{"name": "A"}]}, "percentage"),
+            (
+                "random_cohort_branch_string_percentage",
+                "random_cohort_branch",
+                {"cohorts": [{"percentage": "50"}, {"percentage": 50}]},
+                "percentage",
+            ),
         ]
     )
     def test_hog_flow_branch_action_missing_branch_array_rejected_when_strict(

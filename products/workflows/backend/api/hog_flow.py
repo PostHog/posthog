@@ -462,7 +462,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
-            "edge with index:N; percentages should sum to 100 (the remainder falls through the 'continue' edge). "
+            "edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -675,6 +675,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     }
                 )
+            if branch_key == "cohorts":
+                # A cohort without a numeric percentage contributes NaN to the runtime's cumulative
+                # sum, silently routing every person to the last cohort instead of splitting.
+                for cohort in data["config"]["cohorts"]:
+                    if not isinstance(cohort, dict) or not isinstance(cohort.get("percentage"), (int, float)):
+                        raise serializers.ValidationError(
+                            {
+                                "config": (
+                                    "Each cohorts entry must be an object with a numeric 'percentage', "
+                                    "e.g. {cohorts: [{percentage: 50, name: 'A'}, {percentage: 50, name: 'B'}]}."
+                                )
+                            }
+                        )
 
         conditions = data.get("config", {}).get("conditions", [])
 
