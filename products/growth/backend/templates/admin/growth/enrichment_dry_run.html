@@ -23,8 +23,8 @@
 <h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} <span style="opacity:0.6">(inactive)</span>{% endif %}</h1>
 <p class="dryrun-meta">
     Model {{ config.model }}, temperature {{ config.temperature }} &middot;
-    {{ rows|length }} most recent archived orgs{% if contains %} matching &ldquo;{{ contains }}&rdquo;{% endif %} &middot;
-    nothing was persisted.
+    {{ total }} most recent archived orgs{% if contains %} matching &ldquo;{{ contains }}&rdquo;{% endif %} &middot;
+    rows appear as verdicts come back &middot; nothing was persisted.
 </p>
 <div class="module">
 <table class="dryrun-results">
@@ -38,20 +38,10 @@
         </tr>
     </thead>
     <tbody>
-        {% for row in rows %}
-        <tr>
-            <td>{{ row.company }}</td>
-            <td>{{ row.email|default:"-" }}</td>
-            <td><span class="verdict verdict-{{ row.verdict|lower }}">{{ row.verdict }}</span></td>
-            <td>{{ row.confidence }}</td>
-            <td>{{ row.reasoning }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="5">No archived orgs matched.</td></tr>
-        {% endfor %}
+<!--ROWS-->
     </tbody>
 </table>
 </div>
-<p class="dryrun-summary">{{ summary }}</p>
+<p class="dryrun-summary"><!--SUMMARY--></p>
 <p><a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}" class="button">&larr; Back to prompt configs</a></p>
 {% endblock %}

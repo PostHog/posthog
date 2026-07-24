@@ -329,6 +329,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         assert options_page.status_code == 200
         assert b"Sample size" in options_page.content
         assert results_page.status_code == 200
-        assert b"Acme" in results_page.content
-        assert b"true" in results_page.content
+        streamed = b"".join(results_page.streaming_content)
+        assert b"Acme" in streamed
+        assert b"true" in streamed
         assert EnrichmentLabelResult.objects.count() == 0

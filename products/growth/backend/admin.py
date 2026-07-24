@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from typing import Any
 
@@ -7,10 +8,12 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
 from django.utils.safestring import SafeString
 
 import structlog
@@ -389,7 +392,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     actions = ("dry_run_selected",)
 
     @admin.action(description="Dry run on recent archived orgs (persists nothing)")
-    def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponse | None:
+    def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponseBase | None:
         config = queryset.first()
         if config is None or queryset.count() != 1:
             self.message_user(request, "Select exactly one config to dry-run.", level=messages.WARNING)
@@ -442,17 +445,46 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
                 "reasoning": verdict.get("reasoning", ""),
             }
 
-        with ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS) as pool:
-            rows = list(pool.map(_classify, inputs))
-
-        unknown = sum(1 for r in rows if r["verdict"] == UNKNOWN)
-        errors = sum(1 for r in rows if r["verdict"] == "ERROR")
-        summary = f"classified {len(rows) - unknown - errors}, unknown {unknown}, errors {errors}"
-        return render(
-            request,
+        # Stream the results page: shell first, then one row per verdict as each LLM call
+        # completes, then the summary — a 100-org run shows progress instead of a blank wait.
+        shell = render_to_string(
             "admin/growth/enrichment_dry_run.html",
-            {"config": config, "rows": rows, "summary": summary, "contains": contains},
+            {"config": config, "total": len(inputs), "contains": contains},
+            request=request,
         )
+        head, rest = shell.split("<!--ROWS-->")
+        mid, tail = rest.split("<!--SUMMARY-->")
+
+        def _row_html(row: dict[str, Any]) -> str:
+            return format_html(
+                "<tr><td>{}</td><td>{}</td>"
+                '<td><span class="verdict verdict-{}">{}</span></td>'
+                "<td>{}</td><td>{}</td></tr>\n",
+                row["company"],
+                row["email"] or "-",
+                row["verdict"].lower(),
+                row["verdict"],
+                row["confidence"],
+                row["reasoning"],
+            )
+
+        def _stream() -> Iterator[str]:
+            yield head
+            unknown = errors = 0
+            if not inputs:
+                yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
+            else:
+                with ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS) as pool:
+                    for future in as_completed([pool.submit(_classify, pair) for pair in inputs]):
+                        row = future.result()
+                        unknown += row["verdict"] == UNKNOWN
+                        errors += row["verdict"] == "ERROR"
+                        yield _row_html(row)
+            yield mid
+            yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
+            yield tail
+
+        return StreamingHttpResponse(_stream())
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         # A new version is almost always a tweak of the newest one: prefill everything
