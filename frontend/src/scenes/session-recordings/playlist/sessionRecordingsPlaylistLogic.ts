@@ -446,6 +446,8 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    /** Called with each freshly loaded page of recordings (not the accumulated list). */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
@@ -1406,8 +1408,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings(direction)
         },
 
-        loadSessionRecordingsSuccess: () => {
+        loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
+            props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
         },
 
         setSelectedRecordingId: () => {

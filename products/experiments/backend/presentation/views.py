@@ -64,6 +64,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
+    ExperimentSessionContextsRequestSerializer,
+    ExperimentSessionContextsResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -87,7 +89,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
-from products.experiments.backend.session_context import get_session_experiment_context
+from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -1264,6 +1266,45 @@ class EnterpriseExperimentsViewSet(
             raise NotFound("Recording not found")
 
         serializer = ExperimentSessionContextResponseSerializer({"session_id": session_id, "results": items})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=ExperimentSessionContextsRequestSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSessionContextsResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="session_contexts",
+        required_scopes=["experiment:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def session_contexts(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Resolve experiment context for a batch of session recordings.
+
+        Batch variant of `session_context`, used to prefetch the replay player's experiments
+        box for a whole recordings list in one request. POST because the id list doesn't fit a
+        query string; the endpoint only reads. Already-computed sessions are served from (and
+        cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+        uses, so opening any prefetched recording renders its context instantly. Sessions whose
+        recording metadata doesn't exist yet are omitted from the response.
+        """
+        session_ids: list[str] = request.validated_data["session_ids"]
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session experiment context requires session replay access.")
+
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here —
+        # private experiments must not leak into another user's session context.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        contexts = get_session_experiment_contexts(
+            team=self.team, session_ids=session_ids, experiments=experiments, user=cast(User, request.user)
+        )
+        serializer = ExperimentSessionContextsResponseSerializer(
+            {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
+        )
         return Response(serializer.data)
 
 
