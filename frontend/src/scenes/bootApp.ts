@@ -1,3 +1,4 @@
+import { installDOMExtensionGuard } from 'lib/utils/domExtensionGuard'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -20,6 +21,10 @@ export function bootApp(): void {
         return
     }
     appBooted = true
+
+    // Install before React renders so DOM-mutating extensions (translation, ad-blockers)
+    // can't crash the scene tree via removeChild/insertBefore on nodes they've moved.
+    installDOMExtensionGuard()
 
     loadPostHogJS()
     // Kea must initialize before any component mounts
