@@ -133,11 +133,12 @@ to `external-data-sources-create` — you need the db-schema response to build a
 
 Call `external-data-sources-wizard` **with `source_type` set to the kind(s) you need** (comma-separated, e.g.
 `Postgres,Stripe`). The unfiltered response describes every supported source and is hundreds of KB — large enough to
-blow your context budget. Only omit `source_type` when you genuinely need to enumerate every available type, and
-expect a big payload if you do. The response is a dict keyed by source type. Each entry describes:
+blow your context budget. Only omit `source_type` when you genuinely need to enumerate every available type, and when
+you do, pass `fields: ['*.name', '*.caption']` so the response carries just the names instead of every source's config
+field definitions. The response is a dict keyed by source type. Each entry describes:
 
 - `name` — the canonical source_type string you'll pass to later calls (e.g. `"Postgres"`, `"Stripe"`, `"Hubspot"`).
-- `label` / `caption` — human-readable.
+- `caption` — human-readable description.
 - `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has `name`,
   `type` (input, password, switch, select, file-upload), and `required`.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the

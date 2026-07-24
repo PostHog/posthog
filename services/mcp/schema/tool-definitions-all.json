@@ -4577,7 +4577,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
+        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each schema is summarized (name, status, sync type/frequency, last sync, error, table name, row count) — column definitions and full sync configuration (incremental field, primary keys, row filters, column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use external-data-schemas-list with a search.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -4661,7 +4661,7 @@
         }
     },
     "external-data-sources-retrieve": {
-        "description": "Get a single data warehouse source by ID. Returns full details including source type, connection status, prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.",
+        "description": "Get a single data warehouse source by ID. Returns full details including source type, connection status, prefix, all table schemas with their sync statuses, latest error, and last sync timestamp. Per-schema column definitions are omitted to keep the payload small — use external-data-schemas-retrieve for a single table's columns.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get data warehouse source",
@@ -4703,7 +4703,7 @@
         }
     },
     "external-data-sources-wizard": {
-        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type — and when enumerating, pass fields: ['*.name', '*.caption'] to skip the large per-source field definitions. To actually connect a source, prefer 'data-warehouse-source-setup'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse source types you can import",
