@@ -207,6 +207,10 @@
                 {
                     "items": {
                         "properties": {
+                            "disabled": {
+                                "description": "When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.",
+                                "type": "boolean"
+                            },
                             "filters": {
                                 "properties": {
                                     "actions": {

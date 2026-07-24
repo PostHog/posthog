@@ -33056,6 +33056,8 @@ export namespace Schemas {
 
     export interface Mappings {
       name?: string;
+      /** When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact. */
+      disabled?: boolean;
       inputs_schema?: InputsSchemaItem[];
       inputs?: MappingsInputs;
       filters?: HogFunctionFilters;

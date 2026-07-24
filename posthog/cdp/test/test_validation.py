@@ -512,6 +512,23 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             values_only = {k: {"value": v["value"]} for k, v in validated.items()}
             assert values_only == expected_result
 
+    @parameterized.expand(
+        [
+            ("disabled_true", {"disabled": True}, True),
+            ("disabled_false", {"disabled": False}, False),
+            ("disabled_absent", {}, None),
+        ]
+    )
+    def test_mapping_disabled_field_persists(self, _name, extra, expected):
+        # Guards the root cause: the serializer never declared `disabled`, so DRF
+        # silently dropped it and per-mapping disable never persisted.
+        serializer = MappingsSerializer(
+            data={"inputs_schema": [], "inputs": {}, **extra},
+            context={"function_type": "destination"},
+        )
+        serializer.is_valid(raise_exception=True)
+        assert serializer.validated_data.get("disabled") is expected
+
     def test_validate_filters_builds_bytecode(self):
         filters = {
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],

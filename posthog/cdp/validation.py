@@ -577,6 +577,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
 class MappingsSerializer(serializers.Serializer):
     name = serializers.CharField(required=False)
+    disabled = serializers.BooleanField(
+        required=False,
+        help_text="When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.",
+    )
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
     filters = HogFunctionFiltersSerializer(required=False)

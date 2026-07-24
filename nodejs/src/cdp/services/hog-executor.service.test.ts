@@ -624,6 +624,25 @@ describe('Hog Executor', () => {
             expect(results2.metrics[1].metric_name).toBe('filtering_failed')
         })
 
+        it('does not build invocations for disabled mappings', async () => {
+            const disabledFn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                mappings: [
+                    // Both would match all events, but the disabled one must be skipped
+                    { ...HOG_FILTERS_EXAMPLES.no_filters, disabled: true },
+                    { ...HOG_FILTERS_EXAMPLES.no_filters },
+                ],
+            })
+
+            const result = await executor.buildHogFunctionInvocations(
+                [disabledFn],
+                createHogExecutionGlobals({ event: { event: 'test' } as any })
+            )
+            expect(result.invocations).toHaveLength(1)
+        })
+
         it('generates the correct inputs', async () => {
             const pageviewGlobals = createHogExecutionGlobals({
                 event: {

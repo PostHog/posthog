@@ -247,7 +247,7 @@ export class HogExecutorService {
         let merged: HogFunctionType['inputs'] | undefined
 
         for (const mapping of mappings) {
-            if (!mapping.inputs) {
+            if (mapping.disabled || !mapping.inputs) {
                 continue
             }
             const { match } = await filterFunctionInstrumented({
@@ -359,6 +359,11 @@ export class HogExecutorService {
 
                 await Promise.all(
                     hogFunction.mappings.map(async (mapping) => {
+                        // Disabled mappings are paused - skip them without firing
+                        if (mapping.disabled) {
+                            return
+                        }
+
                         if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
                             return
                         }
