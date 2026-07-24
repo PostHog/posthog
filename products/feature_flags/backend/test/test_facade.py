@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
@@ -13,7 +14,9 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
+    _redact_unchanged_encrypted_payloads,
     _roll_out_variant,
     archive_flag,
     create_flag,
@@ -27,6 +30,7 @@ from products.feature_flags.backend.facade.filters import (
     groups_carry_restriction_marker,
     replace_variant_distribution,
     restrict_groups_to_cohort,
+    set_feature_enrollment,
     set_holdout,
     strip_group_cohort_restriction,
 )
@@ -121,6 +125,32 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.archived is False
         assert flag.active is True
 
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_gated_update_change_request_records_patch_and_resource_id(self, _mock_enabled):
+        # resource_id extraction skips POST requests, and applying an approved change
+        # replays with the stored http_method — a shim reporting POST would break
+        # duplicate detection and re-run create-only validation on apply.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._create_flag(active=True)
+
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(flag, False, team=self.team, user=self.user)
+
+        change_request = ChangeRequest.objects.get(team=self.team)
+        assert change_request.intent["http_method"] == "PATCH"
+        assert change_request.resource_id == str(flag.id)
+
     def test_system_create_logs_system_activity(self):
         with self.captureOnCommitCallbacks(execute=True):
             flag = create_flag(
@@ -179,6 +209,60 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.active is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
+    @parameterized.expand(["system_write", "supplied_shim_request"])
+    def test_shim_request_update_allows_empty_groups(self, mode):
+        # The shim must report PATCH: with POST, create-only validation rejects empty
+        # groups and early access demotion/deletion 400s instead of clearing enrollment.
+        # Caller-built shims (experiments service) default to POST and must be normalized too.
+        flag = self._create_flag(filters={"groups": [], "feature_enrollment": True})
+        user = None if mode == "system_write" else self.user
+        request = None if mode == "system_write" else ServiceRequest(self.user)
+
+        update_flag(
+            flag,
+            {"filters": set_feature_enrollment(flag.get_filters(), None)},
+            team=self.team,
+            user=user,
+            request=request,
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        assert flag.filters["groups"] == []
+
+    def test_update_preserves_encrypted_payloads_carried_from_stored_filters(self):
+        # Callers carry filters over from get_filters(), where encrypted payloads are
+        # ciphertext: without redaction the serializer 400s on it as invalid JSON (or
+        # would re-encrypt it), blocking early access demotion/deletion on such flags.
+        token = flag_payload_codec().encrypt(b'{"config": 1}').decode("utf-8")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="facade-encrypted-flag",
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": token},
+                "feature_enrollment": True,
+            },
+        )
+
+        updated = update_flag(
+            flag,
+            {"filters": set_feature_enrollment(flag.get_filters(), None)},
+            team=self.team,
+            user=None,
+        )
+        # Reusing the returned instance for a further write must not persist the
+        # serializer's in-memory redaction placeholder over the stored ciphertext.
+        set_flag_active(updated, False, team=self.team, user=None)
+
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        assert flag.filters["payloads"]["true"] == token
+        assert flag.active is False
+
     def test_system_write_rejects_user_bearing_request(self):
         flag = self._create_flag(active=True)
 
@@ -187,6 +271,24 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is True
+
+
+class TestRedactUnchangedEncryptedPayloads:
+    def test_only_redacts_byte_identical_stored_values(self):
+        flag = FeatureFlag(
+            has_encrypted_payloads=True,
+            filters={"payloads": {"same": "CIPHER", "changed": "OLD"}},
+        )
+
+        out = _redact_unchanged_encrypted_payloads(
+            flag, {"filters": {"payloads": {"same": "CIPHER", "changed": "NEW", "fresh": "PLAIN"}}}
+        )
+
+        assert out["filters"]["payloads"] == {
+            "same": REDACTED_PAYLOAD_VALUE,
+            "changed": "NEW",
+            "fresh": "PLAIN",
+        }
 
 
 class TestRollOutVariant:
@@ -441,6 +543,96 @@ class TestReplaceVariantDistribution:
 
         assert new_variants == [{"key": "control", "rollout_percentage": 100}]
         assert current_filters["multivariate"]["variants"][0]["rollout_percentage"] == 100
+
+
+class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
+    # Early access destroy/deactivate clear the linked flag's enrollment as facade system
+    # writes, so they must succeed untouched by any enabled flag approval policy.
+    @parameterized.expand(
+        [
+            ("destroy", "delete", status.HTTP_204_NO_CONTENT),
+            ("demote_to_concept", "patch", status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_destroy_and_demote_never_require_approval(self, _name, method, expected_status, _mock_enabled):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Gated feature", "stage": "beta"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        feature_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="gated-feature")
+        assert flag.has_feature_enrollment
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        url = f"/api/projects/{self.team.id}/early_access_feature/{feature_id}"
+        if method == "delete":
+            response = self.client.delete(f"{url}/")
+        else:
+            response = self.client.patch(url, data={"stage": "concept"}, format="json")
+
+        assert response.status_code == expected_status
+        # Re-fetch instead of refresh_from_db: mypy narrows the earlier truthy assert on
+        # this property to Literal[True], making a `not` re-assert unreachable.
+        flag = FeatureFlag.objects.get(pk=flag.pk)
+        assert not flag.has_feature_enrollment
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+
+class TestSetFeatureEnrollment:
+    @parameterized.expand(
+        [
+            (
+                "enroll_pops_super_groups",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 50}],
+                    "super_groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": '"p"'},
+                },
+                True,
+                None,
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 50}],
+                    "payloads": {"true": '"p"'},
+                    "feature_enrollment": True,
+                },
+            ),
+            (
+                "clear_writes_none_marker_not_removal",
+                {"groups": [{"properties": [], "rollout_percentage": 50}], "feature_enrollment": True},
+                None,
+                None,
+                {"groups": [{"properties": [], "rollout_percentage": 50}], "feature_enrollment": None},
+            ),
+            (
+                "groups_override_replaces_release_conditions",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 0}],
+                    "feature_enrollment": True,
+                    "super_groups": [],
+                },
+                None,
+                [{"properties": [], "rollout_percentage": 100}],
+                {"groups": [{"properties": [], "rollout_percentage": 100}], "feature_enrollment": None},
+            ),
+        ]
+    )
+    def test_transform(self, _name, current_filters, enrolled, groups, expected):
+        assert set_feature_enrollment(current_filters, enrolled, groups=groups) == expected
 
 
 class TestExperimentRuleFromFilters:

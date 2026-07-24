@@ -138,6 +138,23 @@ def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_perc
     return {**current_filters, "holdout": {"id": holdout_id, "exclusion_percentage": exclusion_percentage}}
 
 
+def set_feature_enrollment(current_filters: dict, enrolled: bool | None, *, groups: list | None = None) -> dict:
+    """Set or clear the flag-level ``feature_enrollment`` marker on the filters.
+
+    ``enrolled=None`` clears enrollment by writing the key as None (not removing it),
+    matching what ``FeatureFlag.has_feature_enrollment`` treats as not enrolled.
+    Legacy ``super_groups`` (the pre-marker enrollment encoding) are dropped by the
+    same write either way. ``groups`` optionally replaces the release conditions —
+    early access uses it to roll a generally-available feature out to everyone.
+    Everything else is spread through untouched.
+    """
+    new_filters = {**current_filters, "feature_enrollment": enrolled}
+    new_filters.pop("super_groups", None)
+    if groups is not None:
+        new_filters["groups"] = deepcopy(groups)
+    return new_filters
+
+
 def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestrictionBlocker | None:
     """Why the flag's release groups can't be reversibly narrowed to a person cohort, or None.
 

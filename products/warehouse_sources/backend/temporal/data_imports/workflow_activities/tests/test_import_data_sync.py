@@ -208,6 +208,7 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
+    job_inputs = mock.MagicMock()
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
     with (
@@ -216,11 +217,15 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     ):
         handle_mock.side_effect = NonRetryableException()
         with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
+            await module._handle_import_error(job_inputs, logger, error)
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[5] is error
+    args = handle_mock.await_args.args
+    assert args[0] is job_inputs.team_id
+    assert args[1] == str(job_inputs.source_id)
+    assert args[2] is job_inputs.run_id
+    assert args[5] is error
     logger.aexception.assert_not_awaited()
 
 

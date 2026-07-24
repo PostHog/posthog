@@ -65,12 +65,16 @@ class ServiceRequest:
     ``is_system=True`` explicitly declares a system write with no acting user —
     the approval gate skips only requests that declare this, never inferring it
     from a merely absent user.
+
+    ``method`` must match the write's semantics: serializers branch on it (e.g.
+    create-only validation runs on "POST"), so an update shim must say "PATCH".
     """
 
-    def __init__(self, user: Any, *, is_system: bool = False):
+    def __init__(self, user: Any, *, is_system: bool = False, method: str = "POST"):
         self.user = user
         self.is_system = is_system
-        self.method = "POST"
+        self.method = method
+        self.successful_authenticator = None
         self.path = "/"
         self.data: dict = {}
         self.GET: dict = {}

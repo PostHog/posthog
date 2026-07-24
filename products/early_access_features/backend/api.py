@@ -24,21 +24,17 @@ from posthog.tasks.early_access_feature import send_events_for_early_access_feat
 from posthog.utils_cors import cors_response
 
 from products.feature_flags.backend.api.feature_flag import (
-    FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.facade.api import create_flag, update_flag
+from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import EarlyAccessFeature
 
 logger = structlog.get_logger(__name__)
-
-
-def _set_enrollment_filters(existing: dict, *, enrolled: bool | None, **overrides: Any) -> dict:
-    filters = {**existing, "feature_enrollment": enrolled, **overrides}
-    filters.pop("super_groups", None)
-    return filters
 
 
 def assert_feature_flag_rbac_access(
@@ -61,6 +57,35 @@ def assert_feature_flag_rbac_access(
     )
     if not has_access:
         raise PermissionDenied("You don't have sufficient permissions to modify the linked feature flag.")
+
+
+def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
+    """Clear the enrollment marker on a feature's linked flag (feature demoted or deleted).
+
+    Cleanup must never fail: a linked flag can hold stored filter shapes the current
+    FeatureFlagSerializer rejects or crashes on (group-aggregated conditions, malformed
+    legacy properties, ...), and a rejection here would make the feature undeletable.
+    Prefer the gated facade write (validation, activity logging); fall back to a raw
+    model write when it raises. This is a system write (user=None): an enabled approval
+    policy must never block cleanup with a 409, and activity is logged as system.
+    """
+    cleared_filters = set_feature_enrollment(feature_flag.get_filters() or {}, None)
+    # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
+    # filters and returns the stored ones — silently skipping the cleanup entirely.
+    if "groups" in cleared_filters:
+        try:
+            update_flag(feature_flag, {"filters": cleared_filters}, team=team, user=None)
+            return
+        except Exception as exc:
+            # Stored legacy JSON can raise arbitrary exception types through the flag
+            # validator (ValidationError, TypeError, KeyError, ...), so catch broadly.
+            logger.warning(
+                "early_access_feature_enrollment_cleanup_fell_back_to_raw_write",
+                feature_flag_id=feature_flag.id,
+                error=str(exc),
+            )
+    feature_flag.filters = cleared_filters
+    feature_flag.save(update_fields=["filters"])
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -133,6 +158,17 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
+    def to_representation(self, instance: EarlyAccessFeature) -> dict:
+        representation = super().to_representation(instance)
+        # The nested flag serializes raw stored filters, where encrypted payload values
+        # are ciphertext — redact them; early access surfaces never need payload values.
+        serialized_flag = representation.get("feature_flag")
+        if serialized_flag and instance.feature_flag and instance.feature_flag.has_encrypted_payloads:
+            payloads = (serialized_flag.get("filters") or {}).get("payloads")
+            if payloads:
+                serialized_flag["filters"]["payloads"] = dict.fromkeys(payloads, REDACTED_PAYLOAD_VALUE)
+        return representation
+
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         # Handle payload separately since SerializerMethodField is read-only
         if "payload" in self.initial_data:
@@ -161,20 +197,18 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     feature_flag_id=related_feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-                serialized_data_filters = _set_enrollment_filters(
-                    related_feature_flag.filters,
-                    enrolled=None,
+                serialized_data_filters = set_feature_enrollment(
+                    related_feature_flag.get_filters(),
+                    None,
                     groups=[{"properties": [], "rollout_percentage": 100}],
                 )
-
-                serializer = FeatureFlagSerializer(
+                update_flag(
                     related_feature_flag,
-                    data={"filters": serialized_data_filters},
-                    context=self.context,
-                    partial=True,
+                    {"filters": serialized_data_filters},
+                    team=self.context["get_team"](),
+                    user=request.user,
+                    request=request,
                 )
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
         elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
@@ -186,16 +220,13 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     feature_flag_id=related_feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-                serialized_data_filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=True)
-
-                serializer = FeatureFlagSerializer(
+                update_flag(
                     related_feature_flag,
-                    data={"filters": serialized_data_filters},
-                    context=self.context,
-                    partial=True,
+                    {"filters": set_feature_enrollment(related_feature_flag.get_filters(), True)},
+                    team=self.context["get_team"](),
+                    user=request.user,
+                    request=request,
                 )
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
         elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
@@ -207,8 +238,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     feature_flag_id=related_feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-                related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
-                related_feature_flag.save()
+                clear_feature_enrollment(related_feature_flag, team=self.context["get_team"]())
 
         updated_instance = super().update(instance, validated_data)
 
@@ -319,16 +349,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     feature_flag_id=feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=feature_flag)
-                serialized_data_filters = _set_enrollment_filters(feature_flag.filters, enrolled=True)
-
-                serializer = FeatureFlagSerializer(
+                update_flag(
                     feature_flag,
-                    data={"filters": serialized_data_filters},
-                    context=self.context,
-                    partial=True,
+                    {"filters": set_feature_enrollment(feature_flag.get_filters(), True)},
+                    team=self.context["get_team"](),
+                    user=self.context["request"].user,
+                    request=self.context["request"],
                 )
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
         else:
             # No existing flag: we create one, which is a flag write.
             assert_feature_flag_write_scope(
@@ -345,20 +372,19 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             }
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
-                filters["feature_enrollment"] = True
+                filters = set_feature_enrollment(filters, True)
 
-            feature_flag_serializer = FeatureFlagSerializer(
-                data={
+            feature_flag = create_flag(
+                {
                     "key": feature_flag_key,
                     "name": f"Feature Flag for Early Access Feature {validated_data['name']}",
                     "filters": filters,
                     "creation_context": "early_access_features",
                 },
-                context=self.context,
+                team=self.context["get_team"](),
+                user=self.context["request"].user,
+                request=self.context["request"],
             )
-
-            feature_flag_serializer.is_valid(raise_exception=True)
-            feature_flag = feature_flag_serializer.save()
 
         validated_data["feature_flag_id"] = feature_flag.id
         feature: EarlyAccessFeature = super().create(validated_data)
@@ -388,8 +414,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 resource_scope="early_access_feature:write",
             )
             assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-            related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
-            related_feature_flag.save()
+            clear_feature_enrollment(related_feature_flag, team=self.team)
 
         return super().destroy(request, *args, **kwargs)
 
