@@ -56,7 +56,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                         footer lines up across the grid regardless of how many lines each description takes. */}
                     {!isBlank && (
                         <div className="mt-auto pt-4 flex flex-col items-center gap-1.5">
-                            <ScannerTypeBadge scannerType={template.scanner_type} size="small" />
+                            <ScannerTypeBadge scannerType={template.scanner_type} size="medium" />
                             <LemonSnack type="regular">
                                 <span className="text-muted">Output:</span>{' '}
                                 {scannerTypeOutputHint(template.scanner_type)}
