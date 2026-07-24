@@ -158,7 +158,7 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
     (value) => ({
         value,
-        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+        label: `${MODEL_NAMES[value]} · ${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     })
 )
 

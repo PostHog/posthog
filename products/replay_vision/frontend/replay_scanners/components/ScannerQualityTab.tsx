@@ -34,7 +34,7 @@ import type {
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCredits } from '../../utils/credits'
+import { formatCredits, formatCreditsRange } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -463,7 +463,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
                             {formatCredits(plannedTestCredits)}
                             {quota && quota.remaining !== null && quota.credit_limit !== null
-                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
+                                ? `, ${formatCreditsRange(quota.remaining, quota.credit_limit)} left this month`
                                 : ''}
                             .
                         </span>

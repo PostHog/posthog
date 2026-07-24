@@ -95,8 +95,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             ~{formatCredits(projectedCredits)}
                             <span className="text-sm font-normal text-muted">/month</span>{' '}
                             <span className="text-sm font-normal text-muted">
-                                ({(projectedObservations ?? 0).toLocaleString()} observations at{' '}
-                                {formatCredits(scannerEstimate?.credits_per_observation ?? 0)} each)
+                                · {(projectedObservations ?? 0).toLocaleString()} observations at{' '}
+                                {formatCredits(scannerEstimate?.credits_per_observation ?? 0)} each
                             </span>
                         </span>
                         {scannerEstimateLoading && (
