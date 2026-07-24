@@ -1,7 +1,7 @@
 import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -34,6 +34,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
+import { breakdownFiltersLogic } from '../../components/Breakdowns/breakdownFiltersLogic'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
@@ -72,6 +73,9 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    // Keep breakdownFiltersLogic mounted for the whole scene so it outlives miniBreakdownsLogic and its
+    // leaf consumers — otherwise its store path is torn down first and the connected selector throws on teardown.
+    useMountedLogic(breakdownFiltersLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
