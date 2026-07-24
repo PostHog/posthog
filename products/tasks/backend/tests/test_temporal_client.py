@@ -10,7 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
@@ -328,14 +328,13 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         ):
             return redispatch_orphaned_task_run(str(run.id))
 
-    def _loop_with_bundle(self) -> Loop:
-        loop = Loop.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Digest",
-            instructions="/my-skill",
-            runtime_adapter="claude",
-            skill_bundles=[
+    def _orphaned_loop_run(self) -> TaskRun:
+        # A loop fire freezes its bundle set onto the run's state; seeding reads only
+        # this snapshot, never the live loop.
+        run = self._orphaned_run(pending_dispatch={"create_pr": False, "posthog_mcp_scopes": "read_only"})
+        run.state = {
+            **run.state,
+            "skill_bundle_seeds": [
                 {
                     "id": "abcdef0123456789abcdef0123456789",
                     "name": "my-skill.zip",
@@ -354,19 +353,16 @@ class TestRedispatchOrphanedTaskRun(TestCase):
                     },
                 }
             ],
-        )
-        self.task.origin_product = Task.OriginProduct.LOOP
-        self.task.loop = loop
-        self.task.save(update_fields=["origin_product", "loop"])
-        return loop
+        }
+        run.save(update_fields=["state"])
+        return run
 
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.copy")
     def test_recovery_seeds_loop_skill_bundles_before_dispatch(self, mock_copy, mock_tag) -> None:
         # The lost on_commit callback this sweep recovers from is also what seeds skill
         # bundles; recovery must re-seed or the run silently starts without its skills.
-        self._loop_with_bundle()
-        run = self._orphaned_run(pending_dispatch={"create_pr": False, "posthog_mcp_scopes": "read_only"})
+        run = self._orphaned_loop_run()
         start_workflow = AsyncMock()
 
         outcome = self._run_reconcile(run, start_workflow)
@@ -379,8 +375,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
 
     @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
     def test_recovery_aborts_when_seeding_fails(self, mock_copy) -> None:
-        self._loop_with_bundle()
-        run = self._orphaned_run(pending_dispatch={"create_pr": False, "posthog_mcp_scopes": "read_only"})
+        run = self._orphaned_loop_run()
         start_workflow = AsyncMock()
 
         outcome = self._run_reconcile(run, start_workflow)

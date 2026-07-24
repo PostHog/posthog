@@ -586,6 +586,9 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         self.assertEqual(seeded[0]["storage_path"], expected_target)
         self.assertEqual(seeded[0]["metadata"], entry["metadata"])
         mock_dispatch.assert_called_once()
+        # The fire freezes the bundle set on the run; recovery paths seed from this
+        # snapshot instead of the live loop.
+        self.assertEqual(task_run.state["skill_bundle_seeds"][0]["storage_path"], entry["storage_path"])
         loop.refresh_from_db()
         self.assertEqual(loop.skill_bundles[0]["storage_path"], entry["storage_path"])
 
