@@ -41,6 +41,11 @@ export interface BuildTrendsBarAggregatedSeriesOpts<
 > extends BuildTrendsBarSeriesOpts<R, M> {
     stackBreakdowns?: boolean
     getDisplayLabel?: (r: R, index: number) => string
+    /** Bands share this key and stack together. Defaults to one band per series (+ compare
+     *  label), which stacks a single breakdown's values within each series' band. Pass this to
+     *  group by something else instead — e.g. the first of two breakdowns, so the second
+     *  breakdown's values stack within each first-breakdown band. */
+    getBandKey?: (r: R, index: number) => string
 }
 
 /** Result color with the compare-previous dimming applied — shared by the per-series (time-series)
@@ -132,7 +137,7 @@ export function buildTrendsBarTimeSeriesConfig(
 }
 
 /** Separator between the series id and compare label in synthetic stacked-mode band keys. */
-const BAND_KEY_SEP = '\u001f'
+export const BAND_KEY_SEP = '\u001f'
 
 export interface BuildTrendsBarChartModelOpts<
     R extends TrendsBarResultLike,
@@ -198,7 +203,10 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     }
 
     // Stacked breakdowns share a band and genuinely stack, so they stay as N sparse series.
-    const labels = visible.map((r) => {
+    const labels = visible.map((r, i) => {
+        if (opts.getBandKey) {
+            return opts.getBandKey(r, i)
+        }
         const seriesId = r.action?.order ?? r.order ?? 0
         return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })

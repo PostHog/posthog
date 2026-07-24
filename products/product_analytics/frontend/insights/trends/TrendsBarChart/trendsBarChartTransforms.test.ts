@@ -226,6 +226,73 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(series[1].data).toEqual([0, 20])
     })
 
+    it('groups by getBandKey instead of series id when provided (two-dimension stacking)', () => {
+        // Simulates two breakdowns (e.g. Browser x OS): different action.order (would normally
+        // split into separate bands) but the same first-breakdown value via getBandKey — they
+        // should collapse into one band and stack, just like same-series breakdown rows do.
+        const results = [
+            mkResult({
+                id: 'a',
+                label: 'F',
+                action: { order: 0 },
+                breakdown_value: ['Chrome', 'Linux'],
+                aggregated_value: 10,
+            }),
+            mkResult({
+                id: 'b',
+                label: 'F',
+                action: { order: 1 },
+                breakdown_value: ['Chrome', 'Windows'],
+                aggregated_value: 5,
+            }),
+            mkResult({
+                id: 'c',
+                label: 'F',
+                action: { order: 2 },
+                breakdown_value: ['Firefox', 'Linux'],
+                aggregated_value: 20,
+            }),
+        ]
+        const { labels, series } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            stackBreakdowns: true,
+            getBandKey: (r) => String((r.breakdown_value as string[])[0]),
+        })
+        // Chrome rows (a, b) share a band despite different action.order; Firefox is separate.
+        expect(new Set(labels).size).toBe(2)
+        expect(labels[0]).toBe(labels[1])
+        expect(labels[0]).not.toBe(labels[2])
+        expect(series).toHaveLength(3)
+    })
+
+    it('supports 3+ breakdowns by joining everything after the band into the segment key', () => {
+        // Simulates three breakdowns (Browser x OS x Country). getSegmentKey (passed as getBandKey
+        // here to test key-joining behavior in isolation) should join every value after the first.
+        const results = [
+            mkResult({
+                id: 'a',
+                label: 'F',
+                action: { order: 0 },
+                breakdown_value: ['Chrome', 'Linux', 'US'],
+                aggregated_value: 10,
+            }),
+            mkResult({
+                id: 'b',
+                label: 'F',
+                action: { order: 1 },
+                breakdown_value: ['Chrome', 'Windows', 'UK'],
+                aggregated_value: 5,
+            }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            stackBreakdowns: true,
+            getBandKey: (r) => String((r.breakdown_value as string[])[0]),
+            getLabel: (r) => (r.breakdown_value as string[]).slice(1).join('::'),
+        })
+        expect(new Set(labels).size).toBe(1) // both share band "Chrome"
+    })
+
     it.each([
         {
             name: 'suffixes display labels with compare_label so compare-against-previous rows render distinctly',
