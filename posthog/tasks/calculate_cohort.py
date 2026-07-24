@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
+from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, Value, When
+from django.db.models.functions import Least
 from django.utils import timezone
 
 import structlog
@@ -106,6 +107,12 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
+# Cap the retry backoff exponent so a repeatedly-failing cohort keeps retrying on a
+# bounded cadence instead of backing off for days. With the 30-minute base below,
+# 2^4 gives a maximum backoff of 8 hours. Capping the exponent also keeps the interval
+# arithmetic from overflowing now that errors_calculating is no longer bounded by
+# MAX_ERRORS_CALCULATING in the recalculation candidate query.
+MAX_BACKOFF_EXPONENT = 4
 MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 
@@ -117,12 +124,16 @@ def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
+    # Cohorts that keep failing are NOT permanently excluded here. They stay in the
+    # candidate set and keep retrying on the capped backoff cadence (see
+    # enqueue_cohorts_to_calculate), rather than silently vanishing from the queue
+    # once errors_calculating crosses a threshold. Their failing state is surfaced in
+    # the cohort UI via errors_calculating / last_error_message.
     return Cohort.objects.filter(
         Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
         | Q(last_calculation__isnull=True),
         deleted=False,
         is_calculating=False,
-        errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
 
 
@@ -287,9 +298,12 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
-    # Exponential backoff, with the first one starting after 30 minutes
+    # Exponential backoff, with the first one starting after 30 minutes and capped at
+    # MAX_BACKOFF_EXPONENT so a repeatedly-failing cohort keeps retrying every few hours
+    # instead of backing off for days (or never being retried at all).
+    capped_errors = Least(F("errors_calculating"), Value(MAX_BACKOFF_EXPONENT))
     backoff_duration = ExpressionWrapper(
-        timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
+        timedelta(minutes=30) * (2**capped_errors),  # type: ignore
         output_field=DurationField(),
     )
 
