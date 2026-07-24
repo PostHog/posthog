@@ -1645,6 +1645,11 @@ function QuickstartRunStatus({
                         </LemonButton>
                     </div>
                 )}
+                <p className="text-secondary text-xs mb-0">
+                    {progress.prMerged
+                        ? 'This page switches to your tools as soon as the first event arrives.'
+                        : 'Already merged it? Deploy your changes. This page switches to your tools as soon as the first event arrives.'}
+                </p>
             </div>
         )
     }
