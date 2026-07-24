@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.errors import CHQueryErrorIllegalAggregation
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -417,6 +418,52 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400, response.content
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
+
+    def test_create_with_invalid_clickhouse_query_is_not_reported_to_error_tracking(self):
+        illegal_aggregation = CHQueryErrorIllegalAggregation("Aggregate function found inside another aggregate")
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=illegal_aggregation),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "bad_agg_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event from events LIMIT 100"},
+                },
+            )
+
+        assert response.status_code == 400, response.content
+        assert "Aggregate function found inside another aggregate" in response.json()["detail"]
+        mock_capture.assert_not_called()
+
+    def test_update_with_invalid_clickhouse_query_is_not_reported_to_error_tracking(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        assert response.status_code == 201, response.content
+        saved_query = response.json()
+
+        illegal_aggregation = CHQueryErrorIllegalAggregation("Aggregate function found inside another aggregate")
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=illegal_aggregation),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+        assert response.status_code == 400, response.content
+        assert "Aggregate function found inside another aggregate" in response.json()["detail"]
+        mock_capture.assert_not_called()
 
     def test_delete(self):
         query_name = "test_query"
