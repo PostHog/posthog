@@ -1622,13 +1622,22 @@ AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
 
 
-def _audience_confirm_value(team_id: int, filters: dict) -> str:
+def _audience_confirm_value(
+    team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
+) -> str:
+    # group_type_index and dedupe_key change the previewed count, so they're part of what the
+    # caller confirmed. Dispatch always runs person-scope without a caller-chosen dedupe, so
+    # tokens minted under other semantics must not authorize it.
     canonical = json.dumps(filters, sort_keys=True, separators=(",", ":"))
-    return f"{team_id}:{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
+    return f"{team_id}:{group_type_index}:{dedupe_key}:{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
 
 
-def mint_audience_confirm_token(team_id: int, filters: dict) -> str:
-    return TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).sign(_audience_confirm_value(team_id, filters))
+def mint_audience_confirm_token(
+    team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
+) -> str:
+    return TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).sign(
+        _audience_confirm_value(team_id, filters, group_type_index, dedupe_key)
+    )
 
 
 @extend_schema(extensions={"x-product": "workflows"})
@@ -2504,7 +2513,9 @@ class HogFlowViewSet(
                     "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
-                    "confirm_token": mint_audience_confirm_token(self.team_id, filters),
+                    "confirm_token": mint_audience_confirm_token(
+                        self.team_id, filters, group_type_index, applied_dedupe_key
+                    ),
                 }
             ).data
         )

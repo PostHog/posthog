@@ -21,7 +21,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.api.hog_flow import _should_validate_strictly
+from products.workflows.backend.api.hog_flow import _should_validate_strictly, mint_audience_confirm_token
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
@@ -2664,6 +2664,18 @@ class TestHogFlowAPI(APIBaseTest):
         assert "audience changed" in narrow_token.json()["detail"]
         mock_create_invocation.assert_not_called()
 
+        # A token minted under group or dedupe semantics sized a different count than the
+        # person-scope send the dispatch runs - it must not authorize it.
+        group_semantics_token = mint_audience_confirm_token(self.team.id, trigger_filters, group_type_index=0)
+        group_semantics = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"confirm_token": group_semantics_token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert group_semantics.status_code == 400, group_semantics.json()
+        assert "audience changed" in group_semantics.json()["detail"]
+        mock_create_invocation.assert_not_called()
+
         preview = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": trigger_filters}
         )
@@ -2679,6 +2691,9 @@ class TestHogFlowAPI(APIBaseTest):
         assert dispatched.status_code == 200, dispatched.json()
         assert dispatched.json()["filters"] == trigger_filters
         mock_create_invocation.assert_called_once()
+        # The resolver dispatches from this snapshot rather than re-reading the live trigger, so a
+        # trigger edit racing the dispatch can't widen the confirmed audience.
+        assert mock_create_invocation.call_args.kwargs["filters"] == trigger_filters
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
