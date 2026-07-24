@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 
 import pytest
@@ -515,6 +516,36 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert joins.results == []
 
+    def test_review_queue_exposes_full_join_payload(self) -> None:
+        # A human confirms an accept by id, so the queue must show what will be created (field_name,
+        # configuration copied verbatim into the join) and the evidence backing the proposal.
+        source = self._create_warehouse_table("payload_orders")
+        target = self._create_warehouse_table("payload_customers")
+        propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="customer_id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            configuration={"experiments_optimized": True},
+            evidence={"match_rate": 0.97, "sample": ["c_1", "c_2"]},
+            confidence=0.9,
+            reasoning="97% match",
+        )
+
+        response = execute_hogql_query(
+            "SELECT field_name, configuration, evidence FROM system.information_schema.relationship_proposals "
+            "WHERE source_table = 'payload_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        field_name, configuration, evidence = response.results[0]
+        assert field_name == "customer"
+        assert json.loads(configuration) == {"experiments_optimized": True}
+        assert json.loads(evidence) == {"match_rate": 0.97, "sample": ["c_1", "c_2"]}
+
     def test_rejected_proposal_is_not_in_review_queue(self) -> None:
         proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
         reject_proposal(proposal, self.user)
@@ -712,12 +743,31 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         cert = propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id))
 
         response = execute_hogql_query(
-            "SELECT id, target_name, target_kind, status FROM system.information_schema.certifications "
+            "SELECT id, target_name, target_id, target_kind, status FROM system.information_schema.certifications "
             "WHERE target_name = 'cert_sales_view'",
             team=self.team,
             context=self._context(),
         )
-        assert response.results == [(str(cert.id), "cert_sales_view", "view", "proposed")]
+        assert response.results == [(str(cert.id), "cert_sales_view", str(view.id), "view", "proposed")]
+
+    def test_certifications_table_target_id_disambiguates_same_name(self) -> None:
+        # (team, name) is not unique on DataWarehouseTable, so the queue must expose target_id — otherwise
+        # a human can't tell which physical table a certification UUID will certify or deprecate.
+        first = self._create_warehouse_table("dup_revenue")
+        deprecate(propose_certification(team=self.team, user=self.user, table_id=str(first.id)), self.user)
+        second = self._create_warehouse_table("dup_revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(second.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT target_id, target_kind, status FROM system.information_schema.certifications "
+            "WHERE target_name = 'dup_revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert {row[0]: (row[1], row[2]) for row in response.results} == {
+            str(first.id): ("table", "deprecated"),
+            str(second.id): ("table", "certified"),
+        }
 
     def test_certifications_table_excludes_deleted_target(self) -> None:
         table = self._create_warehouse_table("cert_deleted")
