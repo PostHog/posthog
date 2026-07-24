@@ -13,6 +13,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
+    DEFAULT_OVERRIDES_LOOKBACK_HOURS,
     ReconcilePersonPropertiesResult,
     ReconcilePrecalculatedDataWorkflow,
     ReconcilePrecalculatedDataWorkflowInputs,
@@ -72,7 +73,11 @@ class TestGetReconciliationRunConfigActivity:
         after = dt.datetime.now(dt.UTC)
 
         assert result.team_concurrency == 5
-        assert before - dt.timedelta(hours=48) <= result.since <= after - dt.timedelta(hours=48)
+        assert (
+            before - dt.timedelta(hours=DEFAULT_OVERRIDES_LOOKBACK_HOURS)
+            <= result.since
+            <= after - dt.timedelta(hours=DEFAULT_OVERRIDES_LOOKBACK_HOURS)
+        )
 
 
 def _insert_precalculated_event(

@@ -34,6 +34,7 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -374,7 +375,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
             "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
             "flag_cleanup_task action."
         ),
@@ -533,11 +534,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         value = value.lower()
         # The field steers where the cleanup PR is opened, so pointing it somewhere new
-        # needs the same PostHog Code access as opening one (mirrors open_cleanup_pr).
+        # needs the same PostHog Desktop access as opening one (mirrors open_cleanup_pr).
         if self.instance is None or value != self.instance.repository:
             request = self.context.get("request")
             if request is None or not has_tasks_access(request.user):
-                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Code.")
+                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Desktop.")
         return value
 
     def validate(self, data):
@@ -1049,14 +1050,14 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
     run_status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         help_text="Status of the task's latest run.",
@@ -1070,7 +1071,7 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
     )
     can_view_task = serializers.BooleanField(
         help_text=(
-            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
             "visible to their creator only, so other viewers should not be shown a task link."
         ),
     )
@@ -1477,6 +1478,43 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSessionMetricSourceHitSerializer(serializers.Serializer):
+    """One event/action source of a metric with at least one matching event in a session recording."""
+
+    source_role = serializers.ChoiceField(
+        source="role",
+        choices=[role.value for role in MetricSourceRole],
+        help_text=(
+            "What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel "
+            "step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or "
+            "'retention_start'/'retention_completion' (a retention metric's start event and return visit). "
+            "A hit on one source is not a hit on the metric as the analysis counts it."
+        ),
+    )
+    source_name = serializers.CharField(source="name", help_text="Display name of the source event or action.")
+    source_index = serializers.IntegerField(
+        source="index",
+        help_text=(
+            "0-based position of this source among all the metric's sources, data-warehouse ones included — so a "
+            "funnel step keeps its real step number even when an earlier step has no session events."
+        ),
+    )
+    source_total = serializers.IntegerField(
+        source="total", help_text="Total number of sources the metric is defined over."
+    )
+    event_count = serializers.IntegerField(help_text="Number of events in the session matching this source.")
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching this source."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of this source's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+
+
 class ExperimentSessionMetricHitSerializer(serializers.Serializer):
     """One experiment metric with at least one matching event in a session recording."""
 
@@ -1497,6 +1535,16 @@ class ExperimentSessionMetricHitSerializer(serializers.Serializer):
         help_text=(
             "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
             "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+    sources = ExperimentSessionMetricSourceHitSerializer(
+        many=True,
+        help_text=(
+            "Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a "
+            "retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event "
+            "are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention "
+            "metric whose start and completion are the same event contributes only the start source: the "
+            "completion would match the identical events and render a duplicate."
         ),
     )
 

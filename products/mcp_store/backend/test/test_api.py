@@ -244,7 +244,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
     def test_list_installation_icon_fields_from_template(self):
         # Pass non-normalized icon values to confirm the model's save() normalizes them and
         # both flow through the serializer — icon_key must stay exposed alongside icon_domain
-        # until PostHog Code stops reading it.
+        # until PostHog Desktop stops reading it.
         template = MCPServerTemplate.objects.create(
             name="PostHog MCP",
             url="https://mcp.notion.example/mcp",

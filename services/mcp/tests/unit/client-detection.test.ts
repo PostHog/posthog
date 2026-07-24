@@ -165,7 +165,7 @@ describe('resolveEffectiveClientName', () => {
 })
 
 describe('isPostHogCodeConsumer', () => {
-    it('matches the exact PostHog Code consumer value', () => {
+    it('matches the exact PostHog Desktop consumer value', () => {
         expect(isPostHogCodeConsumer(POSTHOG_CODE_CONSUMER)).toBe(true)
         expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
