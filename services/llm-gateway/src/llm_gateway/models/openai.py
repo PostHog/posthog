@@ -9,6 +9,8 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     stream: bool = False
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
 
 
 class ResponsesRequest(BaseModel):
