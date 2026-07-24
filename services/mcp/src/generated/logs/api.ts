@@ -8,8 +8,10 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Logs product configuration for this project, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
+ */
 export const organizationsProjectsLogsConfigRetrievePathIdMin = -2147483648
-
 export const organizationsProjectsLogsConfigRetrievePathIdMax = 2147483647
 
 export const OrganizationsProjectsLogsConfigRetrieveParams = /* @__PURE__ */ zod.object({

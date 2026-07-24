@@ -7,6 +7,34 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TeamLogsConfigApi {
+    /**
+     * Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute.
+     * @maxLength 200
+     */
+    logs_distinct_id_attribute_key: string
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order; the first key with a value wins. Defaults to ['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys: string[]
+}
+
+export interface PatchedTeamLogsConfigApi {
+    /**
+     * Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute.
+     * @maxLength 200
+     */
+    logs_distinct_id_attribute_key?: string
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order; the first key with a value wins. Defaults to ['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys?: string[]
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
