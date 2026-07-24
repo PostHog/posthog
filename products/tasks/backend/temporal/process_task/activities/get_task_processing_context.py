@@ -104,7 +104,6 @@ class TaskProcessingContext:
 
     @property
     def mode(self) -> str:
-        """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
     @property

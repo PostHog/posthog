@@ -61,8 +61,6 @@ class SendFollowupToSandboxInput:
     message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     artifact_ids: list[str] | None = None
-    # Idempotency key, stable across retries and redeliveries; the
-    # agent-server drops a duplicate it already accepted.
     message_id: str | None = None
     # Sender of this message; None (older senders, pre-rollout histories)
     # falls back to the run-state actor.

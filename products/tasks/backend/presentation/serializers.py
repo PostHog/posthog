@@ -724,30 +724,13 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
 
 class TaskSessionResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField()
-    download_url = serializers.URLField()
-    revision = serializers.IntegerField(min_value=0)
-
-
-class TaskSessionSyncPrepareSerializer(serializers.Serializer):
-    sandbox_id = serializers.CharField()
-    expected_revision = serializers.IntegerField(min_value=0)
-
-
-class TaskSessionSyncPrepareResponseSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
-    sync_id = serializers.UUIDField()
-    upload = serializers.DictField()
-
-
-class TaskSessionSyncSerializer(serializers.Serializer):
-    sandbox_id = serializers.CharField()
-    sync_id = serializers.UUIDField()
-    expected_revision = serializers.IntegerField(min_value=0)
+    download_url = serializers.URLField(allow_null=True)
+    content_sha256 = serializers.CharField(allow_null=True)
 
 
 class TaskSessionSyncResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField()
-    revision = serializers.IntegerField(min_value=1)
+    content_sha256 = serializers.CharField()
 
 
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):

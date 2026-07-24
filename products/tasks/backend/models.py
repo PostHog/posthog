@@ -384,7 +384,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
     ) -> "TaskRun":
-        state: dict = {"mode": mode}
+        state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
@@ -872,11 +872,16 @@ class TaskSession(models.Model):
         db_constraint=False,
         db_index=False,
     )
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+    )
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="task_sessions", db_index=False)
-    object_storage_key = models.CharField(max_length=512, unique=True)
-    revision = models.PositiveBigIntegerField(default=0)
-    pending_sync_id = models.UUIDField(null=True, blank=True)
-    pending_object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
+    object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
+    content_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    size = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -884,46 +889,33 @@ class TaskSession(models.Model):
         db_table = "posthog_task_session"
         indexes = [
             models.Index(fields=["organization", "-updated_at"], name="task_session_org_updated_idx"),
+            models.Index(fields=["team", "-updated_at"], name="task_session_team_updated_idx"),
             models.Index(fields=["task", "-updated_at"], name="task_session_task_updated_idx"),
         ]
 
     @classmethod
     def create_for_task(cls, task: Task) -> "TaskSession":
-        session_id = uuid.uuid4()
-        object_storage_key = f"task-sessions/{task.team.organization_id}/{task.id}/{session_id}.jsonl"
         return cls.objects.create(
-            id=session_id,
             organization_id=task.team.organization_id,
+            team_id=task.team_id,
             task=task,
-            object_storage_key=object_storage_key,
         )
 
     def read_jsonl(self) -> str:
+        if self.object_storage_key is None:
+            return ""
         return object_storage.read(self.object_storage_key, missing_ok=True) or ""
 
-    def write_jsonl(self, content: str | bytes) -> None:
-        object_storage.write(self.object_storage_key, content)
-        self._tag_object()
-
-    def mark_synced(self) -> None:
-        self._tag_object()
-        self.save(update_fields=["updated_at"])
-
-    def append_entries(self, entries: list[dict[str, Any]]) -> None:
-        if not entries:
+    def tag_object(self) -> None:
+        if self.object_storage_key is None:
             return
-
-        is_new_object = append_jsonl_object(self.object_storage_key, entries)
-        if is_new_object:
-            self._tag_object()
-
-    def _tag_object(self) -> None:
         try:
             object_storage.tag(
                 self.object_storage_key,
                 {
                     "data_class": "task_session",
                     "organization_id": str(self.organization_id),
+                    "team_id": str(self.team_id),
                     "task_id": str(self.task_id),
                 },
             )
@@ -2134,6 +2126,13 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_task_sandbox_session"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_run"],
+                condition=models.Q(ended_at__isnull=True),
+                name="sandbox_session_one_open_per_run",
+            ),
+        ]
         indexes = [
             # The usage report scans sessions overlapping the period instance-wide:
             # closed recently (ended_at > begin) or open and not yet past their TTL
@@ -2608,22 +2607,23 @@ class TaskPresence(TeamScopedRootMixin):
 
 @receiver(post_delete, sender=TaskSession)
 def delete_task_session_object(sender: type[TaskSession], instance: TaskSession, **kwargs: Any) -> None:
-    object_storage_keys = {key for key in (instance.object_storage_key, instance.pending_object_storage_key) if key}
+    if instance.object_storage_key is None:
+        return
+    object_storage_key = instance.object_storage_key
     task_session_id = str(instance.id)
 
-    def delete_objects() -> None:
-        for object_storage_key in object_storage_keys:
-            try:
-                object_storage.delete(object_storage_key)
-            except Exception as error:
-                logger.warning(
-                    "task_session.failed_to_delete_object",
-                    task_session_id=task_session_id,
-                    object_storage_key=object_storage_key,
-                    error=str(error),
-                )
+    def delete_object() -> None:
+        try:
+            object_storage.delete(object_storage_key)
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_delete_object",
+                task_session_id=task_session_id,
+                object_storage_key=object_storage_key,
+                error=str(error),
+            )
 
-    transaction.on_commit(delete_objects)
+    transaction.on_commit(delete_object)
 
 
 @receiver(post_save, sender=TaskRun)

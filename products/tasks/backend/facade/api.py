@@ -16,7 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 import re
-import json
+import hashlib
 import logging
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -42,7 +42,6 @@ from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_USER,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
-    TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -59,6 +58,7 @@ from products.tasks.backend.models import (
     CodeInviteRedemption,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     SandboxSnapshot,
     Task,
     TaskAutomation,
@@ -154,7 +154,7 @@ __all__ = [
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_session",
-    "prepare_task_run_session_sync",
+    "sync_task_run_session",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
     "get_task_run_living_artifact",
@@ -209,7 +209,6 @@ __all__ = [
     "update_task",
     "update_task_automation",
     "update_task_run",
-    "finalize_task_run_session_sync",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
     "validate_set_output",
@@ -2161,227 +2160,108 @@ def ensure_task_run_session(run_id: str | UUID) -> UUID:
         return task_session.id
 
 
-def get_task_run_session(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[UUID, str, int] | None:
+def get_task_run_session(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> tuple[UUID, str | None, str | None] | None:
     from posthog.storage import object_storage  # noqa: PLC0415
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None or run.active_task_session_id is None:
         return None
     task_session = TaskSession.objects.get(id=run.active_task_session_id)
+    if task_session.object_storage_key is None:
+        return task_session.id, None, None
     download_url = object_storage.get_presigned_url(task_session.object_storage_key, expiration=3600)
     if not download_url:
         raise RuntimeError("Unable to prepare task session download")
-    return task_session.id, download_url, task_session.revision
+    return task_session.id, download_url, task_session.content_sha256
 
 
-def _task_session_sync_key(task_session: TaskSession, directory: str, revision: int, sync_id: UUID) -> str:
+def _validate_task_session_content(content: bytes) -> None:
+    if not content or len(content) > TASK_SESSION_MAX_SIZE_BYTES:
+        raise ValueError("The task session content size is invalid")
+
+
+def _get_open_sandbox_session(run_id: UUID, sandbox_id: str) -> SandboxSession | None:
     return (
-        f"task-sessions/{task_session.organization_id}/{task_session.task_id}/{task_session.id}/"
-        f"{directory}/{revision}-{sync_id}.jsonl"
+        SandboxSession.objects.unscoped()
+        .filter(
+            task_run_id=run_id,
+            sandbox_id=sandbox_id,
+            ended_at__isnull=True,
+        )
+        .first()
     )
 
 
-def prepare_task_run_session_sync(
+def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) -> None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    try:
+        object_storage.delete(object_storage_key)
+    except Exception as error:
+        logger.warning(
+            "task_session.failed_to_delete_object",
+            extra={
+                "task_session_id": str(task_session_id),
+                "object_storage_key": object_storage_key,
+                "error": str(error),
+            },
+        )
+
+
+def sync_task_run_session(
     run_id: str | UUID,
     task_id: str | UUID,
     team_id: int,
     *,
     sandbox_id: str,
-    expected_revision: int,
-) -> tuple[UUID, UUID, dict] | None:
+    expected_content_sha256: str | None,
+    content: bytes,
+) -> tuple[UUID, str] | None:
     from posthog.storage import object_storage  # noqa: PLC0415
 
     visible_run = _get_visible_run(run_id, task_id, team_id)
     if visible_run is None or visible_run.active_task_session_id is None:
         return None
+    _validate_task_session_content(content)
+    if _get_open_sandbox_session(visible_run.id, sandbox_id) is None:
+        raise ValueError("The task session writer is not the active sandbox")
 
-    with transaction.atomic():
-        run = TaskRun.objects.select_for_update(of=("self",)).get(id=visible_run.id)
-        if (run.state or {}).get("sandbox_id") != sandbox_id:
-            raise ValueError("The task session writer is not the active sandbox")
-        task_session = TaskSession.objects.select_for_update().get(id=run.active_task_session_id)
-        if task_session.revision != expected_revision:
-            raise ValueError("The task session revision is stale")
-
-        sync_id = task_session.pending_sync_id
-        object_storage_key = task_session.pending_object_storage_key
-        if sync_id is None or object_storage_key is None:
-            sync_id = uuid4()
-            object_storage_key = _task_session_sync_key(task_session, "uploads", task_session.revision + 1, sync_id)
-            task_session.pending_sync_id = sync_id
-            task_session.pending_object_storage_key = object_storage_key
-            task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
-
-    upload = object_storage.get_presigned_post(
-        object_storage_key,
-        conditions=[["content-length-range", 1, TASK_SESSION_MAX_SIZE_BYTES + TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES]],
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    object_storage_key = (
+        f"task-sessions/{visible_run.task.team.organization_id}/{visible_run.task_id}/"
+        f"{visible_run.active_task_session_id}/{uuid4()}.jsonl"
     )
-    if not upload:
-        raise RuntimeError("Unable to prepare task session upload")
-    return task_session.id, sync_id, upload
+    object_storage.write(object_storage_key, content)
 
-
-def _delete_task_session_objects(task_session_id: UUID, object_storage_keys: Sequence[str]) -> None:
-    from posthog.storage import object_storage  # noqa: PLC0415
-
-    for object_storage_key in object_storage_keys:
-        try:
-            object_storage.delete(object_storage_key)
-        except Exception as error:
-            logger.warning(
-                "task_session.failed_to_delete_object",
-                extra={
-                    "task_session_id": str(task_session_id),
-                    "object_storage_key": object_storage_key,
-                    "error": str(error),
-                },
-            )
-
-
-def _reject_task_session_sync(
-    task_session_id: UUID,
-    sync_id: UUID,
-    pending_key: str,
-    promoted_key: str,
-) -> None:
-    with transaction.atomic():
-        task_session = TaskSession.objects.select_for_update().get(id=task_session_id)
-        if task_session.pending_sync_id != sync_id or task_session.pending_object_storage_key != pending_key:
-            return
-
-        task_session.pending_sync_id = None
-        task_session.pending_object_storage_key = None
-        task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
-        transaction.on_commit(lambda: _delete_task_session_objects(task_session_id, (pending_key, promoted_key)))
-
-
-class _TaskSessionUploadRejected(ValueError):
-    pass
-
-
-def finalize_task_run_session_sync(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    sandbox_id: str,
-    sync_id: UUID,
-    expected_revision: int,
-) -> tuple[UUID, int] | None:
-    from posthog.storage import object_storage  # noqa: PLC0415
-
-    visible_run = _get_visible_run(run_id, task_id, team_id)
-    if visible_run is None or visible_run.active_task_session_id is None:
-        return None
-    task_session_id = visible_run.active_task_session_id
-    pending_key: str | None = None
-    promoted_key: str | None = None
-    stale_upload_key: str | None = None
-
+    previous_object_storage_key: str | None = None
     try:
         with transaction.atomic():
             locked_run = TaskRun.objects.select_for_update(of=("self",)).get(id=visible_run.id)
-            if (locked_run.state or {}).get("sandbox_id") != sandbox_id:
+            if locked_run.active_task_session_id != visible_run.active_task_session_id:
+                raise ValueError("The task session sync is stale")
+            if _get_open_sandbox_session(locked_run.id, sandbox_id) is None:
                 raise ValueError("The task session writer is not the active sandbox")
-            if locked_run.active_task_session_id != task_session_id:
-                raise ValueError("The task session sync is stale")
 
-            locked_session = TaskSession.objects.select_for_update().get(id=task_session_id)
-            submitted_upload_key = _task_session_sync_key(locked_session, "uploads", expected_revision + 1, sync_id)
-            promoted_object_storage_key = _task_session_sync_key(
-                locked_session, "revisions", expected_revision + 1, sync_id
-            )
-            promoted_key = promoted_object_storage_key
-            if (
-                locked_session.revision == expected_revision + 1
-                and locked_session.object_storage_key == promoted_object_storage_key
-            ):
-                return locked_session.id, locked_session.revision
-            pending_object_storage_key = locked_session.pending_object_storage_key
-            if (
-                locked_session.revision != expected_revision
-                or locked_session.pending_sync_id != sync_id
-                or not pending_object_storage_key
-            ):
-                if locked_session.pending_sync_id != sync_id or pending_object_storage_key != submitted_upload_key:
-                    stale_upload_key = submitted_upload_key
-                raise ValueError("The task session sync is stale")
+            task_session = TaskSession.objects.select_for_update().get(id=locked_run.active_task_session_id)
+            if task_session.content_sha256 == content_sha256:
+                transaction.on_commit(lambda: _delete_task_session_object(task_session.id, object_storage_key))
+                return task_session.id, content_sha256
+            if task_session.content_sha256 != expected_content_sha256:
+                raise ValueError("The task session content is stale")
 
-            pending_key = pending_object_storage_key
-            pending_metadata = object_storage.head_object(pending_object_storage_key)
-            if pending_metadata is None:
-                raise ValueError("The uploaded task session is missing")
-            pending_size = pending_metadata.get("ContentLength")
-            if not isinstance(pending_size, int):
-                raise ValueError("Unable to determine the uploaded task session size")
-            if pending_size < 1:
-                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
-            if pending_size > TASK_SESSION_MAX_SIZE_BYTES:
-                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
-
-            object_storage.copy(pending_object_storage_key, promoted_object_storage_key)
-            promoted_metadata = object_storage.head_object(promoted_object_storage_key)
-            if promoted_metadata is None:
-                raise ValueError("The uploaded task session is missing")
-            promoted_size = promoted_metadata.get("ContentLength")
-            if not isinstance(promoted_size, int):
-                raise ValueError("Unable to determine the uploaded task session size")
-            if promoted_size < 1:
-                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
-            if promoted_size > TASK_SESSION_MAX_SIZE_BYTES:
-                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
-
-            try:
-                content = object_storage.read(promoted_object_storage_key, missing_ok=True)
-            except UnicodeDecodeError as error:
-                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL") from error
-            if not content:
-                raise ValueError("The uploaded task session is missing")
-            if len(content.encode("utf-8")) > TASK_SESSION_MAX_SIZE_BYTES:
-                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
-            try:
-                entries = [json.loads(line) for line in content.splitlines() if line.strip()]
-            except json.JSONDecodeError as error:
-                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL") from error
-            if not entries or any(not isinstance(entry, dict) for entry in entries):
-                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
-            if entries[0].get("type") != "session":
-                raise _TaskSessionUploadRejected("The uploaded task session has no session header")
-
-            previous_key = locked_session.object_storage_key
-            locked_session.object_storage_key = promoted_object_storage_key
-            locked_session.revision += 1
-            locked_session.pending_sync_id = None
-            locked_session.pending_object_storage_key = None
-            locked_session.save(
-                update_fields=[
-                    "object_storage_key",
-                    "revision",
-                    "pending_sync_id",
-                    "pending_object_storage_key",
-                    "updated_at",
-                ]
-            )
-            transaction.on_commit(
-                lambda: _delete_task_session_objects(locked_session.id, (previous_key, pending_object_storage_key))
-            )
-            locked_session.mark_synced()
-            return locked_session.id, locked_session.revision
-    except _TaskSessionUploadRejected:
-        if pending_key is None or promoted_key is None:
-            raise
-        _reject_task_session_sync(task_session_id, sync_id, pending_key, promoted_key)
-        raise
+            previous_object_storage_key = task_session.object_storage_key
+            task_session.object_storage_key = object_storage_key
+            task_session.content_sha256 = content_sha256
+            task_session.size = len(content)
+            task_session.save(update_fields=["object_storage_key", "content_sha256", "size", "updated_at"])
+            if previous_object_storage_key is not None:
+                transaction.on_commit(lambda: _delete_task_session_object(task_session.id, previous_object_storage_key))
+        task_session.tag_object()
+        return task_session.id, content_sha256
     except Exception:
-        if stale_upload_key is not None:
-            _delete_task_session_objects(task_session_id, (stale_upload_key,))
-        if promoted_key is not None:
-            finalized_session = TaskSession.objects.get(id=task_session_id)
-            if (
-                finalized_session.revision == expected_revision + 1
-                and finalized_session.object_storage_key == promoted_key
-            ):
-                return finalized_session.id, finalized_session.revision
+        _delete_task_session_object(visible_run.active_task_session_id, object_storage_key)
         raise
 
 
@@ -3386,7 +3266,13 @@ def bootstrap_task_run(
 
 
 def _trigger_task_processing_workflow(
-    task: Task, run: TaskRun, user_id: int | None, *, raise_on_error: bool = False
+    task: Task,
+    run: TaskRun,
+    user_id: int | None,
+    *,
+    initial_message: str | None = None,
+    initial_artifact_ids: list[str] | None = None,
+    raise_on_error: bool = False,
 ) -> None:
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_task_processing_workflow,
@@ -3395,6 +3281,7 @@ def _trigger_task_processing_workflow(
         RunSource,
         parse_run_state,
     )
+    from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
@@ -3409,6 +3296,16 @@ def _trigger_task_processing_workflow(
             team_id=task.team.id,
             user_id=user_id,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            initial_message=(
+                PendingFollowup(
+                    message=initial_message,
+                    artifact_ids=initial_artifact_ids or [],
+                    actor_user_id=user_id,
+                    message_id=str(uuid4()),
+                )
+                if initial_message or initial_artifact_ids
+                else None
+            ),
         )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:
@@ -3465,10 +3362,11 @@ def start_task_run(
             return "missing_artifacts:" + ",".join(missing_artifact_ids), None
 
     state_updates: dict = {}
-    if pending_user_message is not None:
-        state_updates["pending_user_message"] = pending_user_message
-    if pending_user_artifact_ids:
-        state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
+    if task.runtime != Task.Runtime.PI:
+        if pending_user_message is not None:
+            state_updates["pending_user_message"] = pending_user_message
+        if pending_user_artifact_ids:
+            state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
     try:
@@ -3476,7 +3374,16 @@ def start_task_run(
             TaskRun.update_state_atomic(run.id, updates=state_updates)
             run.refresh_from_db()
         logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
-        _trigger_task_processing_workflow(task, run, user_id, raise_on_error=True)
+        _trigger_task_processing_workflow(
+            task,
+            run,
+            user_id,
+            initial_message=(pending_user_message or task.description or None)
+            if task.runtime == Task.Runtime.PI
+            else None,
+            initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
+            raise_on_error=True,
+        )
     except Exception:
         if state_updates:
             rollback_updates = {
@@ -4559,6 +4466,7 @@ def run_task(
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
+    is_pi_task = task.runtime == Task.Runtime.PI
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
@@ -4635,9 +4543,9 @@ def run_task(
     }
 
     extra_state: dict | None = None
-    if pending_user_message is not None:
+    if pending_user_message is not None and not is_pi_task:
         extra_state = {"pending_user_message": pending_user_message}
-    if pending_user_artifact_ids:
+    if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
     if initial_permission_mode is not None:
@@ -4657,8 +4565,9 @@ def run_task(
 
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
-        extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        extra_state.update(prev_state.resume_snapshot_carry_state())
+        if not is_pi_task:
+            extra_state["resume_from_run_id"] = str(resume_from_run_id)
+            extra_state.update(prev_state.resume_snapshot_carry_state())
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.
@@ -4695,7 +4604,7 @@ def run_task(
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
 
-    for key, value in {
+    run_state_values = {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
         "auto_publish": auto_publish,
@@ -4705,7 +4614,11 @@ def run_task(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
-    }.items():
+    }
+    if is_pi_task:
+        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
+            run_state_values.pop(key)
+    for key, value in run_state_values.items():
         if value is not None:
             extra_state = extra_state or {}
             extra_state[key] = value.value if hasattr(value, "value") else value
@@ -4803,6 +4716,9 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    if is_pi_task and resume_from_run_id:
+        task_run.active_task_session = previous_run.active_task_session
+        task_run.save(update_fields=["active_task_session", "updated_at"])
 
     if imported_mcp_servers or relayed_mcp_servers:
         update_fields = ["updated_at"]
@@ -4824,7 +4740,19 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
-    _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+    initial_message = None
+    if is_pi_task:
+        initial_message = (
+            pending_user_message if resume_from_run_id else pending_user_message or task.description or None
+        )
+    _trigger_task_processing_workflow(
+        task,
+        task_run,
+        user_id,
+        initial_message=initial_message,
+        initial_artifact_ids=pending_user_artifact_ids if is_pi_task else None,
+        raise_on_error=False,
+    )
 
     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
 

@@ -973,30 +973,21 @@ class TestGetTaskProcessingContextActivity:
         assert result.ci_prompt == custom_prompt
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
+    def test_get_task_processing_context_creates_native_pi_session(self, activity_environment, test_task):
         test_task.runtime = Task.Runtime.PI
         test_task.save(update_fields=["runtime"])
-        task_run = test_task.create_run(
-            extra_state={
-                "runtime_adapter": "codex",
-                "provider": "openai",
-                "model": "gpt-5.3-codex",
-                "reasoning_effort": "high",
-                "initial_permission_mode": "plan",
-            }
-        )
+        task_run = test_task.create_run()
 
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         task_run.refresh_from_db()
         assert task_run.active_task_session is not None
-        assert task_run.active_task_session.object_storage_key.startswith(
-            f"task-sessions/{test_task.team.organization_id}/{test_task.id}/"
-        )
+        assert task_run.active_task_session.object_storage_key is None
+        assert task_run.active_task_session.team_id == test_task.team_id
         assert result.task_runtime == "pi"
-        assert result.runtime_adapter == "codex"
-        assert result.provider == "openai"
-        assert result.model == "gpt-5.3-codex"
-        assert result.reasoning_effort == "high"
-        assert result.initial_permission_mode == "plan"
+        assert result.runtime_adapter is None
+        assert result.provider is None
+        assert result.model is None
+        assert result.reasoning_effort is None
+        assert result.initial_permission_mode is None

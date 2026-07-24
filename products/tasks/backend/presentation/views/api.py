@@ -108,10 +108,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunUpdateSerializer,
     TaskSerializer,
     TaskSessionResponseSerializer,
-    TaskSessionSyncPrepareResponseSerializer,
-    TaskSessionSyncPrepareSerializer,
     TaskSessionSyncResponseSerializer,
-    TaskSessionSyncSerializer,
     TaskStagedArtifactsFinalizeUploadRequestSerializer,
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
@@ -1162,7 +1159,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: TaskSessionResponseSerializer,
             404: OpenApiResponse(description="Task session not found"),
         },
-        summary="Prepare active task session storage access",
+        summary="Get active task session storage access",
     )
     @action(detail=True, methods=["get"], url_path="task_session", required_scopes=["task:read"])
     def task_session(self, request, pk=None, **kwargs):
@@ -1170,36 +1167,52 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = tasks_facade.get_task_run_session(pk, task_id, self.team_id)
         if result is None:
             raise NotFound()
-        session_id, download_url, revision = result
+        session_id, download_url, content_sha256 = result
         return Response(
-            TaskSessionResponseSerializer({"id": session_id, "download_url": download_url, "revision": revision}).data
+            TaskSessionResponseSerializer(
+                {
+                    "id": session_id,
+                    "download_url": download_url,
+                    "content_sha256": content_sha256,
+                }
+            ).data
         )
 
-    @validated_request(
-        request_serializer=TaskSessionSyncPrepareSerializer,
+    @extend_schema(
+        request=OpenApiTypes.BINARY,
         responses={
-            200: OpenApiResponse(response=TaskSessionSyncPrepareResponseSerializer),
+            200: TaskSessionSyncResponseSerializer,
             404: OpenApiResponse(description="Task session not found"),
             409: OpenApiResponse(response=TaskRunErrorResponseSerializer),
         },
-        summary="Prepare an active task session sync",
-        strict_request_validation=True,
+        summary="Replace the active native task session",
     )
     @action(
         detail=True,
         methods=["post"],
-        url_path="task_session_sync_prepare",
+        url_path="task_session_sync",
         required_scopes=["task:write"],
     )
-    def prepare_task_session_sync(self, request, pk=None, **kwargs):
+    def sync_task_session(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        sandbox_id = request.headers.get("X-Sandbox-ID")
+        if not sandbox_id:
+            raise ValidationError({"X-Sandbox-ID": "This header is required."})
+        if_match = request.headers.get("If-Match")
+        if if_match is None:
+            raise ValidationError({"If-Match": "This header is required."})
+        expected_content_sha256 = if_match.strip().strip('"')
+        if expected_content_sha256 == "none":
+            expected_content_sha256 = None
+
         try:
-            result = tasks_facade.prepare_task_run_session_sync(
+            result = tasks_facade.sync_task_run_session(
                 pk,
                 task_id,
                 self.team_id,
-                sandbox_id=request.validated_data["sandbox_id"],
-                expected_revision=request.validated_data["expected_revision"],
+                sandbox_id=sandbox_id,
+                expected_content_sha256=expected_content_sha256,
+                content=request.body,
             )
         except ValueError as error:
             return Response(
@@ -1208,42 +1221,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if result is None:
             raise NotFound()
-        session_id, sync_id, upload = result
-        return Response(
-            TaskSessionSyncPrepareResponseSerializer({"id": session_id, "sync_id": sync_id, "upload": upload}).data
-        )
-
-    @validated_request(
-        request_serializer=TaskSessionSyncSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskSessionSyncResponseSerializer),
-            404: OpenApiResponse(description="Task session not found"),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer),
-        },
-        summary="Finalize an active task session sync",
-        strict_request_validation=True,
-    )
-    @action(detail=True, methods=["post"], url_path="task_session_sync", required_scopes=["task:write"])
-    def sync_task_session(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        try:
-            result = tasks_facade.finalize_task_run_session_sync(
-                pk,
-                task_id,
-                self.team_id,
-                sandbox_id=request.validated_data["sandbox_id"],
-                sync_id=request.validated_data["sync_id"],
-                expected_revision=request.validated_data["expected_revision"],
-            )
-        except (json.JSONDecodeError, ValueError) as error:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": str(error)}).data,
-                status=status.HTTP_409_CONFLICT,
-            )
-        if result is None:
-            raise NotFound()
-        session_id, revision = result
-        return Response(TaskSessionSyncResponseSerializer({"id": session_id, "revision": revision}).data)
+        session_id, content_sha256 = result
+        return Response(TaskSessionSyncResponseSerializer({"id": session_id, "content_sha256": content_sha256}).data)
 
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,

@@ -3,6 +3,7 @@ import time
 import uuid
 import base64
 import asyncio
+import hashlib
 from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
 from typing import Any, ClassVar, cast
@@ -30,7 +31,6 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.constants import TASK_SESSION_MAX_SIZE_BYTES, TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
@@ -60,6 +60,7 @@ from products.tasks.backend.models import (
     CodeInviteRedemption,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskArtifact,
     TaskAutomation,
@@ -1641,13 +1642,17 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run = task.runs.get()
-        mock_workflow.assert_called_once_with(
-            task_id=str(task.id),
-            run_id=str(run.id),
-            team_id=task.team.id,
-            user_id=self.user.id,
-            posthog_mcp_scopes="full",
-        )
+        mock_workflow.assert_called_once()
+        workflow_input = mock_workflow.call_args.kwargs
+        self.assertEqual(workflow_input["task_id"], str(task.id))
+        self.assertEqual(workflow_input["run_id"], str(run.id))
+        self.assertEqual(workflow_input["team_id"], task.team.id)
+        self.assertEqual(workflow_input["user_id"], self.user.id)
+        self.assertEqual(workflow_input["posthog_mcp_scopes"], "full")
+        self.assertEqual(workflow_input["initial_message"].message, "Test Description")
+        self.assertEqual(workflow_input["initial_message"].artifact_ids, [])
+        self.assertNotIn("mode", run.state)
+        self.assertNotIn("pending_user_message", run.state)
 
     @parameterized.expand(
         [
@@ -2265,13 +2270,13 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_workflow.assert_called_once_with(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-            team_id=task.team.id,
-            user_id=self.user.id,
-            posthog_mcp_scopes="full",
-        )
+        mock_workflow.assert_called_once()
+        workflow_input = mock_workflow.call_args.kwargs
+        self.assertEqual(workflow_input["task_id"], str(task.id))
+        self.assertEqual(workflow_input["run_id"], str(task_run.id))
+        self.assertEqual(workflow_input["initial_message"].message, "Test Description")
+        self.assertEqual(workflow_input["initial_message"].artifact_ids, [])
+        self.assertNotIn("pending_user_message", task_run.state)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
@@ -7942,6 +7947,19 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             state=state,
         )
 
+    def _open_sandbox_session(self, run, sandbox_id="sandbox-1"):
+        now = django_timezone.now()
+        return SandboxSession.objects.create(
+            team=self.team,
+            task_run=run,
+            sandbox_id=sandbox_id,
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            created_at=now,
+            ttl_expires_at=now + timedelta(hours=1),
+        )
+
     def _mock_agent_response(self, mock_post, body, status_code=200):
         mock_resp = MagicMock()
         mock_resp.status_code = status_code
@@ -8144,290 +8162,129 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["cancelled"])
 
-    @patch("posthog.storage.object_storage.get_presigned_url")
-    def test_task_session_returns_read_only_storage_access(self, mock_download_url):
+    def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
         run.active_task_session = task_session
         run.save(update_fields=["active_task_session"])
-        mock_download_url.return_value = "https://storage.example/session.jsonl"
+
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task_session.id))
-        self.assertEqual(response.json()["download_url"], "https://storage.example/session.jsonl")
-        self.assertEqual(response.json()["revision"], 0)
-        self.assertNotIn("upload", response.json())
+        self.assertEqual(
+            response.json(),
+            {
+                "id": str(task_session.id),
+                "download_url": None,
+                "content_sha256": None,
+            },
+        )
 
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("posthog.storage.object_storage.copy")
-    @patch("posthog.storage.object_storage.read")
     @patch("products.tasks.backend.models.object_storage.tag")
-    def test_task_session_sync_validates_and_promotes_an_immutable_revision(
-        self, mock_tag, mock_read, mock_copy, mock_head, mock_upload
-    ):
+    @patch("posthog.storage.object_storage.write")
+    def test_task_session_sync_atomically_replaces_opaque_content(self, mock_write, mock_tag):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
         run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-        mock_head.return_value = {"ContentLength": 31}
-        mock_read.return_value = '{"type":"session","version":3}\n'
+        run.save(update_fields=["active_task_session"])
+        self._open_sandbox_session(run)
+        content = b"opaque native session content"
 
-        prepare_response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/",
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
-        )
-        self.assertEqual(prepare_response.status_code, status.HTTP_200_OK)
-        task_session.refresh_from_db()
-        pending_key = task_session.pending_object_storage_key
-        self.assertIsNotNone(pending_key)
-        mock_upload.assert_called_once_with(
-            pending_key,
-            conditions=[
-                ["content-length-range", 1, TASK_SESSION_MAX_SIZE_BYTES + TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES]
-            ],
-        )
-
-        response = self.client.post(
+        response = self.client.generic(
+            "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            {
-                "sandbox_id": "sandbox-1",
-                "sync_id": prepare_response.json()["sync_id"],
-                "expected_revision": 0,
-            },
-            format="json",
+            content,
+            content_type="application/octet-stream",
+            HTTP_IF_MATCH='"none"',
+            HTTP_X_SANDBOX_ID="sandbox-1",
         )
 
+        expected_sha256 = hashlib.sha256(content).hexdigest()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task_session.id))
-        self.assertEqual(response.json()["revision"], 1)
+        self.assertEqual(response.json(), {"id": str(task_session.id), "content_sha256": expected_sha256})
         task_session.refresh_from_db()
-        self.assertEqual(task_session.revision, 1)
-        self.assertIsNone(task_session.pending_sync_id)
-        self.assertNotEqual(task_session.object_storage_key, pending_key)
-        mock_copy.assert_called_once_with(pending_key, task_session.object_storage_key)
-        mock_read.assert_called_once_with(task_session.object_storage_key, missing_ok=True)
+        self.assertEqual(task_session.content_sha256, expected_sha256)
+        self.assertEqual(task_session.size, len(content))
+        self.assertIsNotNone(task_session.object_storage_key)
+        mock_write.assert_called_once_with(task_session.object_storage_key, content)
         mock_tag.assert_called_once()
 
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("posthog.storage.object_storage.copy")
-    @patch("posthog.storage.object_storage.read")
     @patch("posthog.storage.object_storage.delete")
-    def test_task_session_sync_rejects_an_oversized_upload(
-        self, mock_delete, mock_read, mock_copy, mock_head, mock_upload
-    ):
+    @patch("posthog.storage.object_storage.write")
+    def test_task_session_sync_rejects_stale_content_hash(self, mock_write, mock_delete):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
+        task_session.object_storage_key = "task-sessions/current.jsonl"
+        task_session.content_sha256 = "current-hash"
+        task_session.size = 32
+        task_session.save(update_fields=["object_storage_key", "content_sha256", "size"])
         run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-        mock_head.return_value = {"ContentLength": TASK_SESSION_MAX_SIZE_BYTES + 1}
+        run.save(update_fields=["active_task_session"])
+        self._open_sandbox_session(run)
 
-        prepare_response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/",
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
-        )
-        task_session.refresh_from_db()
-        pending_key = task_session.pending_object_storage_key
-        sync_id = prepare_response.json()["sync_id"]
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-                {
-                    "sandbox_id": "sandbox-1",
-                    "sync_id": sync_id,
-                    "expected_revision": 0,
-                },
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["error"], "The uploaded task session exceeds the maximum size")
-        task_session.refresh_from_db()
-        self.assertIsNone(task_session.pending_sync_id)
-        self.assertIsNone(task_session.pending_object_storage_key)
-        mock_copy.assert_not_called()
-        mock_read.assert_not_called()
-        self.assertIn(call(pending_key), mock_delete.call_args_list)
-
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": 31})
-    @patch("posthog.storage.object_storage.copy")
-    @patch("posthog.storage.object_storage.read", return_value="not-json\n")
-    @patch("posthog.storage.object_storage.delete")
-    def test_task_session_sync_rejects_invalid_jsonl_and_clears_the_pending_upload(
-        self, mock_delete, mock_read, mock_copy, mock_head, mock_upload
-    ):
-        task = self.create_task(runtime=Task.Runtime.PI)
-        run = self._create_run_with_sandbox(task)
-        task_session = TaskSession.create_for_task(task)
-        run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-
-        prepare_response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/",
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
-        )
-        task_session.refresh_from_db()
-        pending_key = task_session.pending_object_storage_key
-        sync_id = prepare_response.json()["sync_id"]
-        promoted_key = (
-            f"task-sessions/{task_session.organization_id}/{task_session.task_id}/{task_session.id}/"
-            f"revisions/1-{sync_id}.jsonl"
-        )
-
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-                {"sandbox_id": "sandbox-1", "sync_id": sync_id, "expected_revision": 0},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        task_session.refresh_from_db()
-        self.assertIsNone(task_session.pending_sync_id)
-        self.assertIsNone(task_session.pending_object_storage_key)
-        self.assertCountEqual(mock_delete.call_args_list, [call(pending_key), call(promoted_key)])
-
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("posthog.storage.object_storage.delete")
-    def test_task_session_sync_preserves_pending_upload_after_storage_error(self, mock_delete, mock_head, mock_upload):
-        task = self.create_task(runtime=Task.Runtime.PI)
-        run = self._create_run_with_sandbox(task)
-        task_session = TaskSession.create_for_task(task)
-        run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-
-        prepare_response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/",
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
-        )
-        task_session.refresh_from_db()
-        pending_sync_id = task_session.pending_sync_id
-        pending_key = task_session.pending_object_storage_key
-        mock_head.return_value = None
-
-        response = self.client.post(
+        response = self.client.generic(
+            "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            {
-                "sandbox_id": "sandbox-1",
-                "sync_id": prepare_response.json()["sync_id"],
-                "expected_revision": 0,
-            },
-            format="json",
+            b'{"type":"session","version":3}\n',
+            content_type="application/octet-stream",
+            HTTP_IF_MATCH='"stale-hash"',
+            HTTP_X_SANDBOX_ID="sandbox-1",
         )
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "The task session content is stale")
         task_session.refresh_from_db()
-        self.assertEqual(task_session.pending_sync_id, pending_sync_id)
-        self.assertEqual(task_session.pending_object_storage_key, pending_key)
-        mock_delete.assert_not_called()
+        self.assertEqual(task_session.object_storage_key, "task-sessions/current.jsonl")
+        self.assertEqual(task_session.content_sha256, "current-hash")
+        mock_write.assert_called_once()
+        mock_delete.assert_called_once()
 
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    def test_repeated_prepare_reuses_the_pending_upload(self, mock_upload):
+    @patch("posthog.storage.object_storage.write")
+    def test_task_session_sync_rejects_a_closed_or_different_sandbox(self, mock_write):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
         run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-        prepare_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/"
-        payload = {"sandbox_id": "sandbox-1", "expected_revision": 0}
+        run.save(update_fields=["active_task_session"])
+        self._open_sandbox_session(run, "active-sandbox")
 
-        first_prepare = self.client.post(prepare_url, payload, format="json")
-        task_session.refresh_from_db()
-        pending_key = task_session.pending_object_storage_key
-
-        second_prepare = self.client.post(prepare_url, payload, format="json")
-
-        self.assertEqual(first_prepare.status_code, status.HTTP_200_OK)
-        self.assertEqual(second_prepare.status_code, status.HTTP_200_OK)
-        self.assertEqual(second_prepare.json()["sync_id"], first_prepare.json()["sync_id"])
-        task_session.refresh_from_db()
-        self.assertEqual(task_session.pending_object_storage_key, pending_key)
-        self.assertEqual(mock_upload.call_count, 2)
-        self.assertEqual(mock_upload.call_args_list[0], mock_upload.call_args_list[1])
-
-    @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": 31})
-    @patch("posthog.storage.object_storage.copy")
-    @patch("posthog.storage.object_storage.read", return_value='{"type":"session","version":3}\n')
-    @patch("posthog.storage.object_storage.delete")
-    def test_serialized_duplicate_finalize_recovers_without_rewriting_the_promoted_revision(
-        self, mock_delete, mock_read, mock_copy, mock_head, mock_upload
-    ):
-        task = self.create_task(runtime=Task.Runtime.PI)
-        run = self._create_run_with_sandbox(task)
-        task_session = TaskSession.create_for_task(task)
-        run.active_task_session = task_session
-        run.state = {**run.state, "sandbox_id": "sandbox-1"}
-        run.save(update_fields=["active_task_session", "state"])
-        mock_upload.return_value = {
-            "url": "https://storage.example/upload",
-            "fields": {"key": "pending-session.jsonl"},
-        }
-
-        prepare_response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/",
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
+        response = self.client.generic(
+            "POST",
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
+            b'{"type":"session"}\n',
+            content_type="application/octet-stream",
+            HTTP_IF_MATCH='"none"',
+            HTTP_X_SANDBOX_ID="stale-sandbox",
         )
-        sync_id = prepare_response.json()["sync_id"]
-        finalize_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/"
-        finalize_payload = {"sandbox_id": "sandbox-1", "sync_id": sync_id, "expected_revision": 0}
 
-        first_response = self.client.post(finalize_url, finalize_payload, format="json")
-        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "The task session writer is not the active sandbox")
+        mock_write.assert_not_called()
 
-        task_session.refresh_from_db()
-        promoted_key = task_session.object_storage_key
-        mock_head.reset_mock()
-        mock_copy.reset_mock()
-        mock_read.reset_mock()
+    @patch("posthog.storage.object_storage.write")
+    def test_task_session_sync_rejects_empty_content_before_upload(self, mock_write):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+        task_session = TaskSession.create_for_task(task)
+        run.active_task_session = task_session
+        run.save(update_fields=["active_task_session"])
+        self._open_sandbox_session(run)
 
-        duplicate_response = self.client.post(finalize_url, finalize_payload, format="json")
+        response = self.client.generic(
+            "POST",
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
+            b"",
+            content_type="application/octet-stream",
+            HTTP_IF_MATCH='"none"',
+            HTTP_X_SANDBOX_ID="sandbox-1",
+        )
 
-        self.assertEqual(duplicate_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(duplicate_response.json()["revision"], 1)
-        task_session.refresh_from_db()
-        self.assertEqual(task_session.object_storage_key, promoted_key)
-        mock_head.assert_not_called()
-        mock_copy.assert_not_called()
-        mock_read.assert_not_called()
-        mock_delete.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "The task session content size is invalid")
+        mock_write.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
