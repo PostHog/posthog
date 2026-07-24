@@ -3076,7 +3076,12 @@ class TestSignupResendInvite(APIBaseTest):
         response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sent": True})
-        mock_send.assert_called_once_with(kwargs={"invite_id": str(invite.id)})
+        mock_send.assert_called_once()
+        # A unique suffix must be passed so the resend gets a fresh campaign_key and isn't
+        # swallowed by the MessagingRecord dedup guard (which would leave the email undelivered).
+        call_kwargs = mock_send.call_args.kwargs["kwargs"]
+        self.assertEqual(call_kwargs["invite_id"], str(invite.id))
+        self.assertTrue(call_kwargs["campaign_key_suffix"])
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_invite.apply_async")

@@ -99,6 +99,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_invite_with_campaign_key_suffix_forces_fresh_campaign_key(self, MockEmailMessage: MagicMock) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(organization=org, created_by=user, target_email="test@posthog.com")
+
+        send_invite(invite.id, campaign_key_suffix="resend123")
+
+        # The suffix must land in the campaign_key so a resend gets its own MessagingRecord
+        # instead of colliding with the already-sent original (`invite_email_{id}`) and being deduped.
+        assert MockEmailMessage.call_args.kwargs["campaign_key"] == f"invite_email_{invite.id}_resend123"
+
     def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
         """Delegation invites route to the delegation_invite template with a custom subject."""
         mocked_email_messages = mock_email_messages(MockEmailMessage)
