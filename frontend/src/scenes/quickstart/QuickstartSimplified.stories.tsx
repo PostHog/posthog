@@ -74,6 +74,16 @@ export const InstallDismissedBanner: Story = {
     ],
 }
 
+/** Dismissed while a run is active: the header shows a simple loading chip back into setup */
+export const InstallDismissedWizardRunning: Story = {
+    decorators: [
+        installDismissedDecorator,
+        installationStateDecorator('running'),
+        mswDecorator(scenarioMocks({}, {}, 'running')),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
 /** State B: a wizard run is active pre-ingestion, so its progress is the page hero */
 export const WizardRunning: Story = {
     decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}, {}, 'running'))],

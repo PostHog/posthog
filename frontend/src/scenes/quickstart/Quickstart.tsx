@@ -24,6 +24,7 @@ import {
     IconSearch,
     IconSparkles,
     IconTerminal,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -357,18 +358,9 @@ function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.Rea
     )
 }
 
-function QuickstartInstallationPrompt({
-    installationComplete,
-    showInstallLink = true,
-}: {
-    installationComplete: boolean
-    /** test2 offers setup via its own Back to setup hint, so the onboarding link stays out */
-    showInstallLink?: boolean
-}): JSX.Element | null {
+function QuickstartInstallationPrompt({ installationComplete }: { installationComplete: boolean }): JSX.Element | null {
     return (
-        <QuickstartWizardProgress
-            fallback={installationComplete || !showInstallLink ? null : <QuickstartInstallationLink />}
-        >
+        <QuickstartWizardProgress fallback={installationComplete ? null : <QuickstartInstallationLink />}>
             {(progress) => <QuickstartInstallationProgress progress={progress} />}
         </QuickstartWizardProgress>
     )
@@ -1770,6 +1762,7 @@ export function Quickstart(): JSX.Element {
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openDialog: openWizardSyncDialog } = useActions(wizardSyncUiLogic)
     const { currentTeam, currentTeamId } = useValues(teamLogic)
     // A plain read, not detection: no polling, no live flips. The flag is only a lower bound
     // anyway (mobile SDKs often miss it), so leaving the install view is the user's call.
@@ -1852,22 +1845,40 @@ export function Quickstart(): JSX.Element {
                     </p>
                     <div className="mt-3 flex flex-wrap items-stretch gap-2">
                         <ProjectTokenChip />
-                        {/* In focused-install mode the wizard progress renders as the page hero instead */}
-                        {!focusedInstall && (
-                            <QuickstartInstallationPrompt
-                                installationComplete={installationComplete}
-                                showInstallLink={quickstartVariant !== 'test2'}
-                            />
-                        )}
-                        {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
-                            <LemonButton
-                                size="small"
-                                onClick={reopenFocusedInstall}
-                                data-attr="quickstart-back-to-setup"
-                            >
-                                Back to setup
-                            </LemonButton>
-                        )}
+                        {/* In focused-install mode installation status renders as the page hero instead.
+                            Elsewhere test2 keeps it to a simple loading chip: the full status lives
+                            behind Back to setup, so this only needs to say a run is happening. */}
+                        {!focusedInstall &&
+                            (quickstartVariant === 'test2' ? (
+                                <QuickstartWizardProgress
+                                    fallback={
+                                        !installationComplete && installDismissed ? (
+                                            <LemonButton
+                                                size="small"
+                                                onClick={reopenFocusedInstall}
+                                                data-attr="quickstart-back-to-setup"
+                                            >
+                                                Back to setup
+                                            </LemonButton>
+                                        ) : null
+                                    }
+                                >
+                                    {(progress) => (
+                                        <LemonButton
+                                            size="small"
+                                            icon={
+                                                progress.error ? <IconWarning className="text-danger" /> : <Spinner />
+                                            }
+                                            onClick={installationComplete ? openWizardSyncDialog : reopenFocusedInstall}
+                                            data-attr="quickstart-setup-status-chip"
+                                        >
+                                            {progress.error ? 'Setup needs attention' : 'Setting up PostHog'}
+                                        </LemonButton>
+                                    )}
+                                </QuickstartWizardProgress>
+                            ) : (
+                                <QuickstartInstallationPrompt installationComplete={installationComplete} />
+                            ))}
                     </div>
                 </section>
             </div>
