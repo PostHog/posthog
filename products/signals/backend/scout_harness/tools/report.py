@@ -361,7 +361,15 @@ def _wants_repo_selection(
 
     Every reviewer here is a scout pick (nothing is injected), so any reviewer counts as intent — even
     one who happens to be a skill owner, since the scout chose to route to them. `is_skill_owner` only
-    governs autostart identity, not intent."""
+    governs autostart identity, not intent.
+
+    So an owner-only pick now counts as intent and can reach autostart — but never as the owner:
+    `auto_start._resolve_autostart_assignee` still excludes `is_skill_owner` picks from identity, so an
+    owner-only pick resolves the runner through the reviewer-less fallback
+    (`_resolve_autostart_fallback_user`) — the team's signals-enabler or org admin, derived from
+    team/org config a skill editor can't control. A steered owner-only pick can at most trigger that
+    same trusted fallback an editor could already trigger with any non-resolving pick; it never lets the
+    editor-controlled owner become the runner."""
     if repository is not None:
         return True
     scout_picked_reviewer = reviewers is not None and bool(reviewers.root)

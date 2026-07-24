@@ -54,8 +54,8 @@ class ReviewerContent(TypedDict):
     github_name: str | None
     relevant_commits: list[dict]
     reason: str | None
-    # True for entries injected by the scout owner guardrail (editor-controlled `LLMSkillOwner`).
-    # These route the report but are never eligible to select the autostart task identity.
+    # True when a scout's own reviewer pick matches a current `LLMSkillOwner` (editor-controlled) and
+    # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
 
 
@@ -309,7 +309,7 @@ def _resolve_autostart_assignee(
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
-    # Owner-injected entries never select the task identity (see docstring). Filter before resolving
+    # Owner-stamped entries never select the task identity (see docstring). Filter before resolving
     # so their logins aren't even looked up as candidates.
     identity_candidates = [r for r in reviewers_content if not r.get("is_skill_owner")]
     login_to_user = resolve_org_github_login_to_users(
