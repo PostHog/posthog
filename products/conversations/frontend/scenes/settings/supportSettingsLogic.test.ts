@@ -61,16 +61,21 @@ describe('supportSettingsLogic', () => {
             ;(lemonToast.error as jest.Mock).mockClear()
         })
 
-        it('surfaces the backend reason when connecting fails', async () => {
+        // Two failure shapes reach this listener: the view's custom {error} responses and
+        // DRF serializer-validation errors, which surface as {detail}. Both must be shown.
+        it.each<[string, Record<string, string>]>([
+            ['view {error} shape', { error: 'This domain is already in use by another organization.' }],
+            [
+                'DRF {detail} shape',
+                { type: 'validation_error', code: 'invalid', detail: 'Enter a valid email address.' },
+            ],
+        ])('surfaces the backend reason when connecting fails (%s)', async (_label, body) => {
             useMocks({
                 get: {
                     'api/conversations/v1/email/status': { configs: [] },
                 },
                 post: {
-                    'api/conversations/v1/email/connect': () => [
-                        400,
-                        { error: 'This domain is already in use by another organization.' },
-                    ],
+                    'api/conversations/v1/email/connect': () => [400, body],
                 },
             })
             logic = supportSettingsLogic()
@@ -82,7 +87,7 @@ describe('supportSettingsLogic', () => {
             logic.actions.connectEmail()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(lemonToast.error).toHaveBeenCalledWith('This domain is already in use by another organization.')
+            expect(lemonToast.error).toHaveBeenCalledWith(body.error ?? body.detail)
         })
     })
 
