@@ -29,6 +29,11 @@ describe('isChunkLoadError', () => {
             { name: 'Error', message: 'Importing a module script failed.' },
             true,
         ],
+        [
+            'Chromium empty MIME-type failure',
+            { name: 'TypeError', message: "'' is not a valid JavaScript MIME type" },
+            true,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],
