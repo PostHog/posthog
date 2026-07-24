@@ -1547,6 +1547,45 @@ const INSTALL_MODE_CARDS: {
     },
 ]
 
+// Nielsen: visibility of system status. Each install mode previews its full path upfront;
+// live progress views take over once a run is actually moving.
+function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIndex: number }): JSX.Element {
+    return (
+        <ol className="flex flex-wrap items-center gap-y-1 p-0 m-0 list-none">
+            {steps.map((step, index) => (
+                <li key={step} className="flex items-center">
+                    <span
+                        className={cn(
+                            'flex items-center justify-center w-5 h-5 rounded-full border text-xs shrink-0',
+                            index === activeIndex ? 'border-accent text-accent font-semibold' : 'text-muted'
+                        )}
+                    >
+                        {index + 1}
+                    </span>
+                    <span
+                        className={cn(
+                            'ml-1.5 text-xs whitespace-nowrap',
+                            index === activeIndex ? 'text-primary font-medium' : 'text-muted'
+                        )}
+                    >
+                        {step}
+                    </span>
+                    {index < steps.length - 1 && <span className="w-5 h-px bg-border mx-2 shrink-0" />}
+                </li>
+            ))}
+        </ol>
+    )
+}
+
+const CLOUD_PATH_STEPS = ['Connect GitHub', 'Choose your repo', 'Agent opens a PR', 'Merge and deploy', 'Data arrives']
+const LOCAL_PATH_STEPS = [
+    'Copy the command',
+    'Run it in your terminal',
+    'Review the changes',
+    'Run your app',
+    'Data arrives',
+]
+
 // The install decision as radio cards: all three options visible and self-describing, since a
 // first-time user makes this choice exactly once. Same rules as onboarding's WizardInstallOptions:
 // a cloud run pins the view to its progress; a failed run falls back to the command.
@@ -1605,7 +1644,13 @@ function QuickstartInstallSwitcher(): JSX.Element {
                     )
                 })}
             </div>
-            <div className="w-full">
+            <div className="w-full rounded border bg-surface-primary p-4 flex flex-col gap-4">
+                {effectiveMode !== 'manual' && (
+                    <InstallPathTimeline
+                        steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
+                        activeIndex={effectiveMode === 'cloud' && cloudRunPinned ? 2 : 0}
+                    />
+                )}
                 {effectiveMode === 'cloud' ? (
                     <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
                 ) : effectiveMode === 'local' ? (
