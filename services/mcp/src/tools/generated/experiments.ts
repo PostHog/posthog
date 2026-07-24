@@ -50,6 +50,27 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
+    .extend(ExperimentsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+
+const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
+    name: 'experiment-activity',
+    schema: ExperimentActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        return result
+    },
+})
+
 const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
     .extend(ExperimentsArchiveCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
@@ -1041,28 +1062,8 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
-const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
-    .extend(ExperimentsActivityRetrieveQueryParams.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
-
-const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
-    name: 'experiment-activity',
-    schema: ExperimentActivitySchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/activity/`,
-            query: {
-                limit: params.limit,
-                page: params.page,
-            },
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,
@@ -1093,5 +1094,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
-    'experiment-activity': experimentActivity,
 }
