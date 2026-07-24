@@ -3,11 +3,13 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconCheckCircle, IconNotebook, IconPlus, IconTarget, IconThumbsDown, IconWarning } from '@posthog/icons'
 
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { urls } from 'scenes/urls'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates, newScanner } from '../scannerTemplates'
+import { scannerTypeOutputHint } from '../types'
 
 const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     warning: <IconWarning />,
@@ -41,18 +43,26 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                         {isBlank ? <IconPlus /> : TEMPLATE_ICONS[template.icon]}
                     </span>
                 </div>
-                <div className="flex-1 flex flex-col justify-start">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                        <h3 className="text-base font-semibold text-default mb-0">
-                            {isBlank ? 'Create from scratch' : template.name}
-                        </h3>
-                        {!isBlank && <ScannerTypeBadge scannerType={template.scanner_type} size="small" />}
-                    </div>
-                    <p className="text-sm text-secondary leading-relaxed">
+                <div className="flex-1 flex flex-col justify-start w-full">
+                    <h3 className="text-base font-semibold text-default mb-2">
+                        {isBlank ? 'Create from scratch' : template.name}
+                    </h3>
+                    <p className="text-sm text-secondary leading-relaxed mb-0">
                         {isBlank
                             ? 'Build a fully custom scanner with your own prompt and configuration.'
                             : template.description}
                     </p>
+                    {/* Type chip + its output, stacked and pinned to the card's bottom edge (mt-auto) so this
+                        footer lines up across the grid regardless of how many lines each description takes. */}
+                    {!isBlank && (
+                        <div className="mt-auto pt-4 flex flex-col items-center gap-1.5">
+                            <ScannerTypeBadge scannerType={template.scanner_type} size="medium" />
+                            <LemonSnack type="regular">
+                                <span className="text-muted">Output:</span>{' '}
+                                {scannerTypeOutputHint(template.scanner_type)}
+                            </LemonSnack>
+                        </div>
+                    )}
                 </div>
             </div>
         </button>
