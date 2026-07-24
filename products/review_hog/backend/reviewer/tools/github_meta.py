@@ -386,6 +386,8 @@ class PRFetcher:
 
     def fetch_pr_comments(self, pr_filter: PRFilter) -> list[PRComment]:
         """Fetch the PR's review comments (filtered files / test files dropped)."""
+        # EXPERIMENT(2026-07-reviewer-model-glm52, round 3): clean-room — zero prior comments. REVERT AFTER.
+        return []
         pr_comments: list[PRComment] = []
         try:
             for comment in github_api_get_paginated(

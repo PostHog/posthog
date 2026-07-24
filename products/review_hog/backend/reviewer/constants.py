@@ -1,12 +1,16 @@
+import json
+from pathlib import Path
+
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 # REVIEW MODEL
+# EXPERIMENT(2026-07-reviewer-model-glm52, arm F): GLM 5.2 @ MAX, gateway routed to Modal inference
+# (requires LLM_GATEWAY_MODAL_* + LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION=1.0 on the local gateway).
+# REVERT to CLAUDE/"claude-sonnet-5"/XHIGH/None after.
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-REVIEW_MODEL = "claude-sonnet-5"
-REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
-# extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
+REVIEW_MODEL = "@cf/zai-org/glm-5.2"
+REVIEW_REASONING_EFFORT = ReasoningEffort.MAX
 REVIEW_INITIAL_PERMISSION_MODE = None
 
 # VALIDATION MODEL
@@ -97,6 +101,13 @@ CHUNK_TARGET_ADDITIONS = 300
 # Soft cap the LLM chunker is told to stay under — guidance, not enforced: split large concerns at
 # natural seams rather than emit one mega-chunk, but keep a truly atomic concern whole if it runs over.
 CHUNK_SOFT_MAX_ADDITIONS = 600
+
+# EXPERIMENT(2026-07-reviewer-model-glm52): pin the chunk split so every run reviews identical chunks.
+# Loaded from the experiment folder when the file exists; None = natural chunking. REVERT AFTER.
+_PINNED_CHUNKS_PATH = Path(__file__).parents[2] / "eval/experiments/2026-07-reviewer-model-glm52/pinned_chunks.json"
+EXPERIMENT_PINNED_CHUNKS: dict | None = (
+    json.loads(_PINNED_CHUNKS_PATH.read_text()) if _PINNED_CHUNKS_PATH.exists() else None
+)
 
 
 # BLIND-SPOT CHECK

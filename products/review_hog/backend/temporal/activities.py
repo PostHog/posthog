@@ -33,6 +33,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
+    EXPERIMENT_PINNED_CHUNKS,
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
@@ -680,6 +681,16 @@ async def generate_schemas_activity(input: GenerateSchemasInput) -> None:
 @close_db_connections
 async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     """Split the PR into reviewable chunks (resume-aware); return the chunk ids."""
+    # EXPERIMENT(2026-07-reviewer-model-glm52): pinned split wins over everything. REVERT AFTER.
+    if EXPERIMENT_PINNED_CHUNKS is not None:
+        pinned = ChunksList.model_validate(EXPERIMENT_PINNED_CHUNKS)
+        logger.info(f"EXPERIMENT: using pinned chunk set ({len(pinned.chunks)} chunks)")
+        await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
+            team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=pinned
+        )
+        await _refresh_status_comment(input.team_id, input.report_id)
+        return [chunk.chunk_id for chunk in pinned.chunks]
+
     existing = await database_sync_to_async(load_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
     )

@@ -1,0 +1,121 @@
+{
+  "chunks": [
+    {
+      "chunk_id": 1,
+      "files": [
+        {
+          "filename": "products/review_hog/backend/models.py"
+        },
+        {
+          "filename": "products/review_hog/backend/migrations/0019_reviewusersettings_stamphog_review_inbox_prs.py"
+        },
+        {
+          "filename": "products/review_hog/backend/api/settings.py"
+        },
+        {
+          "filename": "products/review_hog/backend/receivers.py"
+        },
+        {
+          "filename": "products/review_hog/frontend/CodeReviewScene.tsx"
+        },
+        {
+          "filename": "products/review_hog/frontend/generated/api.schemas.ts"
+        },
+        {
+          "filename": "products/review_hog/frontend/generated/api.zod.ts"
+        },
+        {
+          "filename": "services/mcp/src/api/generated.ts"
+        }
+      ],
+      "chunk_type": "feature",
+      "key_changes": [
+        "Adds stamphog_review_inbox_prs boolean field to ReviewUserSettings (migration 0019), default off, alongside the existing review_inbox_prs toggle",
+        "Serializer exposes the new field plus a computed stamphog_connected flag that fails soft (returns False) if the cross-product Stamphog DB check errors",
+        "TaskRun receiver now resolves the acting reviewer once (_resolve_assigned_reviewer) and independently checks both toggles, dispatching review_hog's own review and/or stamphog's queue_inbox_pr_review facade on commit",
+        "Registers resolve_stamphog_acting_reviewer with stamphog's inbox hook registry at app-ready so the webhook leg can re-check the toggle without a circular import",
+        "New 'Let Stamphog review your Inbox PRs' switch in CodeReviewScene, disabled with a reason when Stamphog isn't connected but always interactive to opt out",
+        "Generated API schema/zod/mcp client types regenerated for the new fields (mechanical, attached for context)"
+      ]
+    },
+    {
+      "chunk_id": 2,
+      "files": [
+        {
+          "filename": "products/stamphog/backend/facade/api.py"
+        },
+        {
+          "filename": "products/stamphog/backend/facade/inbox_hooks.py"
+        },
+        {
+          "filename": "products/stamphog/backend/tasks/tasks.py"
+        },
+        {
+          "filename": "products/stamphog/backend/temporal/activities.py"
+        },
+        {
+          "filename": "products/stamphog/backend/logic/reviewer.py"
+        },
+        {
+          "filename": "products/tasks/backend/facade/api.py"
+        },
+        {
+          "filename": "products/tasks/backend/facade/contracts.py"
+        },
+        {
+          "filename": "tach.toml"
+        }
+      ],
+      "chunk_type": "business_logic",
+      "key_changes": [
+        "New facade/inbox_hooks.py: import-light inversion-hook registry so stamphog can call back into review_hog's toggle resolver without a dependency cycle",
+        "facade/api.py: has_reviewable_repo_config (drives the UI's stamphog_connected flag) and queue_inbox_pr_review (fire-and-forget Celery dispatch for the receiver/inbox leg)",
+        "tasks.py: _inbox_rereview_carve_out positively identifies self-driving PRs on the webhook path (repo-native head, synced+enabled repo config, tasks-facade match, re-checked toggle) and bypasses bot-author/draft/review-mode/write-permission gates only for that carve-out; new process_inbox_pr_review Celery task implements the initial receiver-leg review with head-keyed dedupe and inbox provenance; dedicated dismissal copy for opted-out reviewers",
+        "temporal/activities.py: derives self_driving_review from the run's stamped provenance for the engine context, skips the author merged-PR fetch on inbox runs, and stamps analytics with stamphog_self_driving_review",
+        "logic/reviewer.py: threads the new self_driving_review flag into the sandboxed engine invocation context",
+        "products/tasks facade: new find_signal_implementation_run + SignalImplementationRunDTO, mirroring the webhook backstop's PR lookup and enforcing team scoping to positively identify self-driving runs",
+        "tach.toml: registers stamphog as a facade-only dependency for the modules now calling into it"
+      ]
+    },
+    {
+      "chunk_id": 3,
+      "files": [
+        {
+          "filename": "tools/pr-approval-agent/review_pr.py"
+        },
+        {
+          "filename": "tools/pr-approval-agent/review_local.py"
+        },
+        {
+          "filename": "tools/pr-approval-agent/reviewer.py"
+        },
+        {
+          "filename": "tools/pr-approval-agent/version.py"
+        }
+      ],
+      "chunk_type": "feature",
+      "key_changes": [
+        "Pipeline gains an additive, default-off self_driving flag that relaxes exactly two gates: the bot-author refusal and the draft prerequisite",
+        "review_local.py sets the flag from the hosted context JSON's self_driving_review key, defaulting closed so Action-shaped contexts are unaffected",
+        "reviewer.py renders a TRUSTED provenance block in the LLM prompt only when the flag is set, replacing human-author trust signals; empty string otherwise keeps every other prompt byte-identical",
+        "Engine version bumped to 2.0.0b4"
+      ]
+    },
+    {
+      "chunk_id": 4,
+      "files": [
+        {
+          "filename": "products/stamphog/AGENTS.md"
+        },
+        {
+          "filename": "products/stamphog/README.md"
+        }
+      ],
+      "chunk_type": "documentation",
+      "key_changes": [
+        "New 'self-driving inbox carve-out' invariant section in AGENTS.md documenting the narrow, positively-identified exception to the bot-author refusal and the gates it does/doesn't bypass",
+        "README.md documents the non-webhook entry point via the inbox receiver's queue_inbox_pr_review facade call"
+      ]
+    }
+  ]
+}

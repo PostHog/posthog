@@ -1,0 +1,391 @@
+{
+ "xVerdicts": [
+  {
+   "id": "X1",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "products/stamphog/backend/facade/api.py:128-155 (facade forwards verbatim, as claimed); products/review_hog/backend/receivers.py:111,202-207,210-236 (sole caller derives acting_user_id via team-scoped org-member resolution for the same team_id); products/stamphog/backend/tasks/tasks.py:1176-1180,1229 (acting_user_id stamped as write-only provenance); products/stamphog/backend/temporal/activities.py:123,175,237,451 (credential minted under repo_config.connected_by_user_id; carve-out keyed on bool(output.get(\"inbox_review\")), never on acting_user_id); products/stamphog/backend/tasks/tasks.py:199-205 (webhook \"belt and braces\" check guards run.team_id vs repo_config.team_id facade boundary, not reviewer membership \u2014 webhook leg trusts its resolver identically)",
+   "notes": "The finding accurately describes the code (no membership check on acting_user_id) but the risk is unreachable and inconsequential: the only caller is an in-process receiver that resolves acting_user_id to an org member of the same team_id it forwards, the field is non-authorizing provenance that drives no credential, approval, or carve-out decision, and the cited webhook-leg precedent guards a different boundary (cross-product facade team scope), not reviewer identity \u2014 so the claimed asymmetry does not exist. Adding the suggested check would be redundant defense against a hypothetical future caller bug; speculative/defensive-paranoia, below the bar."
+  },
+  {
+   "id": "X2",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "products/stamphog/backend/facade/api.py:112-125 (has_reviewable_repo_config lacks provider filter \u2014 premise accurate); products/stamphog/backend/facade/api.py:107-109 (get_repo_config also omits provider, refuting \"every other lookup\" claim); products/stamphog/backend/models.py:26-29 (provider CharField default \"github\", no choices, GitHub only implemented provider); products/stamphog/backend/tasks/tasks.py:666-674 (only path stamping non-blank installation_id + connected_by_user_id creates rows with provider=\"github\")",
+   "notes": "Code premise is correct but the failure scenario is unreachable: the predicate (enabled + synced installation_id + connecting user) can only be satisfied by rows created via the GitHub App sync flow, which hardcodes provider=\"github\". A non-github row satisfying it would require an unimplemented second SCM provider. The claimed divergence from \"every other repo-config lookup\" is also inaccurate \u2014 get_repo_config in the same file omits the provider filter too. Adding provider=\"github\" would be harmless consistency polish, not a fix for any real behavior today."
+  },
+  {
+   "confidence": "medium",
+   "evidence": "reviewer.py:692-703 renders the TRUSTED machine-user block off cl.get(\"self_driving\") alone. Webhook leg is bot-gated (products/stamphog/backend/tasks/tasks.py:171-175), but the receiver leg is not: process_inbox_pr_review (tasks.py:1110-1229) stamps inbox_review with no author check, and its pr_url can be bound by the tasks-webhook backstop via branch+repo match only (products/tasks/backend/webhooks.py:176-185, _record_run_pr_url) \u2014 a human opening a PR from the agent's work branch when agent-side detection missed reaches self_driving=True with author_is_bot=False (review_local.py:321-324 passes it through).",
+   "id": "X3",
+   "is_real": true,
+   "notes": "The rebuttal embedded in the finding file (\"no reachable path to self_driving=True + non-bot author\") is wrong: only the webhook re-review leg checks _is_bot_authored; the receiver leg trusts TaskRun.output.pr_url, which the tasks-webhook backstop binds by branch+repo with no author check \u2014 exactly the path used when the agent fails to open the PR itself and a human opens it from the agent's branch. In that reachable scenario reviewer.py asserts a false trusted fact (\"author is a machine user\", \"draft state is not a caution signal\") on a path that mints real GitHub approvals. Bounded impact: the diff is still agent-produced at that head, the reviewer still judges the diff and can refuse/escalate, later pushes re-review through the normal gated path, and the suppressed signals cut both ways. Cheap fix: cross-check pr.author_is_bot (already on PRData) before rendering, or surface the mismatch. should_fix, not must_fix.",
+   "severity": "should_fix"
+  },
+  {
+   "confidence": "high",
+   "evidence": "products/db_routing.yaml (tasks app absent \u2014 TaskRun is main-DB); posthog/dbrouter.py:22-31 (ReplicaRouter.db_for_read returns \"default\"/writer unless model opted in via READ_REPLICA_OPT_IN, empty default per posthog/settings/data_stores.py:271-272); posthog/product_db_router.py:27-34 (only stamphog/visual_review/warehouse_sources_queue/agent_platform get _db_reader routing); products/tasks/backend/webhooks.py:40 (the unpinned TaskRun read \u2014 pre-existing, unchanged); products/stamphog/backend/tasks/tasks.py:300,396 (stamphog-DB reads in the PR are pinned); products/stamphog/backend/tasks/tasks.py:882-894 (head-changing skip path retracts stale approvals unconditionally, so a lagged false-negative is fail-closed)",
+   "id": "X4",
+   "is_real": false,
+   "notes": "The finding's raw facts check out (unpinned find_task_run read; pinned stamphog reads; no AGENTS.md cross-reference), but the conclusion misapplies the Reader-lag invariant: that invariant governs the stamphog product DB, whose ProductDBRouter sends unpinned reads to a real replica. TaskRun lives in the main DB under ReplicaRouter, where reads go to the writer by default \u2014 pinning via .using(router.db_for_write(TaskRun)) would be a no-op, and every read of the DB the invariant covers IS pinned in this PR. Even under a hypothetical replica config the failure is fail-closed: carve-out resolves empty, the bot PR stays refused, and the skip path still dismisses stale approvals; the carve-out only fires on synchronize/reopen/retarget, long after the linkage row committed, and signal linkage is never revoked post-creation. A must_fix demanding documentation plus a no-op pin on pre-existing, unchanged code is not a defect.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "X5",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "products/stamphog/AGENTS.md:129-135 (Engine parity section, unchanged by PR \u2014 0 diff matches for \"Engine parity\"/\"wherever both apply\" in pr72680.diff) vs AGENTS.md:80-114 (new carve-out section); lines 93-95 already state the flag \"defaults closed and the Action never sets it, so Action behavior is unchanged by construction\".",
+   "notes": "Premise is textually accurate but there is no defect: the parity rule is scoped to \"wherever both apply\", and the Action never sets self_driving_review, so the carve-out is outside that rule by its own wording. The new section documents the divergence completely in the same file. The suggestion is a one-line cross-reference in a section this PR does not touch \u2014 pure documentation taste with no behavioral, correctness, or contract consequence."
+  },
+  {
+   "id": "X6",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/receivers.py:159 (`signal_report_id: Any` in _resolve_assigned_reviewer), :111 (caller passes UUID `task.signal_report_id`), :152 (resolve_stamphog_acting_reviewer passes str), :180-187 (filter on report_id); pr72680_tree/products/signals/backend/models.py:184 (SignalReport is UUIDModel), :746 (SignalReportArtefact.report FK); pr72680_tree/products/tasks/backend/models.py:191 (Task.signal_report FK)",
+   "notes": "The loose `Any` annotation exists as described, but Django's UUIDField coerces str and UUID identically in query prep, so both call sites (UUID from the signal receiver, str from stamphog's hook) match the same rows \u2014 no runtime mismatch is possible. Any hypothetical mismatch fails closed (resolver returns None, no review starts), so there is no security or correctness consequence. The finding is a type-annotation hygiene suggestion with zero behavior change; style-level, not a defect."
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/tasks/backend/facade/api.py:505-513 (only team_id/signal_report_id/internal checks); pr72680_tree/products/tasks/backend/webhooks.py:46-57 (pr_url leg falls back to terminal runs via order_by(\"terminal_rank\",\"-created_at\").first()), :64-78 (branch leg has no task__deleted or status filter; only wizard leg :85-95 excludes both); pr72680_tree/products/stamphog/backend/tasks/tasks.py:191-201 (carve-out checks only run is None / team_id), :946 and :967-969 (carve-out bypasses review-mode and write-permission gates); pr72680_tree/products/tasks/backend/facade/cancellation.py (no GitHub calls, PR left open); pr72680_tree/products/tasks/backend/models.py:445-452 (soft_delete flips DB flags only)",
+   "id": "X7",
+   "is_real": true,
+   "notes": "Confirmed: the new find_signal_implementation_run facade matches CANCELLED/FAILED runs (terminal fallback in find_task_run's pr_url leg) and deleted tasks (no task__deleted filter on the pr_url or plain-branch legs), and the stamphog carve-out adds no status check, so a later push to the still-open bot PR of a cancelled/deleted self-driving task re-applies the full gate bypass (bot-author, draft, review-mode, write-permission) and can post a real approval for automation the team explicitly stopped. Severity bounded to should_fix: not forgeable or cross-tenant (genuine same-team signal-run linkage required, fork-rejected before lookup), pusher needs repo write access anyway, acting reviewer must be opted in, approval only if the engine judges content approvable, and a human still merges \u2014 a within-tenant authorization-window scoping fix, not a merge-blocking vulnerability. Suggested fix (exclude CANCELLED/FAILED runs and deleted tasks in the facade, keep COMPLETED matchable) is correct and minimal.",
+   "severity": "should_fix"
+  },
+  {
+   "id": "X8",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/tasks/backend/facade/api.py:508 mirrors the documented discriminator at pr72680_tree/products/review_hog/backend/receivers.py:98-105 (\"internal plumbing tasks also carry signal_report_id\"); field still load-bearing (37 non-test refs, deprecated note at models.py:190 is aspirational); caller pr72680_tree/products/stamphog/backend/tasks/tasks.py:191-201 returns empty _InboxCarveOut() on None, so retirement of the field fails closed (bot PR refused), never a bypass",
+   "notes": "The check deliberately matches the review_hog trigger that produces these runs \u2014 signal_report_id + not internal is the codebase's actual precedent for identifying the self-driving implementation task; origin_product pairing at api.py:~3796 is creation-time bookkeeping and both fields are set together, so adding it changes no outcome. The finding's security framing collapses on its own admission that failure is fail-closed; what remains is speculative future-proofing against a field retirement not in scope, with no misbehaving input today."
+  },
+  {
+   "id": "X9",
+   "is_real": true,
+   "severity": "should_fix",
+   "confidence": "medium",
+   "evidence": "tools/pr-approval-agent/review_pr.py:225 (bot refusal relaxed by flag), review_pr.py:590 (draft gate relaxed by flag alone, not conditioned on author_is_bot); products/stamphog/backend/tasks/tasks.py:169-172 (webhook leg enforces _is_bot_authored) vs tasks.py:1110-1232 (receiver leg process_inbox_pr_review stamps inbox_review with NO author check on the fetched PR \u2014 bot authorship is docstring-only at tasks.py:1117); products/tasks/backend/webhooks.py:159,185,203-212 (backstop stamps output.pr_url by branch match with no author check, so a human-opened PR from the agent's repo-native branch can become the run's pr_url); products/stamphog/backend/temporal/activities.py:451 \u2192 tools/pr-approval-agent/review_local.py:321 (flag flows to the engine); tasks.py:225-229 (_review_skip_reason docstring: \"The engine keeps the same bot/draft refusals as defense in depth\" \u2014 the invariant the PR's carve-out no longer guarantees).",
+   "notes": "The finding's code claim is correct and the common refutation (\"no caller can set self_driving=True for a non-bot PR\") does not hold: the receiver leg (process_inbox_pr_review) never verifies the fetched PR's author, and the tasks webhook backstop stamps pr_url purely on a head-branch match, so on the public repo a human-authored PR opened from the agent's work branch can reach the engine with self_driving=True. In that state the draft gate silently disappears and the reviewer prompt carries trusted task provenance for a PR whose title/body/base are human-controlled. The one-line fail-closed guard (disable self_driving when pr.author_is_bot is False after fetch) matches the codebase's explicit belt-and-braces doctrine and closes the gap at the layer upstream code documents as defense in depth. must_fix is overblown though: the bad path needs an opted-in acting reviewer, an unstamped pr_url race, and still passes every other gate plus the LLM verdict over agent-pushed diff content \u2014 real but limited, hence should_fix."
+  },
+  {
+   "id": "X10",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/tools/pr-approval-agent/review_local.py:321 consumes bool(context.get(\"self_driving_review\")); pr72680_tree/products/stamphog/backend/logic/reviewer.py:101 (typed `self_driving_review: bool = False`), :131 (placed in context dict), :137 (json.dumps serialization); pr72680_tree/products/stamphog/backend/temporal/activities.py:451 (sole caller passes bool(output.get(\"inbox_review\")))",
+   "notes": "The value is a genuine Python bool at the only producer, serialized via json.dumps (emits JSON true/false, round-trips to Python bool). Absent key yields None -> bool(None) = False, so bool() is fail-closed for every reachable value. The string-\"false\" scenario requires a hypothetical future serialization regression that has no basis in the PR code; the flag is server-stamped from inbox provenance, not author-controlled input. Speculative defensive-coding suggestion, not a real gap."
+  },
+  {
+   "id": "X11",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/receivers.py:162-164 (assignment explicitly defined as the report's latest artefact \u2014 dynamic by design), receivers.py:111 (leg 1 also re-derives on every save, so no pinned identity exists), receivers.py:148-149 (live re-check on later pushes is the stated purpose); pr72680_tree/products/stamphog/backend/facade/inbox_hooks.py:20-21 (contract: \"toggle is currently on\"); pr72680_tree/products/stamphog/backend/tasks/tasks.py:207,888-910 (opted_out path still dismisses stale approvals and logs reason=\"inbox_opt_out\"), tasks.py:211-216 (provenance records acting_user_id per run)",
+   "notes": "The re-derivation the finding describes exists, but it is the documented follow-current-assignment semantics shared by both legs, not a missing identity pin: the resolver docstring, the hook contract, and the append-only latest-artefact model all specify current-state resolution, and leg 1 itself re-resolves on every TaskRun save. Drift only changes whether a later push gets re-reviewed (fail-closed: stale-approval dismissal runs unconditionally on the opt-out skip path), so no wrong approvals or security impact. The suggested pin-at-leg-1 fix would regress the intended behavior of following live reassignment."
+  },
+  {
+   "id": "X12",
+   "is_real": true,
+   "severity": "consider",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/api/settings.py:72-81 (get_stamphog_connected \u2192 has_reviewable_repo_config(team_id)); pr72680_tree/products/stamphog/backend/facade/api.py:112-126 (project-wide .exists() over any synced+enabled repo config); pr72680_tree/products/stamphog/backend/tasks/tasks.py:1141-1155 (per-repo gate in process_inbox_pr_review: logger.info + silent return when the PR's repo has no config)",
+   "notes": "The described behavior exists: stamphog_connected is a project-wide \"at least one repo\" signal while the actual inbox-review gate is per-repository and silently no-ops (logged only) for uncovered repos, so a multi-repo team with partial Stamphog coverage can see the toggle enabled yet get no reviews for PRs in unconnected repos. But it is low-stakes and largely by design: the help_text at settings.py:50-54 already states the \"at least one synced, enabled Stamphog repository\" semantics (the finding's fallback fix is effectively done), the settings endpoint has no repository in context so per-repo scoping is ill-defined for a project-wide per-user toggle, and the failure mode is fail-closed (skipped review, no wrong output). Valid observation, UX-copy-level at most \u2014 not must/should fix."
+  },
+  {
+   "id": "X13",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/receivers.py:222 (deferred import before try at :225, inside on_commit lambda at :131) \u2014 shape confirmed; but receivers.py:254-261 shows the identical merged convention in _start_review, and pr72680_tree/products/review_hog/backend/api/settings.py:16 imports the same facade at module level, so an import-time failure fails deterministically at settings-API import / CI, never as an on-commit surprise.",
+   "notes": "Code-shape claim is accurate but the failure scenario is defensive paranoia: the stamphog facade is module-level-imported elsewhere in the same PR (settings.py:16) and cached in sys.modules, so the deferred import in the on_commit callback cannot realistically raise in a deployed app; a broken facade would fail CI/startup loudly. Pattern exactly mirrors the pre-existing _start_review convention, so the PR introduces no new gap. Even in the hypothetical, on_commit runs post-commit \u2014 no rollback or data loss, only a logged exception in the committing path."
+  },
+  {
+   "confidence": "high",
+   "evidence": "Engine gap exists as described: pr72680_tree/tools/pr-approval-agent/review_local.py:299-303 (_attach_familiarity bails only on empty author_pr_numbers, no self_driving guard). But the harm is closed upstream in the same PR: pr72680_tree/products/stamphog/backend/temporal/activities.py:233-238 sets author_pr_numbers=[] for inbox reviews with an explicit comment giving the exact machine-author-familiarity rationale, and both that skip (line 237) and the engine flag self_driving_review (line 451, \"keys off this and ONLY this\") derive from the same run.output[\"inbox_review\"] in the same file \u2014 both hunks are in pr72680.diff (lines 1215-1216, 1227), refuting the \"different, unreviewed chunk\" premise. Action-shaped contexts default self_driving closed (review_local.py:316-321), so no current path yields the contradictory prompt or machine-author familiarity in a posted comment.",
+   "id": "X14",
+   "is_real": false,
+   "notes": "The described damage (dual contradictory TRUSTED prompt blocks; machine-author familiarity in the posted review body) cannot occur in the shipped code: the server-side context builder in this same PR deliberately returns an empty author_pr_numbers list for self-driving runs, and both the skip and the self_driving_review flag are coupled to the identical inbox_review provenance field in one file. The finding's trigger is explicitly hypothetical (\"if the server's context builder ever populates... future refactor\") \u2014 a redundant engine-side re-enforcement of a carve-out the caller already performs. The one-line defense-in-depth guard has design-consistency appeal (mirrors _refuse_bot_author's stated philosophy) but is a hardening preference, not a defect; must_fix is unsupported.",
+   "severity": "not_an_issue"
+  },
+  {
+   "confidence": "high",
+   "evidence": "products/review_hog/backend/api/settings.py:73-82 (fail-soft SerializerMethodField calling has_reviewable_repo_config); products/stamphog/backend/facade/api.py:112-125 (single .exists() query, team_id-scoped); products/stamphog/backend/models.py:58 (unique_stamphog_repo_per_team (team_id, repository) constraint making the lookup index-backed); products/review_hog/backend/api/settings.py:139-143 (\"always-called\" = Code review tab GET, human-navigation frequency, which already runs seed_canonicals_tolerantly inline)",
+   "id": "X15",
+   "is_real": false,
+   "notes": "The code reads as described, but the impact claim doesn't hold: one index-backed .exists() on a tiny per-team table, per human settings-tab load, with fail-soft try/except plus a fail-fast circuit breaker already covering the DB-down case. The residual \"up-but-slow before the breaker trips\" concern is speculative, and the suggested per-team TTL cache would leave the toggle stale-disabled immediately after a user connects a Stamphog repo \u2014 the exact flow the flag guides. Ordinary cost, correctly handled by design; not worth a change.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "X16",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:1155-1162 (fetch-before-dedupe with explicit rationale comment + GitHubRateLimitError retry countdown>=60); pr72680_tree/products/review_hog/backend/receivers.py:77-79 (docstring accepting \"a same-head re-trigger costs one fetch\"), receivers.py:81-142 (cheapest-first gating: created/update_fields/status/pr_url/internal/toggle checks bound refires); tasks.py:1159 is the file's only get_pr \u2014 the webhook path has the payload and makes no GitHub call, so the claimed asymmetry vs _is_duplicate_pr_event is a false parallel.",
+   "notes": "The code shape described (GitHub get_pr before head-keyed dedupe) is factually present, but it is an intentional, documented tradeoff: dedupe must key on the PR's current head, which only GitHub knows, and the every-time fetch is what provides lost-synchronize recovery. Refire volume is bounded to a few saves per self-driving run by the receiver's gating, each redundant fire costs one lightweight GET, and rate-limit errors are already caught and retried with a >=60s countdown. The finding's central contrast with the webhook path is wrong (that path never fetches from GitHub), and the suggested (team_id, pr_url) debounce would undermine the recovery semantics the design deliberately buys. Speculative-scale inefficiency, already self-limiting \u2014 not user-affecting."
+  },
+  {
+   "id": "X17",
+   "is_real": true,
+   "severity": "consider",
+   "confidence": "high",
+   "evidence": "products/tasks/backend/facade/api.py:504 (find_task_run called with pr_url + branch); products/tasks/backend/webhooks.py:64-76 (branch-only leg: filter(branch=..., task__repository__iexact=..., state__wizard_head_branch__isnull=True)); products/tasks/backend/models.py:1081 (branch CharField, no db_index) and models.py:1147-1174 (Meta.indexes contain only output__pr_url, state__wizard_head_branch, created_at, task+created_at+id, team+stage+task \u2014 nothing serving branch or iexact repository); products/stamphog/backend/tasks/tasks.py:167-198 (carve-out gates: head-changing + bot-authored + repo-native + enabled config, then the facade call \u2014 dependabot/renovate synchronize passes all gates, misses the indexed pr_url leg, and always runs the never-matching unindexed branch leg); products/tasks/backend/webhooks.py:159 (pre-existing tasks-webhook caller of the same query)",
+   "notes": "All factual claims verified: the branch-only fallback leg has no supporting index, and the new stamphog carve-out exercises it for every bot-authored head-changing PR delivery (dependabot/renovate synchronize) on stamphog-enabled repos, where it can never match \u2014 pure waste per delivery. Severity correctly capped at consider: (1) the query shape is pre-existing on the hotter tasks-webhook backstop path (webhooks.py:159), this PR only adds a narrower-gated second caller; (2) the \"sequential scan of posthog_task_run\" claim is slightly overstated \u2014 TaskRun.task is an FK with a default index, so the planner can seq-scan the much smaller posthog_task on the iexact predicate and nested-loop into task_run, keeping cost proportional to the tasks table rather than the runs table; (3) frequency is bounded by the bot-author/repo-config gate stack. The suggested mitigation (carve-out passes head_branch=None since self-driving PRs at synchronize/reopen time already have the indexed output.pr_url bound \u2014 self-recorded or via the opened-event backstop _record_run_pr_url) is cheap and safe. Valid observation, low stakes today, cost grows with table size."
+  },
+  {
+   "id": "X18",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/tools/pr-approval-agent/review_pr.py:225 (bot-author skip), :590 (draft carve-out), :937-938 (\"Audit trail for the carve-out\" comment + \"self_driving\": self.self_driving in to_dict()), :477 (flag in classification dict), :585-589 (comment documenting intentional draft review); pr72680_tree/products/stamphog/backend/temporal/activities.py:176 (extra_properties[\"stamphog_self_driving_review\"] = True)",
+   "notes": "The line-level observations are accurate (no print at the bot-author bypass; draft carve-out produces the generic \"all clear\" gate message, which also reaches the rendered review-body table). But the headline claim \"no observable trace\" is wrong: to_dict() emits classification.self_driving with an explicit audit-trail comment, and the hosted runtime stamps stamphog_self_driving_review=True on analytics. The relaxed behavior is deliberate and documented in code; gates evaluate correctly and \"all clear\" truthfully describes the gate outcome under the carve-out. The suggestion amounts to echoing an already-recorded boolean into human-readable strings plus an extra console print \u2014 observability/message-wording polish, not a correctness/security/reliability defect. Does not meet the should_fix bar; at most a cosmetic nicety."
+  },
+  {
+   "id": "X19",
+   "is_real": true,
+   "severity": "consider",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/receivers.py:116-125 and :131-139 \u2014 two sequential transaction.on_commit registrations, both default robust=False; :254-255 deferred imports in _start_review sit outside its try/except (:261-273), the only unguarded code besides trivial dict construction (:257-260); _start_stamphog_review's import at :222 likewise outside its try (:224-234). robust=True is repo convention elsewhere: pr72680_tree/products/alerts/backend/destinations.py:124, products/logs/backend/presentation/views/alerts_api.py:1224.",
+   "notes": "The described mechanism checks out in the actual PR head: two independently-gated non-robust on_commit hooks share Django's FIFO commit-hook queue, and a raise from the first would both skip the Stamphog hook and propagate into the tasks save path (the receiver's line-140 try/except does not cover commit-time callbacks). However, the only raise path in the first callback is a failed deferred import of the review_hog temporal client package \u2014 everything else is wrapped or infallible. An import failure of that package is a loud, feature-wide ReviewHog outage, so there is no reachable state where ReviewHog is healthy yet the Stamphog leg is silently cancelled; the marginal harm is subsumed by the outage. Adding robust=True to both registrations is a correct, cheap, convention-matching hardening worth doing, but it defends against a practically unreachable trigger, so this is a low-stakes observation rather than a fix-worthy defect."
+  },
+  {
+   "id": "X20",
+   "is_real": true,
+   "severity": "should_fix",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:1140-1153 (receiver leg's only check = repo-config resolution; no _is_bot_authored, no find_signal_implementation_run, no fork check before stamping inbox_review at 1176-1230) vs tasks.py:169-207 (webhook leg requires bot author, same-repo head, facade linkage match, resolver opt-in); tasks.py:947 (inbox_review bypasses review_mode gate on webhook path); temporal/activities.py:449-451 (self_driving_review set purely from output.inbox_review, comment falsely claims both paths positively link the PR); products/review_hog/backend/receivers.py:93,126-139 (pr_url read straight from TaskRun.output, forwarded to stamphog); receivers.py:34-35 (TaskRun.branch seeded with BASE branch by auto-start); products/tasks/backend/webhooks.py:68-76,184-185,203-212 (branch-matched backstop writes a same-repo PR's URL onto the run when output.pr_url unset, saving with update_fields=[\"output\",\"updated_at\"] which re-fires the receiver)",
+   "notes": "Verified end to end. The receiver leg posts a real head-pinned GitHub approval with self-driving provenance while applying none of the positive-identification checks the sibling webhook leg treats as load-bearing, and it also skips the review_mode/write-permission gates entirely. The trust chain bottoms out in TaskRun.output.pr_url, which the tasks webhook backstop can mis-bind: auto-start seeds TaskRun.branch with the BASE branch, so a same-repo human PR whose head ref equals that base (e.g. a main->release promotion PR) opened before the agent records its own PR gets bound to the signals run and then auto-approved with every human gate bypassed. Fork-safety and write-once upstream narrow but don't close this (the dangerous case is same-repo and pre-pr_url by construction). Reachability needs a multi-condition coincidence, so not must_fix; but the worst case satisfies branch protection with zero human review and the fix (drop out if not _is_bot_authored(pr) after the fetch, ideally re-verify linkage via find_signal_implementation_run) is a cheap mirror of the existing sibling guard, so should_fix rather than consider. The prior triage note's downgrade-to-consider underweights that the base-branch seeding makes the collision a real pattern (promotion PRs from main), not just an exotic name collision."
+  }
+ ],
+ "yVerdicts": [
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/api/settings.py:27-33 (no validator, help_text documents \"Only takes effect when the project has a synced, enabled Stamphog repository\"); settings.py:80 (get_stamphog_connected calls has_reviewable_repo_config(instance.team_id)); pr72680_tree/products/stamphog/backend/facade/api.py:120-125 (has_reviewable_repo_config is team-scoped via for_team) and :136-142 (queue_inbox_pr_review docstring: repo-config gating in the Celery task, \"silent no-op without one\"); pr72680_tree/products/review_hog/backend/receivers.py:210-217 (_start_stamphog_review docstring repeats the silent no-op design)",
+   "id": "Y1",
+   "is_real": false,
+   "notes": "The premise is factually accurate (the field is writable with no connected-precondition validator), but persist-then-gate is the deliberate, documented design: the field help_text states the toggle \"only takes effect\" when connected, and both downstream docstrings (queue_inbox_pr_review, _start_stamphog_review) document the silent no-op without a synced+enabled StamphogRepoConfig. Storing true while disconnected is a harmless preference that activates when a repo connects \u2014 no wrong result, no data corruption, no security exposure. The suggested cross-team-leak check is already satisfied (has_reviewable_repo_config uses for_team with instance.team_id). The finding itself concedes \"no code change is needed\" if the design is intentional, which the code confirms; UI-disabled-vs-API-writable is a benign UX choice, not a broken contract.",
+   "severity": "not_an_issue"
+  },
+  {
+   "confidence": "high",
+   "evidence": "Read site with invariant comment: pr72680_tree/products/stamphog/backend/temporal/activities.py:448-451. Only two writers, both full 4-key provenance after positive linkage: pr72680_tree/products/stamphog/backend/tasks/tasks.py:1064 (webhook; provenance built at tasks.py:208-215 behind team-scope recheck at :199) and tasks.py:1176-1181/1229 (receiver leg). Non-carve-out runs get output={} (tasks.py:1064). Later run.output merges add only unrelated keys (activities.py:246-251, 485-489). Invariant also documented in products/stamphog/AGENTS.md:80-108. Empty dict would NOT enable the carve-out: bool({}) is False.",
+   "id": "Y2",
+   "is_real": false,
+   "notes": "Speculative defensive-hardening finding about a hypothetical future writer. No current code path can stamp a truthy inbox_review on a human PR; both existing writers construct a full 4-key provenance dict only after positively linking the PR to a signals implementation run (team-scoped, resolver-gated). The finding's \"even an empty dict\" failure scenario is factually wrong (falsy). The suggested auditability fix (comment naming the permitted writers) already exists at the read site and in AGENTS.md. Shape validation would only guard against future code that ignores both, which is the speculative what-if category.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "Y3",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/tools/pr-approval-agent/reviewer.py:692-702 (block gated only on cl.get(\"self_driving\") \u2014 premise correct); pr72680_tree/tools/pr-approval-agent/review_local.py:316-321 (flag rides in from server-stamped context JSON, defaults closed); pr72680_tree/products/stamphog/backend/temporal/activities.py:448-451 (self_driving_review set exclusively from run.output[\"inbox_review\"]); pr72680_tree/products/stamphog/backend/tasks/tasks.py:144-215 (_inbox_rereview_carve_out performs actual task linkage via find_signal_implementation_run, fork-safe, team-scoped, fail-closed) and tasks.py:1176-1182 (inbox receiver path stamps provenance from the TaskRun linkage itself).",
+   "notes": "The factual premise holds (the engine itself does no linkage check), but the prompt's claim is true for every input that can reach it: both server paths that stamp inbox_review perform genuine task-linkage verification before the flag exists, and untrusted PR content cannot set it. The harm scenario requires a hypothetical future regression in another component \u2014 speculative defensive documentation, and the remedy is a behavior-neutral prompt rewording. The provenance/contract is already documented at both ends (reviewer.py docstring, stamphog logic/reviewer.py:113-115, activities.py comment)."
+  },
+  {
+   "confidence": "high",
+   "evidence": "products/review_hog/backend/api/settings.py:72-81 in the PR tree \u2014 get_stamphog_connected catches all exceptions from has_reviewable_repo_config and returns False, with a comment marking this deliberate fail-soft; products/review_hog/frontend/CodeReviewScene.tsx:1064-1069 \u2014 that same False drives the disabled copy 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.', which misstates the reason when the read failed rather than the config being absent.",
+   "id": "Y4",
+   "is_real": true,
+   "notes": "The premise is accurate: no-config and read-failure are collapsed into one boolean and the tooltip hard-asserts setup state. But the functional gating (disabling opt-in while the stamphog DB is unreachable) is correct and explicitly intentional, an already-enabled switch is never dead-ended, and the wrong copy only appears in a rare compound state (stamphog DB outage + not-yet-opted-in user + repo actually connected) and self-corrects on recovery. Valid but low-stakes; the cheap fix is softening the copy, not a new tri-state API field.",
+   "severity": "consider"
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/tasks/backend/facade/api.py:508 has `if task.signal_report_id is None or task.internal: return None`, but pr72680_tree/products/signals/backend/auto_start.py:254,261 creates every production self-driving implementation task with signal_report_id set AND internal=True (on master since commit 0da0b8dcb7f / #68752, 2026-07-06; forwarded verbatim via facade create_and_run_task api.py:881,903). The carve-out at pr72680_tree/products/stamphog/backend/tasks/tasks.py:191-202 returns empty _InboxCarveOut() when the facade returns None, so Leg 2 never fires for real self-driving PRs. Tests mask it: test_webhooks.py:1245 defaults internal=False (a shape only the dev seed command seed_inbox_data.py:279 produces) and the \"internal_pipeline_task\" parameterized case (~line 1290) asserts the broken internal=True\u2192None behavior.",
+   "id": "Y5",
+   "is_real": true,
+   "notes": "Every claim in the finding checks out against the PR tree and git history. Additional corroboration: the only non-test producer of a non-internal signal-report task is the dev seed command, explaining green local runs while production fails. One framing refinement: the identical stale predicate pre-exists on master in products/review_hog/backend/receivers.py (internal guard from #64651, merged Jul 14 after #68752 flipped the flag Jul 6), so Leg 1's receiver shares the latent bug outside this diff \u2014 but this PR bakes the same fatal predicate into a new facade contract, documents a data-model shape (\"non-internal task carrying a signal report\") that no production code produces, and adds tests that lock the broken behavior in. Fix must reconcile both legs: drop task.internal (signal_report_id already excludes review_hog spawns/loops) or use a precise discriminator (e.g. interaction_origin/ai_stage), plus a test creating the task the way auto_start does (internal=True) expecting a DTO.",
+   "severity": "must_fix"
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/review_hog/backend/api/settings.py:73-83 (fail-soft try/except around has_reviewable_repo_config) and :135-140 (PATCH returns serializer.data); pr72680_tree/products/stamphog/backend/facade/api.py:120-125 (single indexed .exists()); pr72680_tree/products/review_hog/frontend/reviewHogSettingsLogic.ts:954-956 (settings loaded once per mount), :758-760 (10s poll drives loadRecentReviews, not settings), :810-812 (reload only on update failure)",
+   "id": "Y6",
+   "is_real": false,
+   "notes": "The code facts are correct (cross-product DB read runs on GET and PATCH responses), but the endpoint is cold, not hot: settings are fetched once per scene mount and on rare user-initiated PATCHes; the 10s poll polls the reviews list, not settings. The added work is a single indexed .exists() already wrapped fail-soft (except -> False with logging) and behind the product DB's fail-fast circuit breaker, so latency/reliability coupling is bounded by design. Skipping the check on PATCH or adding a TTL cache would save one cheap query per rare request \u2014 a micro-optimization, not a real reliability or performance defect.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "Y7",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/facade/api.py:149-156 \u2014 queue_inbox_pr_review is just process_inbox_pr_review.delay(...), an ordinary Celery broker publish with all heavy work (PR fetch, run creation, workflow start) inside the queued task; pr72680_tree/products/review_hog/backend/receivers.py:224-234 \u2014 _start_stamphog_review wraps the publish in try/except Exception + logger.exception, so a down broker never raises into the save path; receivers.py:257-273 \u2014 the pre-existing _start_review has the identical on_commit + except-Exception shape (Temporal start), so the PR follows the established pattern.",
+   "notes": "The only failure mode not covered is a broker that hangs (accepts connection, stalls on publish, no send timeout). That tail condition applies to every Celery .delay() in every Django request path in PostHog and is a global broker-config question, not a defect this receiver introduces. The finding concedes it is an incremental widening of a pre-existing shape, and its ask (\"confirm Celery has bounded connect/send timeouts\") is verify-the-framework-config, not a concrete reachable bug. Speculative/defensive-paranoia; drop."
+  },
+  {
+   "id": "Y8",
+   "is_real": true,
+   "severity": "should_fix",
+   "confidence": "medium",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:809 (max_retries=3), :870-879 (carve-out computed first, exception -> whole-task retry), :881-903 (stale-approval dismissal only reachable after carve-out succeeds), :911 (_mark_pr_event_processed never called on failure), :189-205 (new tasks-facade DB read + review_hog resolver on this path); pr72680.diff hunk at old line 749 shows pre-PR skip path went straight to the dismissal.",
+   "notes": "Mechanism confirmed: a persistent exception in _inbox_rereview_carve_out exhausts 3 Celery retries, the task fails permanently, and the head-changing stale-approval dismissal never runs, leaving an earlier-head approval satisfying required reviews over unreviewed commits. Coupling is genuinely new (tasks facade + review_hog hook were not on this path pre-PR) and contradicts the code's own \"safety is never preference-gated\" docstring (tasks.py:165). Narrowing holds though: Task/TaskRun live in the same main Postgres, so general DB outages already failed the dismissal block pre-PR (which retains identical retry-then-fail semantics at :899-903); the true new exposure is a bug in find_task_run/facade or the review_hog resolver, or a tasks-tables-only partial failure \u2014 and failures are logged, monitored, and healed by the next head-changing delivery (worst case: no further push, approval stands). Fix is low-risk: run the dismissal before/independent of the carve-out on the skip branch (dismissing ahead of a re-review is harmless), or retry only the carve-out resolution separately. Real but incident-scoped: should_fix, not must_fix."
+  },
+  {
+   "id": "Y9",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/AGENTS.md:3-5 (preamble claim), :80 (header self-labels \"carve-out ... the one exception\"), :84 (\"ONE deliberate exception\"), :87 (\"Rules that keep the exception narrow:\")",
+   "notes": "The textual observation is accurate (the carve-out section is a sanctioned relaxation, not a finding-earned invariant), but the section explicitly self-identifies as an exception in its own header and body, so the claimed reader confusion is defused. Even if a reader treats the narrowing rules as strict invariants, that produces only conservative, correct behavior. Pure doc-wording taste with zero behavioral, correctness, security, or contract impact \u2014 below the surfacing bar."
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:113 (unanchored regex, .search() at :118 \u2014 premise true), :1130-1147 (parsed repo only matched against team-scoped StamphogRepoConfig via for_team + repository__iexact), :1159 (fetch uses repo_config.repository + installation_id, never the URL host), :1176-1181 and :1223-1230 (raw pr_url never persisted; run provenance and PR upsert come from the fetched GitHub payload)",
+   "id": "Y10",
+   "is_real": false,
+   "notes": "Code fact is accurate: the regex accepts lookalike hosts like evil-github.com. But the host is discarded after parsing \u2014 downstream uses only owner/repo (matched against the team's own connected StamphogRepoConfig rows) and pr_number, and the GitHub fetch goes to real github.com via the trusted DB repository value and installation credentials. No SSRF, no cross-tenant access, no credential exposure; worst case a malformed URL triggers a review of the team's own real PR, which a canonical URL would trigger anyway. Input also originates internally (review_hog TaskRun output.pr_url). Host-anchoring is optional hardening, not a defect.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "Y11",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "tasks.py:1110-1245 (process_inbox_pr_review has no toggle re-check \u2014 premise true) vs tasks.py:201-207 (webhook leg resolver check); tasks.py:160-165 docstring already documents the deliberate asymmetry and the mid-PR toggle-off skip/dismissal path; receivers.py:126 re-checks the toggle on every receiver fire; facade/api.py:149 + receivers.py:131 show the fire-and-forget on_commit dispatch making the queue\u2192execute gap seconds; tasks.py:1109/1162 cap retries at 3 (5s default, 60s+ rate-limit) \u2014 all paths under /private/tmp/claude-501/-Users-woutut-Documents-Code-posthog/6b02ce00-9d8e-46e2-88ba-281e0843a672/scratchpad/pr72680_tree",
+   "notes": "Code asymmetry exists exactly as described, but it is intentional and already documented in the carve-out docstring (the finding's own doc suggestion is pre-satisfied). The uncovered window is only the seconds-to-minutes queue\u2192execute gap of a fire-and-forget Celery task; every receiver refire re-checks the toggle fresh. The toggle is a per-user preference, not a security boundary \u2014 team scoping and repo-config gates are enforced at execution, and a race-window verdict on a bot-authored draft is retracted by the next head-changing delivery's opted-out skip path. Speculative near-zero-probability race with benign, self-healing impact; does not meet the bar."
+  },
+  {
+   "id": "Y12",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/tools/pr-approval-agent/review_local.py:321 reads bool(context.get(\"self_driving_review\")); the only producer is pr72680_tree/products/stamphog/backend/temporal/activities.py:451 (self_driving_review=bool(output.get(\"inbox_review\")), a genuine Python bool) via the typed builder pr72680_tree/products/stamphog/backend/logic/reviewer.py:101 (self_driving_review: bool = False) which json.dumps-serializes at line 138 \u2014 JSON preserves bool type, so the engine only ever sees True/False/None. Tests pin the strict-bool contract: products/stamphog/backend/tests/test_integration.py:1413 (is True) and tools/pr-approval-agent/test_review_local.py:278,283.",
+   "notes": "The fragility scenario (string \"false\", int, list) is unreachable: the flag is server-stamped from inbox provenance, coerced with bool(...) at the source, typed bool on the builder, and round-trips through JSON which preserves bool type. It is never derived from PR-controlled/untrusted content. Over the actual value domain {True, False, absent}, bool(x) and x is True are identical, so the suggested change has no behavioral effect. Purely speculative defensive hardening against an upstream contract change the PR's own types and tests exclude."
+  },
+  {
+   "id": "Y13",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "products/stamphog/backend/tasks/tasks.py:1185 (outermost atomic in a Celery task), :1214 (on_commit registration in QUEUED branch), :1235-1237 (except Exception \u2192 retry wraps the with-block), :1232-1233 (author's comment documenting propagate-and-retry), :377-380 (_start_review_workflow swallows only WorkflowAlreadyStartedError); Django 5.2.14 BaseDatabaseWrapper.set_autocommit/run_and_clear_commit_hooks confirm non-robust on_commit hooks execute inside Atomic.__exit__ and raise through it.",
+   "notes": "The finding assumes on_commit callbacks run after the task returns success and are therefore unretried. In fact the hook runs synchronously during Atomic.__exit__ (triggered by the `return` inside the with-block), so a Temporal start failure propagates into the task's except Exception and fires Celery retry; the row is already committed QUEUED, so the retry re-enters the select_for_update dedupe and restarts the run. The webhook leg's new-run path uses the identical on_commit pattern, so there is no reliability asymmetry; _resume_existing_delivery_run is synchronous only because it runs outside any transaction. The durable recovery the docstring describes works as written."
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:179 (_resolve_repo_config inside _inbox_rereview_carve_out), :876-880 (carve-out call, provenance kept), :918 (unconditional re-resolve on main path \u2014 duplication confirmed), :298-304 (single indexed filter/first query), :858 and :891 (module already re-resolves per retry-guarded block by design)",
+   "id": "Y14",
+   "is_real": false,
+   "notes": "Premise is factually accurate: a carved-out delivery resolves StamphogRepoConfig twice (line 179 in the carve-out, line 918 on the main path). But it is one extra single-row indexed query in a Celery task on a rare path (bot-authored self-driving inbox re-reviews), with no correctness/security/contract dimension. The module intentionally re-resolves the config in each independently retry-guarded block (lines 858, 891, 918), so the \"duplication\" matches the file's deliberate freshness+retry pattern; threading the config through the frozen _InboxCarveOut would add coupling for negligible gain. Micro-optimization, not a real issue.",
+   "severity": "not_an_issue"
+  },
+  {
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:199-205 \u2014 resolver is called only after `find_signal_implementation_run` returns a non-None team-matched run; lines 167-186 show four earlier exits (non-head-changing, human author, fork head, unconfigured repo). pr72680_tree/products/tasks/backend/webhooks.py:36-59 \u2014 pr_url leg queried first, branch leg is fallback only. tasks.py:891-898 \u2014 same skip path already performs GitHub API calls (_retract_stale_approvals_on_skip), dwarfing one DB lookup.",
+   "id": "Y15",
+   "is_real": false,
+   "notes": "The finding's core claim \u2014 that the review_hog resolver hook runs on every bot-authored head-changing webhook \u2014 is refuted by the code: `if run is None or run.team_id != repo_config.team_id: return _InboxCarveOut()` sits before the resolver call, so dependabot/renovate/posthog-bot pushes (no linked TaskRun) never reach it. The finding even concedes this in its own suggestion (\"it already does\"). The only genuinely new per-event cost is a single find_task_run query, gated behind bot-authorship, head-changing action, repo-native head, and a synced+enabled config, with the indexed pr_url leg dominating. That is negligible next to the GitHub API calls the same skip path already makes. Remaining substance is a micro-optimization observation, not a defect.",
+   "severity": "not_an_issue"
+  },
+  {
+   "id": "Y16",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:113 \u2014 od -c byte dump shows `_PR_URL_RE = re.compile(r\"github\\.com/([^/\\s]+/[^/\\s]+)/pull/(\\d+)\")` with a single backslash before `s` in BOTH character classes (bytes: `[ ^ / \\ s ]` twice). Executing this exact regex: 'https://github.com/posthog/posthog/pull/123' -> ('posthog/posthog', '123'); 'acme/widgets' and 'posthog/analytics' also match.",
+   "notes": "The finding misquotes the source: it claims the second class is `[^/\\\\s]` (literal backslash + literal s), but the actual code has `[^/\\s]` in both halves \u2014 the whitespace shorthand, identical classes. The claimed failure (\"posthog/posthog returns None\") is empirically disproven with the real regex from the tree. Leg 1 does not no-op for repos containing the letter 's'; no fix is warranted. (Host anchoring is a separate, already-reported finding.)"
+  },
+  {
+   "id": "Y17",
+   "is_real": false,
+   "severity": "not_an_issue",
+   "confidence": "high",
+   "evidence": "pr72680_tree/tools/pr-approval-agent/review_local.py:301-303 (_attach_familiarity returns early when author_pr_numbers is empty); pr72680_tree/products/stamphog/backend/temporal/activities.py:237-238 (author_pr_numbers fetched only when `not is_inbox_review`, with a comment documenting the familiarity carve-out) and :451 (self_driving_review derived from the same run.output[\"inbox_review\"]); pr72680_tree/products/stamphog/backend/tests/test_integration.py:1413-1415 (e2e asserts self_driving_review is True AND author_pr_numbers == [] together)",
+   "notes": "The factual observation is correct \u2014 the engine has no self_driving guard in _attach_familiarity \u2014 but the claimed contradiction/bias cannot occur in the shipped code. Both author_pr_numbers omission and the self_driving_review flag derive from the same run.output[\"inbox_review\"] value in the same server file (single producer via build_reviewer_invocation, sole caller activities.py:434), the intent is documented in a comment at the gate, and an existing integration test pins the invariant, so the hypothesized regression would fail CI. For self-driving runs familiarity is always None: no familiarity block in the prompt, no familiarity bullet in the public comment. This is a speculative defense-in-depth suggestion against a non-occurring, test-guarded condition, not a defect; should_fix overstates it."
+  }
+ ],
+ "matches": {
+  "pairs": [
+   {
+    "x": "X3",
+    "y": "Y3",
+    "issue": "reviewer.py _format_self_driving renders TRUSTED provenance claims solely off cl.get(\"self_driving\") with no engine-side verification, so the prompt asserts facts (machine-user author / task-linkage verification) the engine cannot back up if the upstream boundary desyncs"
+   },
+   {
+    "x": "X10",
+    "y": "Y12",
+    "issue": "review_local.py:316-321 derives the self_driving flag via bool(context.get(\"self_driving_review\")) truthy coercion, which would treat a non-bool value like the string \"false\" as True and silently enable the carve-out; both suggest an explicit `is True` check"
+   },
+   {
+    "x": "X14",
+    "y": "Y17",
+    "issue": "_attach_familiarity in review_local.py is not gated on self_driving \u2014 the engine relies on the server omitting author_pr_numbers for self-driving runs, so a server-side regression would inject the machine author's own familiarity into the prompt and posted comment, contradicting the _format_self_driving block"
+   },
+   {
+    "x": "X15",
+    "y": "Y6",
+    "issue": "get_stamphog_connected in settings.py:71-82 adds an uncached synchronous cross-product Stamphog-DB read (has_reviewable_repo_config) to the always-called review_hog settings GET/PATCH path, coupling its latency to another product's DB health; both suggest caching or scoping the check"
+   },
+   {
+    "x": "X17",
+    "y": "Y15",
+    "issue": "The webhook carve-out's find_signal_implementation_run lookup runs on every bot-authored head-changing delivery on stamphog-enabled repos and wastes DB work for bots that can never match (dependabot/renovate), with the unindexed branch-fallback leg of find_task_run as the costly part \u2014 X17 pins the missing-index seq scan mechanism, Y15 states the same per-event lookup cost diffusely"
+   }
+  ],
+  "x_only": [
+   "X1",
+   "X2",
+   "X4",
+   "X5",
+   "X6",
+   "X7",
+   "X8",
+   "X9",
+   "X11",
+   "X12",
+   "X13",
+   "X16",
+   "X18",
+   "X19",
+   "X20"
+  ],
+  "y_only": [
+   "Y1",
+   "Y2",
+   "Y4",
+   "Y5",
+   "Y7",
+   "Y8",
+   "Y9",
+   "Y10",
+   "Y11",
+   "Y13",
+   "Y14",
+   "Y16"
+  ]
+ },
+ "judges": [
+  {
+   "winner": "X",
+   "margin": "thin",
+   "x_score": 6.5,
+   "y_score": 5.5,
+   "rationale": "X: 7 confirmed real findings (4 should_fix: X3, X7, X9, X20; 3 consider: X12, X17, X19) out of 20 (35% precision). Its unique confirmed catches include a coherent security cluster on the receiver leg's missing positive identification (real approvals mintable for a human-authored PR via the branch-matched pr_url backstop) and the distinct cancelled/deleted-task authorization-window gap (X7). X also won both contested overlaps: its versions of the trusted-block issue (X3 vs Y3) and the missing-index cost (X17 vs Y15) survived adversarial verification while Y's counterparts were refuted. Y: only 3 confirmed real of 17 (18% precision) \u2014 but its Y5 is the single most impactful finding in either set: the webhook carve-out leg is dead in production (task.internal predicate excludes every real self-driving task) with tests locking the broken behavior in; X not only missed it, X8 examined the exact predicate and blessed it. Y8 (safety-dismissal blocked by carve-out failure) is a second genuine unique should_fix. However, Y carries a fabricated must_fix (Y16, misquoted regex, empirically disproven) and lost both shared-issue matchups. Under the recall lens with unique confirmed catches weighted heaviest, X's 3-4 unique confirmed should_fix findings plus two contested wins narrowly outweigh Y's must_fix crown jewel plus one should_fix; better precision (fewer, less-toxic noise findings) breaks the near-tie toward X. Thin margin because Y5 alone is worth more than any single X finding, and a maintainer reading only X would ship a functionally broken feature."
+  },
+  {
+   "winner": "X",
+   "margin": "moderate",
+   "x_score": 5.5,
+   "y_score": 3.5,
+   "rationale": "Precision lens. X: 7/20 verified real (35% precision, 65% noise) with 4 confirmed should_fix (X3, X7, X9, X20) and 3 confirmed consider (X12, X17, X19); most of its 13 misses are speculative/defensive-hardening noise, though it inflated two false must_fix labels (X4, X14). Y: 3/17 verified real (17.6% precision, 82.4% noise) with 1 must_fix (Y5), 1 should_fix (Y8), 1 consider (Y4); its 14 misses include the worst noise in either set \u2014 Y16, a must_fix built on a misquoted regex empirically disproven (fabricated bug), and Y13, a should_fix based on wrong Django on_commit semantics. X nearly doubles Y's hit rate, has better high-severity label accuracy (5/12 vs 2/6), more confirmed actionable findings (4 vs 2), and more unique confirmed findings (X7, X9, X20, X12, X17, X19 vs Y5, Y8, Y4); X's framing also won the paired X3/Y3 verification. Y's Y5 is the single most valuable finding across both sets (feature-breaking internal=True predicate with false-green tests) and X missed it entirely \u2014 that keeps the margin moderate rather than decisive \u2014 but under the precision lens an 82% noise rate with a fabricated must_fix loses to a 65% noise rate with a larger confirmed payload."
+  },
+  {
+   "winner": "Y",
+   "margin": "thin",
+   "x_score": 5.5,
+   "y_score": 6,
+   "rationale": "Y wins on impact where it matters most: Y5 is the only confirmed must_fix in either set (the task.internal predicate kills the entire webhook re-review leg for every production self-driving PR, with the PR's own tests locking in the broken behavior), verified end to end with root cause, git history, and the exact fix plus test to add. Y8 adds a confirmed should_fix on a real safety-invariant weakening (carve-out failure blocks stale-approval dismissal). X has more confirmed payload by count (4 should_fix: X3, X7, X9, X20, plus 3 considers) and better precision (7/20 real vs 3/17), but X3/X9/X20 are three layers of one vulnerability (roughly two distinct fixes), all four of X's claimed must_fix failed verification at that level (two are outright non-issues), and X examined the exact predicate behind Y5 (X8) yet rationalized the broken check as intentional, actively steering a maintainer away from the merge-blocking bug. Y's noise is quieter (mostly consider-labeled) though it contains the worst single accuracy failure (Y16's fabricated regex typo at must_fix, self-debunked in triage). A maintainer with only Y avoids shipping a dead feature and gets correct severity on the one finding that blocks merge; a maintainer with only X gets real but edge-case-reachable hardening fixes plus false reassurance on the fatal bug. Thin margin because X's broader unique confirmed payload and more accurate average premises nearly offset Y's decisive single catch."
+  }
+ ],
+ "_meta": {
+  "round": 1,
+  "blinding": "X = A-sonnet5-xhigh-1, Y = B-glm52-max-1",
+  "verified_against": "PR head 1341596e via git worktree",
+  "note": "independent adversarial verifiers, one per finding; 3-lens blind judge panel"
+ }
+}

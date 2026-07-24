@@ -238,3 +238,35 @@ chars`. Publish gated off.
 | #   | perspective         | prio       | file:line                       | finding                                                                                                                                                                | verdict       |
 | --- | ------------------- | ---------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | 1   | Logic & Correctness | should_fix | hogql/database/database.py:1478 | remapped `timestamp_field` now triggers `get_table` for view-namespace tables that previously skipped it → `DoesNotExist` turns a successful build into a hard failure | ✅ kept · bug |
+
+## 2026-07-23 · GLM 5.2 vs Sonnet 5 as perspective reviewer — PR #72680 @ `1341596e`
+
+- **Experiment:** `experiments/2026-07-reviewer-model-glm52/` (PLAN + FINAL_REPORT + 4 dumps + judge JSONs).
+- **Design:** adaptive pairs (A1/B1 split → A2/B2), pinned 4-chunk split, zero-comment clean room,
+  every post-dedup finding independently adversarially verified against the PR worktree, 3-lens blind panel.
+- **Result:** judges 2-1 for GLM on lenses (recall-reliability, impact) but Sonnet wins precision;
+  **verdict: keep sonnet-5 @ xhigh** — Sonnet: 14/44 verified-real (31.8%), stable, cheaper (caching);
+  GLM: 7/36 (19.4%) but owns 3 of 4 confirmed must_fix incl. the flagship `task.internal` bug in BOTH runs.
+- **Side yields:** 2 confirmed must_fix bugs in the target PR; tasks-runner false-success bug (auth-failed
+  sandbox → validated-empty IssuesReview, defeats the failure floor); `review_hog` gateway product routing
+  (agent + allowlist, kept); per-stage timing table in `dump_result.py` (kept); Sonnet-arm Opus-fallback
+  contamination (~20% of finder gens, every Sonnet run) quantified.
+
+## 2026-07-24 · 4-way extension: + gpt-5.5 (Codex) & Opus 4.8 — PR #72680 @ `1341596e`
+
+- **Experiment:** same folder (`experiments/2026-07-reviewer-model-glm52/`), overnight autonomous extension:
+  arm C = gpt-5.5 @ xhigh via Codex ("full-access"), arm D = opus-4-8 @ xhigh via Claude; identical harness
+  (pinned chunks, comment mock, Opus validator), 2 runs each, per-finding adversarial verification, clusters
+  extended over all 8 sets, 3-lens blind panel over 4 anonymous models (`judge-fourway.json`).
+- **Result: keep sonnet-5 @ xhigh — confirmed against four models.** Scoreboard (verified-real):
+  Sonnet 14/44 (31.8%) · GLM 7/36 (19.4%) · gpt-5.5 3/17 (17.6%) · Opus 5/30 (16.7%).
+  Panel: recall M2>M1>M3>M4 · precision M1>M2>M3>M4 · impact M2>M1>M3>M4 — **Opus last on all three
+  lenses** despite the fastest review stage of the experiment (24–26m vs Sonnet’s 30–45m) and clean ops; it
+  missed the flagship `task.internal` must_fix in both runs. gpt-5.5 = operational DNF: **17/17
+  first-attempt provider refusals** on this PR's security-heavy chunks (C1 hard-failed, C2 recovered on
+  a 3rd-attempt ladder with 4/8 units skill-less from Codex MCP flake) — yet its one valid run was the
+  only single run to catch BOTH heavy must_fixes.
+- **Side yields (product bugs):** refusal→30-min-hang in `poll_for_turn` (refusal not terminal); Codex
+  sandboxes intermittently get no MCP tools and review without their skill; Codex OpenAI cache reads
+  invisible to `$ai_generation` (cost over-attribution); 120MB handoff-pack uploads always fail in
+  Modal sandboxes.
