@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # Full 40-char SHA (not a short pin): unambiguous, collision-resistant.
-PIN="bb40f4a1e7f673b6caf20bf11b57b557019aa0f8" # daniloc/coherence v0.9.0 (bump deliberately)
+PIN="49c1ebfd1bd533225404867d71e825ac1014bd82" # daniloc/coherence v0.9.0 + git-env scrub fix (bump deliberately)
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 DEST="$REPO_ROOT/products/agent_platform/.coherence-tool/repo"
 

@@ -53,6 +53,8 @@ import {
     SecretBroker,
     SessionEventBus,
     SessionQueue,
+    specGrantsCrossAgentRead,
+    specReachableByUntrustedCallers,
     userFacingMessage,
 } from '@posthog/agent-shared'
 
@@ -417,7 +419,20 @@ export class Worker {
             // Friendly name for the session's `$ai_trace` (LLM Analytics). Best-
             // effort — a missing app just falls back to the id in the driver.
             const application = await this.deps.revisions.getApplication(session.application_id).catch(() => null)
-            const secrets = await this.deps.resolveSecrets(session)
+            // Owner authority (the app's encrypted_env, reached via `ctx.secret`)
+            // is default-denied when the agent is reachable by untrusted callers —
+            // an authenticated audience (any PostHog user) or public auth (anonymous).
+            // Any tool acting with the OWNER's credential for such a caller is a
+            // confused deputy by construction. Empty secrets makes that inexpressible
+            // — Slack, http-request-with-secret, and kind:"agent" MCP all fail closed
+            // with no owner credential to reach for — while per-caller authority
+            // (`ctx.credentials` / `posthog_api` = the caller's own bearer) is
+            // untouched. The spec superRefine rejects these tools at freeze time so
+            // this runtime denial is a backstop, not the only line of defense. If a
+            // future agent legitimately needs one shared owner credential here, that
+            // is a deliberate, reviewable per-secret opt-in to add then — not a
+            // reopening of the blanket default.
+            const secrets = specReachableByUntrustedCallers(rev.spec) ? {} : await this.deps.resolveSecrets(session)
             const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
             if (customTools.length > 0) {
                 const loads = await Promise.all(
@@ -594,6 +609,21 @@ export class Worker {
             // carries `?agent=<slug>` — the ingress-routed approval modal needs it
             // to address the agent's ingress directly.
             const buildApprovalUrl = this.deps.buildApprovalUrl
+            // Team-blanket memory read: same-team apps whose owner opted their
+            // memory into team-wide sharing. The memory/table READ tools honour
+            // an `owner` arg only for these ids — so skip the lookup entirely for
+            // agents that grant none of those tools (the common case) rather than
+            // pay a Postgres round-trip per session for a set nothing reads.
+            // Fail-safe to self-only (empty set) if the lookup errors — logged so
+            // the degradation is observable rather than silent.
+            const memoryReadableAppIds = specGrantsCrossAgentRead(rev.spec)
+                ? new Set(
+                      await this.deps.revisions.listMemorySharedAppIds(session.team_id).catch((e) => {
+                          log.warn({ team_id: session.team_id, err: String(e) }, 'memory.shared_apps_load_failed')
+                          return []
+                      })
+                  )
+                : new Set<string>()
             const outcome = await runSession(rev, session, {
                 models,
                 apiKey,
@@ -616,6 +646,7 @@ export class Worker {
                     : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                memoryReadableAppIds,
                 webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
                 identityCredentials: this.deps.identityCredentials,

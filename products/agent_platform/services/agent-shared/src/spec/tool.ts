@@ -112,6 +112,25 @@ export interface ToolContext {
      */
     tabularStore?: TabularStore
     /**
+     * App ids in this session's team whose owner opted their memory + tabular
+     * tables into team-wide READ sharing. Populated once at session start. The
+     * memory/table READ tools accept an optional `owner` arg; a cross-agent read
+     * is allowed only when `owner` is in this set (same team by construction —
+     * `teamId` is never taken from the arg). Empty/absent → self-only (today's
+     * behaviour).
+     */
+    memoryReadableAppIds?: ReadonlySet<string>
+    /**
+     * True when this agent is reachable by untrusted callers — a posthog
+     * `authenticated` audience (any PostHog user) or `public` auth (anonymous) —
+     * i.e. its per-(team, application) memory/table store is shared across
+     * mutually-untrusted callers. `table-append` uses this to force PLAIN append
+     * (dedupe disabled) so its `skipped` count can't leak whether another caller
+     * already wrote a key. Set from the spec at session start; see
+     * `specReachableByUntrustedCallers`.
+     */
+    crossTenantStore?: boolean
+    /**
      * Resolve a per-session credential by target name. Set by ingress at
      * /run + /send (see `CredentialBroker`); returns null when the broker
      * isn't wired or the target isn't bound. Convention names:

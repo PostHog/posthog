@@ -18,6 +18,8 @@ export interface RevisionStore {
      */
     getApplicationBySlug(slug: string): Promise<AgentApplication | null>
     listApplications(teamId: number): Promise<AgentApplication[]>
+    /** App ids in this team whose owner opted memory into team-wide READ sharing. */
+    listMemorySharedAppIds(teamId: number): Promise<string[]>
     createApplication(input: NewApplication): Promise<AgentApplication>
     archiveApplication(applicationId: string): Promise<void>
 

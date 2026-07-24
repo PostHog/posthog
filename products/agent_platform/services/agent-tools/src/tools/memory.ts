@@ -9,10 +9,11 @@
  *   memory-update   — overwrite an existing file (approval-gated by default)
  *   memory-delete   — hard delete one file (approval-gated by default)
  *
- * Cross-agent share is intentionally not implemented in v0 — every tool
- * operates inside the calling agent's own slug prefix. Surfacing it as a
- * runtime error means the model sees a clear "not_implemented" envelope
- * rather than silent absence.
+ * Writes are always self-scoped. READ tools (list/search/read) accept an
+ * optional `owner` (another AgentApplication id): a cross-agent read is honoured
+ * only when that owner opted into team-wide sharing (`memory_shared_team_wide`),
+ * and `teamId` is never taken from the arg, so cross-team reads are impossible.
+ * Otherwise the read returns an `access_denied` envelope.
  */
 
 import {
@@ -55,9 +56,26 @@ function err(error: string): Result<never> {
 // Scope + store resolution
 // =====================================================================
 
-function scope(ctx: ToolContext): { teamId: number; applicationId: string } {
+type Scope = { teamId: number; applicationId: string }
+function selfScope(ctx: ToolContext): Scope {
     return { teamId: ctx.teamId, applicationId: ctx.applicationId }
 }
+// Resolve the read scope. `owner` targets another agent's memory; allowed only
+// when that app opted into team-wide sharing. `teamId` is NEVER taken from the
+// arg, so cross-team access is impossible by construction. null = access denied.
+function readScope(ctx: ToolContext, owner?: string): Scope | null {
+    const applicationId = owner ?? ctx.applicationId
+    if (applicationId !== ctx.applicationId && !ctx.memoryReadableAppIds?.has(applicationId)) {
+        return null
+    }
+    return { teamId: ctx.teamId, applicationId }
+}
+const OWNER = Type.Optional(
+    Type.String({
+        description:
+            "Read another agent's memory instead of your own: the owner AgentApplication id. Works only when that agent opted its memory into team-wide sharing (same team); otherwise returns access_denied. Omit to read your own memory.",
+    })
+)
 
 function storeOrError(ctx: ToolContext): MemoryStore | { error: string } {
     if (!ctx.memoryStore) {
@@ -91,6 +109,7 @@ export const memoryListV1 = defineNativeTool({
                 description: "Path prefix to scope the list, e.g. 'incidents/' or 'runbooks/oncall/'.",
             })
         ),
+        owner: OWNER,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -99,8 +118,12 @@ export const memoryListV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`access_denied: no team-shared memory access to owner '${args.owner}'`)
+        }
         try {
-            const headers = await s.list(scope(ctx), { prefix: args.prefix })
+            const headers = await s.list(sc, { prefix: args.prefix })
             return ok({
                 count: headers.length,
                 entries: headers.map((h: MemoryHeader) => ({
@@ -125,6 +148,7 @@ export const memorySearchV1 = defineNativeTool({
         cue: Type.String({ minLength: 1, description: 'What to look for. Plain natural language is fine.' }),
         prefix: Type.Optional(Type.String({ description: 'Optional path prefix scope.' })),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+        owner: OWNER,
     }),
     returns: RESULT,
     cost_hint: 'medium',
@@ -133,8 +157,12 @@ export const memorySearchV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`access_denied: no team-shared memory access to owner '${args.owner}'`)
+        }
         try {
-            const results = await searchMemory(s, scope(ctx), args.cue, {
+            const results = await searchMemory(s, sc, args.cue, {
                 prefix: args.prefix,
                 limit: args.limit,
             })
@@ -152,6 +180,7 @@ export const memoryReadV1 = defineNativeTool({
         'Read one memory file in full — returns its description, tags, timestamps, and full markdown body. Use after `memory-list` or `memory-search` returns a path.',
     args: Type.Object({
         path: Type.String({ description: 'Path returned by list/search, e.g. "incidents/2026/db-pool.md".' }),
+        owner: OWNER,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -160,8 +189,12 @@ export const memoryReadV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`access_denied: no team-shared memory access to owner '${args.owner}'`)
+        }
         try {
-            const file: MemoryFile = await s.read(scope(ctx), args.path)
+            const file: MemoryFile = await s.read(sc, args.path)
             return ok({
                 path: file.path,
                 description: file.frontmatter.description,
@@ -219,7 +252,7 @@ export const memoryWriteV1 = defineNativeTool({
                 createdAt: now,
                 updatedAt: now,
             })
-            await s.put(scope(ctx), args.path, raw, { failIfExists: true })
+            await s.put(selfScope(ctx), args.path, raw, { failIfExists: true })
             ctx.log('info', 'memory.write', { path: args.path })
             return ok({ path: args.path, created_at: now })
         } catch (e) {
@@ -248,7 +281,7 @@ export const memoryUpdateV1 = defineNativeTool({
         }
         try {
             validateMemoryPath(args.path)
-            const existing = await s.read(scope(ctx), args.path)
+            const existing = await s.read(selfScope(ctx), args.path)
             const description = args.description ?? existing.frontmatter.description
             const tags = args.tags ?? existing.frontmatter.tags
             const content = args.content ?? existing.content
@@ -261,7 +294,7 @@ export const memoryUpdateV1 = defineNativeTool({
                 createdAt: existing.frontmatter.createdAt,
                 updatedAt: now,
             })
-            await s.put(scope(ctx), args.path, raw, { failIfMissing: true })
+            await s.put(selfScope(ctx), args.path, raw, { failIfMissing: true })
             ctx.log('info', 'memory.update', { path: args.path })
             return ok({ path: args.path, updated_at: now })
         } catch (e) {
@@ -286,7 +319,7 @@ export const memoryDeleteV1 = defineNativeTool({
         }
         try {
             validateMemoryPath(args.path)
-            await s.delete(scope(ctx), args.path)
+            await s.delete(selfScope(ctx), args.path)
             ctx.log('info', 'memory.delete', { path: args.path })
             return ok({ path: args.path, deleted: true })
         } catch (e) {

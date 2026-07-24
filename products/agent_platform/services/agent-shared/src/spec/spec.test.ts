@@ -7,6 +7,7 @@ import {
     modelPolicyToList,
     principalsMatch,
     secretHostMatches,
+    specGrantsCrossAgentRead,
 } from './spec'
 
 describe('AgentSpecSchema', () => {
@@ -1117,6 +1118,173 @@ describe('models.optimize_for', () => {
         expect(() =>
             AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
         ).toThrow()
+    })
+
+    describe('specGrantsCrossAgentRead — gates the per-session sharing lookup', () => {
+        it.each([
+            '@posthog/memory-read',
+            '@posthog/memory-list',
+            '@posthog/memory-search',
+            '@posthog/table-query',
+            '@posthog/table-count',
+            '@posthog/table-membership',
+        ])('is true when the spec grants the cross-agent read tool %s', (id) => {
+            expect(specGrantsCrossAgentRead(AgentSpecSchema.parse({ tools: [{ kind: 'native', id }] }))).toBe(true)
+        })
+
+        it('is false when the spec grants no read tool (append-only / no memory tools)', () => {
+            // A wrong `false` here would empty memoryReadableAppIds and break every
+            // cross-agent read, so this guards the gating optimization.
+            expect(
+                specGrantsCrossAgentRead(
+                    AgentSpecSchema.parse({ tools: [{ kind: 'native', id: '@posthog/table-append' }] })
+                )
+            ).toBe(false)
+            expect(specGrantsCrossAgentRead(AgentSpecSchema.parse({}))).toBe(false)
+        })
+    })
+
+    describe('authenticated audience constraints', () => {
+        const authTrigger = {
+            type: 'chat' as const,
+            config: {},
+            auth: { modes: [{ type: 'posthog', audience: 'authenticated' }] },
+        }
+        const agentMcp = {
+            id: 'm',
+            url: 'https://mcp.example.test',
+            default_tool_approval: 'approve' as const,
+            kind: 'agent' as const,
+            connection: 'inst-1',
+        }
+
+        it('rejects a kind:"agent" MCP — shared credential would be a confused deputy', () => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], mcps: [agentMcp] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('mcps'))).toBe(true)
+            }
+        })
+
+        it.each([
+            // reads (confidentiality)
+            '@posthog/table-query',
+            '@posthog/memory-read',
+            '@posthog/table-membership',
+            // mutations (integrity: overwrite/destroy another caller's data, or
+            // memory-write's failIfExists existence oracle)
+            '@posthog/memory-write',
+            '@posthog/memory-update',
+            '@posthog/memory-delete',
+            '@posthog/table-delete',
+            '@posthog/table-truncate',
+        ])('rejects the shared-state read/mutate tool %s', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+            }
+        })
+
+        it.each([
+            '@posthog/slack-post-message',
+            '@posthog/slack-update-message',
+            '@posthog/slack-read-channel',
+            '@posthog/slack-read-thread',
+            '@posthog/slack-react',
+        ])('rejects the owner-credential tool %s — confused deputy on an open run', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+            }
+        })
+
+        it('rejects declaring secrets — owner authority the runtime withholds on an open run', () => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], secrets: ['SOME_API_KEY'] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('secrets'))).toBe(true)
+            }
+        })
+
+        it('allows @posthog/table-append (additive; runtime forces plain, non-dedupe append)', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [authTrigger],
+                tools: [{ kind: 'native', id: '@posthog/table-append' }],
+            })
+            expect(res.success).toBe(true)
+        })
+
+        it('allows an authenticated agent holding no shared credential and reading no shared state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [authTrigger],
+                tools: [{ kind: 'native', id: '@posthog/load-skill' }],
+            })
+            expect(res.success).toBe(true)
+        })
+
+        it('does NOT constrain non-authenticated audiences — project may hold a shared MCP and read state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [{ type: 'chat', config: {}, auth: { modes: [{ type: 'posthog', audience: 'project' }] } }],
+                mcps: [agentMcp],
+                tools: [{ kind: 'native', id: '@posthog/table-query' }],
+            })
+            expect(res.success).toBe(true)
+        })
+    })
+
+    describe('public auth shares the untrusted-caller envelope', () => {
+        // Public (anonymous) is strictly more open than `authenticated`, so the
+        // same envelope applies: an anonymous caller must not be able to proxy a
+        // cross-agent team-shared read, drive the owner's Slack bot, or reach a
+        // shared MCP credential.
+        const publicTrigger = {
+            type: 'chat' as const,
+            config: {},
+            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+        }
+
+        it.each([
+            '@posthog/memory-read', // the cross-agent team-shared read an anonymous caller could proxy
+            '@posthog/table-query',
+            '@posthog/slack-post-message', // owner's ambient Slack credential
+        ])('rejects %s on a public agent', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [publicTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+            }
+        })
+
+        it('rejects a kind:"agent" MCP and declared secrets on a public agent', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [publicTrigger],
+                mcps: [
+                    {
+                        id: 'm',
+                        url: 'https://mcp.example.test',
+                        default_tool_approval: 'approve',
+                        kind: 'agent',
+                        connection: 'inst-1',
+                    },
+                ],
+                secrets: ['SOME_API_KEY'],
+            })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('mcps'))).toBe(true)
+                expect(res.error.issues.some((i) => i.path.includes('secrets'))).toBe(true)
+            }
+        })
+
+        it('allows a public agent holding no shared credential and reading no shared state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [publicTrigger],
+                tools: [{ kind: 'native', id: '@posthog/load-skill' }],
+            })
+            expect(res.success).toBe(true)
+        })
     })
 })
 

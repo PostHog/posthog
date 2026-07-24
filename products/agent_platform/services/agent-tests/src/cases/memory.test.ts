@@ -345,3 +345,82 @@ describe('memory: janitor + runner share one bucket', () => {
         expect(text).toContain('new description after patch')
     })
 })
+
+describe('memory: team-wide cross-agent read', () => {
+    let c: Cluster
+
+    beforeEach(async () => {
+        c = await buildCluster()
+    })
+
+    afterEach(async () => {
+        await c.teardown()
+    })
+
+    afterAll(async () => {
+        await closeSharedPool()
+    })
+
+    // Pull the memory-read tool_result text out of a completed session.
+    function readToolResult(conversation: { role: string; content?: unknown; isError?: boolean }[]): {
+        text: string
+        isError: boolean
+    } {
+        const tr = conversation.find((m) => m.role === 'toolResult') as
+            | { role: 'toolResult'; content: Array<{ type: string; text?: string }>; isError?: boolean }
+            | undefined
+        const text = tr?.content?.find((b) => b.type === 'text')?.text ?? ''
+        return { text, isError: !!tr?.isError }
+    }
+
+    it('a same-team reader reads a sharing agent’s memory via owner; a non-sharing owner is denied', async () => {
+        // Owner A writes a note, and opts its memory into team-wide sharing.
+        c.setScript([
+            fauxCallTool('@posthog/memory-write', {
+                path: 'shared/onboarding.md',
+                description: 'shared runbook',
+                content: 'SENTINEL-CROSS-READ-42',
+            }),
+            fauxText('stored'),
+        ])
+        await c.deployAgent({ slug: 'owner-a', spec: { tools: [{ kind: 'native', id: '@posthog/memory-write' }] } })
+        const appA = (await c.revisions.getApplicationBySlug('owner-a'))!
+        // The opt-in is a control-plane flag (Django sets it in prod); flip it directly here.
+        await c.pool.query('UPDATE agent_application SET memory_shared_team_wide = TRUE WHERE id = $1', [appA.id])
+
+        const runA = await request(c.ingress).post('/agents/owner-a/run').send({ message: 'remember' })
+        expect(runA.status).toBe(200)
+        await c.drain()
+
+        // A private, NON-sharing app in the same team — its id must be denied as an owner.
+        await c.deployAgent({ slug: 'private-c', spec: { tools: [{ kind: 'native', id: '@posthog/memory-write' }] } })
+        const appC = (await c.revisions.getApplicationBySlug('private-c'))!
+
+        // Reader B (same team) reads via owner. It must resolve A's memory, not its own.
+        await c.deployAgent({ slug: 'reader-b', spec: { tools: [{ kind: 'native', id: '@posthog/memory-read' }] } })
+
+        c.setScript([
+            fauxCallTool('@posthog/memory-read', { path: 'shared/onboarding.md', owner: appA.id }),
+            fauxText('read it'),
+        ])
+        const runAllow = await request(c.ingress).post('/agents/reader-b/run').send({ message: 'read shared' })
+        expect(runAllow.status).toBe(200)
+        await c.drain()
+        const allow = readToolResult((await c.queue.get(runAllow.body.session_id))!.conversation)
+        // Granted owner → the read resolves A's file content.
+        expect(allow.isError).toBe(false)
+        expect(allow.text).toContain('SENTINEL-CROSS-READ-42')
+
+        // Same reader, ungranted owner (private-c never opted in) → access_denied.
+        c.setScript([
+            fauxCallTool('@posthog/memory-read', { path: 'shared/onboarding.md', owner: appC.id }),
+            fauxText('tried'),
+        ])
+        const runDeny = await request(c.ingress).post('/agents/reader-b/run').send({ message: 'read private' })
+        expect(runDeny.status).toBe(200)
+        await c.drain()
+        const deny = readToolResult((await c.queue.get(runDeny.body.session_id))!.conversation)
+        expect(deny.text).toContain('access_denied')
+        expect(deny.text).not.toContain('SENTINEL-CROSS-READ-42')
+    })
+})

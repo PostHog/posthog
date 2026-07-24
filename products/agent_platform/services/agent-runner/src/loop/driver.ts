@@ -196,6 +196,8 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /** Same-team app ids whose owner opted memory into team-wide READ sharing. */
+    memoryReadableAppIds?: ReadonlySet<string>
     /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
     webSearchProviders?: readonly WebSearchProvider[]
     /**
@@ -493,6 +495,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
+            memoryReadableAppIds: deps.memoryReadableAppIds,
             webSearchProviders: deps.webSearchProviders,
             dispatchClientTool,
             emitClientToolCall: async (callId, toolId, args) => {

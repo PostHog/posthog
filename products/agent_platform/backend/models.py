@@ -76,6 +76,11 @@ class AgentApplication(ProductTeamModel, UUIDModel):
     archived = models.BooleanField(default=False, db_default=False)
     archived_at = models.DateTimeField(null=True, blank=True)
 
+    # Team-blanket memory sharing: when true, any other agent in the same team may
+    # READ this application's memory + tabular tables (via the `owner` tool param).
+    # Owner opt-in; cross-team access stays impossible (scope keeps team_id fixed).
+    memory_shared_team_wide = models.BooleanField(default=False, db_default=False)
+
     # No cross-DB FK to posthog.User — plain id, resolved via the facade.
     created_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())

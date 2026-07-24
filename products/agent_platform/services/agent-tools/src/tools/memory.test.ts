@@ -239,4 +239,49 @@ describe('memory tools (real S3 / SeaweedFS)', () => {
             expect(data.results[0].score).toBeGreaterThan(0)
         })
     })
+
+    // Team-blanket cross-agent read: a reader may read another app's memory only
+    // when that owner is in the session's `memoryReadableAppIds` (the runner loads
+    // it from `memory_shared_team_wide`). `teamId` is never taken from an arg, so a
+    // cross-team owner can never appear in the set — that gate is exactly this.
+    describe('cross-agent read via owner', () => {
+        const OWNER = 'owner-app'
+        const READER = 'reader-app'
+        const ctxFor = (applicationId: string, readable?: string[]): ToolContext => ({
+            teamId: 42,
+            applicationId,
+            sessionId: 'sess-x',
+            secret: () => undefined,
+            secretAllowedHosts: () => undefined,
+            log: () => undefined,
+            memoryStore: store,
+            memoryReadableAppIds: readable ? new Set(readable) : undefined,
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
+        })
+
+        it('reads the owner file when the owner is in the readable set', async () => {
+            await memoryWriteV1.run({ path: 'shared/n.md', description: 'd', content: 'owned' }, ctxFor(OWNER))
+            const r = (await memoryReadV1.run(
+                { path: 'shared/n.md', owner: OWNER },
+                ctxFor(READER, [OWNER])
+            )) as Envelope
+            expect(r.ok).toBe(true)
+            expect(r.data?.content).toBe('owned')
+        })
+
+        it('denies the read when the owner is NOT in the readable set — even though the file exists', async () => {
+            await memoryWriteV1.run({ path: 'shared/n.md', description: 'd', content: 'owned' }, ctxFor(OWNER))
+            const r = (await memoryReadV1.run({ path: 'shared/n.md', owner: OWNER }, ctxFor(READER, []))) as Envelope
+            expect(r.ok).toBe(false)
+            expect(r.error).toMatch(/access_denied/)
+        })
+
+        it('needs no grant to read your own memory via an explicit owner === self', async () => {
+            await memoryWriteV1.run({ path: 'own.md', description: 'd', content: 'mine' }, ctxFor(READER))
+            const r = (await memoryReadV1.run({ path: 'own.md', owner: READER }, ctxFor(READER, []))) as Envelope
+            expect(r.ok).toBe(true)
+            expect(r.data?.content).toBe('mine')
+        })
+    })
 })

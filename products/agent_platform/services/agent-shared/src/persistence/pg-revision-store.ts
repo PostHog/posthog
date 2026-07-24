@@ -54,6 +54,15 @@ export class PgRevisionStore implements RevisionStore {
         return r.rows.map(rowToApp)
     }
 
+    async listMemorySharedAppIds(teamId: number): Promise<string[]> {
+        const r = await this.pool.query(
+            `SELECT id FROM agent_application
+             WHERE team_id = $1 AND archived = FALSE AND memory_shared_team_wide = TRUE`,
+            [teamId]
+        )
+        return r.rows.map((row) => String(row.id))
+    }
+
     async createApplication(input: NewApplication): Promise<AgentApplication> {
         const id = uuidv4()
         await this.pool.query(

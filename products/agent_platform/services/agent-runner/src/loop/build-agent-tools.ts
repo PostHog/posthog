@@ -41,6 +41,7 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
+    specReachableByUntrustedCallers,
     ToolContext,
     WebSearchProvider,
 } from '@posthog/agent-shared'
@@ -127,6 +128,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * App ids in this session's team that opted memory into team-wide READ
+     * sharing. Loaded once per session in the worker; forwarded onto the
+     * `ToolContext` so the memory/table READ tools can honour an `owner` arg.
+     */
+    memoryReadableAppIds?: ReadonlySet<string>
     /**
      * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
      * `ToolContext`; an empty/absent chain also gates the tool out of the
@@ -596,6 +603,8 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        memoryReadableAppIds: deps.memoryReadableAppIds,
+        crossTenantStore: specReachableByUntrustedCallers(deps.rev.spec),
         webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {

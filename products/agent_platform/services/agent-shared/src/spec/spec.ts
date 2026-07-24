@@ -64,14 +64,30 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
      *    - `organization`: the caller must be a member of the agent's owning
      *      organization (any project within it). Use for a shared agent — e.g.
      *      one "agent builder" used across an org's projects.
-     *  Either way the agent still acts AS the caller (their bearer + an explicit
-     *  `project_id` per tool), so data access is RBAC-enforced on top of this.
-     *  Opening an agent to ANY PostHog user across orgs is deliberately NOT an
-     *  option here yet — that needs a dedicated cross-tenant concept. */
+     *    - `authenticated`: ANY valid PostHog user may invoke, regardless of
+     *      team or org. This is the cross-tenant option; it drops the tenant
+     *      gate and NOTHING ELSE. The bearer is still introspected, so token
+     *      validity, revocation, and per-caller identity (`sub`, and therefore
+     *      `principalsMatch` session isolation) all still hold.
+     *
+     *      Reserve it for first-party agents that are meaningfully a PRODUCT
+     *      offered to all PostHog users, where the caller supplies the subject
+     *      matter and the agent holds nothing tenant-specific — the setup
+     *      wizard's audit is the motivating case. Do NOT use it to avoid
+     *      provisioning an agent per team.
+     *
+     *      An `authenticated` agent must not carry a `kind: "agent"` MCP or any
+     *      other shared credential: every caller would drive that one credential
+     *      (confused deputy). It should also not read `@posthog/table-*` state,
+     *      which is scoped per (team, application) and so is shared across all
+     *      callers of the agent.
+     *  In every case the agent still acts AS the caller (their bearer + an
+     *  explicit `project_id` per tool), so data access is RBAC-enforced on top
+     *  of this. */
     z.object({
         type: z.literal('posthog'),
         scopes: z.array(z.string()).default([]),
-        audience: z.enum(['project', 'organization']).default('project'),
+        audience: z.enum(['project', 'organization', 'authenticated']).default('project'),
     }),
     /** JWT signed with the named encrypted-env secret. Lets a B2B
      *  embedder mint identity tokens for their users without going
@@ -1116,7 +1132,167 @@ export const AgentSpecObjectSchema = z.object({
  */
 const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack', 'chat']
 
+/**
+ * Native memory/table tools forbidden on an agent reachable by untrusted callers
+ * (an `authenticated` audience or `public` auth — see
+ * `specReachableByUntrustedCallers`). That state is scoped per (team, application)
+ * — shared across ALL of an agent's callers, never per-caller — and such an agent
+ * is open to mutually-untrusted callers (every PostHog user, or anonymous). So:
+ *   - READS (memory-list/search/read, table-query/count/membership) let one
+ *     caller see what another wrote — a confidentiality break.
+ *   - MUTATIONS (memory-write/update/delete, table-delete/truncate) let one
+ *     caller overwrite or destroy another caller's data, and memory-write's
+ *     failIfExists is a cross-caller existence oracle — an integrity break.
+ * `@posthog/table-append` is deliberately NOT here: it's the one additive,
+ * confidentiality-safe way for an authenticated agent to record its own signal.
+ * The runtime forces it to PLAIN append on a cross-caller store (dedupe disabled,
+ * so its `skipped` count can't leak whether another caller wrote a key) — see
+ * `crossTenantStore` on ToolContext. Rows an authenticated agent appends are
+ * caller-influenceable, so downstream readers must treat them as untrusted input.
+ */
+export const AUTHENTICATED_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set([
+    '@posthog/memory-list',
+    '@posthog/memory-search',
+    '@posthog/memory-read',
+    '@posthog/memory-write',
+    '@posthog/memory-update',
+    '@posthog/memory-delete',
+    '@posthog/table-query',
+    '@posthog/table-count',
+    '@posthog/table-membership',
+    '@posthog/table-delete',
+    '@posthog/table-truncate',
+])
+
+/**
+ * Native tools that act with the OWNER's ambient credential (the app's
+ * encrypted_env, reached via `ctx.secret`). On an `authenticated` agent the
+ * runner empties those secrets (see the secrets chokepoint in the worker), so
+ * these tools would throw at runtime. Reject them at freeze instead: any caller
+ * driving the owner's Slack bot is a confused deputy, so needing it here is a
+ * design error to surface at authoring, not a missing-token error to hit later.
+ */
+export const AUTHENTICATED_OWNER_CREDENTIAL_TOOLS: ReadonlySet<string> = new Set([
+    '@posthog/slack-post-message',
+    '@posthog/slack-update-message',
+    '@posthog/slack-read-channel',
+    '@posthog/slack-read-thread',
+    '@posthog/slack-react',
+])
+
+/**
+ * Whether any trigger opens this agent to every PostHog user via a posthog
+ * `authenticated` audience. Because the memory/table store is shared across all
+ * of an agent's callers regardless of which trigger they came through, one
+ * authenticated trigger makes the whole agent's store cross-caller. Consumed by
+ * the superRefine below and by the runner (to force plain append).
+ */
+export function specHasAuthenticatedAudience(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.triggers.some(
+        (t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'posthog' && m.audience === 'authenticated')
+    )
+}
+
+/**
+ * Whether any trigger accepts anonymous callers via a `public` auth mode. Public
+ * is strictly more open than `authenticated` (no identity at all), so it belongs
+ * to the same threat class: the store is cross-caller and no tool may act with
+ * the owner's ambient authority.
+ */
+export function specHasPublicAudience(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.triggers.some((t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'public'))
+}
+
+/**
+ * Whether any trigger opens this agent to callers who are NOT guaranteed to be
+ * trusted members of the owning team — an `authenticated` audience (any PostHog
+ * user) or `public` auth (anonymous). Either makes the whole agent's per-(team,
+ * application) store cross-caller and forbids acting with owner authority, so
+ * both the freeze-time envelope (superRefine) and the runtime (empty secrets,
+ * plain append) key on this rather than on `authenticated` alone. `project` /
+ * `organization` callers are trusted and unaffected.
+ */
+export function specReachableByUntrustedCallers(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return specHasAuthenticatedAudience(spec) || specHasPublicAudience(spec)
+}
+
+/**
+ * Native tools that honour the cross-agent `owner` arg — i.e. consume
+ * `ToolContext.memoryReadableAppIds`. The runner uses this to skip the
+ * per-session team-wide-sharing lookup entirely for agents that grant none of
+ * them (the overwhelming majority), rather than pay a Postgres round-trip on
+ * every session start for a set nothing will read.
+ */
+export const CROSS_AGENT_READ_TOOL_IDS: ReadonlySet<string> = new Set([
+    '@posthog/memory-list',
+    '@posthog/memory-search',
+    '@posthog/memory-read',
+    '@posthog/table-query',
+    '@posthog/table-count',
+    '@posthog/table-membership',
+])
+
+export function specGrantsCrossAgentRead(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.tools.some((t) => t.kind === 'native' && CROSS_AGENT_READ_TOOL_IDS.has(t.id))
+}
+
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // A posthog `authenticated` audience (any PostHog user) or `public` auth
+    // (anonymous) opens the agent to callers who aren't trusted members of the
+    // owning team (see AuthModeSchema). Such an agent must hold no ambient shared
+    // authority and must not read OR mutate shared per-(team, application) state —
+    // otherwise any caller could drive its shared credential (confused deputy),
+    // read another caller's data, or destroy it. These are documented on the
+    // audience; enforce them here so a later revision can't silently violate
+    // them. Runs before the authoritative_provider early-return below so it
+    // applies to trigger-auth agents (which don't set authoritative_provider).
+    if (specReachableByUntrustedCallers(spec)) {
+        if (spec.mcps.some((m) => m.kind === 'agent')) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['mcps'],
+                message:
+                    'an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not carry a kind:"agent" MCP — its one shared credential would be driven by every caller (confused deputy). Use kind:"principal" (per-caller identity) or remove the MCP.',
+            })
+        }
+        const forbidden = [
+            ...new Set(
+                spec.tools
+                    .filter((t) => t.kind === 'native' && AUTHENTICATED_FORBIDDEN_TOOLS.has(t.id))
+                    .map((t) => t.id)
+            ),
+        ].sort()
+        if (forbidden.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['tools'],
+                message: `an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not read or mutate shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read, overwrite, or destroy another's data — including another agent's team-wide-shared memory via the cross-agent read tools. Additive @posthog/table-append is allowed (the runtime forces it to plain, non-dedupe append).`,
+            })
+        }
+        const ownerCredentialTools = [
+            ...new Set(
+                spec.tools
+                    .filter((t) => t.kind === 'native' && AUTHENTICATED_OWNER_CREDENTIAL_TOOLS.has(t.id))
+                    .map((t) => t.id)
+            ),
+        ].sort()
+        if (ownerCredentialTools.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['tools'],
+                message: `an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not act with the owner's ambient credential: remove ${ownerCredentialTools.join(', ')}. Every caller would drive the owner's Slack bot (confused deputy). Use a kind:"principal" MCP or a per-caller identity instead.`,
+            })
+        }
+        if (spec.secrets.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['secrets'],
+                message:
+                    'an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not declare secrets — they are owner authority the runtime withholds from an open-to-everyone run, so any tool reaching for them would fail closed. Resolve per-caller credentials via a kind:"principal" MCP or identity_providers instead.',
+            })
+        }
+    }
+
     // authoritative_provider must reference an identity_providers[] entry that can
     // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
     // either 500s (unknown) or soft-locks (no subject) at runtime.
