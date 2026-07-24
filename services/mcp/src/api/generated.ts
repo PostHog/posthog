@@ -14997,6 +14997,30 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    /**
+     * * `+1` - +1
+     * * `-1` - -1
+     * * `laugh` - laugh
+     * * `hooray` - hooray
+     * * `confused` - confused
+     * * `heart` - heart
+     * * `rocket` - rocket
+     * * `eyes` - eyes
+     */
+    export type ContentEnum = typeof ContentEnum[keyof typeof ContentEnum];
+
+
+    export const ContentEnum = {
+      '1': '+1',
+      NumberMinus1: '-1',
+      Laugh: 'laugh',
+      Hooray: 'hooray',
+      Confused: 'confused',
+      Heart: 'heart',
+      Rocket: 'rocket',
+      Eyes: 'eyes',
+    } as const;
+
     export interface ContextGeneration {
       /**
          * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
@@ -45331,6 +45355,11 @@ export namespace Schemas {
       repository_selection?: string | null;
       /** Installation account metadata from GitHub. */
       account?: UserGitHubAccount | null;
+      /**
+         * The connected user's own GitHub login (distinct from the installation account).
+         * @nullable
+         */
+      github_login?: string | null;
       /** True when this installation id matches a team-level GitHub integration on the active project. */
       uses_shared_installation: boolean;
       /** When this integration row was created. */
@@ -50959,6 +50988,17 @@ export namespace Schemas {
       scopes?: string[];
     }
 
+    /**
+     * Request body for editing a review comment's markdown body.
+     */
+    export interface PatchedPullRequestReviewCommentUpdate {
+      /**
+         * New comment body (GitHub-flavored markdown).
+         * @maxLength 65536
+         */
+      body?: string;
+    }
+
     export interface PatchedQueryTabState {
       readonly id?: string;
       /**
@@ -55717,6 +55757,21 @@ export namespace Schemas {
     } as const;
 
     /**
+     * One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled.
+     */
+    export interface PullRequestCommentReaction {
+      /** GitHub reaction id (needed to remove it). */
+      readonly id: string;
+      /** Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'. */
+      readonly content: string;
+      /**
+         * GitHub login of the user who added the reaction.
+         * @nullable
+         */
+      readonly user_login: string | null;
+    }
+
+    /**
      * One comment on a pull request — a conversation comment or an inline review comment.
      */
     export interface PullRequestComment {
@@ -55784,6 +55839,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly commit_id: string | null;
+      /** Emoji reactions on this review comment, one entry per reactor. */
+      readonly reactions: readonly PullRequestCommentReaction[];
     }
 
     /**
@@ -55867,6 +55924,73 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
+    }
+
+    /**
+     * Request body for posting an inline PR review comment as the requesting user.
+     *
+     * Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+     * thread on a diff line (`body` + `path` + `line`, optionally `side`).
+     */
+    export interface PullRequestReviewCommentCreate {
+      /**
+         * Comment body (GitHub-flavored markdown).
+         * @maxLength 65536
+         */
+      body: string;
+      /**
+         * Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.
+         * @nullable
+         * @pattern ^[0-9]+$
+         */
+      in_reply_to?: string | null;
+      /**
+         * File path to anchor a new comment thread to (required when starting a new thread).
+         * @nullable
+         */
+      path?: string | null;
+      /**
+         * Diff line to anchor a new comment thread to (required when starting a new thread).
+         * @minimum 1
+         * @nullable
+         */
+      line?: number | null;
+      /** Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.
+       *
+       * * `LEFT` - LEFT
+       * * `RIGHT` - RIGHT */
+      side?: SideEnum | null;
+    }
+
+    /**
+     * Response after posting a review comment — the created comment in the normalized PR-comment shape.
+     */
+    export interface PullRequestReviewCommentCreateResponse {
+      readonly comment: PullRequestComment;
+    }
+
+    /**
+     * Request body for adding an emoji reaction to a review comment.
+     */
+    export interface PullRequestReviewCommentReactionCreate {
+      /** Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.
+       *
+       * * `+1` - +1
+       * * `-1` - -1
+       * * `laugh` - laugh
+       * * `hooray` - hooray
+       * * `confused` - confused
+       * * `heart` - heart
+       * * `rocket` - rocket
+       * * `eyes` - eyes */
+      content: ContentEnum;
+    }
+
+    /**
+     * Response after adding a reaction — the created reaction, so the frontend can track its id.
+     */
+    export interface PullRequestReviewCommentReactionCreateResponse {
+      readonly reaction: PullRequestCommentReaction;
     }
 
     /**

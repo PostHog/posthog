@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
 from typing import Any, cast
 
@@ -56,8 +56,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.models.github_integration_base import GitHubIntegrationBase, NormalizedPRComment
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -111,6 +113,11 @@ from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCommentsResponseSerializer,
+    PullRequestReviewCommentCreateResponseSerializer,
+    PullRequestReviewCommentCreateSerializer,
+    PullRequestReviewCommentReactionCreateResponseSerializer,
+    PullRequestReviewCommentReactionCreateSerializer,
+    PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -2145,6 +2152,300 @@ class SignalReportViewSet(
         return self._pr_github_passthrough(
             cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
         )
+
+    @extend_schema(
+        request=PullRequestReviewCommentCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=PullRequestReviewCommentCreateResponseSerializer,
+                description="The created review comment, in the normalized PR-comment shape.",
+            ),
+            400: OpenApiResponse(description="Invalid comment payload."),
+            403: OpenApiResponse(
+                description="The requesting user has no usable personal GitHub connection — reconnect GitHub."
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub rejected the comment."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Post an inline review comment on a report's implementation PR",
+        description=(
+            "Post an inline review comment on the report's implementation pull request, attributed to the "
+            "requesting user's own GitHub identity via their personal GitHub connection. Either replies to "
+            "an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`)."
+        ),
+        operation_id="signals_report_pr_review_comments_create",
+    )
+    @action(detail=True, methods=["post"], url_path="pr_review_comments", required_scopes=["task:write"])
+    def pr_review_comments(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        serializer = PullRequestReviewCommentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        commit_id: str | None = None
+        if not params.get("in_reply_to"):
+            # New threads anchor to the PR head commit; resolve it via the team integration
+            # (read path), so the user token is only used for the write itself.
+            github, repository, pr_number, error = self._github_for_report_pr(report, reference=(repository, pr_number))
+            if error is not None:
+                return error
+            assert github is not None
+            pr_details = github.get_pull_request(repository, pr_number)
+            commit_id = pr_details.get("head_sha") if pr_details.get("success") else None
+            if not commit_id:
+                return Response(
+                    {"error": "Could not resolve the pull request's head commit."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        result = self._run_user_github_write(
+            lambda: user_github.create_pull_request_review_comment(
+                repository,
+                pr_number,
+                params["body"],
+                in_reply_to=params.get("in_reply_to"),
+                commit_id=commit_id,
+                path=params.get("path"),
+                line=params.get("line"),
+                side=params.get("side"),
+            ),
+            repository,
+            pr_number,
+            noun="comment",
+        )
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        return Response(
+            {"comment": self._normalize_pr_review_comment(result["comment"])}, status=status.HTTP_201_CREATED
+        )
+
+    @extend_schema(
+        methods=["PATCH"],
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        request=PullRequestReviewCommentUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestReviewCommentCreateResponseSerializer,
+                description="The edited review comment, in the normalized PR-comment shape.",
+            ),
+            403: OpenApiResponse(description="No usable personal GitHub connection, or not the comment's author."),
+            404: OpenApiResponse(description="Report has no implementation PR."),
+            502: OpenApiResponse(description="GitHub rejected the edit."),
+        },
+        summary="Edit one of the requesting user's own review comments",
+        operation_id="signals_report_pr_review_comment_update",
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={
+            204: OpenApiResponse(description="Comment deleted."),
+            403: OpenApiResponse(description="No usable personal GitHub connection, or not the comment's author."),
+            404: OpenApiResponse(description="Report has no implementation PR."),
+            502: OpenApiResponse(description="GitHub rejected the delete."),
+        },
+        summary="Delete one of the requesting user's own review comments",
+        operation_id="signals_report_pr_review_comment_destroy",
+    )
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        def run() -> dict[str, Any]:
+            if request.method == "DELETE":
+                return user_github.delete_pull_request_review_comment(repository, comment_id)
+            serializer = PullRequestReviewCommentUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            return user_github.update_pull_request_review_comment(
+                repository, comment_id, serializer.validated_data["body"]
+            )
+
+        result = self._run_user_github_write(run, repository, pr_number, noun="comment")
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        if request.method == "DELETE":
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"comment": self._normalize_pr_review_comment(result["comment"])})
+
+    @extend_schema(
+        request=PullRequestReviewCommentReactionCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=PullRequestReviewCommentReactionCreateResponseSerializer,
+                description="The created reaction.",
+            ),
+            403: OpenApiResponse(description="No usable personal GitHub connection."),
+            404: OpenApiResponse(description="Report has no implementation PR."),
+            502: OpenApiResponse(description="GitHub rejected the reaction."),
+        },
+        summary="React to a review comment as the requesting user",
+        operation_id="signals_report_pr_review_comment_reactions_create",
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment_reactions(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        serializer = PullRequestReviewCommentReactionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        result = self._run_user_github_write(
+            lambda: user_github.add_pull_request_review_comment_reaction(
+                repository, comment_id, serializer.validated_data["content"]
+            ),
+            repository,
+            pr_number,
+            noun="reaction",
+        )
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        raw = result.get("reaction") or {}
+        reaction = {
+            "id": str(raw["id"]) if raw.get("id") is not None else "",
+            "content": raw.get("content"),
+            "user_login": (raw.get("user") or {}).get("login"),
+        }
+        return Response({"reaction": reaction}, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Reaction removed."),
+            403: OpenApiResponse(description="No usable personal GitHub connection."),
+            404: OpenApiResponse(description="Report has no implementation PR."),
+            502: OpenApiResponse(description="GitHub rejected the removal."),
+        },
+        summary="Remove one of the requesting user's own reactions from a review comment",
+        operation_id="signals_report_pr_review_comment_reaction_destroy",
+        parameters=[
+            OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("reaction_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions/(?P<reaction_id>[0-9]+)",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment_reaction(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        reaction_id = str(kwargs["reaction_id"])
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        result = self._run_user_github_write(
+            lambda: user_github.delete_pull_request_review_comment_reaction(repository, comment_id, reaction_id),
+            repository,
+            pr_number,
+            noun="reaction",
+        )
+        if isinstance(result, Response):
+            return result
+        self._bust_pr_comments_cache(repository, pr_number)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _bust_pr_comments_cache(self, repository: str, pr_number: int) -> None:
+        """Drop the short PR-comments read cache so a just-made change shows on the next fetch."""
+        cache.delete(f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:get_pull_request_comments")
+
+    @staticmethod
+    def _normalize_pr_review_comment(raw: dict[str, Any]) -> NormalizedPRComment:
+        """Shape a raw GitHub review comment via the shared read-path normalizer (a fresh write never
+        carries reactions)."""
+        normalized = GitHubIntegrationBase.normalize_pr_comment(raw, "review")
+        assert normalized is not None  # a write result always carries a dict comment
+        return normalized
+
+    def _resolve_user_github_and_pr(
+        self, report: SignalReport, user: User
+    ) -> tuple[UserGitHubIntegration, str, int] | Response:
+        """Resolve the requesting user's personal GitHub integration and the report's PR, or a Response
+        error (404 no PR, 403 no personal GitHub connection) to return as-is."""
+        reference = self._resolve_report_pr_reference(report)
+        if reference is None:
+            return Response(
+                {"error": "This report has no implementation pull request."}, status=status.HTTP_404_NOT_FOUND
+            )
+        user_integration = (
+            UserIntegration.objects.filter(user=user, kind=UserIntegration.IntegrationKind.GITHUB)
+            .order_by("created_at")
+            .first()
+        )
+        if user_integration is None:
+            return Response(
+                {"error": "Connect your GitHub account in settings to comment on pull requests."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        repository, pr_number = reference
+        return UserGitHubIntegration(user_integration), repository, pr_number
+
+    def _run_user_github_write(
+        self, fn: Callable[[], dict[str, Any]], repository: str, pr_number: int, *, noun: str
+    ) -> dict[str, Any] | Response:
+        """Run a user-authored GitHub write, mapping the shared failure modes to Responses. Returns the
+        call's result dict on success, or a Response to return as-is. GitHub 403 (e.g. editing someone
+        else's comment) surfaces as a 403."""
+        try:
+            result = fn()
+        except ReauthorizationRequired:
+            return Response(
+                {"error": "Your GitHub connection has expired. Reconnect GitHub in settings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return Response(
+                {"error": "GitHub is temporarily busy. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning(f"signals pr review {noun} write errored", repository=repository, pr_number=pr_number)
+            return Response({"error": f"GitHub could not accept the {noun}."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not result.get("success"):
+            forbidden = result.get("status_code") == 403
+            return Response(
+                {"error": result.get("error") or f"GitHub could not accept the {noun}."},
+                status=status.HTTP_403_FORBIDDEN if forbidden else status.HTTP_502_BAD_GATEWAY,
+            )
+        return result
 
     def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
         """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
