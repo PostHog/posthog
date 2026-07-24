@@ -514,7 +514,11 @@ def execute_bake_dev_stack_image_workflow(publish_name: str = DEV_STACK_IMAGE_NA
             id=f"bake-dev-stack-image-{publish_name}",
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            # A single workflow attempt: each bake is a full 15-25 minute stack build, the
+            # activity inside already retries once, and the nightly schedule plus the
+            # base-digest sweep are the outer retry loop. Workflow-level retries would
+            # multiply with the activity's into up to four consecutive bakes.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
     )
 

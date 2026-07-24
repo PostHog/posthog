@@ -5,16 +5,22 @@
 #
 # What ends up in the image:
 #   - every docker-compose.dev.yml service image pre-pulled into /var/lib/docker
-#   - Postgres (main + persons + product DBs) and ClickHouse fully migrated, with the
-#     data living in the compose project's volumes/containers under /var/lib/docker
+#   - Postgres (main + persons + product DBs, including the Rust-migrated cyclotron /
+#     behavioral-cohorts / flags-read-store databases) and ClickHouse fully migrated,
+#     with the data living in the compose project's volumes/containers under
+#     /var/lib/docker
+#   - the dev toolchain `hogli start` needs but the VM base image lacks: brotli
+#     (bin/download-mmdb), phrocs (the process manager bin/start requires), Go and the
+#     Rust toolchain with sqlx-cli (bin/start-go-service / bin/start-rust-service and
+#     the rust/bin migrators), plus a warm cargo registry for the rust workspace
 #   - a warm uv cache, so the task-time `uv sync` is a fast linking pass
 #
 # `hogli start` on a task VM then skips the multi-gigabyte image pulls and runs only
 # the migrations that landed after the bake, instead of the full history from scratch.
 #
-# The Rust-driven migrators (cyclotron, behavioral-cohorts, flags-read-store) are NOT
-# run here — the sandbox image has no Rust toolchain — so those still migrate at task
-# time, exactly as they do on the plain VM base.
+# The toolchain lives here rather than in Dockerfile.sandbox-vm on purpose: the plain
+# VM base serves every org's VM runs and stays lean; only the PostHog-internal prebaked
+# image needs a full dev toolchain.
 #
 # Runs as root inside a Modal VM sandbox created from SandboxTemplate.VM_BASE.
 set -euo pipefail
@@ -22,6 +28,15 @@ set -euo pipefail
 BAKE_ROOT=/tmp/posthog-dev-stack-bake
 REPO_DIR="$BAKE_ROOT/posthog"
 BAKE_MANIFEST=/opt/posthog/dev-stack-bake.json
+
+# Toolchain pins — keep in sync with .flox/env/manifest.toml, which is what dev
+# machines (and therefore `hogli start`) are built against.
+GO_VERSION=1.25.5
+RUST_TOOLCHAIN=1.91.1
+SQLX_CLI_VERSION=0.8.3
+
+export RUSTUP_HOME=/opt/rust/rustup
+export CARGO_HOME=/opt/rust/cargo
 
 log() { echo "[bake] $(date -u +%H:%M:%S) $*"; }
 
@@ -48,6 +63,51 @@ git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR"
 cd "$REPO_DIR"
 BAKED_SHA=$(git rev-parse HEAD)
 export COMPOSE_PROJECT_NAME=posthog
+
+log "installing dev toolchain (brotli, phrocs, go, rust)"
+# On dev machines flox provides these; the sandbox has no flox, so `hogli start`
+# dead-ends without them: bin/start fails at bin/download-mmdb (brotli) and then at
+# process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
+# need their toolchains.
+apt-get update
+apt-get install -y --no-install-recommends brotli
+rm -rf /var/lib/apt/lists/*
+
+# Prebuilt phrocs release binary into /usr/local/bin (bin/start falls back to PATH
+# when there is no flox-built tools/phrocs/dist binary).
+bash tools/phrocs/install.sh
+
+case "$(uname -m)" in
+    x86_64) GO_ARCH=amd64 ;;
+    aarch64) GO_ARCH=arm64 ;;
+    *)
+        echo "unsupported architecture: $(uname -m)" >&2
+        exit 1
+        ;;
+esac
+curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" | tar -xz -C /usr/local
+ln -sf /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+
+# Rust under /opt/rust, exposed through env-setting shims so any task-time process
+# finds the toolchain regardless of $HOME or login-shell profile handling.
+curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+for tool in cargo rustc rustup; do
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust/rustup}" CARGO_HOME="${CARGO_HOME:-/opt/rust/cargo}"' \
+        "exec /opt/rust/cargo/bin/$tool \"\$@\"" > "/usr/local/bin/$tool"
+    chmod +x "/usr/local/bin/$tool"
+done
+
+log "installing sqlx-cli (rust/bin migrators)"
+cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked --no-default-features --features native-tls,postgres
+ln -sf /opt/rust/cargo/bin/sqlx /usr/local/bin/sqlx
+
+log "warming cargo registry for the rust workspace"
+# Download-only: task-time `cargo run` in bin/start-rust-service still compiles, but
+# skips fetching the whole dependency graph. The compiled target/ dir lives inside the
+# checkout and is discarded with it, so it cannot be warmed here.
+(cd rust && cargo fetch)
 
 log "warming python environment (uv sync)"
 # The checkout's .venv is discarded with the checkout; the uv cache persists in the
@@ -94,6 +154,15 @@ source .venv/bin/activate
 # with wait-for-postgres-tables).
 bin/migrate --scope=postgres --scope=persons
 bin/migrate --scope=clickhouse
+
+log "running rust-driven migrations"
+# Same connection URLs bin/start derives for these scopes; the rust/bin migrators
+# otherwise default to localhost with per-store host/user envs.
+export CYCLOTRON_DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron}"
+export CYCLOTRON_NODE_DATABASE_URL="${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron_node}"
+export BEHAVIORAL_COHORTS_DATABASE_URL="${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@db:5432/behavioral_cohorts}"
+export FLAGS_READ_STORE_DATABASE_URL="${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@db:5432/flags_read_store}"
+bin/migrate --scope=cyclotron --scope=behavioral-cohorts --scope=flags-read-store
 
 log "stopping dev stack"
 # stop (not down): the stopped containers keep their anonymous volumes — ClickHouse

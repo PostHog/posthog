@@ -598,6 +598,12 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
             sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        if sandbox.config.image_fallback:
+            emit_agent_log(
+                ctx.run_id,
+                "warn",
+                f"Sandbox image downgraded: {sandbox.config.image_fallback}",
+            )
         create_ms = sandbox_creation_timer.elapsed_ms
         snapshot_outcome = (
             "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"

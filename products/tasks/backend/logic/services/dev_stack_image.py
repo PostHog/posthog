@@ -1,9 +1,9 @@
 """Bakes the prebaked PostHog dev-stack VM image.
 
-Boots a plain VM-base sandbox, runs `bake-posthog-dev-stack.sh` inside it (pre-pull the
-dev compose images, bring the stack up, run the Django/persons/ClickHouse migrations,
-shut everything down cleanly), then publishes the sandbox's filesystem snapshot as a
-named Modal image.
+Boots a plain VM-base sandbox, runs `bake-posthog-dev-stack.sh` inside it (install the
+dev toolchain the VM base lacks, pre-pull the dev compose images, bring the stack up,
+run the Django/persons/ClickHouse and Rust-driven migrations, shut everything down
+cleanly), then publishes the sandbox's filesystem snapshot as a named Modal image.
 
 Orgs are routed onto the published image through the `tasks-modal-vm-sandbox` flag
 payload: a payload variant with `"default_custom_image": "posthog-dev-stack"` makes it
@@ -20,16 +20,20 @@ from __future__ import annotations
 import logging
 from collections import deque
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
+if TYPE_CHECKING:
+    from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.exceptions import SnapshotTimeoutError
 from products.tasks.backend.feature_flags import is_dev_stack_image_bake_enabled
 from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
 from products.tasks.backend.redis import get_tasks_cache
 
 logger = logging.getLogger(__name__)
-
-DEV_STACK_IMAGE_NAME = "posthog-dev-stack"
 
 BAKE_SCRIPT_LOCAL_PATH = Path("products/tasks/backend/sandbox/images/bake-posthog-dev-stack.sh")
 BAKE_SCRIPT_SANDBOX_PATH = "/tmp/bake-posthog-dev-stack.sh"
@@ -39,6 +43,10 @@ BAKE_EXECUTION_TIMEOUT_SECONDS = 90 * 60
 BAKE_SANDBOX_TTL_SECONDS = 3 * 60 * 60
 BAKE_SANDBOX_CPU_CORES = 8.0
 BAKE_SANDBOX_MEMORY_GB = 32.0
+
+# Transient snapshot failures are retried in place on the still-running sandbox: a retry
+# costs only the snapshot, whereas failing the activity re-runs the whole 15-25 minute bake.
+PUBLISH_SNAPSHOT_MAX_ATTEMPTS = 3
 
 # Tail of bake output retained for error reporting.
 MAX_BAKE_LOG_CHARS = 20_000
@@ -56,6 +64,23 @@ REFRESH_CLAIM_TTL_SECONDS = 7 * 24 * 60 * 60
 
 class DevStackImageBakeError(Exception):
     pass
+
+
+def _publish_snapshot_with_retries(sandbox: ModalSandbox, publish_name: str) -> str:
+    """Publish the sandbox's filesystem snapshot, retrying transient snapshot failures in place.
+
+    The sandbox keeps running between attempts, so a retry costs only the snapshot —
+    failing the activity instead would re-run the whole 15-25 minute bake.
+    """
+    for attempt in range(1, PUBLISH_SNAPSHOT_MAX_ATTEMPTS):
+        try:
+            return sandbox.publish_filesystem_image(publish_name)
+        except SnapshotTimeoutError as e:
+            logger.warning(
+                "dev_stack_image_publish_retry",
+                extra={"publish_name": publish_name, "sandbox_id": sandbox.id, "attempt": attempt, "error": str(e)},
+            )
+    return sandbox.publish_filesystem_image(publish_name)
 
 
 def _record_baked_base_reference(publish_name: str) -> None:
@@ -161,7 +186,7 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
                 f"Bake script exited with {result.exit_code}; output tail:\n{''.join(log_tail)[-MAX_BAKE_LOG_CHARS:]}"
             )
 
-        image_id = sandbox.publish_filesystem_image(publish_name)
+        image_id = _publish_snapshot_with_retries(sandbox, publish_name)
         _record_baked_base_reference(publish_name)
         logger.info(
             "dev_stack_image_published",

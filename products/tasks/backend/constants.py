@@ -49,6 +49,12 @@ def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
     return set()
 
 
+# Published Modal image name of the prebaked PostHog dev-stack VM image. Unlike
+# spec-built custom images, this one is a sandbox *filesystem snapshot* publish
+# (see logic/services/dev_stack_image.py), which Modal cannot layer build steps on.
+DEV_STACK_IMAGE_NAME = "posthog-dev-stack"
+
+
 def vm_sandbox_default_custom_image(payload: object) -> str | None:
     """Modal image name that VM runs fall back to when no custom image was picked.
 

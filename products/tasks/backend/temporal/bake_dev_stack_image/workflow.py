@@ -8,7 +8,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from .activities import BakeDevStackImageInput, bake_and_publish_dev_stack_image
 
-BAKE_ACTIVITY_TIMEOUT = timedelta(hours=2)
+# Matches the bake sandbox's TTL: the 90-minute bake execution budget plus the
+# published-image snapshot attempts (each up to 30 minutes, retried in place).
+BAKE_ACTIVITY_TIMEOUT = timedelta(hours=3)
 
 
 @workflow.defn(name="bake-dev-stack-image")
@@ -31,5 +33,8 @@ class BakeDevStackImageWorkflow(PostHogWorkflow):
             bake_and_publish_dev_stack_image,
             input,
             start_to_close_timeout=BAKE_ACTIVITY_TIMEOUT,
+            # At most one automated re-bake: each attempt is a full 15-25 minute stack build.
+            # The workflow itself is started with maximum_attempts=1 (see temporal/client.py)
+            # so these attempts never multiply; the nightly schedule is the outer retry loop.
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

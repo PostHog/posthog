@@ -289,10 +289,13 @@ which carries two origin allowlists and an optional default image:
 #### The prebaked dev-stack image
 
 `hogli start` on a fresh VM pays for multi-gigabyte docker pulls and the full Django + persons +
-ClickHouse migration history. For runs on the PostHog monorepo we bake that ahead of time:
+ClickHouse migration history — and dead-ends anyway, because the lean VM base lacks the dev
+toolchain flox provides on dev machines (brotli, phrocs, Go, Rust). For runs on the PostHog
+monorepo we bake all of that ahead of time:
 the `bake-dev-stack-image` Temporal workflow boots a plain VM-base sandbox,
-runs `bake-posthog-dev-stack.sh` inside it (pre-pull the dev compose images, bring the stack up,
-run migrations, shut down cleanly), snapshots the filesystem, and publishes it under the fixed
+runs `bake-posthog-dev-stack.sh` inside it (install the dev toolchain, pre-pull the dev compose
+images, bring the stack up, run the Django and Rust-driven migrations, shut down cleanly),
+snapshots the filesystem, and publishes it under the fixed
 Modal image name `posthog-dev-stack` (see `products/tasks/backend/logic/services/dev_stack_image.py`).
 It is dispatched on two cadences, both gated per region on the `tasks-dev-stack-image-bake` flag
 via a `region` person property: a nightly full rebake that keeps the heavy state (migrations,

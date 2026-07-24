@@ -3,7 +3,9 @@ import uuid
 import pytest
 from unittest.mock import patch
 
+from products.tasks.backend.exceptions import SnapshotTimeoutError
 from products.tasks.backend.logic.services.dev_stack_image import (
+    PUBLISH_SNAPSHOT_MAX_ATTEMPTS,
     DevStackImageBakeError,
     bake_dev_stack_image,
     refresh_dev_stack_image_if_base_changed,
@@ -31,7 +33,7 @@ class _FakeStream:
         return ExecutionResult(stdout="", stderr="", exit_code=self._exit_code, error=None)
 
 
-def _make_fake_sandbox_cls(exit_code: int):
+def _make_fake_sandbox_cls(exit_code: int, publish_failures: int = 0):
     from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
     class FakeSandbox(ModalSandbox):
@@ -41,6 +43,7 @@ def _make_fake_sandbox_cls(exit_code: int):
             self.id = "sb-fake"
             self.destroyed = False
             self.published_name: str | None = None
+            self.publish_attempts = 0
             self.written_files: dict[str, bytes] = {}
             FakeSandbox.instances.append(self)
 
@@ -56,6 +59,14 @@ def _make_fake_sandbox_cls(exit_code: int):
             return _FakeStream(exit_code)
 
         def publish_filesystem_image(self, publish_name: str) -> str:
+            self.publish_attempts += 1
+            if self.publish_attempts <= publish_failures:
+                raise SnapshotTimeoutError(
+                    "Transient error creating snapshot",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("Deadline exceeded"),
+                    capture=False,
+                )
             self.published_name = publish_name
             return "im-fake-123"
 
@@ -107,6 +118,35 @@ class TestBakeDevStackImage:
         fake_cls = _make_fake_sandbox_cls(exit_code=1)
         with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
             with pytest.raises(DevStackImageBakeError):
+                bake_dev_stack_image(_unique_publish_name())
+
+        (sandbox,) = fake_cls.instances
+        assert sandbox.published_name is None
+        assert sandbox.destroyed is True
+
+    def test_transient_snapshot_failure_retries_publish_without_rebaking(self):
+        # A snapshot timeout after a completed bake must retry on the still-running
+        # sandbox — failing the activity instead re-runs the whole 15-25 minute bake.
+        publish_name = _unique_publish_name()
+        fake_cls = _make_fake_sandbox_cls(exit_code=0, publish_failures=PUBLISH_SNAPSHOT_MAX_ATTEMPTS - 1)
+        with (
+            patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.resolve_template_base_image_reference",
+                return_value=BASE_REFERENCE,
+            ),
+        ):
+            image_id = bake_dev_stack_image(publish_name)
+
+        assert image_id == "im-fake-123"
+        (sandbox,) = fake_cls.instances  # a single sandbox: the bake itself never re-ran
+        assert sandbox.publish_attempts == PUBLISH_SNAPSHOT_MAX_ATTEMPTS
+        assert sandbox.published_name == publish_name
+
+    def test_publish_gives_up_after_exhausting_snapshot_attempts(self):
+        fake_cls = _make_fake_sandbox_cls(exit_code=0, publish_failures=PUBLISH_SNAPSHOT_MAX_ATTEMPTS)
+        with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
+            with pytest.raises(SnapshotTimeoutError):
                 bake_dev_stack_image(_unique_publish_name())
 
         (sandbox,) = fake_cls.instances
