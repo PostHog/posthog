@@ -660,13 +660,17 @@ export class Worker {
                         return 'failed'
                 }
             })()
-            sLog.debug({ outcome: outcome.state, turns: outcome.turns, newState }, 'session.done')
             // pending_inputs intentionally omitted — see onTurnPersist above.
-            await this.deps.queue.update(session.id, {
+            // `finalizeRun` guards the state write in SQL: a /send that landed
+            // after this run's last drain re-queues the session (instead of
+            // this write stranding the input on a terminal row), and a
+            // concurrent re-queue is never clobbered by `newState`.
+            const persistedState = await this.deps.queue.finalizeRun(session.id, {
                 state: newState,
                 conversation: session.conversation,
                 usage_total: session.usage_total,
             })
+            sLog.debug({ outcome: outcome.state, turns: outcome.turns, newState, persistedState }, 'session.done')
             metrics.sessionOutcomes.labels({ outcome: outcome.state }).inc()
             metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
             metrics.sessionTurns.observe(outcome.turns)

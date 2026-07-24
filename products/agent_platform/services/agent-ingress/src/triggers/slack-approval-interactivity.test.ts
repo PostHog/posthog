@@ -113,8 +113,11 @@ function harness(opts: {
                 principal: opts.sessionPrincipal ?? OWNER,
             } as unknown as AgentSession
         },
+        // applyApprovalDecision's terminal fail-closed gate reads the session
+        // state; report a live session so decisions apply.
+        get: async (sessionId: string) => ({ id: sessionId, state: 'completed' }) as unknown as AgentSession,
         appendPendingInput: async () => undefined,
-        update: async () => undefined,
+        requeueForInput: async () => 'queued' as const,
     } as unknown as SessionQueue
 
     const http = {

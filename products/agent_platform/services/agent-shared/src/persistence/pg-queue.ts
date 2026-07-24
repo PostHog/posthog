@@ -30,6 +30,7 @@ import {
     SessionQueue,
     SessionSummary,
 } from './queue'
+import { FINAL_SESSION_STATES } from './session-state-reaper'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      idempotency_key, trigger_metadata, state,
@@ -191,6 +192,133 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
 
+    async requeueForInput(
+        sessionId: string,
+        opts: { allowRestartFromClosed?: boolean } = {}
+    ): Promise<AgentSession['state'] | null> {
+        // Guarded wake. What the WHERE guarantees, precisely:
+        //   - `running` is excluded (double-claim defense): the claim's FOR
+        //     UPDATE lock is released at claim-commit, so flipping a running
+        //     session to 'queued' would let a second worker claim it while the
+        //     first still runs it. The running worker drains the appended
+        //     input at its next turn, and `finalizeRun`'s completed-with-
+        //     pending-inputs arm re-queues when the input landed after the
+        //     final drain — so the wake survives a `completed` outcome ONLY.
+        //     A worker outcome of `closed`/`failed` does not re-queue, and an
+        //     input appended in that window strands (pre-existing semantics,
+        //     unchanged; see Persistence.spec.md "out of scope").
+        //   - final states (closed / cancelled / failed) are excluded so a
+        //     wake racing a cancel/close can never resurrect a terminated
+        //     session — the append may still land in pending_inputs, but the
+        //     session stays terminal and unclaimable.
+        //   - `allowRestartFromClosed` narrows the exclusion to permit
+        //     closed → queued, the one sanctioned restart transition, for
+        //     triggers whose spec sets `allow_restart`. cancelled/failed stay
+        //     excluded even then.
+        // NOT guaranteed here: the reaper-rescue hazard (`reapStuckRunning`
+        // re-queues a presumed-dead worker's session; if that worker is alive
+        // and finalizes later, its finalizeRun can overwrite the rescued run's
+        // state) is unaddressed and matches master.
+        // Returns the state actually persisted so callers can tell whether the
+        // wake landed ('queued'), a live worker keeps ownership ('running'),
+        // or the session is terminal and the wake was refused — null when the
+        // row is gone. The no-op read is a second query, but only on the
+        // guarded path; the wake itself stays one statement.
+        const blocked = ['running', ...FINAL_SESSION_STATES].filter(
+            (s) => !(opts.allowRestartFromClosed && s === 'closed')
+        )
+        const res = await this.pool.query<{ state: AgentSession['state'] }>(
+            `UPDATE agent_session
+             SET state = 'queued',
+                 updated_at = NOW()
+             WHERE id = $1 AND NOT (state = ANY($2::text[]))
+             RETURNING state`,
+            [sessionId, blocked]
+        )
+        if (res.rows[0]) {
+            return res.rows[0].state
+        }
+        const sel = await this.pool.query<{ state: AgentSession['state'] }>(
+            `SELECT state FROM agent_session WHERE id = $1`,
+            [sessionId]
+        )
+        return sel.rows[0]?.state ?? null
+    }
+
+    async closeIfIdle(sessionId: string): Promise<AgentSession['state'] | null> {
+        // The janitor sweep decides to close from a candidate row it read
+        // earlier; this write re-checks under the row lock so that decision
+        // can't clobber progress made since the read:
+        //   - no longer 'completed' (an input re-queued it, a worker claimed
+        //     it, or it already terminated) → no-op;
+        //   - still 'completed' but with undrained pending_inputs (an append
+        //     landed and its requeue hasn't run yet, or was raced) → re-queue
+        //     instead of stranding the input behind a closed row — the same
+        //     rescue `finalizeRun` performs;
+        //   - still 'completed' and idle → close.
+        const res = await this.pool.query<{ state: AgentSession['state'] }>(
+            `UPDATE agent_session
+             SET state = CASE
+                     WHEN jsonb_array_length(pending_inputs) > 0 THEN 'queued'
+                     ELSE 'closed'
+                 END,
+                 updated_at = NOW()
+             WHERE id = $1 AND state = 'completed'
+             RETURNING state`,
+            [sessionId]
+        )
+        return res.rows[0]?.state ?? null
+    }
+
+    async finalizeRun(
+        sessionId: string,
+        patch: {
+            state: AgentSession['state']
+            conversation: ConversationMessage[]
+            usage_total: SessionUsageTotal
+        }
+    ): Promise<AgentSession['state'] | null> {
+        // Single-statement CAS on the end-of-run state write:
+        //   - a concurrent re-queue ('queued') always wins over the worker's
+        //     outcome — the session has new input and must be claimable;
+        //   - 'cancelled' honors ONLY the documented reopen (the runner
+        //     catches the cancel and finishes as 'completed'). Any other
+        //     outcome on a cancelled row leaves it cancelled — a
+        //     shutdown-suspend ('queued') that raced the cancel must not
+        //     resurrect the session into the claim pool, and a close/fail
+        //     must not overwrite the user's cancel;
+        //   - ANY write that would persist 'completed' (the direct outcome
+        //     and the cancel-reopen alike) re-queues instead when undrained
+        //     pending_inputs exist, so a /send that landed after the last
+        //     drain wakes the session rather than stranding;
+        //   - everything else takes the worker's outcome verbatim.
+        const res = await this.pool.query<{ state: AgentSession['state'] }>(
+            `UPDATE agent_session
+             SET state = CASE
+                     WHEN state = 'queued' THEN state
+                     WHEN state = 'cancelled' AND $2 <> 'completed' THEN state
+                     WHEN $2 = 'completed' AND jsonb_array_length(pending_inputs) > 0 THEN 'queued'
+                     ELSE $2
+                 END,
+                 conversation = $3::jsonb,
+                 search_text = $4,
+                 turn_count = $5,
+                 usage_total = $6::jsonb,
+                 updated_at = NOW()
+             WHERE id = $1
+             RETURNING state`,
+            [
+                sessionId,
+                patch.state,
+                JSON.stringify(patch.conversation),
+                buildSearchText(patch.conversation),
+                patch.conversation.length,
+                JSON.stringify(patch.usage_total),
+            ]
+        )
+        return res.rows[0]?.state ?? null
+    }
+
     async appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void> {
         await this.pool.query(
             `UPDATE agent_session
@@ -335,12 +463,18 @@ export class PgSessionQueue implements SessionQueue {
             }
             // Single statement: land the ACL entry, mark the request granted,
             // replay the proposed message, and re-queue — all under the lock.
+            // Same guard set as `requeueForInput`: a running session keeps
+            // its state (the live worker drains the replayed message, or
+            // `finalizeRun` re-queues it) so a second worker can't claim it,
+            // and a session that terminated (closed / cancelled / failed)
+            // while the request was pending is not resurrected — the grant
+            // still lands on the row, but the session stays terminal.
             await client.query(
                 `UPDATE agent_session
                  SET acl = $2::jsonb,
                      pending_elevation_requests = $3::jsonb,
                      pending_inputs = pending_inputs || $4::jsonb,
-                     state = 'queued',
+                     state = CASE WHEN state = ANY($5::text[]) THEN state ELSE 'queued' END,
                      updated_at = NOW()
                  WHERE id = $1`,
                 [
@@ -348,6 +482,7 @@ export class PgSessionQueue implements SessionQueue {
                     JSON.stringify([...acl, aclEntry]),
                     JSON.stringify(nextRequests),
                     JSON.stringify([request.proposed_message]),
+                    ['running', ...FINAL_SESSION_STATES],
                 ]
             )
             await client.query('COMMIT')
@@ -417,20 +552,25 @@ export class PgSessionQueue implements SessionQueue {
         revisionId: string
     ): Promise<AgentSession | null> {
         // The revision scope lives in SQL, not in JS post-filtering — the
-        // `ORDER BY updated_at DESC LIMIT 1` would otherwise return the most
-        // recent row regardless of revision, and a JS-side reject would strand
-        // any older same-revision row. Filtering in the WHERE clause guarantees
-        // the lookup never reaches a session on a different revision. See the
+        // `ORDER BY … LIMIT 1` would otherwise return the most recent row
+        // regardless of revision, and a JS-side reject would strand any older
+        // same-revision row. Filtering in the WHERE clause guarantees the
+        // lookup never reaches a session on a different revision. See the
         // interface docs.
+        //
+        // Live rows sort before terminal ones regardless of recency: inert
+        // pending_inputs appends (a raced /send against a cancel) still bump
+        // updated_at on terminal rows, so ordering by updated_at alone would
+        // let a dead session shadow the live one under the same key.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
              WHERE application_id = $1
                AND external_key = $2
                AND revision_id = $3
-             ORDER BY updated_at DESC
+             ORDER BY (state = ANY($4::text[])) ASC, updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey, revisionId]
+            [applicationId, externalKey, revisionId, FINAL_SESSION_STATES]
         )
         if (r.rowCount === 0) {
             return null

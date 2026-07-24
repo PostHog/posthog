@@ -108,8 +108,8 @@ describe('enqueueOrResume', () => {
 
     it('resumes a `completed` (open) session via external_key', async () => {
         // Under the new state machine `completed` is the open idle state —
-        // external_key reuse picks it back up. Only `closed` / `failed`
-        // force a fresh session.
+        // external_key reuse picks it back up. Only the terminal states
+        // (`closed` / `cancelled` / `failed`) force a fresh session.
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
@@ -137,33 +137,40 @@ describe('enqueueOrResume', () => {
         expect(second.sessionId).toBe(first.sessionId)
     })
 
-    it('creates a new session if existing one is `closed` (terminal)', async () => {
-        const queue = new PgSessionQueue(pool)
-        const { app, rev } = makePair()
-        const first = await enqueueOrResume(
-            { queue },
-            {
-                application: app,
-                revision: rev,
-                externalKey: 'slack:C01:thread3',
-                seed: { role: 'user', content: 'first', timestamp: Date.now() },
-                principal: ALICE,
-            }
-        )
-        await queue.update(first.sessionId, { state: 'closed' })
-        const second = await enqueueOrResume(
-            { queue },
-            {
-                application: app,
-                revision: rev,
-                externalKey: 'slack:C01:thread3',
-                seed: { role: 'user', content: 'second', timestamp: Date.now() },
-                principal: ALICE,
-            }
-        )
-        expect(second.kind).toBe('created')
-        expect(second.sessionId).not.toBe(first.sessionId)
-    })
+    // `cancelled` is in the terminal set deliberately: chat /send 410s it as
+    // always-terminal, and `requeueForInput` refuses to wake it — resuming it
+    // here would report "resumed" while the appended input stranded on a
+    // cancelled row nothing will ever claim.
+    it.each(['closed', 'cancelled', 'failed'] as const)(
+        'creates a new session if existing one is `%s` (terminal)',
+        async (terminal) => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const first = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: 'slack:C01:thread3',
+                    seed: { role: 'user', content: 'first', timestamp: Date.now() },
+                    principal: ALICE,
+                }
+            )
+            await queue.update(first.sessionId, { state: terminal })
+            const second = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: 'slack:C01:thread3',
+                    seed: { role: 'user', content: 'second', timestamp: Date.now() },
+                    principal: ALICE,
+                }
+            )
+            expect(second.kind).toBe('created')
+            expect(second.sessionId).not.toBe(first.sessionId)
+        }
+    )
 
     it('denies a resume when the incoming principal does not match', async () => {
         // The Slack-thread security gap: previously a second user could

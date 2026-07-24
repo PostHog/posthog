@@ -22,7 +22,13 @@
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, createLogger, TRIGGER_ROUTES, type SessionPrincipal } from '@posthog/agent-shared'
+import {
+    buildClientToolResultMarker,
+    createLogger,
+    isFinalSessionState,
+    TRIGGER_ROUTES,
+    type SessionPrincipal,
+} from '@posthog/agent-shared'
 
 const log = createLogger('chat-trigger')
 
@@ -184,13 +190,11 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
         res.status(410).json({ error: 'session_terminal', state: existing.state })
         return
     }
-    if (existing.state === 'closed') {
-        const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
-        const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
-        if (!allowRestart) {
-            res.status(410).json({ error: 'session_terminal', state: 'closed' })
-            return
-        }
+    const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+    const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
+    if (existing.state === 'closed' && !allowRestart) {
+        res.status(410).json({ error: 'session_terminal', state: 'closed' })
+        return
     }
     // Refresh credentials before re-queueing so a worker can never claim this
     // turn in the gap between the state transition and the broker write. If a
@@ -219,7 +223,11 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
                 sender: incomingPrincipal,
             })
         }
-        await deps.queue.update(sessionId, { state: 'queued' })
+        // Running sessions keep their state (the live worker drains the input
+        // or `finalizeRun` re-queues), and a session cancelled since the read
+        // above stays terminal — see `requeueForInput`. The restart flag only
+        // permits closed → queued when the trigger spec opted in.
+        await deps.queue.requeueForInput(sessionId, { allowRestartFromClosed: allowRestart })
     } catch (err) {
         try {
             await credentialWrite.rollback()
@@ -252,7 +260,7 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
         return
     }
     // Cancel is idempotent: terminal sessions return ok without changing state.
-    if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
+    if (isFinalSessionState(existing.state)) {
         res.json({ ok: true, idempotent: true, state: existing.state })
         return
     }

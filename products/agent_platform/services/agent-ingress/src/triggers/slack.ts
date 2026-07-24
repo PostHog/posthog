@@ -564,7 +564,9 @@ export async function handleApprovalDecisionAction(
             text:
                 result.error === 'not_queued'
                     ? 'This request has already been decided.'
-                    : 'This approval request could not be found.',
+                    : result.error === 'session_terminal'
+                      ? 'This session has ended, so the request expired.'
+                      : 'This approval request could not be found.',
         })
         return
     }

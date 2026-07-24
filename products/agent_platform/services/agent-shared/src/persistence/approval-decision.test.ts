@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ConversationMessage } from '../spec/spec'
+import type { AgentSession, ConversationMessage } from '../spec/spec'
 import { applyApprovalDecision, buildApprovalDecidedMarker, parseApprovalDecidedMarker } from './approval-decision'
 import type { ApprovalRequest, ApprovalStore, DecideApprovalInput } from './approval-store'
 import type { SessionQueue } from './queue'
@@ -37,18 +37,27 @@ interface Harness {
     calls: {
         markApproving: DecideApprovalInput[]
         markRejected: DecideApprovalInput[]
+        markExpired: string[]
         appended: { sessionId: string; msg: ConversationMessage }[]
-        updated: { sessionId: string; patch: unknown }[]
+        requeued: string[]
     }
 }
 
 /** Minimal ApprovalStore + SessionQueue doubles recording the calls we assert. */
-function harness(opts: { row: ApprovalRequest | null; markReturnsNull?: boolean }): Harness {
+function harness(opts: {
+    row: ApprovalRequest | null
+    markReturnsNull?: boolean
+    /** State `queue.get` reports for the row's session. Default: a live 'completed'. */
+    sessionState?: AgentSession['state']
+    /** State `requeueForInput` reports as persisted. Default: the wake landed ('queued'). */
+    requeueResult?: AgentSession['state']
+}): Harness {
     const calls = {
         markApproving: [] as DecideApprovalInput[],
         markRejected: [] as DecideApprovalInput[],
+        markExpired: [] as string[],
         appended: [] as { sessionId: string; msg: ConversationMessage }[],
-        updated: [] as { sessionId: string; patch: unknown }[],
+        requeued: [] as string[],
     }
     const approvals = {
         get: async () => opts.row,
@@ -72,13 +81,24 @@ function harness(opts: { row: ApprovalRequest | null; markReturnsNull?: boolean 
                       decision_reason: input.reason ?? null,
                   })
         },
+        markExpired: async (id: string) => {
+            calls.markExpired.push(id)
+            return fakeRow({ ...opts.row!, id, state: 'expired' })
+        },
     } as unknown as ApprovalStore
     const queue = {
+        get: async (sessionId: string) =>
+            ({ id: sessionId, state: opts.sessionState ?? 'completed' }) as unknown as AgentSession,
         appendPendingInput: async (sessionId: string, msg: ConversationMessage) => {
             calls.appended.push({ sessionId, msg })
         },
-        update: async (sessionId: string, patch: unknown) => {
-            calls.updated.push({ sessionId, patch })
+        // Deliberately no `update` on the double: the wake must go through the
+        // guarded `requeueForInput` (a raw `update({state:'queued'})` can
+        // double-claim a running session or resurrect a terminated one), so a
+        // regression back to `update` throws here instead of passing silently.
+        requeueForInput: async (sessionId: string) => {
+            calls.requeued.push(sessionId)
+            return opts.requeueResult ?? ('queued' as const)
         },
     } as unknown as SessionQueue
     return { approvals, queue, calls }
@@ -98,7 +118,7 @@ describe('applyApprovalDecision', () => {
         // The wake is the decided marker (the runner picks it up next turn).
         const text = (h.calls.appended[0].msg.content as { text: string }[])[0].text
         expect(parseApprovalDecidedMarker(text)).toBe('req-1')
-        expect(h.calls.updated[0].patch).toEqual({ state: 'queued' })
+        expect(h.calls.requeued).toEqual(['sess-1'])
     })
 
     it('reject: marks rejected and materialises a rejection envelope (not a marker)', async () => {
@@ -114,7 +134,7 @@ describe('applyApprovalDecision', () => {
         const text = (h.calls.appended[0].msg.content as { text: string }[])[0].text
         expect(parseApprovalDecidedMarker(text)).toBeNull()
         expect(JSON.parse(text).approval).toMatchObject({ request_id: 'req-1', state: 'rejected', reason: 'nope' })
-        expect(h.calls.updated[0].patch).toEqual({ state: 'queued' })
+        expect(h.calls.requeued).toEqual(['sess-1'])
     })
 
     it('returns not_found when the row is missing', async () => {
@@ -148,6 +168,23 @@ describe('applyApprovalDecision', () => {
         })
         expect(result).toEqual({ ok: false, error: 'edits_not_allowed' })
         expect(h.calls.markApproving).toHaveLength(0)
+    })
+
+    // The terminal pre-check has a TOCTOU gap: the session can terminate
+    // between `queue.get` and the wake. `requeueForInput` reporting a terminal
+    // persisted state is the tell — the decision must be voided (row expired,
+    // so the runner drops the already-appended marker) instead of reported ok.
+    // The real-PG suite can't produce this interleaving deterministically.
+    it('voids an approve when the session terminates between the state check and the wake', async () => {
+        const h = harness({ row: fakeRow(), sessionState: 'completed', requeueResult: 'cancelled' })
+        const result = await applyApprovalDecision(h, {
+            requestId: 'req-1',
+            applicationId: 'app-1',
+            decision: 'approve',
+            decidedBy: 'user-9',
+        })
+        expect(result).toEqual({ ok: false, error: 'session_terminal', state: 'expired' })
+        expect(h.calls.markExpired).toEqual(['req-1'])
     })
 
     it('returns race_lost when the atomic flip loses to a concurrent decider', async () => {

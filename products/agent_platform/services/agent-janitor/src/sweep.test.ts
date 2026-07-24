@@ -115,6 +115,51 @@ describe('sweepOnce', () => {
         expect((await queue.get(uuidFor('w')))!.state).toBe('closed')
     })
 
+    it('does not close a candidate that was re-queued after the sweep read it', async () => {
+        // The candidate list is a snapshot; a /send can append an input and
+        // re-queue the session between the read and the close write. An
+        // unconditional `update({state:'closed'})` here would clobber that
+        // wake into a terminal state and strand the input.
+        const queue = new PgSessionQueue(pool)
+        const stale = session('rq', 'completed', '2026-01-01T00:00:00Z')
+        await queue.enqueue(stale)
+        // Input lands after the candidate snapshot was taken…
+        await queue.appendPendingInput(stale.id, { role: 'user', content: 'follow-up', timestamp: Date.now() })
+        await queue.requeueForInput(stale.id)
+        const result = await sweepOnce({
+            queue,
+            stuckRunningThresholdMs: 60_000,
+            idleCompletedThresholdMs: 60_000,
+            // …but the sweep still holds the stale 'completed' snapshot.
+            listIdleCompletedCandidates: async () => [stale],
+            now: () => new Date('2026-05-27T00:00:00Z'),
+        })
+        expect(result.closed).toBe(0)
+        const after = await queue.get(stale.id)
+        expect(after!.state).toBe('queued')
+        expect(after!.pending_inputs).toHaveLength(1)
+    })
+
+    it('counts an idle candidate re-queued for its undrained input, not as closed', async () => {
+        // The append landed but its wake didn't run (crashed caller). The
+        // close write's rescue arm re-queues — and the sweep must report it
+        // as a rescue, not silently fold it into `closed`/nothing.
+        const queue = new PgSessionQueue(pool)
+        const idle = session('ri', 'completed', '2026-01-01T00:00:00Z')
+        await queue.enqueue(idle)
+        await queue.appendPendingInput(idle.id, { role: 'user', content: 'not yet requeued', timestamp: Date.now() })
+        const result = await sweepOnce({
+            queue,
+            stuckRunningThresholdMs: 60_000,
+            idleCompletedThresholdMs: 60_000,
+            listIdleCompletedCandidates: async () => [idle],
+            now: () => new Date('2026-05-27T00:00:00Z'),
+        })
+        expect(result.closed).toBe(0)
+        expect(result.requeued_idle_inputs).toBe(1)
+        expect((await queue.get(idle.id))!.state).toBe('queued')
+    })
+
     it('respects per-agent TTL: a resume-enabled session past the floor is NOT closed', async () => {
         // The agent's spec.resume.max_completed_age_ms (7d) extends the
         // platform floor (24h). A session idle for 36h is past the floor
@@ -213,6 +258,7 @@ describe('sweepOnce', () => {
             requeued: 1,
             poisoned: 0,
             closed: 0,
+            requeued_idle_inputs: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
@@ -226,6 +272,7 @@ describe('sweepOnce', () => {
             requeued: 1,
             poisoned: 0,
             closed: 0,
+            requeued_idle_inputs: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
@@ -240,6 +287,7 @@ describe('sweepOnce', () => {
             requeued: 0,
             poisoned: 1,
             closed: 0,
+            requeued_idle_inputs: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,

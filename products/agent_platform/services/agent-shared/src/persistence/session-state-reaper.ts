@@ -27,3 +27,12 @@ export const SESSION_STATE_REAPER: Record<SessionState, ReaperKind> = {
 export function isFinalSessionState(s: SessionState): boolean {
     return SESSION_STATE_REAPER[s] === 'final'
 }
+
+/**
+ * Lifecycle-final states, derived from the classification above so a new
+ * state must be classified before any guard that excludes final states
+ * (e.g. `requeueForInput`) can silently treat it as wakeable.
+ */
+export const FINAL_SESSION_STATES: SessionState[] = (Object.keys(SESSION_STATE_REAPER) as SessionState[]).filter(
+    isFinalSessionState
+)

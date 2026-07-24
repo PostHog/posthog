@@ -258,15 +258,15 @@ describe('ingress HTTP server (path mode)', () => {
 
         const sessionId = run.body.session_id
         await credentialBroker.clear(sessionId)
-        const update = queue.update.bind(queue)
-        vi.spyOn(queue, 'update').mockImplementation(async (id, patch) => {
-            if (patch.state === 'queued') {
-                await expect(credentialBroker.resolve(id, 'posthog_api')).resolves.toEqual({
-                    kind: 'posthog_bearer',
-                    token: OWNER_TOKEN,
-                })
-            }
-            await update(id, patch)
+        // /send wakes the session via the guarded `requeueForInput` (not a raw
+        // state update) — the credential write must land before that call.
+        const requeue = queue.requeueForInput.bind(queue)
+        vi.spyOn(queue, 'requeueForInput').mockImplementation(async (id, opts) => {
+            await expect(credentialBroker.resolve(id, 'posthog_api')).resolves.toEqual({
+                kind: 'posthog_bearer',
+                token: OWNER_TOKEN,
+            })
+            return await requeue(id, opts)
         })
 
         const send = await request(app)
@@ -290,7 +290,7 @@ describe('ingress HTTP server (path mode)', () => {
             posthog_api: { kind: 'posthog_bearer', token: 'prior-token' },
         })
 
-        vi.spyOn(queue, 'update').mockRejectedValueOnce(new Error('queue update failed'))
+        vi.spyOn(queue, 'requeueForInput').mockRejectedValueOnce(new Error('queue requeue failed'))
         const send = await request(app)
             .post('/agents/credential-rollback/send')
             .set('Authorization', `Bearer ${OWNER_TOKEN}`)
@@ -313,6 +313,26 @@ describe('ingress HTTP server (path mode)', () => {
         const session = await queue.get(sid)
         expect(session!.conversation).toHaveLength(1)
         expect(session!.pending_inputs).toHaveLength(1)
+    })
+
+    it('POST /send against a running session leaves it running (not claimable by a second worker)', async () => {
+        // Wiring guard for the double-claim fix: the SQL guard lives in
+        // `requeueForInput`, but a revert of this handler to a raw
+        // `queue.update({state:'queued'})` would still pass the persistence
+        // race tests. Drive the real route and assert the observable outcome.
+        const { revisions, queue, app } = mk()
+        await seedApp(revisions, 'x')
+        const createRes = await request(app).post('/agents/x/run').send({ message: 'first' })
+        const sid = createRes.body.session_id
+        expect((await queue.claim(500))?.id).toBe(sid)
+
+        const sendRes = await request(app).post('/agents/x/send').send({ session_id: sid, message: 'steer' })
+        expect(sendRes.status).toBe(200)
+
+        const session = await queue.get(sid)
+        expect(session!.state).toBe('running')
+        expect(session!.pending_inputs).toHaveLength(1)
+        expect(await queue.claim(200)).toBeNull()
     })
 
     it('POST /slack/events handles url_verification challenge', async () => {
@@ -565,6 +585,11 @@ describe('ingress HTTP server (path mode)', () => {
         expect(after!.conversation).toHaveLength(1)
         expect(after!.pending_inputs).toHaveLength(1)
         expect(after!.pending_inputs[0].content).toBe('second')
+        // Wiring guard: the continuation must not flip a running session back
+        // to 'queued' (a second worker would double-claim it) — the live
+        // worker drains the pending input instead.
+        expect(after!.state).toBe('running')
+        expect(await queue.claim(200)).toBeNull()
     })
 
     it('POST /mcp tools/call ask returns invalid_params for a missing message', async () => {

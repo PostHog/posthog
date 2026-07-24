@@ -15,11 +15,16 @@
  * `APPROVAL_DECIDED_MARKER` into `pending_inputs` (the runner dispatches the
  * real tool, finalises the row, and pushes the synthetic tool_result); a reject
  * materialises the rejection envelope straight into `pending_inputs`.
+ *
+ * A decision against a session that already terminated fails closed: the row
+ * is expired (never left `approving`) and no marker is appended, so a later
+ * `allow_restart` restart can't drain a stale approved call from a dead turn.
  */
 
 import type { ConversationMessage } from '../spec/spec'
 import type { ApprovalRequestState, ApprovalStore } from './approval-store'
 import type { SessionQueue } from './queue'
+import { isFinalSessionState } from './session-state-reaper'
 
 /**
  * Sentinel passed from a decision surface into a waking runner turn without a
@@ -60,7 +65,13 @@ export interface ApplyApprovalDecisionInput {
     editedArgs?: Record<string, unknown>
 }
 
-export type ApplyApprovalDecisionError = 'not_found' | 'not_queued' | 'edits_not_allowed' | 'race_lost'
+export type ApplyApprovalDecisionError =
+    | 'not_found'
+    | 'not_queued'
+    | 'edits_not_allowed'
+    | 'race_lost'
+    /** The row's session already terminated — the approval was expired instead. */
+    | 'session_terminal'
 
 export type ApplyApprovalDecisionResult =
     | { ok: true; state: ApprovalRequestState }
@@ -91,6 +102,20 @@ export async function applyApprovalDecision(
     if (input.editedArgs !== undefined && !existing.approver_scope.allow_edit) {
         return { ok: false, error: 'edits_not_allowed' }
     }
+    // Fail closed on a dead session. Deciding an approval whose session
+    // already terminated must not leave an immortal 'approving' row plus an
+    // inert decided marker in pending_inputs — a later legitimate
+    // allow_restart restart would drain that marker and dispatch a stale
+    // approved tool call from a dead turn. The row flips to 'expired' (the
+    // existing "can no longer be decided" state) and nothing is appended.
+    const session = await deps.queue.get(existing.session_id)
+    if (!session || isFinalSessionState(session.state)) {
+        const expired = await deps.approvals.markExpired(existing.id)
+        if (!expired) {
+            return { ok: false, error: 'race_lost' }
+        }
+        return { ok: false, error: 'session_terminal', state: expired.state }
+    }
 
     const decidedAt = new Date(now()).toISOString()
     if (input.decision === 'approve') {
@@ -109,7 +134,19 @@ export async function applyApprovalDecision(
             timestamp: now(),
         }
         await deps.queue.appendPendingInput(existing.session_id, wake)
-        await deps.queue.update(existing.session_id, { state: 'queued' })
+        // Guarded wake, never a raw state write: a running session keeps its
+        // owner (the live worker drains the marker), and a session that
+        // terminated after the approval queued (cancel, idle-close, failure)
+        // is not resurrected by a late decision.
+        const woken = await deps.queue.requeueForInput(existing.session_id)
+        if (woken == null || isFinalSessionState(woken)) {
+            // The session terminated between the state check above and the
+            // wake — the marker already landed, but expiring the row de-fangs
+            // it: the runner drops markers whose row isn't 'approving', so a
+            // later allow_restart restart can't dispatch this call.
+            await deps.approvals.markExpired(updated.id)
+            return { ok: false, error: 'session_terminal', state: 'expired' }
+        }
         return { ok: true, state: updated.state }
     }
 
@@ -142,6 +179,9 @@ export async function applyApprovalDecision(
         timestamp: now(),
     }
     await deps.queue.appendPendingInput(existing.session_id, rejected)
-    await deps.queue.update(existing.session_id, { state: 'queued' })
+    // Same guarded wake as the approve arm. No terminal compensation here:
+    // the row is already terminal ('rejected' — the tool can never dispatch),
+    // and the envelope is plain prose a restarted session may harmlessly read.
+    await deps.queue.requeueForInput(existing.session_id)
     return { ok: true, state: updated.state }
 }

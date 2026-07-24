@@ -144,6 +144,21 @@ export class PgApprovalStore implements ApprovalStore {
         return r.rowCount === 0 ? null : rowToRequest(r.rows[0])
     }
 
+    async markExpired(id: string): Promise<ApprovalRequest | null> {
+        // `approving` is included so the decision path can void a decision it
+        // just made when the wake reports the session terminated mid-decide;
+        // dispatch's own `WHERE state='approving'` CAS keeps a lost race
+        // one-sided (whoever flips first wins, the other no-ops).
+        const r = await this.pool.query<DbRow>(
+            `UPDATE agent_tool_approval_request
+             SET state = 'expired'
+             WHERE id = $1 AND state IN ('queued', 'approving')
+             RETURNING ${SELECT_COLS}`,
+            [id]
+        )
+        return r.rowCount === 0 ? null : rowToRequest(r.rows[0])
+    }
+
     async expireQueued(now: string): Promise<ApprovalRequest[]> {
         const r = await this.pool.query<DbRow>(
             `UPDATE agent_tool_approval_request

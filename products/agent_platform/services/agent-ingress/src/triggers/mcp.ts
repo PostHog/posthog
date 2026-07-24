@@ -189,13 +189,11 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
                     return
                 }
-                if (existing.state === 'closed') {
-                    const mcpTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'mcp')
-                    const allowRestart = mcpTrigger?.type === 'mcp' ? (mcpTrigger.config.allow_restart ?? false) : false
-                    if (!allowRestart) {
-                        res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
-                        return
-                    }
+                const mcpTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'mcp')
+                const allowRestart = mcpTrigger?.type === 'mcp' ? (mcpTrigger.config.allow_restart ?? false) : false
+                if (existing.state === 'closed' && !allowRestart) {
+                    res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
+                    return
                 }
                 const aclCheck = requireAclAccess(existing, principal)
                 if (aclCheck.kind === 'denied') {
@@ -221,7 +219,10 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                         timestamp: Date.now(),
                         sender: principal,
                     })
-                    await deps.queue.update(continuationId, { state: 'queued' })
+                    // Guarded wake (never a raw state write): a running
+                    // session keeps its owner, and a session cancelled since
+                    // the read above stays terminal. See `requeueForInput`.
+                    await deps.queue.requeueForInput(continuationId, { allowRestartFromClosed: allowRestart })
                 } catch (err) {
                     try {
                         await credentialWrite.rollback()
