@@ -1455,6 +1455,12 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1568,6 +1574,12 @@ export interface ExperimentApi {
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1677,6 +1689,12 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean

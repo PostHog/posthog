@@ -1,6 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonCard, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -44,6 +44,9 @@ function ActionOverview({
     // `action.scanner` is only the id — the action's own user_access_level would just reflect the
     // replay_scanner resource default, not a per-scanner object grant, so load the scanner itself.
     const { scanner } = useValues(replayScannerLogic({ id: action.scanner }))
+    const { runningNow, runInProgress } = useValues(visionActionRunsLogic)
+    const { runNow } = useActions(visionActionRunsLogic)
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     return (
         <>
@@ -60,15 +63,31 @@ function ActionOverview({
                 }
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPencil />}
-                        to={urls.replayVisionActionEdit(action.id)}
-                        disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-                        data-attr="vision-action-edit-from-page"
-                    >
-                        Edit
-                    </LemonButton>
+                    <>
+                        {!isAlert && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlay />}
+                                onClick={runNow}
+                                loading={runningNow}
+                                disabledReason={
+                                    editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
+                                }
+                                data-attr="vision-action-run-now"
+                            >
+                                {runInProgress ? 'Running…' : 'Run now'}
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPencil />}
+                            to={urls.replayVisionActionEdit(action.id)}
+                            disabledReason={editDisabledReason}
+                            data-attr="vision-action-edit-from-page"
+                        >
+                            Edit
+                        </LemonButton>
+                    </>
                 }
             />
             {!isAlert && (

@@ -12,6 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade.contracts import (
+    ENGINEERING_ANALYTICS_FEATURE_FLAG,
     GitHubSourceNotConnectedError,
     QuarantineWriteError,
     WorkflowHealthRunScope,
@@ -140,7 +141,7 @@ class EngineeringAnalyticsViewSetBase(TeamAndOrgViewSetMixin, viewsets.GenericVi
     scope_object = "engineering_analytics"
     # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
     permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = "engineering-analytics"
+    posthog_feature_flag = ENGINEERING_ANALYTICS_FEATURE_FLAG
 
     def handle_exception(self, exc: Exception) -> Response:
         # No GitHub warehouse source connected: every read action degrades the same way.
