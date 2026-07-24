@@ -1,0 +1,197 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+/**
+ * * `none` - none
+ * * `posthog-logo` - posthog-logo
+ * * `hedgehog-wave` - hedgehog-wave
+ * * `hedgehog-heart` - hedgehog-heart
+ */
+export type ArtStyleEnumApi = (typeof ArtStyleEnumApi)[keyof typeof ArtStyleEnumApi]
+
+export const ArtStyleEnumApi = {
+    None: 'none',
+    PosthogLogo: 'posthog-logo',
+    HedgehogWave: 'hedgehog-wave',
+    HedgehogHeart: 'hedgehog-heart',
+} as const
+
+/**
+ * * `bottom-left` - bottom-left
+ * * `bottom-right` - bottom-right
+ * * `bottom-bar` - bottom-bar
+ */
+export type PositionEnumApi = (typeof PositionEnumApi)[keyof typeof PositionEnumApi]
+
+export const PositionEnumApi = {
+    BottomLeft: 'bottom-left',
+    BottomRight: 'bottom-right',
+    BottomBar: 'bottom-bar',
+} as const
+
+/**
+ * Appearance overrides for the banner. Omitted keys fall back to the PostHog-styled defaults
+ * (see products/cookie_banner/backend/constants.py) when the banner is delivered.
+ */
+export interface CookieBannerAppearanceApi {
+    /**
+     * Banner headline. Plain text only. Defaults to 'We use cookies'.
+     * @maxLength 200
+     */
+    title?: string
+    /**
+     * Body copy explaining what cookies are used for. Plain text only.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * Label for the button that opts the visitor in to tracking. Defaults to 'Accept'.
+     * @maxLength 100
+     */
+    acceptButtonText?: string
+    /**
+     * Label for the button that opts the visitor out of tracking. Defaults to 'Decline'.
+     * @maxLength 100
+     */
+    declineButtonText?: string
+    /** Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.
+     *
+     * * `none` - none
+     * * `posthog-logo` - posthog-logo
+     * * `hedgehog-wave` - hedgehog-wave
+     * * `hedgehog-heart` - hedgehog-heart */
+    artStyle?: ArtStyleEnumApi
+    /** Where the banner appears on the page. Defaults to 'bottom-right'.
+     *
+     * * `bottom-left` - bottom-left
+     * * `bottom-right` - bottom-right
+     * * `bottom-bar` - bottom-bar */
+    position?: PositionEnumApi
+    /**
+     * Banner background color as a hex value. Defaults to '#eeefe9'.
+     * @pattern ^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$
+     */
+    backgroundColor?: string
+    /**
+     * Banner text color as a hex value. Defaults to '#151515'.
+     * @pattern ^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$
+     */
+    textColor?: string
+    /**
+     * Accept button background color as a hex value. Defaults to '#f54e00'.
+     * @pattern ^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$
+     */
+    buttonColor?: string
+    /**
+     * Accept button text color as a hex value. Defaults to '#ffffff'.
+     * @pattern ^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$
+     */
+    buttonTextColor?: string
+    /** Hide the 'Powered by PostHog' notice. Requires the white labelling entitlement on your plan. */
+    whiteLabel?: boolean
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface CookieBannerConfigApi {
+    readonly id: string
+    /** Whether the banner is served to your website. Defaults to false. */
+    enabled?: boolean
+    /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
+    appearance?: CookieBannerAppearanceApi
+    readonly created_at: string
+    /** User who created the banner. */
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+}
+
+export interface PaginatedCookieBannerConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CookieBannerConfigApi[]
+}
+
+export interface PatchedCookieBannerConfigApi {
+    readonly id?: string
+    /** Whether the banner is served to your website. Defaults to false. */
+    enabled?: boolean
+    /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
+    appearance?: CookieBannerAppearanceApi
+    readonly created_at?: string
+    /** User who created the banner. */
+    readonly created_by?: UserBasicApi
+    readonly updated_at?: string
+}
+
+export type CookieBannerListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}

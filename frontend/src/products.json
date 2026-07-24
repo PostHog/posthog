@@ -78,6 +78,13 @@
             "intents": ["conversations"]
         },
         {
+            "path": "Cookie banner",
+            "category": "Unreleased",
+            "iconType": "default_icon_type",
+            "type": null,
+            "intents": ["cookie_banner"]
+        },
+        {
             "path": "Customer analytics",
             "category": "Analytics",
             "iconType": "cohort",

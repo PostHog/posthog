@@ -12,6 +12,7 @@ import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templa
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as conversations } from './conversations'
+import { GENERATED_TOOLS as cookie_banner } from './cookie_banner'
 import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
@@ -70,6 +71,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cdp_functions,
     ...cohorts,
     ...conversations,
+    ...cookie_banner,
     ...core,
     ...customer_analytics,
     ...dashboards,

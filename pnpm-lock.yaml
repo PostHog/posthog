@@ -653,6 +653,9 @@ importers:
       '@posthog/products-conversations':
         specifier: workspace:*
         version: link:../products/conversations
+      '@posthog/products-cookie-banner':
+        specifier: workspace:*
+        version: link:../products/cookie_banner
       '@posthog/products-customer-analytics':
         specifier: workspace:*
         version: link:../products/customer_analytics
@@ -2951,6 +2954,24 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
+
+  products/cookie_banner:
+    dependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/core_events: {}
 

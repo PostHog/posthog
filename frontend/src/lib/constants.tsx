@@ -201,6 +201,7 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     BOX_PLOT_INSIGHT: 'box-plot-insight', // owner: @pauldambra #team-product-analytics
+    COOKIE_BANNER: 'cookie-banner', // owner: #team-platform-features, gates the cookie banner product (alpha)
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: #team-web-analytics
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features

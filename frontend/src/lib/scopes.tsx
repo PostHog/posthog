@@ -53,6 +53,7 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'AI conversations',
         info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
     },
+    { key: 'cookie_banner', objectName: 'Cookie banner', objectPlural: 'cookie banners' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },

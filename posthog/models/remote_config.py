@@ -397,7 +397,19 @@ class RemoteConfig(UUIDTModel):
                 logger.exception(f"Failed to build JS for site function {site_function.id}")
                 pass
 
-        return site_apps_js + site_functions_js
+        # Deferred like the error_tracking facade import in build_config: this module loads
+        # during the posthog app's model import, before product apps are ready
+        from products.cookie_banner.backend.facade import build_cookie_banner_site_app_js
+
+        cookie_banner_js = []
+        try:
+            entry = build_cookie_banner_site_app_js(self.team)
+            if entry:
+                cookie_banner_js.append(indent_js(entry))
+        except Exception:
+            logger.exception(f"Failed to build cookie banner JS for team {self.team_id}")
+
+        return site_apps_js + site_functions_js + cookie_banner_js
 
     def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
         """
@@ -540,6 +552,12 @@ def site_function_changed(sender, instance: "HogFunction", **kwargs):
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="cookie_banner.CookieBannerConfig")
+@receiver(post_delete, sender="cookie_banner.CookieBannerConfig")
+def cookie_banner_config_changed(sender, instance, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

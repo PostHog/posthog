@@ -41,6 +41,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'comment:write',
     'conversation:read',
     'conversation:write',
+    'cookie_banner:read',
+    'cookie_banner:write',
     'customer_analytics:read',
     'customer_analytics:write',
     'customer_journey:read',

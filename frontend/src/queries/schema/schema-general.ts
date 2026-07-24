@@ -8586,6 +8586,7 @@ export enum ProductKey {
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
+    COOKIE_BANNER = 'cookie_banner',
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
