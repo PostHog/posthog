@@ -39,6 +39,7 @@ import {
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
@@ -574,6 +575,15 @@ const Message = React.memo(function Message({
                                 key={key}
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
+                                action={
+                                    message.created_at ? (
+                                        <TZLabel
+                                            time={message.created_at}
+                                            showPopover={false}
+                                            className="text-xs text-secondary px-1"
+                                        />
+                                    ) : undefined
+                                }
                             >
                                 {message.ui_context && Object.keys(message.ui_context).length > 0 && (
                                     <ContextSummary

@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -10,7 +11,7 @@ import openai
 import anthropic
 from parameterized import parameterized
 
-from posthog.schema import AssistantEventType, FailureMessage
+from posthog.schema import AssistantEventType, FailureMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -823,3 +824,52 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
 
         self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
         mock_graph.aupdate_state.assert_called_once()
+
+
+class TestRunnerHumanMessageStamping(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _build_runner(self, new_message):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=MagicMock())
+        mock_graph_class.return_value = mock_graph_instance
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        return TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            new_message=new_message,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=MagicMock(),
+        )
+
+    @parameterized.expand(
+        [
+            ("stamps_when_absent", None),
+            ("preserves_when_present", "2020-01-01T00:00:00+00:00"),
+        ]
+    )
+    def test_created_at_is_set_on_new_human_message(self, _name, provided):
+        runner = self._build_runner(HumanMessage(content="hello", created_at=provided))
+
+        assert runner._latest_message is not None
+        if provided is None:
+            assert runner._latest_message.created_at
+            # server stamp must be a valid ISO 8601 timestamp
+            datetime.fromisoformat(runner._latest_message.created_at)
+        else:
+            assert runner._latest_message.created_at == provided
