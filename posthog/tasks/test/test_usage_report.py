@@ -3258,9 +3258,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
 
-    def _trace_spans_json(self, team_id: int, span_count: int, batch_bytes: int, batch_record_count: int) -> str:
-        # The Kafka MV copies batch-level headers verbatim onto every row of a batch, so every span
-        # row carries the whole batch's bytes_uncompressed/record_count.
+    def _trace_spans_json(self, team_id: int, span_count: int, batch_bytes: int) -> str:
+        # Every row of a batch carries the batch-level headers, as the Kafka MV writes them.
         lines = ""
         for _ in range(span_count):
             lines += (
@@ -3278,7 +3277,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                         "original_expiry_timestamp": "2999-01-01 00:00:00",
                         "service_name": "test-service",
                         "_bytes_uncompressed": batch_bytes,
-                        "_record_count": batch_record_count,
+                        "_record_count": span_count,
                     }
                 )
                 + "\n"
@@ -3287,11 +3286,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # One 4-span batch: each row carries the batch's 4000 bytes, so a naive SUM would report
-            # 16000. Dividing by _record_count per row must recover the true 4000.
+            # One 4-span batch: a naive SUM(_bytes_uncompressed) would report 16000; dividing by
+            # _record_count per row must recover the true 4000.
             (
                 "multi_span_batch_dedups_bytes",
-                [(4, 4_000, 4)],
+                [(4, 4_000)],
                 {
                     "apm_tracing_bytes_in_period": 4_000,
                     "apm_tracing_spans_in_period": 4,
@@ -3301,7 +3300,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             # Batches of one span each: bytes are simply summed.
             (
                 "single_span_batches",
-                [(1, 500, 1), (1, 500, 1), (1, 500, 1)],
+                [(1, 500), (1, 500), (1, 500)],
                 {
                     "apm_tracing_bytes_in_period": 1_500,
                     "apm_tracing_spans_in_period": 3,
@@ -3311,7 +3310,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             # MB is floored to whole decimal MB like logs_mb_in_period.
             (
                 "mb_floors_decimal_megabytes",
-                [(2, 2_500_000, 2)],
+                [(2, 2_500_000)],
                 {
                     "apm_tracing_bytes_in_period": 2_500_000,
                     "apm_tracing_spans_in_period": 2,
@@ -3325,7 +3324,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_apm_tracing_usage_metrics(
         self,
         _name: str,
-        batches: list[tuple[int, int, int]],
+        batches: list[tuple[int, int]],
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
@@ -3335,8 +3334,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         sync_execute(f"TRUNCATE TABLE IF EXISTS {TRACE_SPANS_LOCAL_TABLE}")
 
         lines = ""
-        for span_count, batch_bytes, batch_record_count in batches:
-            lines += self._trace_spans_json(self.org_1_team_1.id, span_count, batch_bytes, batch_record_count)
+        for span_count, batch_bytes in batches:
+            lines += self._trace_spans_json(self.org_1_team_1.id, span_count, batch_bytes)
         sync_execute(f"INSERT INTO trace_spans_distributed FORMAT JSONEachRow\n{lines}")
 
         period = get_previous_day(at=now() + relativedelta(days=1))

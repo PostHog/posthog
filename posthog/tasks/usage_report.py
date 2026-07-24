@@ -307,7 +307,7 @@ class UsageReportCounters:
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
 
-    # APM tracing
+    # Distributed Tracing (APM)
     apm_tracing_bytes_in_period: int
     apm_tracing_spans_in_period: int
     apm_tracing_mb_in_period: int
@@ -2325,8 +2325,8 @@ def get_teams_with_apm_tracing_usage_in_period(
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
     """
-    Returns APM tracing span counts and ingested bytes per team for the period, keyed by
-    `spans` / `bytes`; each value is a list of `(team_id, count)` tuples ready for
+    Returns Distributed Tracing (APM) span counts and ingested bytes per team for the period,
+    keyed by `spans` / `bytes`; each value is a list of `(team_id, count)` tuples ready for
     `convert_team_usage_rows_to_dict`.
 
     Unlike logs, tracing has no ingestion consumer emitting pre-aggregated `app_metrics2` counters
@@ -2350,6 +2350,7 @@ def get_teams_with_apm_tracing_usage_in_period(
             GROUP BY team_id
             """,
             {"begin": begin, "end": end},
+            # Trace spans live on the logs ClickHouse cluster, hence LOGS despite Product.TRACING.
             workload=Workload.LOGS,
             settings=CH_BILLING_SETTINGS,
         )
