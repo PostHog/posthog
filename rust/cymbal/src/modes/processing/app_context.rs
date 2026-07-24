@@ -6,7 +6,7 @@ use rdkafka::producer::FutureProducer;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, task::JoinHandle};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -288,9 +288,20 @@ async fn build_remote_resolution(
         remote_config.subscribe_tick_hint.saturating_mul(3),
         remote_config.connect_timeout,
     );
-    pool.wait_ready(readiness_timeout).await.map_err(|e| {
-        UnhandledError::Other(format!("remote resolution pool did not become ready: {e}"))
-    })?;
+    // Readiness is best-effort, not a startup gate. During a deploy the remote
+    // resolver backend may not be serving subscriptions yet, so no endpoint has
+    // reported a fresh load snapshot before the deadline. Crashing here turns a
+    // transient backend hiccup into a boot-time crash-loop. Instead we start
+    // with the pool unready: the per-endpoint subscriptions (spawned by
+    // `EndpointPool::new`) plus the DNS refresh task below keep warming it up,
+    // and `select`/`select_for_key` degrade per request until a snapshot lands.
+    if let Err(e) = pool.wait_ready(readiness_timeout).await {
+        warn!(
+            error = %e,
+            timeout_ms = readiness_timeout.as_millis() as u64,
+            "remote resolution pool not ready at startup; starting anyway and warming up in the background"
+        );
+    }
     let refresh_task = crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
 
     Ok((
