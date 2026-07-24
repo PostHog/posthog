@@ -2394,12 +2394,27 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-update": {
-        "description": "Update a metric's fields. Editing the definition of an approved metric resets it to 'proposed' (it must be re-approved by a human).",
+        "description": "Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to 'proposed' (it must be re-approved by a human).",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
         "title": "Update a catalog metric",
         "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-data-catalog"
+    },
+    "data-catalog-metrics-refresh-from-insight-create": {
+        "description": "Re-snapshot the linked insight's current query into the metric's definition to clear drift (is_drifted). If the snapshot changes the definition of an approved metric, the metric resets to 'proposed' and must be re-approved by a human. Use this to unblock approving a drifted metric; alternatively unlink or redefine it. The metric must have a source_insight_short_id.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Refresh a metric from its insight",
+        "title": "Refresh a metric from its insight",
+        "required_scopes": ["data_catalog:write", "insight:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
