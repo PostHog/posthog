@@ -255,6 +255,14 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
+    """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
+    have its content pushed to a configured destination, matching emit. Returns None when the report
+    doesn't exist for the team."""
+    value = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).first()
+    return SignalReport.Status(value) if value is not None else None
+
+
 def update_scout_report(
     *,
     team_id: int,
@@ -373,6 +381,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
             "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
             "reason": entry.reason if entry.reason is not None else prior.get("reason"),
+            # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
+            # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
+            # would keep a former owner, re-added as a normal reviewer, excluded from autostart
+            # identity selection on stale evidence.
+            "is_skill_owner": entry.is_skill_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))

@@ -26,6 +26,8 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
@@ -59,6 +61,30 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(["session", "personal_api_key"])
+    def test_create_ticket_not_allowed(self, mock_on_commit, auth):
+        # The bare collection POST was never a real intake path — DRF's default create
+        # can't set team/ticket_number and used to 500 (issue #71101). It must 405 instead.
+        # The reporter used a ticket:write personal API key, so cover that path too: with
+        # "create" kept in scope_object_write_actions the token clears the scope gate and
+        # reaches the 405 rather than a misleading "not supported" 403.
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/",
+            data={"status": "new"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def _ticket_with_tags(self, *tag_names):
         ticket = Ticket.objects.create_with_number(
@@ -1699,6 +1725,52 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
             index_info = get_index_from_explain(subquery, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFilter(APIBaseTest):
+    """Tests the `emails` query param used by the previous-tickets panel to match related tickets."""
+
+    def _create_ticket(self, distinct_id, email_from=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    def _numbers(self, response):
+        return {r["ticket_number"] for r in response.json()["results"]}
+
+    def test_filter_by_email_matches_email_from_case_insensitively(self, mock_on_commit):
+        match = self._create_ticket(distinct_id="did-1", email_from="Alice@Example.com")
+        self._create_ticket(distinct_id="did-2", email_from="bob@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=alice@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {match.ticket_number}
+
+    def test_filter_by_distinct_ids_or_emails_returns_union(self, mock_on_commit):
+        by_did = self._create_ticket(distinct_id="did-1", email_from="unrelated@example.com")
+        by_email = self._create_ticket(distinct_id="did-2", email_from="alice@example.com")
+        self._create_ticket(distinct_id="did-3", email_from="bob@example.com")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?distinct_ids=did-1&emails=alice@example.com"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
+
+    def test_filter_by_email_no_match_returns_empty(self, mock_on_commit):
+        self._create_ticket(distinct_id="did-1", email_from="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=nobody@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 0
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
