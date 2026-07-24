@@ -8,7 +8,7 @@ class TestIsDevStackImageBakeEnabled:
     @pytest.mark.parametrize("flag_value, expected", [(True, True), (False, False), (None, False)])
     def test_reflects_flag_and_scopes_by_region(self, flag_value, expected):
         with (
-            patch("products.tasks.backend.feature_flags.CLOUD_DEPLOYMENT", "US"),
+            patch("products.tasks.backend.feature_flags.get_instance_region", return_value="US"),
             patch(
                 "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
                 return_value=flag_value,

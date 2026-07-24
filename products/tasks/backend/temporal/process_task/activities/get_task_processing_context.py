@@ -844,9 +844,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "This environment's custom image requires the VM runtime, which is not enabled for this run; "
                 "using the default base image",
             )
-    elif use_modal_vm_sandbox and vm_sandbox_decision.default_custom_image:
-        # Org-level default from the flag payload — provisioning falls back to the
-        # plain VM base automatically if this image is missing or unloadable.
+    elif vm_sandbox_decision.default_custom_image:
+        # Org-level default from the flag payload, only ever set when the run resolved to
+        # the VM runtime — provisioning falls back to the plain VM base automatically if
+        # this image is missing or unloadable.
         custom_image_name = vm_sandbox_decision.default_custom_image
         emit_agent_log(run_id, "debug", f"Using the organization's default base image: {custom_image_name}")
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(

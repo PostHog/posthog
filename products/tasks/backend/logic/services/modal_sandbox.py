@@ -1271,25 +1271,30 @@ class ModalSandbox(SandboxBase):
             timeout_seconds=15,
         )
 
-    def create_snapshot(self) -> str:
+    def _snapshot_filesystem_image(self, publish_name: str | None = None) -> str:
+        """Guarded filesystem snapshot, optionally published under a Modal image name.
+
+        Returns the snapshot image's object id.
+        """
         if not self.is_running():
             raise SandboxNotRunningError(
-                f"Sandbox not in running state.",
+                "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        error_context = {"sandbox_id": self.id, **({"publish_name": publish_name} if publish_name else {})}
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
             # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
             image = self._sandbox.snapshot_filesystem(ttl=None)
-
-            snapshot_id = image.object_id
-
-            logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
-
-            return snapshot_id
+            if publish_name is not None:
+                image.publish(publish_name)
+                logger.info(f"Published filesystem image {publish_name} ({image.object_id}) from sandbox {self.id}")
+            else:
+                logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {image.object_id}")
+            return image.object_id
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
@@ -1297,16 +1302,17 @@ class ModalSandbox(SandboxBase):
             logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
             raise SnapshotTimeoutError(
                 f"Transient error creating snapshot: {e}",
-                {"sandbox_id": self.id, "error": str(e)},
+                {**error_context, "error": str(e)},
                 cause=e,
                 capture=False,
             )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
-                f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
-            )
+            raise SnapshotCreationError(f"Failed to create snapshot: {e}", {**error_context, "error": str(e)}, cause=e)
+
+    def create_snapshot(self) -> str:
+        return self._snapshot_filesystem_image()
 
     def create_directory_snapshot(self, path: str) -> str:
         if not self.is_running():
@@ -1358,36 +1364,7 @@ class ModalSandbox(SandboxBase):
         (e.g. the prebaked dev-stack image) can be refreshed without touching its
         consumers. Returns the snapshot image's object id.
         """
-        if not self.is_running():
-            raise SandboxNotRunningError(
-                "Sandbox not in running state.",
-                {"sandbox_id": self.id},
-                cause=RuntimeError(f"Sandbox {self.id} is not running"),
-            )
-
-        try:
-            # Modal can report the sandbox as running before filesystem snapshotting is ready.
-            self._sandbox.exec("true", timeout=30).wait()
-            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
-            image = self._sandbox.snapshot_filesystem(ttl=None)
-            image.publish(publish_name)
-            logger.info(f"Published filesystem image {publish_name} ({image.object_id}) from sandbox {self.id}")
-            return image.object_id
-        except TRANSIENT_SNAPSHOT_ERRORS as e:
-            logger.warning(f"Transient error publishing filesystem image from sandbox {self.id}, will retry: {e}")
-            raise SnapshotTimeoutError(
-                f"Transient error publishing filesystem image: {e}",
-                {"sandbox_id": self.id, "publish_name": publish_name, "error": str(e)},
-                cause=e,
-                capture=False,
-            )
-        except Exception as e:
-            logger.exception(f"Failed to publish filesystem image: {e}")
-            raise SnapshotCreationError(
-                f"Failed to publish filesystem image: {e}",
-                {"sandbox_id": self.id, "publish_name": publish_name, "error": str(e)},
-                cause=e,
-            )
+        return self._snapshot_filesystem_image(publish_name)
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

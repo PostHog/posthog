@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass
 from datetime import timedelta
 
 from temporalio import workflow
@@ -7,14 +6,9 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from .activities import BakeDevStackImageActivityInput, bake_and_publish_dev_stack_image
+from .activities import BakeDevStackImageInput, bake_and_publish_dev_stack_image
 
 BAKE_ACTIVITY_TIMEOUT = timedelta(hours=2)
-
-
-@dataclass
-class BakeDevStackImageInput:
-    publish_name: str = "posthog-dev-stack"
 
 
 @workflow.defn(name="bake-dev-stack-image")
@@ -29,13 +23,13 @@ class BakeDevStackImageWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BakeDevStackImageInput:
         loaded = json.loads(inputs[0])
-        return BakeDevStackImageInput(publish_name=loaded.get("publish_name", "posthog-dev-stack"))
+        return BakeDevStackImageInput(**{k: v for k, v in loaded.items() if k == "publish_name"})
 
     @workflow.run
     async def run(self, input: BakeDevStackImageInput) -> str:
         return await workflow.execute_activity(
             bake_and_publish_dev_stack_image,
-            BakeDevStackImageActivityInput(publish_name=input.publish_name),
+            input,
             start_to_close_timeout=BAKE_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

@@ -18,12 +18,12 @@ image builder — which is why this is a sandbox snapshot rather than a spec-bui
 from __future__ import annotations
 
 import logging
+from collections import deque
 from pathlib import Path
 
 from django.conf import settings
 
-from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate
-from products.tasks.backend.metrics import observe_dev_stack_image_bake
+from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +48,12 @@ class DevStackImageBakeError(Exception):
 
 def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
     """Run the bake in a fresh VM sandbox and publish the result; returns the image object id."""
-    from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox  # noqa: PLC0415
-    from products.tasks.backend.logic.services.sandbox import get_sandbox_class  # noqa: PLC0415
+    from products.tasks.backend.logic.services.modal_sandbox import (  # noqa: PLC0415 — keeps the Modal SDK off the import path
+        ModalSandbox,
+    )
 
     sandbox_cls = get_sandbox_class()
-    if not (isinstance(sandbox_cls, type) and issubclass(sandbox_cls, ModalSandbox)):
+    if not issubclass(sandbox_cls, ModalSandbox):
         raise DevStackImageBakeError("Dev-stack image bakes require the Modal sandbox provider")
 
     script = (Path(settings.BASE_DIR) / BAKE_SCRIPT_LOCAL_PATH).read_text()
@@ -72,22 +73,22 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
     try:
         sandbox.write_file(BAKE_SCRIPT_SANDBOX_PATH, script.encode())
 
-        log_tail: list[str] = []
+        log_tail: deque[str] = deque()
+        tail_len = 0
         stream = sandbox.execute_stream(f"bash {BAKE_SCRIPT_SANDBOX_PATH} 2>&1")
         for line in stream.iter_stdout():
             logger.info("dev_stack_image_bake_output", extra={"sandbox_id": sandbox.id, "line": line.rstrip()})
             log_tail.append(line)
-            while sum(len(chunk) for chunk in log_tail) > MAX_BAKE_LOG_CHARS and len(log_tail) > 1:
-                log_tail.pop(0)
+            tail_len += len(line)
+            while tail_len > MAX_BAKE_LOG_CHARS and len(log_tail) > 1:
+                tail_len -= len(log_tail.popleft())
         result = stream.wait()
         if result.exit_code != 0:
-            observe_dev_stack_image_bake("bake_failed")
             raise DevStackImageBakeError(
                 f"Bake script exited with {result.exit_code}; output tail:\n{''.join(log_tail)[-MAX_BAKE_LOG_CHARS:]}"
             )
 
         image_id = sandbox.publish_filesystem_image(publish_name)
-        observe_dev_stack_image_bake("succeeded")
         logger.info(
             "dev_stack_image_published",
             extra={"publish_name": publish_name, "image_id": image_id, "sandbox_id": sandbox.id},

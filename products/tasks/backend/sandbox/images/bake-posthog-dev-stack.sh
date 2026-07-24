@@ -74,6 +74,9 @@ log "running migrations"
 load_env_defaults() {
     while IFS='=' read -r name value; do
         [[ -z "$name" || "$name" == \#* ]] && continue
+        # op:// refs only resolve under `op run` (see bin/start); exporting the literal
+        # would bake a garbage value into the image.
+        [[ "$value" == *op://* ]] && continue
         if [[ -z "${!name:-}" ]]; then
             export "$name=$value"
         fi

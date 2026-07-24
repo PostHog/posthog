@@ -15,13 +15,19 @@ AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
 
-def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
-    """Origin products allowed on the Modal VM runtime, parsed from the flag's payload."""
+def _decode_vm_sandbox_payload(payload: object) -> object:
+    """Flag payloads may arrive JSON-encoded; decode strings, mapping bad JSON to None."""
     if isinstance(payload, str):
         try:
-            payload = json.loads(payload)
+            return json.loads(payload)
         except (ValueError, TypeError):
-            payload = None
+            return None
+    return payload
+
+
+def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    """Origin products allowed on the Modal VM runtime, parsed from the flag's payload."""
+    payload = _decode_vm_sandbox_payload(payload)
     value = payload.get("origin_products") if isinstance(payload, dict) else payload
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return {item for item in value if isinstance(item, str)}
@@ -36,11 +42,7 @@ def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
     default base, without requiring the user to pick a custom image. Read only from the
     explicit dict key — unlike `origin_products`, a bare-list payload keeps its legacy
     `origin_products` meaning and never opts an origin into the default base."""
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (ValueError, TypeError):
-            payload = None
+    payload = _decode_vm_sandbox_payload(payload)
     value = payload.get("default_base_origin_products") if isinstance(payload, dict) else None
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return {item for item in value if isinstance(item, str)}
@@ -56,11 +58,7 @@ def vm_sandbox_default_custom_image(payload: object) -> str | None:
     `products/tasks/backend/logic/services/dev_stack_image.py`) while every other org
     keeps the plain VM base. A user- or environment-picked custom image always wins over
     this default. Read only from the explicit dict key."""
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (ValueError, TypeError):
-            payload = None
+    payload = _decode_vm_sandbox_payload(payload)
     value = payload.get("default_custom_image") if isinstance(payload, dict) else None
     if isinstance(value, str) and value.strip():
         return value.strip()

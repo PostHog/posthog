@@ -4,7 +4,7 @@ from django.conf import settings
 
 import posthoganalytics
 
-from posthog.settings import CLOUD_DEPLOYMENT
+from posthog.utils import get_instance_region
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -33,7 +33,8 @@ def is_dev_stack_image_bake_enabled() -> bool:
             posthoganalytics.feature_enabled(
                 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
                 distinct_id=DEV_STACK_IMAGE_BAKE_DISTINCT_ID,
-                person_properties={"region": CLOUD_DEPLOYMENT or "unknown"},
+                # Same region vocabulary as other region-conditioned flags: US / EU / DEV.
+                person_properties={"region": get_instance_region() or "DEV"},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

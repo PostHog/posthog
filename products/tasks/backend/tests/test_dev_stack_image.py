@@ -52,13 +52,10 @@ def _make_fake_sandbox_cls(exit_code: int):
 
 
 class TestBakeDevStackImage:
-    def _run(self, exit_code: int):
-        fake_cls = _make_fake_sandbox_cls(exit_code)
-        with patch("products.tasks.backend.logic.services.sandbox.get_sandbox_class", return_value=fake_cls):
-            return fake_cls, bake_dev_stack_image("posthog-dev-stack-test")
-
     def test_successful_bake_publishes_and_destroys_sandbox(self):
-        fake_cls, image_id = self._run(exit_code=0)
+        fake_cls = _make_fake_sandbox_cls(exit_code=0)
+        with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
+            image_id = bake_dev_stack_image("posthog-dev-stack-test")
 
         assert image_id == "im-fake-123"
         (sandbox,) = fake_cls.instances
@@ -71,7 +68,7 @@ class TestBakeDevStackImage:
         # Publishing after a failed bake would overwrite the last good image with a broken
         # one under the same name — every internal VM run would then boot from it.
         fake_cls = _make_fake_sandbox_cls(exit_code=1)
-        with patch("products.tasks.backend.logic.services.sandbox.get_sandbox_class", return_value=fake_cls):
+        with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
             with pytest.raises(DevStackImageBakeError):
                 bake_dev_stack_image("posthog-dev-stack-test")
 
