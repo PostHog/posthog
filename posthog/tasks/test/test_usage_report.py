@@ -1,3 +1,4 @@
+import re
 import gzip
 import json
 import base64
@@ -40,7 +41,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.traces.spans import TABLE_NAME as TRACE_SPANS_LOCAL_TABLE
+from posthog.clickhouse.traces.spans import (
+    KAFKA_TRACE_SPANS_AVRO_MV,
+    TABLE_NAME as TRACE_SPANS_LOCAL_TABLE,
+)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Project, Team
@@ -3351,6 +3355,24 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         for field, value in expected.items():
             assert org_1_report[field] == value, field
             assert team_1_report[field] == value, field
+
+    @parameterized.expand(["_bytes_uncompressed", "_record_count"])
+    def test_trace_spans_mv_keeps_batch_level_headers(self, column: str) -> None:
+        # get_teams_with_apm_tracing_usage_in_period computes bytes as
+        # SUM(_bytes_uncompressed / _record_count), which is only correct while the trace spans
+        # Kafka MV copies the batch-level headers verbatim onto every row. If the MV is changed to
+        # divide at ingest (as the logs MV does), the billing query would double-divide and
+        # undercount from the cutover onward — and no data-backed test can catch that, because the
+        # two conventions are indistinguishable from row values alone. Change the MV and the billing
+        # query together, and account for historical rows still carrying batch-level values.
+        mv_sql = KAFKA_TRACE_SPANS_AVRO_MV()
+        expressions = re.findall(rf"^\s*(.+)\s+AS {column},?$", mv_sql, re.MULTILINE)
+        assert len(expressions) == 1, f"expected exactly one `AS {column}` in the trace spans Kafka MV"
+        assert f"'{column.removeprefix('_')}'" in expressions[0], f"{column} no longer read from the Kafka header"
+        assert "/" not in expressions[0], (
+            f"{column} is no longer the verbatim batch-level header; "
+            "update get_teams_with_apm_tracing_usage_in_period's bytes formula in the same change"
+        )
 
 
 @freeze_time("2022-01-10T10:00:00Z")
