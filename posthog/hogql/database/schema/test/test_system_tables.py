@@ -155,6 +155,24 @@ class TestSystemTablesTeamScoping(BaseTest):
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
 
+    def test_joining_system_tables_filtered_on_deleted_is_not_ambiguous(self):
+        # The `deleted` column is an ExpressionField over a hidden `_deleted` column. Without
+        # isolate_scope, joining tables that each expose it makes the internal `_deleted`
+        # reference ambiguous ("multiple sources for field: _deleted") even though the user only
+        # ever wrote the qualified, public `deleted` alias.
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        sql = """
+            SELECT i.id
+            FROM system.insights AS i
+            JOIN system.dashboard_tiles AS dt ON dt.insight_id = i.id
+            JOIN system.dashboards AS d ON d.id = dt.dashboard_id
+            WHERE dt.deleted = 0 AND d.deleted = 0
+        """
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert "system__dashboard_tiles.deleted" in query
+        assert "system__dashboards.deleted" in query
+
 
 def _create_batch_export(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
