@@ -78,13 +78,16 @@ LOOP_FRAMING_BLOCK = (
 def render_loop_run_message(loop_instructions: str, execution_context: str) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still sending
     # its contents to the agent, keeping run-only guidance out of the user's saved prompt.
+    escaped_execution_context = execution_context.replace(
+        "</user_custom_instructions>", "&lt;/user_custom_instructions&gt;"
+    )
     hidden_context = (
         "<user_custom_instructions>\n"
         "The following system-generated instructions apply to this unattended loop run. Follow them.\n\n"
-        f"{execution_context}\n"
+        f"{escaped_execution_context}\n"
         "</user_custom_instructions>"
     )
-    return f"{loop_instructions}\n\n{hidden_context}"
+    return f"{hidden_context}\n\n{loop_instructions}"
 
 
 # Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
