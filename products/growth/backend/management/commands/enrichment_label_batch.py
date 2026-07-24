@@ -75,6 +75,9 @@ class Command(BaseCommand):
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
+                # Popped rather than left inline: output is stored as-is, and duplicating the
+                # inputs snapshot inside it would double-store and bloat every row.
+                inputs = output.pop("inputs", {})
                 # Lock the config row and re-verify its content before persisting, pairing with
                 # the save()/delete() guards — a verdict computed against a config that changed
                 # mid-run is discarded rather than stamped under the wrong version.
@@ -87,7 +90,12 @@ class Command(BaseCommand):
                         fetch=fetch,
                         label_name=label,
                         prompt_version=config.version,
-                        defaults={"prompt_hash": config.content_hash, "model": config.model, "output": output},
+                        defaults={
+                            "prompt_hash": config.content_hash,
+                            "model": config.model,
+                            "output": output,
+                            "inputs": inputs,
+                        },
                     )
             except Exception as e:
                 capture_exception(

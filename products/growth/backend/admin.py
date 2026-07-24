@@ -1,3 +1,4 @@
+import re
 import asyncio
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
@@ -7,17 +8,19 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponseBadRequest, HttpResponseNotAllowed
 from django.http.response import HttpResponseBase
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import reverse
+from django.urls import path, reverse
 from django.utils.html import escape, format_html
 from django.utils.safestring import SafeString
 
 import structlog
+from openai import OpenAI
 
 from posthog.admin.inline_registry import register_admin_inline
 from posthog.api.streaming import streaming_response
@@ -382,16 +385,347 @@ _DRY_RUN_MAX_SAMPLE = 100
 _DRY_RUN_WORKERS = 5
 
 
+def _classify_pair(
+    config: EnrichmentPromptConfig, pair: tuple[OrganizationEnrichmentFetch, str | None], client: OpenAI
+) -> dict[str, Any]:
+    fetch, signup_domain = pair
+    company = fetch.payload.get("name") or fetch.organization.name
+    try:
+        verdict = classify_payload(config, fetch.payload, signup_domain, client)
+    except Exception as e:
+        return {
+            "company": company,
+            "domain": signup_domain,
+            "verdict": "ERROR",
+            "confidence": "-",
+            "reasoning": str(e)[:200],
+        }
+    return {
+        "company": company,
+        "domain": signup_domain,
+        "verdict": str(verdict.get(config.name)).lower(),
+        "confidence": f"{verdict.get('confidence', 0.0):.2f}",
+        "reasoning": verdict.get("reasoning", ""),
+    }
+
+
+def _row_html(row: dict[str, Any]) -> SafeString:
+    return format_html(
+        '<tr><td>{}</td><td>{}</td><td><span class="verdict verdict-{}">{}</span></td><td>{}</td><td>{}</td></tr>\n',
+        row["company"],
+        row["domain"] or "-",
+        row["verdict"].lower(),
+        row["verdict"],
+        row["confidence"],
+        row["reasoning"],
+    )
+
+
+async def _stream_classifications(
+    config: EnrichmentPromptConfig,
+    inputs: list[tuple[OrganizationEnrichmentFetch, str | None]],
+    client: OpenAI,
+    workers: int = _DRY_RUN_WORKERS,
+) -> AsyncIterator[dict[str, Any]]:
+    """Classify each (fetch, signup_domain) pair concurrently, yielding one verdict as each completes.
+
+    Async generator on purpose: under ASGI, Django fully buffers a sync iterator before
+    sending anything, which silently defeats streaming. Shared by the changelist dry-run
+    action and the lab run endpoint below.
+    """
+    loop = asyncio.get_running_loop()
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        tasks = [loop.run_in_executor(pool, _classify_pair, config, pair, client) for pair in inputs]
+        for task in asyncio.as_completed(tasks):
+            yield await task
+    finally:
+        pool.shutdown(wait=False)
+
+
+def _model_choices(current: str = "") -> list[tuple[str, str]]:
+    models_list = list(GATEWAY_MODEL_CHOICES)
+    if current and current not in models_list:
+        models_list.append(current)
+    return [(m, m) for m in models_list]
+
+
+def _input_field_choices(current: list[str] | None = None) -> list[tuple[str, str]]:
+    choices = list(HARMONIC_INPUT_FIELD_CHOICES)
+    known = {value for value, _ in choices}
+    for path_value in current or []:
+        if path_value not in known:
+            choices.append((path_value, path_value))
+    return choices
+
+
+_LABEL_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _suggest_next_version(version: str) -> str:
+    """Bump a trailing -v<int> or v<int> segment; otherwise append -v2."""
+    if not version:
+        return "v1"
+    match = re.match(r"^(.*?)(-?)v(\d+)$", version)
+    if match:
+        prefix, sep, num = match.groups()
+        return f"{prefix}{sep}v{int(num) + 1}"
+    return f"{version}-v2"
+
+
+class EnrichmentLabEditorForm(forms.Form):
+    """Prompt/model/input-fields triad shared by the lab run and save endpoints - the same
+    trio EnrichmentPromptConfigForm validates, minus the name/version that only save needs.
+
+    Choices extend only from a PERSISTED config's values (a version whose model predates the
+    curated list must still load), never from the submitted data - extending from self.data
+    would make every submitted value trivially valid and turn the allowlist into a no-op.
+    """
+
+    prompt_text = forms.CharField(widget=forms.Textarea)
+    model = forms.ChoiceField(choices=[])
+    input_fields = forms.MultipleChoiceField(choices=[], required=False)
+
+    def __init__(self, *args: Any, persisted: EnrichmentPromptConfig | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        persisted_model = persisted.model if persisted else ""
+        persisted_fields = list(persisted.input_fields) if persisted else []
+        self.fields["model"] = forms.ChoiceField(choices=_model_choices(persisted_model))
+        self.fields["input_fields"] = forms.MultipleChoiceField(
+            choices=_input_field_choices(persisted_fields), required=False
+        )
+
+
+class EnrichmentLabRunForm(EnrichmentLabEditorForm):
+    sample = forms.IntegerField(required=False, min_value=1)
+    contains = forms.CharField(required=False)
+
+    def clean_sample(self) -> int:
+        sample = self.cleaned_data.get("sample") or _DRY_RUN_SAMPLE
+        return min(sample, _DRY_RUN_MAX_SAMPLE)
+
+
+class EnrichmentLabSaveForm(EnrichmentLabEditorForm):
+    version = forms.CharField()
+
+    def __init__(self, *args: Any, label: str, **kwargs: Any) -> None:
+        self._label = label
+        super().__init__(*args, **kwargs)
+
+    def clean_version(self) -> str:
+        version = self.cleaned_data["version"]
+        if EnrichmentPromptConfig.objects.filter(name=self._label, version=version).exists():
+            raise ValidationError(f"Version {version!r} already exists for {self._label}.")
+        return version
+
+    def clean(self) -> dict[str, Any] | None:
+        cleaned = super().clean()
+        is_new_label = not EnrichmentPromptConfig.objects.filter(name=self._label).exists()
+        if is_new_label and not _LABEL_SLUG_RE.match(self._label):
+            raise ValidationError(
+                f"{self._label!r} is not a valid label slug (lowercase, starts with a letter, "
+                "letters/digits/underscore only)."
+            )
+        return cleaned
+
+
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     form = EnrichmentPromptConfigForm
-    list_display = ("name", "version", "model", "is_active", "created_by", "created_at")
+    list_display = ("name", "version", "model", "is_active", "created_by", "created_at", "lab_link")
     list_filter = ("name", "is_active")
     search_fields = ("name", "version")
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("created_by",)
     actions = ("dry_run_selected",)
+
+    def get_urls(self) -> list[Any]:
+        # Custom paths come first: <path:object_id>/... from super() would otherwise
+        # never let "lab/<label>/..." match first, since object_id also accepts slashes.
+        custom_urls = [
+            path(
+                "lab/<str:label>/save/",
+                self.admin_site.admin_view(self.lab_save_view),
+                name="growth_enrichmentpromptconfig_lab_save",
+            ),
+            path(
+                "lab/<str:label>/run/",
+                self.admin_site.admin_view(self.lab_run_view),
+                name="growth_enrichmentpromptconfig_lab_run",
+            ),
+            path(
+                "lab/<str:label>/",
+                self.admin_site.admin_view(self.lab_view),
+                name="growth_enrichmentpromptconfig_lab",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    @admin.display(description="Lab")
+    def lab_link(self, config: EnrichmentPromptConfig) -> SafeString:
+        url = reverse("admin:growth_enrichmentpromptconfig_lab", args=[config.name])
+        return format_html('<a href="{}">Open lab</a>', url)
+
+    def _select_lab_version(
+        self, request: HttpRequest, versions: list[EnrichmentPromptConfig]
+    ) -> EnrichmentPromptConfig | None:
+        version_id = request.GET.get("version")
+        if version_id:
+            for version in versions:
+                if str(version.pk) == version_id:
+                    return version
+        active = next((version for version in versions if version.is_active), None)
+        if active is not None:
+            return active
+        return versions[0] if versions else None
+
+    def _lab_context(
+        self,
+        request: HttpRequest,
+        label: str,
+        versions: list[EnrichmentPromptConfig],
+        selected: EnrichmentPromptConfig | None,
+        *,
+        prompt_text: str | None = None,
+        model: str | None = None,
+        input_fields: list[str] | None = None,
+        version_input: str | None = None,
+        errors: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_text = prompt_text if prompt_text is not None else (selected.prompt_text if selected else "")
+        model = model if model is not None else (selected.model if selected else "")
+        input_fields = input_fields if input_fields is not None else (list(selected.input_fields) if selected else [])
+        version_input = (
+            version_input if version_input is not None else _suggest_next_version(selected.version if selected else "")
+        )
+        return {
+            **self.admin_site.each_context(request),
+            "label": label,
+            "versions": versions,
+            "selected": selected,
+            "prompt_text": prompt_text,
+            "model": model,
+            "input_fields": set(input_fields),
+            "model_choices": _model_choices(model),
+            "input_field_choices": _input_field_choices(input_fields),
+            "version_input": version_input,
+            "sample_default": _DRY_RUN_SAMPLE,
+            "sample_max": _DRY_RUN_MAX_SAMPLE,
+            "errors": errors or [],
+            "changelist_url": reverse("admin:growth_enrichmentpromptconfig_changelist"),
+        }
+
+    def lab_view(self, request: HttpRequest, label: str) -> HttpResponseBase:
+        versions = list(EnrichmentPromptConfig.objects.filter(name=label).order_by("-created_at"))
+        selected = self._select_lab_version(request, versions)
+        context = self._lab_context(request, label, versions, selected)
+        return render(request, "admin/growth/enrichment_lab.html", context)
+
+    def lab_run_view(self, request: HttpRequest, label: str) -> HttpResponseBase:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        # A legacy model/input-field stays runnable only if some saved version of this
+        # label already uses it; otherwise the curated allowlist is the boundary.
+        persisted = EnrichmentPromptConfig.objects.filter(name=label, model=request.POST.get("model", "")).first()
+        form = EnrichmentLabRunForm(data=request.POST, persisted=persisted)
+        if not form.is_valid():
+            errors = "; ".join(str(e) for field_errors in form.errors.values() for e in field_errors)
+            return HttpResponseBadRequest(escape(errors), content_type="text/plain")
+
+        contains = form.cleaned_data["contains"].strip()
+        candidates = recent_latest_fetches_qs()
+        if contains:
+            candidates = candidates.filter(
+                Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
+            )
+        fetches = list(candidates.select_related("organization")[: form.cleaned_data["sample"]])
+
+        # All ORM work happens here on the request thread; workers only make LLM calls.
+        inputs = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
+        client = get_llm_client(product="growth")
+
+        # Unsaved on purpose: the lab run classifies against whatever is in the editor right
+        # now, nothing is persisted, and "lab-draft" never collides with a real version string.
+        draft_config = EnrichmentPromptConfig(
+            name=label,
+            version="lab-draft",
+            prompt_text=form.cleaned_data["prompt_text"],
+            model=form.cleaned_data["model"],
+            input_fields=form.cleaned_data["input_fields"],
+        )
+
+        # Stream only row fragments plus a marked summary row - the page shell is already
+        # loaded, unlike the changelist action which streams a full page.
+        async def _stream() -> AsyncIterator[str]:
+            unknown = errors = 0
+            if not inputs:
+                yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
+            else:
+                async for row in _stream_classifications(draft_config, inputs, client):
+                    unknown += row["verdict"] == UNKNOWN
+                    errors += row["verdict"] == "ERROR"
+                    yield _row_html(row)
+            summary = f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}"
+            yield format_html('<tr data-lab-summary="1"><td colspan="5">{}</td></tr>', summary)
+
+        # No ORM work happens inside the stream (inputs are prefetched above), so the
+        # request-thread connections can be released before streaming starts.
+        return streaming_response(_stream(), content_type="text/html; charset=utf-8")
+
+    def lab_save_view(self, request: HttpRequest, label: str) -> HttpResponseBase:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        persisted = EnrichmentPromptConfig.objects.filter(name=label, model=request.POST.get("model", "")).first()
+        form = EnrichmentLabSaveForm(data=request.POST, label=label, persisted=persisted)
+        versions = list(EnrichmentPromptConfig.objects.filter(name=label).order_by("-created_at"))
+        if not form.is_valid():
+            errors = [str(e) for field_errors in form.errors.values() for e in field_errors]
+            selected = self._select_lab_version(request, versions)
+            context = self._lab_context(
+                request,
+                label,
+                versions,
+                selected,
+                prompt_text=request.POST.get("prompt_text", ""),
+                model=request.POST.get("model", ""),
+                input_fields=request.POST.getlist("input_fields"),
+                version_input=request.POST.get("version", ""),
+                errors=errors,
+            )
+            return render(request, "admin/growth/enrichment_lab.html", context)
+
+        try:
+            config = EnrichmentPromptConfig.objects.create(
+                name=label,
+                version=form.cleaned_data["version"],
+                prompt_text=form.cleaned_data["prompt_text"],
+                model=form.cleaned_data["model"],
+                input_fields=form.cleaned_data["input_fields"],
+                is_active=False,
+                created_by=request.user if request.user.is_authenticated else None,
+            )
+        except IntegrityError:
+            # clean_version() is check-then-act; two concurrent saves of the same version
+            # race past it and the unique constraint decides - surface the loser cleanly.
+            selected = self._select_lab_version(request, versions)
+            context = self._lab_context(
+                request,
+                label,
+                versions,
+                selected,
+                prompt_text=request.POST.get("prompt_text", ""),
+                model=request.POST.get("model", ""),
+                input_fields=request.POST.getlist("input_fields"),
+                version_input=request.POST.get("version", ""),
+                errors=[f"Version {form.cleaned_data['version']!r} already exists for {label}."],
+            )
+            return render(request, "admin/growth/enrichment_lab.html", context)
+        messages.success(request, f"Saved {label} {config.version}.")
+        lab_url = reverse("admin:growth_enrichmentpromptconfig_lab", args=[label])
+        return redirect(f"{lab_url}?version={config.pk}")
 
     @admin.action(description="Dry run on recent archived orgs (persists nothing)")
     def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponseBase | None:
@@ -426,27 +760,6 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         inputs = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
         client = get_llm_client(product="growth")
 
-        def _classify(pair: tuple[OrganizationEnrichmentFetch, str | None]) -> dict[str, Any]:
-            fetch, signup_domain = pair
-            company = fetch.payload.get("name") or fetch.organization.name
-            try:
-                verdict = classify_payload(config, fetch.payload, signup_domain, client)
-            except Exception as e:
-                return {
-                    "company": company,
-                    "domain": signup_domain,
-                    "verdict": "ERROR",
-                    "confidence": "-",
-                    "reasoning": str(e)[:200],
-                }
-            return {
-                "company": company,
-                "domain": signup_domain,
-                "verdict": str(verdict.get(config.name)).lower(),
-                "confidence": f"{verdict.get('confidence', 0.0):.2f}",
-                "reasoning": verdict.get("reasoning", ""),
-            }
-
         # Stream the results page: shell first, then one row per verdict as each LLM call
         # completes, then the summary — a 100-org run shows progress instead of a blank wait.
         shell = render_to_string(
@@ -457,37 +770,16 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         head, rest = shell.split("<!--ROWS-->")
         mid, tail = rest.split("<!--SUMMARY-->")
 
-        def _row_html(row: dict[str, Any]) -> str:
-            return format_html(
-                "<tr><td>{}</td><td>{}</td>"
-                '<td><span class="verdict verdict-{}">{}</span></td>'
-                "<td>{}</td><td>{}</td></tr>\n",
-                row["company"],
-                row["domain"] or "-",
-                row["verdict"].lower(),
-                row["verdict"],
-                row["confidence"],
-                row["reasoning"],
-            )
-
-        # Async iterator on purpose: under ASGI, Django fully buffers a *sync* iterator
-        # before sending anything, which silently defeats the streaming.
         async def _stream() -> AsyncIterator[str]:
             yield head
             unknown = errors = 0
             if not inputs:
                 yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
             else:
-                loop = asyncio.get_running_loop()
-                pool = ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS)
-                try:
-                    for task in asyncio.as_completed([loop.run_in_executor(pool, _classify, pair) for pair in inputs]):
-                        row = await task
-                        unknown += row["verdict"] == UNKNOWN
-                        errors += row["verdict"] == "ERROR"
-                        yield _row_html(row)
-                finally:
-                    pool.shutdown(wait=False)
+                async for row in _stream_classifications(config, inputs, client):
+                    unknown += row["verdict"] == UNKNOWN
+                    errors += row["verdict"] == "ERROR"
+                    yield _row_html(row)
             yield mid
             yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
             yield tail
