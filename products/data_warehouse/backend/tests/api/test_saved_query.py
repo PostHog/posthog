@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath, ResolutionDepthExceededError
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -261,6 +261,28 @@ class TestSavedQuery(APIBaseTest):
 
             assert response.status_code == 400
             assert response.json()["detail"] == "Cannot materialize a query from a managed viewset."
+
+    def test_materialize_surfaces_user_facing_resolution_error(self):
+        # A view that can't be resolved (e.g. too deeply nested) must return the specific cause with
+        # a 400, not the opaque "try again or contact support" 500.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deep_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        err = ResolutionDepthExceededError(depth=101, max_depth=100, initial_view="deep_view")
+        with patch.object(DataWarehouseSavedQuery, "setup_model_paths", side_effect=err):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == str(err)
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is False
+        assert saved_query.latest_error == str(err)
 
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:

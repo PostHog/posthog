@@ -518,8 +518,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.addMaterializingViews([viewId])
                 actions.loadDataWarehouseSavedQueries()
                 actions.refreshDatabaseSchema()
-            } catch {
-                lemonToast.error(`Failed to materialize view`)
+            } catch (error: any) {
+                // Surface the specific cause the backend reports (e.g. circular reference, too many
+                // nested views, resolution timed out) rather than a generic failure.
+                const detail = error?.detail ?? error?.data?.error
+                lemonToast.error(detail ? `Failed to materialize view: ${detail}` : `Failed to materialize view`)
             }
         },
         revertMaterialization: async ({ viewId }) => {

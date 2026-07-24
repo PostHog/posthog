@@ -7,6 +7,7 @@ from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyT
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import ResolutionDepthExceededError
 from products.data_modeling.backend.models.node import NodeType
 
 SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
@@ -128,3 +129,36 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         sync_wf.assert_not_called()
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is False
+
+    def test_persists_user_facing_resolution_error(self):
+        # A view that can't be resolved (too deeply nested, circular, or too slow) must surface the
+        # specific cause on latest_error so the API/UI can explain it, not swallow it into a generic
+        # "try again" message.
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        err = ResolutionDepthExceededError(depth=101, max_depth=100, initial_view="view")
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths", side_effect=err),
+        ):
+            self.sq.schedule_materialization()
+        assert self.sq._materialization_error_is_user_facing is True
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False
+        assert self.sq.latest_error == str(err)
+
+    def test_persists_generic_error_for_internal_failure(self):
+        # An infrastructure failure stays generic — we must not leak internal details to the user.
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch.object(
+                DataWarehouseSavedQuery, "setup_model_paths", side_effect=Exception("chi-node.internal:9000 exploded")
+            ),
+        ):
+            self.sq.schedule_materialization()
+        assert self.sq._materialization_error_is_user_facing is False
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False
+        assert self.sq.latest_error == "Materialization failed. Please try again or contact support."
