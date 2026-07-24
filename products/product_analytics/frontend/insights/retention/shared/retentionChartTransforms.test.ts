@@ -140,6 +140,7 @@ describe('retentionChartTransforms', () => {
             )
             expect(series[0].meta).toEqual({
                 rowIndex: 2,
+                order: 2,
                 breakdown_value: 'Chrome',
                 days: ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'],
                 cohortLabel: '2024-01-03',

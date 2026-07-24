@@ -368,6 +368,104 @@ export const funnelTrendsSteps = {
     } as Record<string, FunnelStepData[]>,
 }
 
+// Steps-viz funnel response shape: a flat FunnelStep[] (or FunnelStep[][] with a breakdown),
+// one entry per step with the absolute converted count.
+export interface FunnelStepFixture {
+    action_id: string
+    name: string
+    custom_name: string | null
+    order: number
+    count: number
+    type: 'events'
+    average_conversion_time: number | null
+    median_conversion_time: number | null
+    breakdown?: string[]
+    breakdown_value?: string[]
+}
+
+function buildFunnelStep(
+    name: string,
+    order: number,
+    count: number,
+    breakdownValue?: string,
+    conversionTime?: number
+): FunnelStepFixture {
+    return {
+        action_id: name,
+        name,
+        custom_name: null,
+        order,
+        count,
+        type: 'events',
+        average_conversion_time: conversionTime ?? null,
+        median_conversion_time: conversionTime ?? null,
+        ...(breakdownValue ? { breakdown: [breakdownValue], breakdown_value: [breakdownValue] } : {}),
+    }
+}
+
+export const funnelSteps = {
+    // 100 hedgehogs viewed → 60 napped → 30 snored.
+    default: [
+        buildFunnelStep('$pageview', 0, 100),
+        buildFunnelStep('Napped', 1, 60),
+        buildFunnelStep('Snored', 2, 30),
+    ] satisfies FunnelStepFixture[],
+    byBreakdown: {
+        hedgehog: [
+            [
+                buildFunnelStep('$pageview', 0, 70, 'Spike'),
+                buildFunnelStep('Napped', 1, 42, 'Spike'),
+                buildFunnelStep('Snored', 2, 21, 'Spike'),
+            ],
+            [
+                buildFunnelStep('$pageview', 0, 30, 'Bramble'),
+                buildFunnelStep('Napped', 1, 18, 'Bramble'),
+                buildFunnelStep('Snored', 2, 9, 'Bramble'),
+            ],
+        ] satisfies FunnelStepFixture[][],
+    } as Record<string, FunnelStepFixture[][]>,
+}
+
+// Time-to-convert funnel response shape: histogram bins of [seconds, converted count]
+// plus the overall average. Counts sum to 20 → bar labels 20% / 50% / 20% / 10%.
+export interface FunnelTimeToConvertFixture {
+    bins: [number, number][]
+    average_conversion_time: number
+}
+
+export const funnelTimeToConvertBins = {
+    bins: [
+        [0, 4],
+        [120, 10],
+        [240, 4],
+        [360, 2],
+    ],
+    average_conversion_time: 138,
+} satisfies FunnelTimeToConvertFixture
+
+// Retention response shape: one row per cohort with the cohort start `date` and the
+// absolute retained `count` per interval. The frontend derives percentages from
+// interval 0: Jun 10 → 100/60/30%, Jun 11 → 100/40/10%.
+export interface RetentionResultFixture {
+    date: string
+    label: string
+    values: { count: number }[]
+    breakdown_value?: string | number | null
+}
+
+export const retentionResults: RetentionResultFixture[] = [
+    {
+        date: '2024-06-10T00:00:00Z',
+        label: 'Day 0',
+        values: [{ count: 100 }, { count: 60 }, { count: 30 }],
+    },
+    {
+        date: '2024-06-11T00:00:00Z',
+        label: 'Day 1',
+        values: [{ count: 50 }, { count: 20 }, { count: 5 }],
+    },
+]
+
 // Keyed by breakdown value (or '__none__'), then by calendar date.
 const funnelActorsByBreakdownDay: Record<string, Record<string, ActorFixture[]>> = {
     __none__: {

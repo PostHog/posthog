@@ -2,6 +2,15 @@
 
 A test wrapper for rendering insight components (or any component that depends on insight infrastructure) with mocked data and a chart inspection API.
 
+## What belongs in a harness test
+
+Chart coverage is layered; a rendered harness test is the most expensive layer (~100ms per mount), so it only earns its place for what the cheaper layers can't see:
+
+- **Storybook snapshot stories** own render smoke and visual states. Don't write "renders without crashing" tests — add a story instead.
+- **quill-charts' own suite** owns chart mechanics (legend toggling, tooltip pinning, goal lines, value labels, axes). Don't re-test library behavior here.
+- **Transforms/adapter unit tests** own the case matrix for pure logic (series construction, formatters, click-handler payloads) at ~1ms per case.
+- **Harness tests** (this wrapper) own interaction and data wiring only: the right values reach the tooltip, clicks open the persons modal with the right actors, empty-state guards fire — one wiring test per chart-specific feature, not one per data variation.
+
 ## Quick start
 
 ```tsx

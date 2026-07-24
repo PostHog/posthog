@@ -5,9 +5,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, InsightVizNode, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { FunnelVizType } from '~/types'
+import { FunnelVizType, RetentionPeriod } from '~/types'
 
 import { initKeaTests } from '../init'
 import { resetCapturedCharts } from './chartjs-mock'
@@ -16,7 +23,7 @@ import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 export const INSIGHT_TEST_KEY = 'test-harness'
 export const INSIGHT_TEST_ID = `new-AdHoc.InsightViz.${INSIGHT_TEST_KEY}`
 
-export type InsightQuery = TrendsQuery | FunnelsQuery | StickinessQuery
+export type InsightQuery = TrendsQuery | FunnelsQuery | StickinessQuery | RetentionQuery
 
 export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery {
     return {
@@ -46,6 +53,21 @@ export function buildFunnelsQuery(overrides?: Partial<FunnelsQuery>): FunnelsQue
         funnelsFilter: {
             funnelVizType: FunnelVizType.Trends,
             ...overrides?.funnelsFilter,
+        },
+    }
+}
+
+export function buildRetentionQuery(overrides?: Partial<RetentionQuery>): RetentionQuery {
+    return {
+        kind: NodeKind.RetentionQuery,
+        ...overrides,
+        retentionFilter: {
+            period: RetentionPeriod.Day,
+            totalIntervals: 3,
+            targetEntity: { id: '$pageview', name: '$pageview', type: 'events' },
+            returningEntity: { id: '$pageview', name: '$pageview', type: 'events' },
+            retentionType: 'retention_first_time',
+            ...overrides?.retentionFilter,
         },
     }
 }
