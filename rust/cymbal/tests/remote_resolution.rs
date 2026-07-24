@@ -634,8 +634,14 @@ async fn empty_pool_fails_clearly_without_local_fallback() {
         .expect_err("empty pool must surface as unhandled error");
     let msg = format!("{err}");
     assert!(
-        msg.contains("pool unavailable"),
-        "expected pool-empty error, got: {msg}"
+        msg.contains("exhausted") && msg.contains("no_endpoints"),
+        "expected pool-empty exhaustion error, got: {msg}"
+    );
+    // The batch-level error must not embed the per-item token, or one overload
+    // window fragments into one error-tracking issue per token.
+    assert!(
+        !msg.contains("for item"),
+        "batch error must not embed a per-item token, got: {msg}"
     );
 }
 

@@ -172,3 +172,5 @@ pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
+pub const REMOTE_RESOLUTION_ALL_EJECTED_DEGRADED: &str =
+    "cymbal_remote_resolution_all_ejected_degraded_total";

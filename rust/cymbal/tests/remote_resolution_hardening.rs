@@ -177,9 +177,41 @@ async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
         elapsed < Duration::from_millis(200),
         "fast-fail expected, took {elapsed:?}"
     );
+    let msg = format!("{err}");
     assert!(
-        format!("{err}").contains("pool unavailable"),
-        "expected pool-unavailable error: {err}"
+        msg.contains("exhausted") && msg.contains("no_endpoints"),
+        "expected pool-unavailable exhaustion error: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn all_pods_ejected_under_overload_surfaces_one_tokenless_issue() {
+    // Reproduces the observed regression: under sustained overload every pod
+    // gets ejected. The pool must degrade to the ejected pod rather than
+    // hard-fail with pool_empty, and the eventual exhaustion error must carry a
+    // bounded outcome tag only — no per-item token — so one overload window
+    // collapses into a single error-tracking issue instead of one per token.
+    let (overloaded, _items) = spawn_stub_server(ServerBehavior::Overloaded).await;
+    let mut config = make_config(3, Duration::from_secs(5));
+    config.overload_ejection_initial = Duration::from_millis(20);
+    config.overload_ejection_max = Duration::from_millis(40);
+    let pool =
+        cymbal::stages::resolution::remote::EndpointPool::from_addrs(config.clone(), &[overloaded])
+            .expect("build pool");
+    wait_until_routable(&pool).await;
+    let ctx = RemoteResolutionContext::new(pool, config);
+
+    let err = process_one(remote_stage(ctx), build_event(2))
+        .await
+        .expect_err("sustained overload with all pods ejected must surface an error");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("exhausted") && msg.contains("overloaded_item"),
+        "expected bounded overload-exhaustion message, got: {msg}"
+    );
+    assert!(
+        !msg.contains("for item"),
+        "batch error must not embed a per-item token, got: {msg}"
     );
 }
 
