@@ -18,10 +18,9 @@ from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.clickhouse_concurrency import messaging_clickhouse_query_slot
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.constants import BACKFILL_EVENT_SOURCE_PREFIX
 from posthog.temporal.messaging.filter_storage import get_event_filters
 from posthog.temporal.messaging.types import BehavioralEventFilter
@@ -304,7 +303,7 @@ async def backfill_precalculated_events_activity(
             query_start_time = time.monotonic()
             first_row = True
 
-            async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
+            async with get_messaging_client(team_id=inputs.team_id) as client:
                 async for row in client.stream_query_as_jsonl(events_query, query_parameters=query_params):
                     if first_row:
                         time_to_first = time.monotonic() - query_start_time

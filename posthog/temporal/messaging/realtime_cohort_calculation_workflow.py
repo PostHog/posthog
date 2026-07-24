@@ -22,10 +22,9 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.clickhouse_concurrency import messaging_clickhouse_query_slot
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.constants import get_percentile_bucket_label
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -435,7 +434,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     row_processing_start_time = None
                     rows_processed = 0
 
-                    async with messaging_clickhouse_query_slot, get_client(team_id=cohort.team_id) as client:
+                    async with get_messaging_client(team_id=cohort.team_id) as client:
                         try:
                             async for row in client.stream_query_as_jsonl(
                                 final_query,

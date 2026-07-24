@@ -13,11 +13,10 @@ import temporalio.exceptions
 from posthog.hogql import ast
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
 )
-from posthog.temporal.messaging.clickhouse_concurrency import messaging_clickhouse_query_slot
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 
 
@@ -113,7 +112,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         product=Product.MESSAGING,
         query_type="person_id_ranges_page",
     ):
-        async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
+        async with get_messaging_client(team_id=inputs.team_id) as client:
             async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
                 person_id = str(row["person_id"])
 
