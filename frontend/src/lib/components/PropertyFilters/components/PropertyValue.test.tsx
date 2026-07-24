@@ -222,6 +222,29 @@ describe('PropertyValue', () => {
         expect(input).toHaveValue('7.8')
     })
 
+    it('offers a bulk "Clear all" action for multi-select values', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="$browser"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={['Chrome', 'Firefox']}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('textbox'))
+
+        const clearAll = await screen.findByText('Clear all')
+        await user.click(clearAll)
+
+        expect(onSet).toHaveBeenCalledWith([])
+    })
+
     it('renders a group `id` filter with the generic value editor, not the group-name picker', () => {
         // Reverting the editor swap for `id` is the regression fix: a group property
         // named `id` must keep its normal value input (GroupKeySelect, used only for
