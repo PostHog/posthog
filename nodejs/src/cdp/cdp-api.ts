@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/common/api/router'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -36,6 +37,7 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -125,6 +127,9 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
+    // Same limiter name/config as HogFlowInvocationPipeline, so manual invocations draw from the
+    // same per-workflow token bucket as event-driven ones instead of bypassing it.
+    private hogFlowRateLimiter: KeyedRateLimiterService
     // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
     // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
     // isn't provisioned — the route then fails closed.
@@ -177,6 +182,15 @@ export class CdpApi {
             this.invocationResultsService
         )
         this.batchResolverProducer = batchResolverProducer
+        this.hogFlowRateLimiter = new KeyedRateLimiterService(
+            {
+                name: 'hog-rate-limiter',
+                bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
+                ttlSeconds: config.CDP_RATE_LIMITER_TTL,
+            },
+            services.redis
+        )
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
             ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
             : null
@@ -236,6 +250,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
             asyncHandler(this.postHogflowScheduledInvocation)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/manual_invocations',
+            asyncHandler(this.postHogflowManualInvocation)
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
@@ -736,6 +754,117 @@ export class CdpApi {
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    // On-demand "run this workflow now" against a caller-synthesized event (e.g. a support agent
+    // running a workflow against a ticket). Unlike the scheduled/webhook paths this is not gated on
+    // trigger type — any active workflow can be run — but it still queues the full graph through the
+    // same cyclotron queue, so waits/delays/branches all work. Django gates auth/team-scoping.
+    private postHogflowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { variables } = req.body
+
+            logger.info('⚡️', 'Received hogflow manual invocation', { id, team_id })
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            if (hogFlow.status !== 'active') {
+                return res.status(400).json({ error: 'Workflow must be active' })
+            }
+
+            // Match the pipeline's safety gates: don't run a flow the watcher circuit breaker has
+            // disabled, and don't execute billable actions for a quota-limited team. This path
+            // enqueues directly (bypassing HogFlowInvocationPipeline), so re-apply them here.
+            const watcherState = await this.hogWatcher.getEffectiveState(hogFlow.id)
+            if (watcherState.state === HogWatcherState.disabled) {
+                return res.status(400).json({ error: 'Workflow is disabled due to repeated failures' })
+            }
+            const quotaResult = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
+            if (quotaResult.isLimited) {
+                return res.status(429).json({ error: 'Team is over quota for the actions in this workflow' })
+            }
+            // Draw from the same per-workflow token bucket as the event pipeline, so repeated manual
+            // runs can't bypass the rate limit and monopolize shared worker capacity.
+            const [[, rateLimit]] = await this.hogFlowRateLimiter.rateLimitGrouped([{ id: hogFlow.id, cost: 1 }])
+            if (rateLimit.isRateLimited) {
+                return res.status(429).json({ error: 'Workflow is being run too frequently — try again shortly' })
+            }
+
+            const isPlainObject = (value: unknown): value is Record<string, any> =>
+                typeof value === 'object' && value !== null && !Array.isArray(value)
+
+            const rawGlobals = req.body.globals
+            const rawEvent = rawGlobals?.event
+            if (!rawEvent || typeof rawEvent.event !== 'string') {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+            if (rawEvent.properties !== undefined && !isPlainObject(rawEvent.properties)) {
+                return res.status(400).json({ error: 'event.properties must be an object' })
+            }
+
+            // Rebuild the event server-side rather than trusting the caller's shape verbatim: this
+            // payload is durably enqueued, and a malformed event (e.g. null properties) would
+            // poison the shared hogflow queue and crash-loop the worker for the whole partition.
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: typeof rawEvent.uuid === 'string' ? rawEvent.uuid : new UUIDT().toString(),
+                event: rawEvent.event,
+                distinct_id: typeof rawEvent.distinct_id === 'string' ? rawEvent.distinct_id : `workflow-${hogFlow.id}`,
+                timestamp: typeof rawEvent.timestamp === 'string' ? rawEvent.timestamp : DateTime.now().toISO(),
+                url: typeof rawEvent.url === 'string' ? rawEvent.url : '',
+                properties: rawEvent.properties ?? {},
+                elements_chain: typeof rawEvent.elements_chain === 'string' ? rawEvent.elements_chain : '',
+            }
+
+            const person = isPlainObject(rawGlobals?.person) ? rawGlobals.person : undefined
+            // Resolve groups server-side from the event's $groups when the caller didn't supply them,
+            // so group-property conditionals branch correctly (mirrors postHogflowInvocation).
+            let groups = isPlainObject(rawGlobals?.groups) ? rawGlobals.groups : undefined
+            if (!groups || Object.keys(groups).length === 0) {
+                groups = await this.groupsManager.getGroupsForEvent(
+                    team.id,
+                    event.properties,
+                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+                )
+            }
+
+            const resolvedVariables = variables ?? rawGlobals?.variables ?? {}
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event,
+                person,
+                groups,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables: resolvedVariables,
+            }
+
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event,
+                person,
+                groups,
+                variables: resolvedVariables,
+            })
+
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+
+            await this.hogflowQueue.queueInvocations([invocation])
+
+            res.json({ status: 'queued', invocation_id: invocation.id })
+        } catch (e) {
+            logger.error('Error handling hogflow manual invocation', { error: e })
             res.status(500).json({ error: [e.message] })
         }
     }

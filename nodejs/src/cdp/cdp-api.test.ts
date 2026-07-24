@@ -1205,6 +1205,114 @@ describe('CDP API', () => {
         })
     })
 
+    describe('manual hogflow invocations', () => {
+        let mockQueueInvocations: jest.Mock
+
+        const activeEventHogFlow = (): Parameters<typeof insertHogFlow>[0] => ({
+            id: new UUIDT().toString(),
+            name: 'test event hog flow',
+            status: 'active',
+            version: 1,
+            exit_condition: 'exit_only_at_end',
+            edges: [],
+            actions: [],
+            trigger: { type: 'event', filters: {} },
+        })
+
+        const globals = {
+            event: { event: '$conversation_quick_action_triggered', properties: { ticket_id: 'abc' } },
+        }
+
+        beforeEach(() => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+        })
+
+        afterEach(() => {
+            // clearMocks only clears calls; restore spy implementations (watcher, rate limiter)
+            // so they don't leak into later tests in this file.
+            jest.restoreAllMocks()
+        })
+
+        it('runs any active workflow regardless of trigger type', async () => {
+            // Unlike scheduled_invocations, an event-triggered workflow is accepted here.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('rejects an inactive workflow', async () => {
+            const hogFlow = await insertHogFlow({ ...activeEventHogFlow(), status: 'draft' })
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Workflow must be active')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('errors when the event globals are missing', async () => {
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing event')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects malformed event properties instead of enqueueing a poison pill', async () => {
+            // A null/non-object properties would be durably enqueued and crash-loop the shared
+            // hogflow worker on dequeue (getGroupsForEvent dereferences properties['$groups']).
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals: { event: { event: 'x', properties: null }, groups: { org: 'g' } } })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('event.properties must be an object')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects a run when the per-workflow rate limit is exhausted', async () => {
+            // Manual runs must draw from the same token bucket as event-driven invocations, or the
+            // route becomes a rate-limit bypass that can monopolize shared worker capacity.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            jest.spyOn(api['hogFlowRateLimiter'], 'rateLimitGrouped').mockResolvedValue([
+                [hogFlow.id, { isRateLimited: true, tokens: 0 } as any],
+            ])
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(429)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects a workflow the watcher has disabled', async () => {
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            jest.spyOn(api['hogWatcher'], 'getEffectiveState').mockResolvedValue({
+                state: HogWatcherState.disabled,
+            } as any)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Workflow is disabled due to repeated failures')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+    })
+
     describe('hogflow in-flight count', () => {
         let countHogFlow: HogFlow
         let mockCountInFlightJobs: jest.Mock
