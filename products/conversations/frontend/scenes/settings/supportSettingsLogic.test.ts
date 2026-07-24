@@ -11,13 +11,6 @@ import { TeamType } from '~/types'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
-jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: {
-        success: jest.fn(),
-        error: jest.fn(),
-    },
-}))
-
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
 
@@ -57,8 +50,14 @@ describe('supportSettingsLogic', () => {
     })
 
     describe('connectEmail', () => {
+        let errorToastSpy: jest.SpyInstance
+
         beforeEach(() => {
-            ;(lemonToast.error as jest.Mock).mockClear()
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
         })
 
         // Two failure shapes reach this listener: the view's custom {error} responses and
@@ -87,7 +86,7 @@ describe('supportSettingsLogic', () => {
             logic.actions.connectEmail()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(lemonToast.error).toHaveBeenCalledWith(body.error ?? body.detail)
+            expect(errorToastSpy).toHaveBeenCalledWith(body.error ?? body.detail)
         })
     })
 
