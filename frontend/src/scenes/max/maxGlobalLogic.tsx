@@ -420,6 +420,15 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             logic.actions.setPendingBindTaskId(taskId)
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
+            // History loads as a background preload on boot — and again after a project switch, which
+            // triggers a full page reload. A transient failure there (a request timeout, a gateway
+            // hiccup, or a fetch aborted by the reload itself) shouldn't pop a scary error toast on an
+            // unrelated screen like the home page. Swallow those quietly; only surface genuine errors.
+            const status: number | undefined = errorObject?.status
+            const isTransient = status === undefined || status === 0 || [408, 502, 503, 504].includes(status)
+            if (isTransient) {
+                return
+            }
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
         deleteConversation: async ({ id }) => {

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -161,6 +162,29 @@ describe('maxGlobalLogic', () => {
     // The flag is the only thing that may expose the new posthog_ai surface — without the gate a stored
     // preference (or a missing default) would leak it to every user. Lock in: flag off collapses to legacy
     // regardless of the stored mode; flag on passes the stored mode through.
+    // History loads as a background preload on boot and again after project switches (which trigger a
+    // full page reload). A transient failure there must not pop an error toast on an unrelated screen —
+    // but genuine errors (403, 500) still should.
+    describe('loadConversationHistoryFailure', () => {
+        it.each([
+            { status: 408, shouldToast: false },
+            { status: 0, shouldToast: false },
+            { status: 504, shouldToast: false },
+            { status: undefined, shouldToast: false },
+            { status: 403, shouldToast: true },
+            { status: 500, shouldToast: true },
+        ])('status $status surfaces a toast: $shouldToast', async ({ status, shouldToast }) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            toastSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversationHistoryFailure('failed', { status } as any)
+            }).toFinishAllListeners()
+
+            expect(toastSpy).toHaveBeenCalledTimes(shouldToast ? 1 : 0)
+        })
+    })
+
     describe('effectivePhaiView selector', () => {
         it.each([
             { flagOn: false, mode: 'new', expected: 'legacy' },
