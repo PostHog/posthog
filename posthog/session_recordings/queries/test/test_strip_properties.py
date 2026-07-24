@@ -45,6 +45,14 @@ class TestStripProperties:
                 "hogql session.properties reference is stripped",
                 HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"),
             ),
+            (
+                "hogql bare session/person field reference is stripped",
+                HogQLPropertyFilter(key="toDate(session.$start_timestamp) = toDate(person.created_at)"),
+            ),
+            (
+                "hogql bare person field reference is stripped",
+                HogQLPropertyFilter(key="person.created_at > now() - interval 7 day"),
+            ),
         ]
     )
     def test_strip_keeps_nothing_for_replay_scoped_filter(self, _name: str, replay_filter: AnyPropertyFilter) -> None:
@@ -76,9 +84,14 @@ class TestStripProperties:
             SessionPropertyFilter(key="$entry_pathname", operator=PropertyOperator.EXACT, value="/")
         )
         assert is_session_property(HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"))
+        # bare session-scoped fields (not `.properties.`) are also session properties
+        assert is_session_property(
+            HogQLPropertyFilter(key="toDate(session.$start_timestamp) = toDate(person.created_at)")
+        )
         assert not is_session_property(
             PersonPropertyFilter(key="email", operator=PropertyOperator.EXACT, value="a@b.com")
         )
+        assert not is_session_property(HogQLPropertyFilter(key="some_unrelated_expression = 1"))
 
     def test_is_recording_property_matches_type(self) -> None:
         assert is_recording_property(

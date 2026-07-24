@@ -72,7 +72,10 @@ def is_event_property(p: AnyPropertyFilter) -> bool:
 def is_person_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
+    # Match any reference to the `person` scope (e.g. person.properties.email, but also
+    # bare fields like person.created_at), not just `.properties.` accesses. property_to_expr
+    # resolves these under the "replay" scope, so they must not be flagged as unexpected.
+    return p_type == "person" or (p_type == "hogql" and bool(re.search(r"\bperson\.", p_key)))
 
 
 def is_group_property(p: AnyPropertyFilter) -> bool:
@@ -88,7 +91,9 @@ def is_cohort_property(p: AnyPropertyFilter) -> bool:
 def is_session_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "session" or (p_type == "hogql" and "session.properties" in p_key)
+    # Match any reference to the `session` scope (e.g. session.properties.$channel_type, but
+    # also bare fields like session.$start_timestamp), not just `.properties.` accesses.
+    return p_type == "session" or (p_type == "hogql" and bool(re.search(r"\bsession\.", p_key)))
 
 
 def is_recording_property(p: AnyPropertyFilter) -> bool:
