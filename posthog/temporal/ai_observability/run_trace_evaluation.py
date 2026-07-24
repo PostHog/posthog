@@ -303,10 +303,10 @@ def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
     input_preview = ""
     output_preview = ""
     for event in trace.events or []:
-        input_raw, output_raw = extract_event_io(event.event, event.properties)
+        event_io = extract_event_io(event.event, event.properties)
         if not input_preview:
-            input_preview = extract_text_from_messages(input_raw)[:200]
-        output_text = extract_text_from_messages(output_raw)[:200]
+            input_preview = extract_text_from_messages(event_io.input_raw)[:200]
+        output_text = extract_text_from_messages(event_io.output_raw)[:200]
         if output_text:
             output_preview = output_text
     return input_preview, output_preview
