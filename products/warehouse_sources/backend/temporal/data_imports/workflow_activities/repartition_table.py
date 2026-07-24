@@ -290,9 +290,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
         return
     except RepartitionUnpartitionableError as e:
-        # Terminal: the table can't be partitioned. Clear the flag so we don't retry every run.
+        # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
+        # clearing `repartition_pending` alone re-arms the loop, because detection re-flags on the very
+        # next sync (the OOM/size trigger is still true and the table's scheme is unchanged), so the
+        # table churns flag → start → skip every 5 minutes forever. The cooldown re-evaluates at most
+        # daily instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
+        schema.stamp_last_repartition_at()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
         capture_repartition_event("warehouse_repartition_skipped", props)
