@@ -74,6 +74,35 @@ describe('vendored finder', () => {
         expect(document.querySelector(selector)).toBe(target)
     }, 5_000)
 
+    it('returns a working positional selector instead of throwing when class candidates match no nodes', () => {
+        // Force `unique()` down its 0-match path for every class-based candidate
+        // (mirrors a DOM race during hover or a class scoped to a shadow root /
+        // iframe), while the positional fallback still resolves. Upstream finder
+        // throws on the 0-match; we treat it as non-unique and fall back so
+        // callers get a working selector rather than an exception.
+        document.body.innerHTML = `
+            <div class="container">
+                <span class="target">only</span>
+            </div>
+        `
+        const target = document.querySelector('.target')!
+        const realQuerySelectorAll = document.querySelectorAll.bind(document)
+        const querySelectorAllSpy = jest
+            .spyOn(document, 'querySelectorAll')
+            .mockImplementation((css: string) => (css.includes('.') ? ([] as any) : realQuerySelectorAll(css)))
+
+        try {
+            let selector = ''
+            expect(() => {
+                selector = finder(target)
+            }).not.toThrow()
+            querySelectorAllSpy.mockRestore()
+            expect(document.querySelector(selector)).toBe(target)
+        } finally {
+            querySelectorAllSpy.mockRestore()
+        }
+    })
+
     it.each([
         { name: 'does not fire onCombinationsCapped under the default cap', config: {}, expectedCalls: 0 },
         {
