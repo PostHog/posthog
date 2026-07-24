@@ -400,6 +400,68 @@ return result`,
                 }),
             })
         })
+
+        it('seeds a fixed window settle config when switching target to trace', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('seeds inactivity defaults when switching settle strategy', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 5 * 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('patches a single settle field without clobbering the rest', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.patchTargetConfig({ quiet_period_seconds: 60 })
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('reseeds the fixed window when switching strategy back', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('reseeding fixed window over an inactivity bag leaves no inactivity keys', () => {
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+            logic.actions.patchTargetConfig({ window_seconds: 900 })
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 900,
+            })
+        })
     })
 
     describe('selectors', () => {

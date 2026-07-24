@@ -14,6 +14,21 @@ export type EvaluationStatusReason =
     | 'model_not_found'
     | 'hog_error'
 export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
+
+/** Settle config stored on the evaluation. Rows saved before strategies existed have no
+ * `strategy` key and mean 'fixed_window'. */
+export interface EvaluationTargetConfig {
+    strategy?: EvaluationSettleStrategy
+    window_seconds?: number
+    quiet_period_seconds?: number
+    max_age_seconds?: number
+}
+
+/** Fully-resolved settle config passed to the workflow (defaults applied, one shape per strategy). */
+export type ResolvedSettleConfig =
+    | { strategy: 'fixed_window'; window_seconds: number }
+    | { strategy: 'inactivity'; quiet_period_seconds: number; max_age_seconds: number }
 
 export interface Evaluation {
     id: string
@@ -29,8 +44,7 @@ export interface Evaluation {
     output_config: Record<string, any>
     conditions: EvaluationConditionSet[]
     target: EvaluationTarget
-    // Target-specific settings keyed off `target`. Trace targets carry the aggregation window.
-    target_config: { window_seconds?: number }
+    target_config: EvaluationTargetConfig
     provider_key_id?: string | null
     created_at: string
     updated_at: string

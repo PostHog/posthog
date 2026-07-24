@@ -1,8 +1,8 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from django.db import models
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 
 class EvaluationType(models.TextChoices):
@@ -66,42 +66,86 @@ class SentimentOutputConfig(BaseModel):
     """Configuration for sentiment output type."""
 
 
-# Trace-target aggregation window: how long to wait after the first matching generation before
-# pulling the whole trace and evaluating it. The default is intentionally generous — even heavy
-# tool-using turns settle well under it — while the floor stays low so local testing doesn't
-# require waiting half an hour. The workflow re-clamps to the same ceiling as a safety net.
+# Settle-strategy bounds for trace-target evaluations. fixed_window: wait this long after the
+# first matching generation, then evaluate. inactivity: evaluate once the trace has had no new activity
+# for the quiet period, with max_age bounding the total wait from the first one.
+# Defaults are generous so heavy tool-using turns settle; floors keep local testing fast; the
+# 2h ceiling bounds how long a workflow sleeps. The workflow re-clamps as a safety net.
 TRACE_EVAL_DEFAULT_WINDOW_SECONDS = 30 * 60
 TRACE_EVAL_MIN_WINDOW_SECONDS = 10
 TRACE_EVAL_MAX_WINDOW_SECONDS = 2 * 60 * 60
 EVALUATION_TEST_LOOKBACK_DAYS = 7
 
+TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS = 5 * 60
+TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS = 10
+TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS = 30 * 60
 
-class TraceTargetConfig(BaseModel):
-    """Configuration for trace-target evaluations."""
+TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS = 2 * 60 * 60
+TRACE_EVAL_MIN_MAX_AGE_SECONDS = 60
+TRACE_EVAL_MAX_MAX_AGE_SECONDS = 2 * 60 * 60
+
+
+class FixedWindowSettleConfig(BaseModel):
+    """Wait a fixed window after the first matching generation, then evaluate."""
 
     model_config = ConfigDict(extra="forbid")
 
+    strategy: Literal["fixed_window"] = "fixed_window"
     window_seconds: int = Field(
         default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         ge=TRACE_EVAL_MIN_WINDOW_SECONDS,
         le=TRACE_EVAL_MAX_WINDOW_SECONDS,
-        description="Seconds to wait after the first matching generation before evaluating the whole trace.",
+        description="Seconds to wait after the first matching generation before evaluating.",
     )
+
+
+class InactivitySettleConfig(BaseModel):
+    """Evaluate once the trace has had no new activity for the quiet period."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: Literal["inactivity"]
+    quiet_period_seconds: int = Field(
+        default=TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ge=TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
+        le=TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
+        description="Seconds without new trace activity before the unit counts as settled.",
+    )
+    max_age_seconds: int = Field(
+        default=TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
+        ge=TRACE_EVAL_MIN_MAX_AGE_SECONDS,
+        le=TRACE_EVAL_MAX_MAX_AGE_SECONDS,
+        description="Hard cap on the total wait from the first matching generation.",
+    )
+
+    @model_validator(mode="after")
+    def validate_max_age_covers_quiet_period(self) -> "InactivitySettleConfig":
+        if self.max_age_seconds < self.quiet_period_seconds:
+            raise ValueError("max_age_seconds must be greater than or equal to quiet_period_seconds")
+        return self
+
+
+SettleConfig = Annotated[FixedWindowSettleConfig | InactivitySettleConfig, Field(discriminator="strategy")]
+
+_SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(SettleConfig)
 
 
 def validate_target_config(target: str, target_config: dict) -> dict:
     """Validate target_config based on target.
 
-    Trace targets carry a `{window_seconds}` config (defaulted when absent). Every other target
-    (generation today) carries no config, so its bag is normalized to empty — this also strips a
-    stale window if a user switches a trace eval back to generation.
+    Trace targets carry a settle config discriminated on `strategy`; rows saved before
+    strategies existed have no `strategy` key and mean fixed_window. Every other target
+    (generation today) carries no config, so its bag is normalized to empty — this also
+    strips a stale settle config if a user switches a trace eval back to generation.
     """
-    if target == "trace":
-        try:
-            return TraceTargetConfig(**(target_config or {})).model_dump()
-        except Exception as e:
-            raise ValueError(f"Invalid target_config for trace: {str(e)}") from e
-    return {}
+    if target != "trace":
+        return {}
+    try:
+        config = {**(target_config or {})}
+        config.setdefault("strategy", "fixed_window")
+        return _SETTLE_CONFIG_ADAPTER.validate_python(config).model_dump()
+    except Exception as e:
+        raise ValueError(f"Invalid target_config for trace: {str(e)}") from e
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)

@@ -32,6 +32,8 @@ EVAL_ACTIVITY_TYPES = {
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
+    # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
+    # failures would otherwise count as activity errors.
 }
 
 EVAL_WORKFLOW_TYPES = {
@@ -99,6 +101,18 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
         attrs["provider"] = provider
     meter = get_metric_meter(attrs)
     counter = meter.create_counter("llma_eval_user_errors", "Terminal user-actionable evaluation errors")
+    counter.add(1)
+
+
+def increment_settle_poll(outcome: str) -> None:
+    """Track trace settle-poll activity outcomes (not_visible/not_settled/settled).
+
+    Safe to call outside Temporal context (no-ops), matching `increment_errors`.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter("llma_eval_settle_polls", "Trace settle poll outcomes")
     counter.add(1)
 
 

@@ -533,16 +533,35 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
  */
-export type EvaluationApiTargetConfig = {
-    /**
-     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-}
+export type EvaluationApiTargetConfig =
+    | {
+          /** Wait a fixed window after the first matching generation, then evaluate. */
+          strategy?: 'fixed_window'
+          /**
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * @minimum 10
+           * @maximum 7200
+           */
+          window_seconds?: number
+      }
+    | {
+          /** Evaluate once the trace has had no new activity for the quiet period. */
+          strategy: 'inactivity'
+          /**
+           * Seconds without new trace activity before the trace counts as settled.
+           * @minimum 10
+           * @maximum 1800
+           */
+          quiet_period_seconds?: number
+          /**
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * @minimum 60
+           * @maximum 7200
+           */
+          max_age_seconds?: number
+      }
 
 export interface EvaluationApi {
     readonly id: string
@@ -579,12 +598,12 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
      * * `trace` - Trace */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -636,16 +655,35 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
  */
-export type PatchedEvaluationApiTargetConfig = {
-    /**
-     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-}
+export type PatchedEvaluationApiTargetConfig =
+    | {
+          /** Wait a fixed window after the first matching generation, then evaluate. */
+          strategy?: 'fixed_window'
+          /**
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * @minimum 10
+           * @maximum 7200
+           */
+          window_seconds?: number
+      }
+    | {
+          /** Evaluate once the trace has had no new activity for the quiet period. */
+          strategy: 'inactivity'
+          /**
+           * Seconds without new trace activity before the trace counts as settled.
+           * @minimum 10
+           * @maximum 1800
+           */
+          quiet_period_seconds?: number
+          /**
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * @minimum 60
+           * @maximum 7200
+           */
+          max_age_seconds?: number
+      }
 
 export interface PatchedEvaluationApi {
     readonly id?: string
@@ -682,12 +720,12 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
      * * `trace` - Trace */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null

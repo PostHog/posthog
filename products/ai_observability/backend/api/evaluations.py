@@ -37,8 +37,14 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
+    TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    TRACE_EVAL_MAX_MAX_AGE_SECONDS,
+    TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
+    TRACE_EVAL_MIN_MAX_AGE_SECONDS,
+    TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
     EvaluationType,
     evaluation_supports_reports,
@@ -124,21 +130,63 @@ class _OutputConfigField(serializers.JSONField):
 
 @extend_schema_field(
     {
-        "type": "object",
-        "properties": {
-            "window_seconds": {
-                "type": "integer",
-                "description": (
-                    "For 'trace' target: seconds to wait after the first matching generation before "
-                    "evaluating the whole trace. Captured when the run is scheduled — editing it does not "
-                    "change trace runs already in flight."
-                ),
-                "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
-                "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
-                "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-            }
-        },
-        "additionalProperties": False,
+        "oneOf": [
+            {
+                "type": "object",
+                "title": "Fixed window settle config",
+                "properties": {
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["fixed_window"],
+                        "default": "fixed_window",
+                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
+                    },
+                    "window_seconds": {
+                        "type": "integer",
+                        "description": (
+                            "Seconds to wait after the first matching generation before evaluating the whole "
+                            "trace. Captured when the run is scheduled — editing it does not change runs "
+                            "already in flight."
+                        ),
+                        "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
+                        "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
+                        "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+                    },
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "Inactivity settle config",
+                "required": ["strategy"],
+                "properties": {
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["inactivity"],
+                        "description": "Evaluate once the trace has had no new activity for the quiet period.",
+                    },
+                    "quiet_period_seconds": {
+                        "type": "integer",
+                        "description": "Seconds without new trace activity before the trace counts as settled.",
+                        "minimum": TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
+                        "maximum": TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
+                        "default": TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+                    },
+                    "max_age_seconds": {
+                        "type": "integer",
+                        "description": (
+                            "Hard cap in seconds on the total wait from the first matching generation, even "
+                            "if the trace stays active. Must be at least quiet_period_seconds."
+                        ),
+                        "minimum": TRACE_EVAL_MIN_MAX_AGE_SECONDS,
+                        "maximum": TRACE_EVAL_MAX_MAX_AGE_SECONDS,
+                        "default": TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ],
+        "discriminator": {"propertyName": "strategy"},
     }
 )
 class _TargetConfigField(serializers.JSONField):
@@ -231,7 +279,11 @@ class EvaluationSerializer(serializers.ModelSerializer):
     )
     target_config = _TargetConfigField(
         required=False,
-        help_text="Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
+        help_text=(
+            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — "
+            "'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. "
+            "Missing strategy means fixed_window. Empty for 'generation'."
+        ),
     )
     conditions = EvaluationConditionSerializer(
         many=True,
@@ -298,7 +350,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     "individually. 'trace' evaluates the whole trace once: the first matching generation schedules "
                     "a run that waits for the trace to settle, then evaluates all of its events together. "
                     "Condition filters still match individual generations — a trace is evaluated when any of its "
-                    "generations matches, and sampling applies per trace."
+                    "generations matches, and sampling applies per trace. When and how the trace run fires is "
+                    "controlled by target_config's settle strategy."
                 )
             },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},

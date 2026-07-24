@@ -21,7 +21,9 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -49,9 +51,15 @@ import {
     isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import {
+    DEFAULT_TRACE_MAX_AGE_SECONDS,
+    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+    DEFAULT_TRACE_WINDOW_SECONDS,
+    LLMEvaluationLogicProps,
+    llmEvaluationLogic,
+} from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationTarget, EvaluationType } from './types'
+import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -70,6 +78,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         modelSelectionRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -79,7 +89,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         resetEvaluation,
         setEvaluationType,
         setEvaluationTarget,
-        setTraceWindowSeconds,
+        setSettleStrategy,
+        patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
@@ -104,6 +115,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const effectiveStrategy: EvaluationSettleStrategy = settlingStrategyEnabled
+        ? (evaluation.target_config.strategy ?? 'fixed_window')
+        : 'fixed_window'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
@@ -495,27 +509,111 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </Field>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {evaluation.target === 'trace'
-                                                            ? 'Runs once per trace on all of its events together, after a delay that lets the trace complete.'
+                                                            ? 'Runs once per trace on all of its events together, after it settles.'
                                                             : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {evaluation.target === 'trace' && (
-                                                        <Field name="trace_window" label="Wait before evaluating">
-                                                            <div className="space-y-1">
-                                                                <DurationPicker
-                                                                    value={
-                                                                        evaluation.target_config.window_seconds ??
-                                                                        DEFAULT_TRACE_WINDOW_SECONDS
-                                                                    }
-                                                                    onChange={setTraceWindowSeconds}
-                                                                />
-                                                                <p className="text-muted text-xs">
-                                                                    How long to wait after the first matching generation
-                                                                    before pulling the whole trace (10s–2h). Captured
-                                                                    when the run is scheduled — changing it won't affect
-                                                                    trace runs already in flight.
-                                                                </p>
-                                                            </div>
-                                                        </Field>
+                                                        <>
+                                                            {settlingStrategyEnabled && (
+                                                                <Field name="settle_strategy" label="Evaluate when">
+                                                                    <LemonSelect<EvaluationSettleStrategy>
+                                                                        value={effectiveStrategy}
+                                                                        onChange={setSettleStrategy}
+                                                                        options={[
+                                                                            {
+                                                                                value: 'fixed_window',
+                                                                                label: 'A fixed delay has passed',
+                                                                            },
+                                                                            {
+                                                                                value: 'inactivity',
+                                                                                label: 'The trace goes quiet',
+                                                                            },
+                                                                        ]}
+                                                                        fullWidth
+                                                                    />
+                                                                </Field>
+                                                            )}
+                                                            {effectiveStrategy === 'fixed_window' ? (
+                                                                <Field
+                                                                    name="settle_window"
+                                                                    label="Wait before evaluating"
+                                                                >
+                                                                    <div className="space-y-1">
+                                                                        <DurationPicker
+                                                                            value={
+                                                                                evaluation.target_config
+                                                                                    .window_seconds ??
+                                                                                DEFAULT_TRACE_WINDOW_SECONDS
+                                                                            }
+                                                                            onChange={(value) => {
+                                                                                if (
+                                                                                    evaluation.target_config
+                                                                                        .strategy === 'inactivity'
+                                                                                ) {
+                                                                                    setSettleStrategy('fixed_window')
+                                                                                }
+                                                                                patchTargetConfig({
+                                                                                    window_seconds: value,
+                                                                                })
+                                                                            }}
+                                                                        />
+                                                                        <p className="text-muted text-xs">
+                                                                            How long to wait after the first matching
+                                                                            generation before pulling the whole trace
+                                                                            (10s–2h). Captured when the run is scheduled
+                                                                            — changing it won't affect trace runs
+                                                                            already in flight.
+                                                                        </p>
+                                                                    </div>
+                                                                </Field>
+                                                            ) : (
+                                                                <>
+                                                                    <Field
+                                                                        name="settle_quiet_period"
+                                                                        label="Quiet period"
+                                                                    >
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .quiet_period_seconds ??
+                                                                                    DEFAULT_TRACE_QUIET_PERIOD_SECONDS
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        quiet_period_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                Evaluate once the trace has had no new
+                                                                                activity for this long (10s–30m).
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                    <Field name="settle_max_age" label="Evaluate by">
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .max_age_seconds ??
+                                                                                    DEFAULT_TRACE_MAX_AGE_SECONDS
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        max_age_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                Always evaluate once the trace is this
+                                                                                old, even if it's still active (1m–2h).
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                </>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </>
                                             )}

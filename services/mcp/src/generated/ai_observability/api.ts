@@ -139,9 +139,18 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsCreateBodyTargetConfigWindowSecondsDefault = 1800
-export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 7200
+export const evaluationsCreateBodyTargetConfigOneStrategyDefault = `fixed_window`
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 7200
+
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 1800
+
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 7200
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
@@ -232,21 +241,48 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `generation` - Generation\n\* `trace` - Trace')
         .optional()
         .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
     target_config: zod
-        .object({
-            window_seconds: zod
-                .number()
-                .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
-                .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
-                .default(evaluationsCreateBodyTargetConfigWindowSecondsDefault)
-                .describe(
-                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
-                ),
-        })
+        .union([
+            zod.object({
+                strategy: zod
+                    .enum(['fixed_window'])
+                    .default(evaluationsCreateBodyTargetConfigOneStrategyDefault)
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigOneWindowSecondsDefault)
+                    .describe(
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                    ),
+            }),
+            zod.object({
+                strategy: zod
+                    .enum(['inactivity'])
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .describe(
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                    ),
+            }),
+        ])
         .optional()
-        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
+        .describe(
+            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'."
+        ),
     model_configuration: zod
         .union([
             zod
@@ -313,9 +349,18 @@ export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault = 1800
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 7200
+export const evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault = `fixed_window`
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 7200
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 1800
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 7200
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -408,21 +453,48 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `generation` - Generation\n\* `trace` - Trace')
         .optional()
         .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
     target_config: zod
-        .object({
-            window_seconds: zod
-                .number()
-                .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
-                .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
-                .default(evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault)
-                .describe(
-                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
-                ),
-        })
+        .union([
+            zod.object({
+                strategy: zod
+                    .enum(['fixed_window'])
+                    .default(evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault)
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault)
+                    .describe(
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                    ),
+            }),
+            zod.object({
+                strategy: zod
+                    .enum(['inactivity'])
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .describe(
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                    ),
+            }),
+        ])
         .optional()
-        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
+        .describe(
+            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'."
+        ),
     model_configuration: zod
         .union([
             zod

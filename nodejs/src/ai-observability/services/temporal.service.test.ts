@@ -3,7 +3,7 @@ import { Client, Connection, WorkflowExecutionAlreadyStartedError } from '@tempo
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
-import { DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS, TemporalService, workflowSafeTraceId } from './temporal.service'
+import { TemporalService, resolveSettleConfig, workflowSafeTraceId } from './temporal.service'
 import type { EvaluationWorkflowRuntime, TemporalServiceConfig } from './temporal.service'
 
 jest.mock('@temporalio/client')
@@ -276,45 +276,65 @@ describe('TemporalService', () => {
         })
     })
 
-    describe('trace evaluation workflows', () => {
-        it('starts the trace workflow with slim inputs and the passed aggregation window', async () => {
+    describe('aggregate evaluation workflows', () => {
+        it('starts the aggregate workflow with the resolved settle config', async () => {
             const mockEvent = createMockEvent()
 
-            await service.startTraceEvaluationRunWorkflow('eval-123', mockEvent, 'trace-789', 'session-1', 60)
+            await service.startAggregateEvaluationWorkflow('eval-123', mockEvent, 'trace-abc', 'session-1', {
+                strategy: 'inactivity',
+                quiet_period_seconds: 120,
+                max_age_seconds: 600,
+            })
 
-            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-trace-evaluation', {
-                taskQueue: 'llm-analytics-evals-task-queue',
-                workflowId: 'llma-trace-eval-eval-123-trace-789',
-                workflowIdConflictPolicy: 'USE_EXISTING',
-                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
-                workflowTaskTimeout: '2 minutes',
+            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-aggregate-evaluation', {
                 args: [
                     {
                         evaluation_id: 'eval-123',
-                        team_id: 1,
-                        trace_id: 'trace-789',
-                        distinct_id: 'test-user',
+                        team_id: mockEvent.team_id,
+                        trace_id: 'trace-abc',
+                        distinct_id: mockEvent.distinct_id,
                         session_id: 'session-1',
-                        window_seconds: 60,
+                        settle: { strategy: 'inactivity', quiet_period_seconds: 120, max_age_seconds: 600 },
                     },
                 ],
+                taskQueue: 'llm-analytics-evals-task-queue',
+                workflowId: 'llma-trace-eval-eval-123-trace-abc',
+                workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
+                workflowTaskTimeout: '2 minutes',
             })
         })
 
+        it('returns null when the trace was already evaluated', async () => {
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValueOnce(
+                new WorkflowExecutionAlreadyStartedError('done', 'llma-trace-eval-x', 'run-aggregate-evaluation')
+            )
+
+            const result = await service.startAggregateEvaluationWorkflow(
+                'eval-123',
+                createMockEvent(),
+                'trace-abc',
+                null,
+                { strategy: 'fixed_window', window_seconds: 1800 }
+            )
+
+            expect(result).toBeNull()
+        })
+
         it('produces the same workflow id for every event of the same trace', async () => {
-            await service.startTraceEvaluationRunWorkflow(
+            await service.startAggregateEvaluationWorkflow(
                 'eval-123',
                 createMockEvent({ uuid: 'event-1' }),
                 'trace-789',
                 null,
-                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+                { strategy: 'fixed_window', window_seconds: 1800 }
             )
-            await service.startTraceEvaluationRunWorkflow(
+            await service.startAggregateEvaluationWorkflow(
                 'eval-123',
                 createMockEvent({ uuid: 'event-2' }),
                 'trace-789',
                 null,
-                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+                { strategy: 'fixed_window', window_seconds: 1800 }
             )
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
@@ -322,34 +342,37 @@ describe('TemporalService', () => {
             expect(calls[0][1].workflowId).not.toContain('event-1')
         })
 
-        it('returns null when a completed run already exists for the trace', async () => {
-            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(
-                new WorkflowExecutionAlreadyStartedError('already started', 'wf-id', 'run-trace-evaluation')
-            )
-
-            const handle = await service.startTraceEvaluationRunWorkflow(
-                'eval-123',
-                createMockEvent(),
-                'trace-789',
-                null,
-                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
-            )
-
-            expect(handle).toBeNull()
-        })
-
         it('rethrows non-dedup start failures', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
             await expect(
-                service.startTraceEvaluationRunWorkflow(
-                    'eval-123',
-                    createMockEvent(),
-                    'trace-789',
-                    null,
-                    DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
-                )
+                service.startAggregateEvaluationWorkflow('eval-123', createMockEvent(), 'trace-789', null, {
+                    strategy: 'fixed_window',
+                    window_seconds: 1800,
+                })
             ).rejects.toThrow('Temporal unavailable')
+        })
+    })
+
+    describe('resolveSettleConfig', () => {
+        it.each([
+            [undefined, { strategy: 'fixed_window', window_seconds: 1800 }],
+            [{}, { strategy: 'fixed_window', window_seconds: 1800 }],
+            [{ window_seconds: 60 }, { strategy: 'fixed_window', window_seconds: 60 }],
+            [
+                { strategy: 'fixed_window' as const, window_seconds: 900 },
+                { strategy: 'fixed_window', window_seconds: 900 },
+            ],
+            [
+                { strategy: 'inactivity' as const },
+                { strategy: 'inactivity', quiet_period_seconds: 300, max_age_seconds: 7200 },
+            ],
+            [
+                { strategy: 'inactivity' as const, quiet_period_seconds: 60, max_age_seconds: 600 },
+                { strategy: 'inactivity', quiet_period_seconds: 60, max_age_seconds: 600 },
+            ],
+        ])('resolves %j', (input, expected) => {
+            expect(resolveSettleConfig(input)).toEqual(expected)
         })
     })
 
