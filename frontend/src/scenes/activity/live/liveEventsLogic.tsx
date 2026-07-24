@@ -115,6 +115,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         updateEventsConnection: true,
         pauseStream: true,
         resumeStream: true,
+        setPageVisible: (pageVisible: boolean) => ({ pageVisible }),
         setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         addEventHost: (eventHost: string) => ({ eventHost }),
     })),
@@ -143,6 +144,14 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             {
                 pauseStream: () => true,
                 resumeStream: () => false,
+            },
+        ],
+        // Tracks tab visibility separately from the user's play/pause intent so an automatic
+        // pause on a backgrounded tab never clobbers what the user asked for.
+        pageVisible: [
+            true,
+            {
+                setPageVisible: (_, { pageVisible }) => pageVisible,
             },
         ],
         lastBatchTimestamp: [
@@ -192,7 +201,10 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         updateEventsConnection: () => {
             cache.disposables.dispose('eventsConnection')
 
-            if (values.streamPaused) {
+            // Keep the stream closed while the user has paused it or the tab is hidden. Either
+            // condition alone is enough to stay disconnected; both are reconciled here rather
+            // than fighting over a single flag.
+            if (values.streamPaused || !values.pageVisible) {
                 return
             }
 
@@ -263,6 +275,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                     signal: controller.signal,
                     onMessage: (event) => {
                         lemonToast.dismiss(ERROR_TOAST_ID)
+                        cache.hasShownLiveStreamErrorToast = false
                         let eventData: LiveEvent
                         try {
                             eventData = JSON.parse(event.data)
@@ -295,6 +308,15 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.dispose('eventsConnection')
         },
         resumeStream: () => {
+            // Manually resuming is an explicit request for a fresh connection, so re-arm the
+            // one-shot error toast — otherwise clicking Play on a stream with no events flowing
+            // gives no visible feedback at all.
+            cache.hasShownLiveStreamErrorToast = false
+            actions.updateEventsConnection()
+        },
+        setPageVisible: () => {
+            // Reconnect or tear down based on the new visibility, respecting the user's intent
+            // (updateEventsConnection stays closed while streamPaused is true).
             actions.updateEventsConnection()
         },
         addEvents: ({ events }) => {

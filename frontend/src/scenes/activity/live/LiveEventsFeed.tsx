@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { type ReactNode, useMemo } from 'react'
 
 import { IconPauseFilled } from '@posthog/icons'
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,6 +12,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { isURL } from 'lib/utils/url'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
@@ -45,13 +46,16 @@ const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEven
         key: '$current_url' as any,
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            return (
-                <span>
-                    {event.properties['$current_url'] ||
-                        event.properties['$screen_name'] ||
-                        event.properties['$pathname']}
-                </span>
-            )
+            const value =
+                event.properties['$current_url'] || event.properties['$screen_name'] || event.properties['$pathname']
+            if (isURL(value)) {
+                return (
+                    <Link to={value} target="_blank" targetBlankIcon className="truncate">
+                        {value}
+                    </Link>
+                )
+            }
+            return <span>{value}</span>
         },
     },
     recording: {
