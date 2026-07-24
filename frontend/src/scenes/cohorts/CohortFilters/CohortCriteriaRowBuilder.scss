@@ -16,6 +16,7 @@
 
         .CohortCriteriaRow__Criteria__Field {
             min-width: 0; // Prevent overflow, allow flex to shrink
+            max-width: 100%; // Cap the field so a value select with many long values (e.g. emails) wraps its snacks instead of growing the row past the viewport and pushing the operator/remove controls off-screen
             margin: 0.25rem 0;
 
             &.CohortCriteriaRow__Criteria__Field--error {
