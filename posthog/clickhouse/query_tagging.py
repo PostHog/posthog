@@ -258,16 +258,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MAX_AI}
         case (
-            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
-            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
-            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
-            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
-            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
-        ):
-            return {"product": Product.REVENUE_ANALYTICS}
-        case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY

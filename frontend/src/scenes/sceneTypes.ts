@@ -148,7 +148,6 @@ export enum Scene {
     ReplayVisionActionEditor = 'ReplayVisionActionEditor',
     ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
-    RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -364,9 +363,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
-
-    // Revenue analytics
-    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,

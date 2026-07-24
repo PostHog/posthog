@@ -272,7 +272,6 @@ class AssistantNavigateUrl(StrEnum):
     NOTEBOOKS = "notebooks"
     REPLAY = "replay"
     REPLAY_SETTINGS = "replaySettings"
-    REVENUE_ANALYTICS = "revenueAnalytics"
     SAVED_INSIGHTS = "savedInsights"
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
@@ -380,7 +379,6 @@ class AssistantTool(StrEnum):
     SEARCH = "search"
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
-    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
@@ -3138,8 +3136,6 @@ class NodeKind(StrEnum):
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
-    REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
-    REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
@@ -3178,11 +3174,6 @@ class NodeKind(StrEnum):
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
-    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
-    REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
-    REVENUE_ANALYTICS_MRR_QUERY = "RevenueAnalyticsMRRQuery"
-    REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
-    REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
@@ -3330,10 +3321,7 @@ class ProductIntentContext(StrEnum):
     SURVEY_EDITED = "survey_edited"
     SURVEY_ANALYZED = "survey_analyzed"
     QUICK_SURVEY_STARTED = "quick_survey_started"
-    REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
-    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
-    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
     MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
     MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
@@ -3629,22 +3617,6 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
-class MrrOrGross(StrEnum):
-    MRR = "mrr"
-    GROSS = "gross"
-
-
-class RevenueAnalyticsOverviewItemKey(StrEnum):
-    REVENUE = "revenue"
-    PAYING_CUSTOMER_COUNT = "paying_customer_count"
-    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
-
-
-class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
-    MONTH = "month"
-    ALL = "all"
-
-
 class SessionAttributionGroupBy(StrEnum):
     CHANNEL_TYPE = "ChannelType"
     MEDIUM = "Medium"
@@ -3665,11 +3637,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class SimpleIntervalType(StrEnum):
-    DAY = "day"
-    MONTH = "month"
 
 
 class SlackIntegrationScope(StrEnum):
