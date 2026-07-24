@@ -1,13 +1,17 @@
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
+from django.db.models import QuerySet
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
 
 if TYPE_CHECKING:
-    from posthog.models import Person
+    from posthog.models import Person, Team
 
 
 class TicketManager(models.Manager):
@@ -31,7 +35,7 @@ class TicketManager(models.Manager):
             return self.create(**kwargs)
 
 
-class Ticket(UUIDTModel):
+class Ticket(FileSystemSyncMixin, UUIDTModel):
     objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
@@ -175,3 +179,21 @@ class Ticket(UUIDTModel):
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Ticket"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, type="ticket", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Tickets"),
+            type="ticket",
+            # UUID pk as ref — ticket_number is only unique per team
+            ref=str(self.id),
+            name=f"Ticket #{self.ticket_number}",
+            href=f"/support/tickets/{self.ticket_number}",
+            meta={"created_at": str(self.created_at)},
+            # Tickets have no soft delete; hard deletes are handled by the mixin's post_delete signal
+            should_delete=False,
+        )

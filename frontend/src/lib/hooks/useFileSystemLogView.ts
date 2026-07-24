@@ -18,6 +18,7 @@ type FileSystemLogViewType =
     | 'link'
     | 'notebook'
     | 'session_recording_playlist'
+    | 'ticket'
     | `hog_function/${string}`
 
 interface TrackFileSystemLogViewOptions {
