@@ -127,6 +127,8 @@ const TRIGGER_EVENT_TEMPLATES = [
     '{event.properties.property_name}',
     '{event.properties.previous_value}',
     '{event.properties.current_value}',
+    '{event.properties.account_external_id}',
+    '{event.properties.account_name}',
 ]
 
 function StepTriggerConfigurationAccountCustomPropertyChanged({ node }: { node: any }): JSX.Element {
