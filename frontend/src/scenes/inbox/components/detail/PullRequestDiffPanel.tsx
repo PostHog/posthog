@@ -15,6 +15,70 @@ const DIFF_STYLE_OPTIONS = [
 ]
 
 /**
+ * The diff's +/- line counts, shown in the "Files changed" tab label beside the branch so the size of
+ * the change reads at a glance even while the tab is collapsed. Renders nothing until the diff loads
+ * (or if it's empty). Reads the same `reportDiff` the panel body does — no extra fetch.
+ */
+export function PullRequestDiffStat({
+    report,
+    commit,
+}: {
+    report: SignalReport
+    commit: CommitContent
+}): JSX.Element | null {
+    const { reportDiff, reportDiffError } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const summary = useMemo(
+        () => (reportDiff ? summarizeDiff(reportDiff.diff, commit.commit_sha) : null),
+        [reportDiff, commit.commit_sha]
+    )
+    // Reserve the stat's space while the patch is still loading, so it doesn't pop into the tab label —
+    // but on a load error there's no stat to wait for, so drop it (the panel body shows the error).
+    if (!reportDiff) {
+        return reportDiffError ? null : <PullRequestDiffStatSkeleton />
+    }
+    if (!summary || (summary.additions === 0 && summary.deletions === 0)) {
+        return null
+    }
+    return (
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums">
+            {summary.deletions > 0 && <span className="text-danger">-{summary.deletions}</span>}
+            {summary.additions > 0 && <span className="text-success">+{summary.additions}</span>}
+        </span>
+    )
+}
+
+/** Mini placeholders for the "Files changed" tab label, shown from the moment we know the report has a
+ * PR until the commit artefact (branch) and its diff (size) load — so the tab bar appears immediately
+ * instead of a beat later. */
+export function PullRequestDiffStatSkeleton(): JSX.Element {
+    return <LemonSkeleton className="h-3.5 w-9 rounded" />
+}
+
+export function PullRequestBranchTagSkeleton(): JSX.Element {
+    return <LemonSkeleton className="h-[1.375rem] w-24 rounded" />
+}
+
+/**
+ * "Files changed" tab body shown before the commit artefact resolves: a diff skeleton while the branch
+ * is still loading, or a fallback to GitHub if the artefacts finished loading without a diffable commit.
+ */
+export function PullRequestDiffPending({ artefactsLoaded }: { artefactsLoaded: boolean }): JSX.Element {
+    if (artefactsLoaded) {
+        return (
+            <p className="m-0 py-4 text-sm text-tertiary">
+                The diff isn't available here. Open the pull request on GitHub to review the changes.
+            </p>
+        )
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonSkeleton className="h-8 w-full" />
+            <LemonSkeleton className="h-24 w-full" />
+        </div>
+    )
+}
+
+/**
  * The report's branch as a git-branch tag. Rendered in the "Files changed" tab label (so the tab
  * signals there's code behind it, GitHub-style) — inside the LemonTabs active tab it picks up the
  * accent color for free.
@@ -38,7 +102,8 @@ export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX
  * state, tracking the branch tip as the work moves.
  */
 export function PullRequestDiffPanel({ report, commit }: { report: SignalReport; commit: CommitContent }): JSX.Element {
-    const { reportDiff, reportDiffError } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const logicProps = useMemo(() => ({ reportId: report.id, report }), [report])
+    const { reportDiff, reportDiffError } = useValues(inboxReportDetailLogic(logicProps))
     const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>('unified')
     const diffSummary = useMemo(
         () => (reportDiff ? summarizeDiff(reportDiff.diff, commit.commit_sha) : null),
@@ -60,12 +125,14 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
             {reportDiffError ? (
                 <p className="m-0 py-4 text-sm text-danger">{reportDiffError}</p>
             ) : reportDiff ? (
-                <PullRequestDiffView
-                    diff={reportDiff.diff}
-                    truncated={reportDiff.truncated}
-                    cacheKey={commit.commit_sha}
-                    diffStyle={diffStyle}
-                />
+                <>
+                    <PullRequestDiffView
+                        diff={reportDiff.diff}
+                        truncated={reportDiff.truncated}
+                        cacheKey={commit.commit_sha}
+                        diffStyle={diffStyle}
+                    />
+                </>
             ) : (
                 <div className="flex flex-col gap-2">
                     <LemonSkeleton className="h-8 w-full" />
@@ -88,14 +155,9 @@ function DiffToolbarSummary({
         const fileLabel = diffSummary.fileCount === 1 ? '1 file changed' : `${diffSummary.fileCount} files changed`
 
         return (
+            // The +/- line stat lives in the "Files changed" tab label now, so the toolbar carries the file count.
             <div className="flex min-w-0 items-center gap-2 text-sm">
                 <span className="truncate text-secondary">{fileLabel}</span>
-                {(diffSummary.additions > 0 || diffSummary.deletions > 0) && (
-                    <span className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
-                        {diffSummary.deletions > 0 && <span className="text-danger">-{diffSummary.deletions}</span>}
-                        {diffSummary.additions > 0 && <span className="text-success">+{diffSummary.additions}</span>}
-                    </span>
-                )}
             </div>
         )
     }

@@ -1,7 +1,7 @@
 import { type ChangeTypes, type FileDiffMetadata, type FileDiffOptions, parsePatchFiles } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
 import { useValues } from 'kea'
-import { ReactNode, useMemo } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconMinus, IconPencil, IconPlus } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -22,10 +22,105 @@ const CHANGE_META: Record<ChangeTypes, { label: string; icon: ReactNode; classNa
     'rename-changed': { label: 'Renamed', icon: <IconArrowRight />, className: 'text-secondary' },
 }
 
+// Rough per-row / header heights (px) of Pierre's rendered diff, used only to size the loading
+// placeholder so the card doesn't collapse to a bare header while highlighting runs.
+const DIFF_ROW_HEIGHT = 20
+const DIFF_HEADER_HEIGHT = 37
+
 export interface DiffSummary {
     fileCount: number
     additions: number
     deletions: number
+}
+
+/** Estimate how many rows a file's diff renders, to size its loading placeholder. Capped so a huge
+ * file doesn't reserve a screen-height of skeleton. */
+function estimateDiffRows(file: FileDiffMetadata): number {
+    let rows = 0
+    for (const hunk of file.hunks) {
+        // Added + deleted changed lines, plus a little context around each hunk.
+        rows += hunk.additionLines + hunk.deletionLines + 3
+    }
+    return Math.max(3, Math.min(rows, 18))
+}
+
+const SKELETON_LINE_WIDTHS = ['w-3/4', 'w-1/2', 'w-5/6', 'w-2/3', 'w-4/5', 'w-1/3', 'w-3/5', 'w-11/12']
+
+/** Code-shaped placeholder (header bar + gutter + line rows) shown over a file's card until Pierre
+ * finishes highlighting its body — otherwise the body is empty and files read as stacked header rules. */
+function DiffFileCardSkeleton({ rows }: { rows: number }): JSX.Element {
+    return (
+        <div className="animate-pulse" aria-hidden>
+            <div
+                className="flex items-center gap-2 border-b border-primary px-3"
+                style={{ height: DIFF_HEADER_HEIGHT }}
+            >
+                <div className="size-3.5 shrink-0 rounded bg-fill-highlight-100" />
+                <div className="h-2.5 w-40 rounded bg-fill-highlight-100" />
+            </div>
+            <div className="flex flex-col py-1">
+                {Array.from({ length: rows }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3" style={{ height: DIFF_ROW_HEIGHT }}>
+                        <div className="h-2.5 w-6 shrink-0 rounded bg-fill-highlight-50" />
+                        <div
+                            className={`h-2.5 rounded bg-fill-highlight-50 ${SKELETON_LINE_WIDTHS[i % SKELETON_LINE_WIDTHS.length]}`}
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+/**
+ * Card chrome around one file's `FileDiff`. `@pierre/diffs` highlights the body asynchronously (Shiki),
+ * so on first paint the body is empty and the file is just its header. This reserves an estimated height
+ * and overlays a skeleton until the real body renders — detected by the wrapper growing past its header
+ * (with a timeout fallback for degenerate zero-line files that never grow).
+ */
+function DiffFileCard({ file, children }: { file: FileDiffMetadata; children: ReactNode }): JSX.Element {
+    const [rendered, setRendered] = useState(false)
+    const bodyRef = useRef<HTMLDivElement>(null)
+    const rows = useMemo(() => estimateDiffRows(file), [file])
+
+    useEffect(() => {
+        const el = bodyRef.current
+        if (!el) {
+            return
+        }
+        let done = false
+        const finish = (): void => {
+            if (!done) {
+                done = true
+                setRendered(true)
+            }
+        }
+        const observer = new ResizeObserver(() => {
+            if (el.offsetHeight > DIFF_HEADER_HEIGHT + DIFF_ROW_HEIGHT) {
+                finish()
+            }
+        })
+        observer.observe(el)
+        const timer = setTimeout(finish, 2500)
+        return () => {
+            observer.disconnect()
+            clearTimeout(timer)
+        }
+    }, [])
+
+    return (
+        <div
+            className="relative overflow-hidden rounded-lg border border-primary bg-surface-primary"
+            style={rendered ? undefined : { minHeight: DIFF_HEADER_HEIGHT + rows * DIFF_ROW_HEIGHT }}
+        >
+            <div ref={bodyRef}>{children}</div>
+            {!rendered && (
+                <div className="absolute inset-0 bg-surface-primary">
+                    <DiffFileCardSkeleton rows={rows} />
+                </div>
+            )}
+        </div>
+    )
 }
 
 /** Aggregate file/line counts from a unified diff patch — shared by the diff toolbar and file headers. */
@@ -112,7 +207,7 @@ export function PullRequestDiffView({
         }
     }, [diff, cacheKey])
 
-    const options = useMemo<FileDiffOptions<undefined>>(
+    const options = useMemo<FileDiffOptions<never>>(
         () => ({
             theme: DIFF_THEME,
             themeType: isDarkModeOn ? 'dark' : 'light',
@@ -134,19 +229,16 @@ export function PullRequestDiffView({
     return (
         <div className="flex flex-col gap-3">
             {files.map((file) => (
-                // Card chrome around each file so the diff sits in PostHog's visual language (bordered,
-                // rounded surface); @pierre/diffs renders the syntax-highlighted body inside.
-                <div
-                    key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`}
-                    className="overflow-hidden rounded-lg border border-primary bg-surface-primary"
-                >
+                // Card chrome (bordered, rounded surface) so the diff sits in PostHog's visual language;
+                // @pierre/diffs renders the syntax-highlighted body inside, with a skeleton until it does.
+                <DiffFileCard key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`} file={file}>
                     <FileDiff
                         fileDiff={file}
                         options={options}
                         renderCustomHeader={(fileDiff) => <FileDiffHeader file={fileDiff} />}
                         disableWorkerPool
                     />
-                </div>
+                </DiffFileCard>
             ))}
             {truncated ? (
                 <p className="m-0 text-xs text-tertiary italic">

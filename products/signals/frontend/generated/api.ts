@@ -30,6 +30,8 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
+    PullRequestChecksResponseApi,
+    PullRequestCommentsResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -217,6 +219,44 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
+}
+
+/**
+ * Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull request the report's implementation task opened, via the team's GitHub integration.
+ * @summary Fetch CI checks for a report's implementation PR
+ */
+export const signalsReportPrChecks = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestChecksResponseApi> => {
+    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
+}
+
+/**
+ * Fetch the pull request's conversation comments and inline review comments, merged chronologically, via the team's GitHub integration.
+ * @summary Fetch comments for a report's implementation PR
+ */
+export const signalsReportPrComments = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestCommentsResponseApi> => {
+    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -36,7 +36,16 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
-import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { PrChecksSection } from './PrChecksSection'
+import { PrCommentsSection } from './PrCommentsSection'
+import {
+    PullRequestBranchTag,
+    PullRequestBranchTagSkeleton,
+    PullRequestDiffPanel,
+    PullRequestDiffPending,
+    PullRequestDiffStat,
+    PullRequestDiffStatSkeleton,
+} from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -249,12 +258,20 @@ interface InboxDetailFrameProps {
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
+    /** Content rendered in the main column directly under the Summary (e.g. the PR conversation). */
+    summaryFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
+    /** Whether to render the Overview / Files changed tab bar. Driven by whether the report has a PR
+     * (known immediately), not by whether the diff has loaded — so the tab bar doesn't pop in a beat
+     * later and shift the layout. */
+    showFilesTab?: boolean
+    /** Diff body rendered under the "Files changed" tab (may be a skeleton while the commit artefact loads). */
     diffSection?: ReactNode
     /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
     diffBranchTag?: ReactNode
+    /** +/- line-count stat shown in the "Files changed" tab label, right of the branch. */
+    diffStat?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -269,17 +286,20 @@ export function InboxDetailFrame({
     report,
     tab,
     summary,
+    summaryFooter,
     primaryAction,
+    showFilesTab,
     diffSection,
     diffBranchTag,
+    diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
-    const hasDiff = !!diffSection
+    const hasDiff = !!showFilesTab
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -305,7 +325,7 @@ export function InboxDetailFrame({
 
     const overviewBody = (
         <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0">
+            <div className="min-w-0 flex flex-col gap-5">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
@@ -320,6 +340,7 @@ export function InboxDetailFrame({
                         </p>
                     )}
                 </DetailSection>
+                {summaryFooter}
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
@@ -443,6 +464,7 @@ export function InboxDetailFrame({
                             label: (
                                 <span className="flex items-center gap-1.5">
                                     <span>Files changed</span>
+                                    {diffStat}
                                     {diffBranchTag}
                                 </span>
                             ),
@@ -469,7 +491,7 @@ function prFilesUrl(prUrl: string): string {
  * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
-    const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -479,6 +501,10 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
     // tab when that artefact carries the repo + branch the diff endpoint needs.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
     const canDiff = !!(commit?.repository && commit?.branch)
+    // A PR-bearing report always gets the tab bar right away — driven by `hasPr` (immediate) rather than
+    // the diff artefact (a beat later), so the tabs don't pop in and shift the layout. While the commit
+    // artefact is still loading, the tab label and body show skeletons.
+    const artefactsLoaded = reportArtefacts !== null
 
     return (
         <InboxDetailFrame
@@ -499,14 +525,33 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                     </LemonButton>
                 ) : undefined
             }
+            showFilesTab={hasPr || canDiff}
             diffSection={
-                canDiff && commit && latestCommitArtefact ? (
+                canDiff && commit ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
+                ) : hasPr ? (
+                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
                 ) : undefined
             }
             diffBranchTag={
-                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
+                canDiff && commit ? (
+                    <PullRequestBranchTag commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestBranchTagSkeleton />
+                ) : undefined
             }
-        />
+            diffStat={
+                canDiff && commit ? (
+                    <PullRequestDiffStat report={report} commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestDiffStatSkeleton />
+                ) : undefined
+            }
+            // The PR conversation sits under the Summary as primary content; CI checks stay in the
+            // sidebar. Both drop themselves when there's nothing to show.
+            summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+        >
+            {hasPr && <PrChecksSection report={report} />}
+        </InboxDetailFrame>
     )
 }

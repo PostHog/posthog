@@ -812,6 +812,12 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-report-pr-checks:
+        operation: signals_report_pr_checks
+        enabled: false
+    signals-report-pr-comments:
+        operation: signals_report_pr_comments
+        enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create
         enabled: false
