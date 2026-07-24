@@ -296,10 +296,8 @@ class TestRedisStream(BaseTest):
             self.assertEqual(chunks[1].event.type, AssistantEventType.MESSAGE)
 
     @pytest.mark.asyncio
-    async def test_read_stream_invalid_data_skipped(self):
+    async def test_read_stream_legacy_pickle_entry_skipped(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            # Mock xread to return invalid serialized data
-
             valid_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="valid chunk"))
             )
@@ -309,7 +307,7 @@ class TestRedisStream(BaseTest):
                     (
                         self.stream_key,
                         [
-                            (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid serialized data
+                            (b"1234-0", {b"data": b"\x80\x05legacy"}),  # legacy pickle entry (0x80 prefix)
                             (b"1234-1", {b"data": valid_event.model_dump_json().encode("utf-8")}),
                             (b"1234-2", {b"data": complete_event.model_dump_json().encode("utf-8")}),
                         ],
@@ -317,10 +315,29 @@ class TestRedisStream(BaseTest):
                 ]
             )
 
-            with self.assertRaises(Exception):  # Should raise exception on invalid data
-                chunks = []
-                async for chunk in self.redis_stream.read_stream():
-                    chunks.append(chunk)
+            chunks = []
+            async for chunk in self.redis_stream.read_stream():
+                chunks.append(chunk)
+
+            # The legacy entry is skipped; the valid message is still delivered and the completion
+            # marker ends the stream, instead of the whole read failing.
+            self.assertEqual(len(chunks), 1)
+            payload = cast(AssistantMessage, chunks[0].event.payload)
+            self.assertEqual(payload.content, "valid chunk")
+
+    async def test_read_stream_corrupt_entry_raises(self):
+        # A non-legacy entry that fails to parse is a real error, not a stale pre-migration entry,
+        # so the read fails rather than silently dropping it.
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xread = AsyncMock(
+                return_value=[(self.stream_key, [(b"1234-0", {b"data": b"{not valid json"})])]
+            )
+
+            with self.assertRaises(StreamError) as context:
+                async for _ in self.redis_stream.read_stream():
+                    pass
+
+            self.assertIn("Unexpected error reading", str(context.exception))
 
     @pytest.mark.asyncio
     async def test_write_to_stream_success(self):
