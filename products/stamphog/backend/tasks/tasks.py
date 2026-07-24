@@ -176,6 +176,12 @@ def _inbox_rereview_carve_out(
     head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
     if head_repo.strip().lower() != repo.strip().lower():
         return _InboxCarveOut()
+    # Fail closed before any DB / tasks-facade work when review_hog isn't installed to answer the
+    # toggle question: a missing resolver forces the empty carve-out regardless, so resolving it
+    # up-front spares every bot-authored head-changing delivery the config + facade lookups.
+    resolver = get_inbox_acting_reviewer_resolver()
+    if resolver is None:
+        return _InboxCarveOut()
     repo_config = _resolve_repo_config(installation_id, repo)
     if (
         repo_config is None
@@ -197,10 +203,6 @@ def _inbox_rereview_carve_out(
     # The facade enforces the team scope; the recheck here is belt and braces for the boundary
     # a compromised or refactored facade would otherwise silently widen.
     if run is None or run.team_id != repo_config.team_id:
-        return _InboxCarveOut()
-    resolver = get_inbox_acting_reviewer_resolver()
-    if resolver is None:
-        # review_hog isn't installed to answer the toggle question — fail closed, no re-review.
         return _InboxCarveOut()
     acting_user_id = resolver(repo_config.team_id, str(run.signal_report_id), run.task_created_by_id)
     if acting_user_id is None:
