@@ -2,7 +2,7 @@ import uuid
 import datetime as dt
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -12,7 +12,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
+from posthog.temporal.common.clickhouse import ClickHouseTooManySimultaneousQueriesError
 from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
+    CLICKHOUSE_QUERY_MAX_ATTEMPTS,
     ReconcilePersonPropertiesResult,
     ReconcilePrecalculatedDataWorkflow,
     ReconcilePrecalculatedDataWorkflowInputs,
@@ -22,6 +24,7 @@ from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
     ReconciliationTeamIdsResult,
     _get_realtime_person_property_filters,
     _positive_int_env,
+    _stream_query_with_backoff,
     get_reconciliation_run_config_activity,
     get_reconciliation_team_ids_activity,
     reconcile_team_precalculated_events_activity,
@@ -71,8 +74,63 @@ class TestGetReconciliationRunConfigActivity:
         result = await ActivityEnvironment().run(get_reconciliation_run_config_activity)
         after = dt.datetime.now(dt.UTC)
 
-        assert result.team_concurrency == 5
+        assert result.team_concurrency == 3
         assert before - dt.timedelta(hours=48) <= result.since <= after - dt.timedelta(hours=48)
+
+
+async def _stream_reject():
+    # An async generator that fails at query submission (before streaming any row) — the shape
+    # of a TOO_MANY_SIMULTANEOUS_QUERIES rejection. The empty loop makes this an async
+    # generator function without an unreachable `yield` after the raise.
+    for _ in range(0):
+        yield {}
+    raise ClickHouseTooManySimultaneousQueriesError("TOO_MANY_SIMULTANEOUS_QUERIES")
+
+
+@pytest.mark.asyncio
+class TestStreamQueryWithBackoff:
+    async def _drain(self, client) -> list[dict]:
+        return [row async for row in _stream_query_with_backoff(client, "SELECT 1", {}, MagicMock())]
+
+    async def test_retries_over_cap_rejection_then_returns_full_result(self):
+        # An over-cap rejection lands before any row streams, so restarting the query can't
+        # double-process; the helper must retry and ultimately yield the complete result.
+        async def succeed():
+            yield {"distinct_id": "a"}
+            yield {"distinct_id": "b"}
+
+        client = MagicMock()
+        client.stream_query_as_jsonl.side_effect = [_stream_reject(), _stream_reject(), succeed()]
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            rows = await self._drain(client)
+
+        assert rows == [{"distinct_id": "a"}, {"distinct_id": "b"}]
+        assert client.stream_query_as_jsonl.call_count == 3
+
+    async def test_gives_up_after_max_attempts(self):
+        client = MagicMock()
+        client.stream_query_as_jsonl.side_effect = [_stream_reject() for _ in range(CLICKHOUSE_QUERY_MAX_ATTEMPTS)]
+
+        with patch("asyncio.sleep", new_callable=AsyncMock), pytest.raises(ClickHouseTooManySimultaneousQueriesError):
+            await self._drain(client)
+
+        assert client.stream_query_as_jsonl.call_count == CLICKHOUSE_QUERY_MAX_ATTEMPTS
+
+    async def test_does_not_retry_after_a_row_was_yielded(self):
+        # If the cap error somehow surfaces mid-stream, retrying would re-emit already-yielded
+        # rows. Once anything has been yielded the error must propagate rather than restart.
+        async def yield_then_fail():
+            yield {"distinct_id": "a"}
+            raise ClickHouseTooManySimultaneousQueriesError("TOO_MANY_SIMULTANEOUS_QUERIES")
+
+        client = MagicMock()
+        client.stream_query_as_jsonl.side_effect = [yield_then_fail()]
+
+        with patch("asyncio.sleep", new_callable=AsyncMock), pytest.raises(ClickHouseTooManySimultaneousQueriesError):
+            await self._drain(client)
+
+        assert client.stream_query_as_jsonl.call_count == 1
 
 
 def _insert_precalculated_event(
