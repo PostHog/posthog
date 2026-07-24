@@ -68,6 +68,20 @@ class MergeFoldLimitError extends Error {}
 /** Thrown inside the fold transaction to roll it back when a concurrent merge invalidated the fetched sources. */
 class MergeFoldConflictError extends Error {}
 
+/** Maps a fold failure to the fallback counter's reason label. */
+function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' | 'error' {
+    if (error instanceof MergeFoldLimitError) {
+        return 'limit'
+    }
+    if (error instanceof MergeFoldConflictError) {
+        return 'conflict'
+    }
+    if ((error as { code?: string })?.code === '40P01') {
+        return 'deadlock'
+    }
+    return 'error'
+}
+
 /**
  * Service responsible for handling person merging operations (identify, alias, merge).
  * Extracted from PersonState to focus on merge-specific logic.
@@ -366,12 +380,7 @@ export class PersonMergeService {
             // re-runs its own merge (a no-op if the fold partially landed), and
             // later events in the run process individually with full retries.
             plan.status = 'abandoned'
-            const reason =
-                error instanceof MergeFoldLimitError
-                    ? 'limit'
-                    : error instanceof MergeFoldConflictError
-                      ? 'conflict'
-                      : 'error'
+            const reason = foldFallbackReason(error)
             mergeFoldFallbackCounter.labels({ reason }).inc()
             // The batch store's caches were updated optimistically inside the
             // rolled-back transaction (distinct id → target mappings); purge
