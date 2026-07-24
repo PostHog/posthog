@@ -67,6 +67,32 @@ class TestChatCompletionsEndpoint:
         assert response.status_code == 422
         assert expected_field in str(response.json())
 
+    @pytest.mark.parametrize(
+        "token_field,token_value",
+        [
+            pytest.param("max_tokens", 32000.0, id="max_tokens_float"),
+            pytest.param("max_completion_tokens", "32000", id="max_completion_tokens_string"),
+        ],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_non_streaming_token_limit_is_normalized_before_budget_check(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict[str, Any],
+        token_field: str,
+        token_value: float | str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={**valid_request_body, token_field: token_value},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "streaming_required"
+        mock_completion.assert_not_called()
+
     @patch("llm_gateway.api.openai.litellm.acompletion")
     def test_successful_request(
         self,

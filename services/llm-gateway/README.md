@@ -314,6 +314,10 @@ Errors follow OpenAI's format:
 | 429    | Rate limit exceeded                         |
 | 504    | Request timeout                             |
 
+Non-streaming requests are rejected up front with a 400 (`code: "streaming_required"`) when `max_tokens` implies the generation cannot finish within the gateway's request timeout (300s by default, at a conservative 128K tokens/hour).
+Such a request could only ever burn the full timeout and return a 504, so the gateway fails fast instead: switch the caller to streaming and accumulate the stream if a single response is needed.
+This mirrors the Anthropic SDKs, which refuse non-streaming requests expected to exceed 10 minutes.
+
 ## Internal Django integration
 
 For calling from PostHog Django:
