@@ -140,6 +140,17 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter is None
 
+    def test_date_override_resets_tile_explicit_date_flag(self):
+        # Tile was set to an exact-time range; a dashboard date range that omits explicitDate must
+        # not leave the stale flag behind, or its upper bound resolves to the current instant.
+        query_runner = self._create_query_runner("2020-01-09", "2020-01-20", IntervalType.DAY, None, explicit_date=True)
+
+        query_runner.apply_dashboard_filters(DashboardFilter(date_from="mStart", explicitDate=None))
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "mStart"
+        assert not query_runner.query.dateRange.explicitDate
+
     def test_properties_set_when_no_filters_present(self):
         query_runner = self._create_query_runner(
             "2020-01-09",
