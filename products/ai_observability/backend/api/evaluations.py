@@ -36,6 +36,7 @@ from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
@@ -753,7 +754,12 @@ def _test_hog_over_traces(
     )
 
     if not results:
-        return Response({"results": [], "message": "No recent AI traces found in the last 7 days"})
+        return Response(
+            {
+                "results": [],
+                "message": f"No recent AI traces found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+            }
+        )
     return Response({"results": results})
 
 
@@ -1007,7 +1013,10 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 right=ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Call(name="now", args=[]),
-                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                    right=ast.Call(
+                        name="toIntervalDay",
+                        args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
+                    ),
                 ),
             ),
         ]
@@ -1062,7 +1071,12 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 team=self.team,
                 request=self.request,
             )
-            return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
+            return Response(
+                {
+                    "results": [],
+                    "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+                }
+            )
 
         results = []
         for row in query_results:
@@ -1114,6 +1128,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "fail_count": sum(1 for r in results if r["result"] is False),
                 "error_count": sum(1 for r in results if r["error"]),
                 "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+                "no_events": False,
                 "target": target,
             },
             team=self.team,

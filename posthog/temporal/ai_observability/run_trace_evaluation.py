@@ -69,6 +69,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
 )
@@ -319,7 +320,7 @@ def run_hog_eval_over_recent_traces(
     sample_count: int,
     allows_na: bool,
     window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    lookback_days: int = 7,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
 

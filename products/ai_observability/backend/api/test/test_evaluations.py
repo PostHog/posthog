@@ -980,8 +980,9 @@ class TestTestHogEndpoint(APIBaseTest):
             columns=["uuid", "event", "properties", "distinct_id", "timestamp", *HEAVY_COLUMN_NAMES],
         )
 
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_test_hog_loads_ai_input_and_output(self, mock_query):
+    def test_test_hog_loads_ai_input_and_output(self, mock_query, mock_report_user_action):
         mock_query.return_value = self._mock_hogql_response(2)
 
         response = self.client.post(
@@ -1013,6 +1014,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
         self.assertEqual(query.select[4].chain, ["timestamp"])
         self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
+        self.assertFalse(mock_report_user_action.call_args.args[2]["no_events"])
 
     def test_test_hog_compilation_error(self):
         response = self.client.post(

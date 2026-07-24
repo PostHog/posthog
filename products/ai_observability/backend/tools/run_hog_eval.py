@@ -12,6 +12,7 @@ from posthog.sync import database_sync_to_async
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
@@ -19,7 +20,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 
 from ee.hogai.tool import MaxTool
 
-TOOL_DESCRIPTION = """Test Hog evaluation code against sample data from the last 7 days.
+TOOL_DESCRIPTION = f"""Test Hog evaluation code against sample data from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.
 
 Returns compilation errors if the code is invalid, or pass/fail/error results for each sample.
 
@@ -117,7 +118,10 @@ class RunHogEvalTestTool(MaxTool):
                         right=ast.ArithmeticOperation(
                             op=ast.ArithmeticOperationOp.Sub,
                             left=ast.Call(name="now", args=[]),
-                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                            right=ast.Call(
+                                name="toIntervalDay",
+                                args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
+                            ),
                         ),
                     ),
                 ]
@@ -135,7 +139,8 @@ class RunHogEvalTestTool(MaxTool):
         )
         if not response.results:
             return (
-                "No recent AI events found in the last 7 days. Ingest some $ai_generation or $ai_metric events first.",
+                f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days. "
+                "Ingest some $ai_generation or $ai_metric events first.",
                 None,
             )
 
@@ -234,7 +239,11 @@ class RunHogEvalTestTool(MaxTool):
             window_seconds=window_seconds,
         )
         if not trace_results:
-            return ("No recent AI traces found in the last 7 days. Ingest some $ai_generation events first.", None)
+            return (
+                f"No recent AI traces found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days. "
+                "Ingest some $ai_generation events first.",
+                None,
+            )
 
         lines: list[str] = [f"Sampled {len(trace_results)} trace(s). Ran against trace-level globals.", ""]
         for r in trace_results:
