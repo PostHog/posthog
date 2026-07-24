@@ -1,3 +1,4 @@
+import random
 from datetime import date, datetime, timedelta
 from functools import partial
 from uuid import UUID
@@ -10,10 +11,12 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks.utils import CeleryQueue
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -41,6 +44,11 @@ RECOMPUTE_DEBOUNCE_TTL_SECONDS = 26 * 60 * 60
 STREAK_CADENCE_FLAG = "web-analytics-streak-cadence"
 ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
+
+# The periodic sweep fans out one recompute per active team. Rather than enqueue every team's
+# ClickHouse-backed recompute in a single burst, spread them over this window so they trickle onto
+# the paced queue instead of piling up all at once.
+SWEEP_STAGGER_WINDOW_SECONDS = 30 * 60
 
 # Only these (ClickHouse-backed) evaluators are gated to once per team-local day. The cheap DB-backed
 # tracks (streak, loyalty, first-party interaction counters) recompute on every trigger so they stay
@@ -83,10 +91,13 @@ def _user_opted_out(team: Team, user: User) -> bool:
     return WebAnalyticsUserConfig.objects.for_team(team.id).filter(user_id=user.id, achievements_opt_out=True).exists()
 
 
-def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id: int | None, today: date) -> bool:
+def enqueue_recompute_web_analytics_achievements_debounced(
+    team_id: int, user_id: int | None, today: date, countdown: float = 0.0
+) -> bool:
     """Enqueue a recompute for this scope at most once per team-local day. Date-keyed (not a rolling
     24h TTL) so the first visit each day recomputes promptly, keeping streaks fresh. Fails open on a
-    cache error so a Redis blip can't drop the visit signal."""
+    cache error so a Redis blip can't drop the visit signal. `countdown` delays the task, letting the
+    periodic sweep stagger its fan-out; user-facing callers leave it at 0 for a prompt recompute."""
     scope = str(user_id) if user_id is not None else "team"
     debounce_key = f"wa_achievements_recompute:{team_id}:{scope}:{today.isoformat()}"
     try:
@@ -96,7 +107,9 @@ def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id
         capture_exception(e)
         was_added = True
     if was_added:
-        recompute_web_analytics_achievements.delay(team_id, user_id=user_id)
+        recompute_web_analytics_achievements.apply_async(
+            args=[team_id], kwargs={"user_id": user_id}, countdown=countdown
+        )
         return True
     return False
 
@@ -126,7 +139,22 @@ def recompute_web_analytics_achievements_sync(
         _recompute_track(ctx, track)
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    # Paced queue whose consumer caps concurrency — keeps the fan-out from exhausting the shared
+    # ClickHouse query pool (the achievement recomputes run expensive HogQL queries).
+    queue=CeleryQueue.ANALYTICS_LIMITED.value,
+    # If ClickHouse is still at capacity, back off and retry rather than dropping the recompute —
+    # silently swallowing this is what left tracks stale and flooded error tracking.
+    autoretry_for=(ClickHouseAtCapacity,),
+    retry_backoff=5,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    max_retries=5,
+    # Drop tasks that sat in the queue too long; the sweep re-enqueues every 6h and the debounce is
+    # per team-local day, so a stale backlog is not worth running.
+    expires=60 * 60,
+)
 @skip_team_scope_audit
 def recompute_web_analytics_achievements(team_id: int, user_id: int | None = None) -> None:
     recompute_web_analytics_achievements_sync(team_id, user_id=user_id)
@@ -188,6 +216,10 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     evaluator = EVALUATORS[track.evaluator_key]
     try:
         new_value = evaluator(ctx)
+    except ClickHouseAtCapacity:
+        # Bubble up so the task's autoretry backs off and retries — otherwise this recompute is lost
+        # and the "too many simultaneous queries" errors just accumulate in error tracking.
+        raise
     except Exception as e:
         logger.warning("wa_achievements_eval_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         capture_exception(e)
@@ -274,6 +306,9 @@ def sweep_web_analytics_achievement_team_tracks() -> None:
     for team_id in team_ids:
         try:
             team = Team.objects.get(id=team_id)
-            enqueue_recompute_web_analytics_achievements_debounced(team_id, None, team_local_today(team))
+            countdown = random.uniform(0, SWEEP_STAGGER_WINDOW_SECONDS)
+            enqueue_recompute_web_analytics_achievements_debounced(
+                team_id, None, team_local_today(team), countdown=countdown
+            )
         except Exception:
             logger.warning("wa_achievements_sweep_enqueue_failed", team_id=team_id, exc_info=True)
