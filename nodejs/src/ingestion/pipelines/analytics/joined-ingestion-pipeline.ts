@@ -25,6 +25,7 @@ import {
     createEnrichSurveyPersonPropertiesStep,
     createSkipCookielessRateLimitToOverflowStep,
     createValidateAiEventTokensStep,
+    createValidateEventUuidTimestampStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -219,6 +220,7 @@ export function createJoinedIngestionPipeline<
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())
+            .pipe(createValidateEventUuidTimestampStep())
             .pipe(createEnrichSurveyPersonPropertiesStep())
             .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
             // Group by token:distinctId and process each group concurrently.
