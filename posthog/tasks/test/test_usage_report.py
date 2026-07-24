@@ -1095,6 +1095,18 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         # mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
+class TestGetTeamReportMissingKeys(SimpleTestCase):
+    def test_missing_metric_key_defaults_to_zero_instead_of_keyerror(self) -> None:
+        # A Temporal usage-report run started before a new QUERIES entry shipped hands the
+        # aggregation an all_data map without that key; _get_team_report must default it to 0
+        # rather than KeyError, so a stale in-flight run can't crash the aggregation.
+        report = _get_team_report({}, Mock(id=1))
+
+        assert report.heatmap_events_count_in_period == 0
+        assert report.event_count_in_period == 0
+        assert report.replay_vision_credits_used_in_period == 0
+
+
 @freeze_time("2022-01-09T00:01:00Z")
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
