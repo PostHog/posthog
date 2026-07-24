@@ -407,6 +407,20 @@
             "readOnlyHint": false
         }
     },
+    "property-definition-update": {
+        "description": "Update property definition metadata. Can update description, tags, property type (DateTime, String, Numeric, Boolean, Duration), and mark status as verified or hidden. Use the exact property name like '$browser' or 'plan_type'. Pass 'type' to target event, person, group, or session properties (defaults to event); for group properties also pass 'groupTypeIndex'. Note: passing 'tags' replaces the property's entire tag list rather than merging, so include any existing tags you want to keep.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Update a property definition's metadata.",
+        "title": "Update property definition",
+        "required_scopes": ["property_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "path-cleaning-rules-update": {
         "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
         "category": "Web analytics",
@@ -705,7 +719,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -719,7 +733,7 @@
         }
     },
     "workflows-run-batch": {
-        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count AND the confirm_token from that same workflows-blast-radius preview; the API rejects dispatch without the token, on audience drift, over the cap, or after 15 minutes.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Run batch workflow",

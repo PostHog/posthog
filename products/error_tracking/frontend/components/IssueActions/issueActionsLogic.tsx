@@ -251,7 +251,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 await runMutation(
                     'updateIssueStatus',
                     async () => {
-                        posthog.capture('error_tracking_issue_update_status')
+                        posthog.capture('error_tracking_issue_update_status', {
+                            status,
+                            issue_id: id,
+                            source: 'issue_actions',
+                        })
                         await api.errorTracking.updateIssue(id, { status })
                     },
                     async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { status })
