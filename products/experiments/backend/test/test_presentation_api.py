@@ -2617,6 +2617,55 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
 
+    def test_running_split_change_preserves_non_lowercase_control_key(self):
+        # A running experiment whose flag uses a non-lowercase 'control' key (legacy / API-created).
+        # The distribution editor echoes that key back on a pure split change; the control-case
+        # normalization must not rewrite it to 'control', which the running-experiment variant guard
+        # would otherwise read as a rename and reject (and the flag sync would rename mid-run).
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="running-control-case",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "Control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Running control case",
+            feature_flag=flag,
+            start_date=datetime(2021, 12, 1, 10, 23, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "Control", "name": "Control", "rollout_percentage": 75},
+                                {"key": "test", "name": "Test", "rollout_percentage": 25},
+                            ]
+                        }
+                    }
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertEqual([v["key"] for v in flag.variants], ["Control", "test"])
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [75, 25])
+
     def test_feature_flag_object_payloads_and_continuity_live_on_the_flag(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

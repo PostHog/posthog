@@ -567,9 +567,38 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
         config_serializer.is_valid(raise_exception=True)
         config = dict(config_serializer.validated_data)
+        self._restore_linked_flag_variant_keys(config)
         self._assert_flag_variants_valid(config)
         data["feature_flag"] = config
         return data
+
+    def _restore_linked_flag_variant_keys(self, config: dict) -> None:
+        """Keep the linked flag's existing variant-key casing when a client echoes its variants back.
+
+        ``_normalized_flag_variants`` lowercases a case-variant 'control' key (e.g. 'Control') to
+        rescue typo'd create payloads. But the distribution editor seeds its variants from the linked
+        flag and sends them back verbatim, so on a flag whose control key isn't lowercase that rewrite
+        diverges the echoed key from the stored one. The running-experiment variant guard then reads
+        the divergence as a rename and rejects a pure split change, and were it to get through the sync
+        would silently rename the variant mid-experiment (orphaning exposures logged under the old
+        key). Adopt the flag's stored casing for any incoming variant that matches an existing one
+        case-insensitively; genuine renames (a key with no case-insensitive match) are untouched."""
+        flag = self.instance.feature_flag if self.instance is not None else None
+        if flag is None:
+            return
+        variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
+        if not variants:
+            return
+        existing_by_lower = {
+            v["key"].lower(): v["key"] for v in flag.variants if isinstance(v, dict) and isinstance(v.get("key"), str)
+        }
+        for variant in variants:
+            key = variant.get("key")
+            if not isinstance(key, str):
+                continue
+            existing_key = existing_by_lower.get(key.lower())
+            if existing_key is not None and existing_key != key:
+                variant["key"] = existing_key
 
     def validate_parameters(self, value):
         # Flag config is no longer a persisted `parameters` key; it is sourced from the linked flag
