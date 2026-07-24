@@ -1,19 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
-import {
-    Button,
-    Combobox,
-    ComboboxContent,
-    ComboboxEmpty,
-    ComboboxInput,
-    ComboboxItem,
-    ComboboxList,
-    ComboboxListFooter,
-    ComboboxTrigger,
-} from '@posthog/quill'
+import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -258,18 +246,8 @@ function AddRepoDropdown(): JSX.Element {
         useValues(visualReviewSettingsSceneLogic)
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
-    const triggerRef = useRef<HTMLButtonElement>(null)
-    const [searchQuery, setSearchQuery] = useState('')
 
     const unaddedRepos = availableRepos.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
-    const normalizedSearchQuery = searchQuery.trim().toLowerCase()
-    const filteredRepoNames = unaddedRepos
-        .filter(
-            (repo: GitHubRepoApi) =>
-                repo.full_name.toLowerCase().includes(normalizedSearchQuery) ||
-                repo.name.toLowerCase().includes(normalizedSearchQuery)
-        )
-        .map((repo: GitHubRepoApi) => repo.full_name)
 
     if (githubRepositoriesLoading && availableRepos.length === 0) {
         return (
@@ -282,58 +260,49 @@ function AddRepoDropdown(): JSX.Element {
     const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
 
     return (
-        <Combobox
-            items={filteredRepoNames}
-            filter={null}
-            value={null}
-            inputValue={searchQuery}
-            onInputValueChange={setSearchQuery}
-            onValueChange={(fullName: string | null) => {
+        <LemonSearchableSelect
+            placeholder="Add a repository..."
+            searchPlaceholder="Search repositories"
+            noResultsMessage="No repositories found"
+            loading={saving}
+            options={[
+                {
+                    options:
+                        unaddedRepos.length > 0
+                            ? unaddedRepos.map((repo: GitHubRepoApi) => ({
+                                  value: repo.full_name,
+                                  label: repo.full_name,
+                              }))
+                            : [
+                                  {
+                                      value: '__empty__' as any,
+                                      label: 'No more repositories',
+                                      disabledReason: 'All repositories have been added',
+                                  },
+                              ],
+                    footer: (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            to={manageAccessUrl}
+                            targetBlank={!!githubManageAccessUrl}
+                            className="text-muted"
+                        >
+                            Manage access
+                        </LemonButton>
+                    ),
+                },
+            ]}
+            onChange={(fullName) => {
                 const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
                 if (repo) {
                     addRepo(repo)
                 }
             }}
-            disabled={saving}
-        >
-            <ComboboxTrigger
-                render={
-                    <Button ref={triggerRef} variant="outline" size="sm" loading={saving}>
-                        Add a repository...
-                    </Button>
-                }
-            />
-            <ComboboxContent anchor={triggerRef} className="min-w-[280px]">
-                <ComboboxInput placeholder="Search repositories..." />
-                <ComboboxEmpty>
-                    {unaddedRepos.length === 0 ? 'No more repositories' : 'No repositories found'}
-                </ComboboxEmpty>
-                <ComboboxList>
-                    {(fullName: string) => (
-                        <ComboboxItem key={fullName} value={fullName}>
-                            {fullName}
-                        </ComboboxItem>
-                    )}
-                </ComboboxList>
-                <ComboboxListFooter>
-                    <Button
-                        variant="link-muted"
-                        size="sm"
-                        className="w-full justify-center"
-                        render={
-                            // eslint-disable-next-line react/forbid-elements
-                            <a
-                                href={manageAccessUrl}
-                                target={githubManageAccessUrl ? '_blank' : undefined}
-                                rel={githubManageAccessUrl ? 'noopener noreferrer' : undefined}
-                            />
-                        }
-                    >
-                        Manage access
-                    </Button>
-                </ComboboxListFooter>
-            </ComboboxContent>
-        </Combobox>
+            value={null}
+            size="small"
+        />
     )
 }
 
