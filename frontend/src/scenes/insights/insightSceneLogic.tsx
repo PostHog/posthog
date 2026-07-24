@@ -11,7 +11,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -218,9 +218,6 @@ export interface insightSceneLogicActions {
         tileFiltersOverride: TileFilters | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
     }
-    updateFiltersOverride: (filtersOverride: DashboardFilter | null) => {
-        filtersOverride: DashboardFilter | null
-    }
     upgradeQuery: (query: Node) => {
         query: Node<Record<string, any>>
     }
@@ -363,9 +360,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
         upgradeQuery: (query: Node) => ({ query }),
-        // View-time filter overrides live in the `filters_override` URL param, so this only
-        // navigates — the urlToAction below picks the change up and reloads the insight.
-        updateFiltersOverride: (filtersOverride: DashboardFilter | null) => ({ filtersOverride }),
     }),
     reducers({
         insightId: [
@@ -916,20 +910,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         return {
             setInsightId: actionToUrl,
             setInsightMode: actionToUrl,
-            updateFiltersOverride: ({ filtersOverride }) => {
-                const insightId = values.insightId
-                if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
-                    return undefined
-                }
-                const searchParams = { ...router.values.searchParams }
-                delete searchParams['filters_override']
-                if (filtersOverride && !isDashboardFilterEmpty(filtersOverride)) {
-                    searchParams['filters_override'] = filtersOverride
-                }
-                // Must be a PUSH: the urlToAction above skips REPLACE navigations on an unchanged
-                // insight/mode, so a replace would leave the new overrides unapplied.
-                return [urls.insightView(insightId), searchParams, router.values.hashParams]
-            },
         }
     }),
 ])

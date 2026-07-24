@@ -20,7 +20,7 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
 import { insightVizDataLogic } from './insightVizDataLogic'
-import { SqlInsightFilterOverrides } from './SqlInsightFilterOverrides'
+import { SqlInsightFilters } from './SqlInsightFilters'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -92,7 +92,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
 
                 <InsightRetentionBanner insightProps={insightProps} />
 
-                <SqlInsightFilterOverrides query={query}>
+                <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
                         // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
                         <LemonSkeleton className="h-100 w-full" />
@@ -115,7 +115,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                             variablesOverride={variablesOverride}
                         />
                     )}
-                </SqlInsightFilterOverrides>
+                </SqlInsightFilters>
             </SceneContent>
         </BindLogic>
     )

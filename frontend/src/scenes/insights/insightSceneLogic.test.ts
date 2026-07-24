@@ -496,24 +496,4 @@ describe('insightSceneLogic', () => {
 
         expect(insightApiCall.mock.calls.length).toEqual(callCountAfterInitialLoad)
     })
-
-    it('updateFiltersOverride applies and clears view-time filter overrides via the URL', async () => {
-        logic = insightSceneLogic()
-        logic.mount()
-
-        router.actions.push(urls.insightView(Insight42))
-        await expectLogic(logic).toMatchValues({ insightId: Insight42, filtersOverride: null })
-
-        // Overrides must land in both the URL and the scene state — a REPLACE navigation would be
-        // skipped by the scene's urlToAction and leave them unapplied.
-        logic.actions.updateFiltersOverride({ date_from: '-30d', date_to: null })
-        await expectLogic(logic).toMatchValues({ filtersOverride: { date_from: '-30d', date_to: null } })
-        expect(router.values.searchParams['filters_override']).toEqual({ date_from: '-30d', date_to: null })
-
-        logic.actions.updateFiltersOverride(null)
-        await expectLogic(logic).toMatchValues({ filtersOverride: null })
-        expect(router.values.searchParams['filters_override']).toBeUndefined()
-
-        await expectLogic(logic).delay(150) // let the loadInsight debounce settle before teardown
-    })
 })
