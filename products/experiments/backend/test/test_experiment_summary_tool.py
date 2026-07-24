@@ -19,13 +19,16 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.experiments.backend.experiment_summary_data_service import (
+    CLICKHOUSE_CAPACITY_MAX_RETRIES,
     ExperimentSummaryDataService,
     get_chance_to_win,
     get_delta_from_interval,
     parse_metric_dict,
+    run_with_capacity_retry,
     transform_variant_for_max,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
@@ -202,6 +205,31 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
     )
     def test_get_default_metric_title(self, _name, metric_dict, expected):
         self.assertEqual(get_default_metric_title(metric_dict), expected)
+
+    @patch("products.experiments.backend.experiment_summary_data_service.time.sleep")
+    def test_run_with_capacity_retry_succeeds_after_transient_capacity_errors(self, mock_sleep):
+        # Fails with ClickHouseAtCapacity a couple of times, then succeeds — the retry should
+        # swallow the transient errors and return the eventual result.
+        run_fn = MagicMock(side_effect=[ClickHouseAtCapacity(), ClickHouseAtCapacity(), "ok"])
+        self.assertEqual(run_with_capacity_retry(run_fn), "ok")
+        self.assertEqual(run_fn.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("products.experiments.backend.experiment_summary_data_service.time.sleep")
+    def test_run_with_capacity_retry_reraises_after_budget_exhausted(self, mock_sleep):
+        run_fn = MagicMock(side_effect=ClickHouseAtCapacity())
+        with self.assertRaises(ClickHouseAtCapacity):
+            run_with_capacity_retry(run_fn)
+        # One initial attempt plus one per retry in the budget.
+        self.assertEqual(run_fn.call_count, CLICKHOUSE_CAPACITY_MAX_RETRIES + 1)
+
+    @patch("products.experiments.backend.experiment_summary_data_service.time.sleep")
+    def test_run_with_capacity_retry_does_not_retry_other_errors(self, mock_sleep):
+        run_fn = MagicMock(side_effect=ValueError("boom"))
+        with self.assertRaises(ValueError):
+            run_with_capacity_retry(run_fn)
+        self.assertEqual(run_fn.call_count, 1)
+        mock_sleep.assert_not_called()
 
 
 @override_settings(IN_UNIT_TESTING=True)
