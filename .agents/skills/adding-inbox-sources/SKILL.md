@@ -216,7 +216,7 @@ value `mcp` is upgraded based on the caller:
 | Other MCP clients                            | `EventSource.MCP`          | `mcp`          |
 
 The upgrade lives in `_create_external_data_source` in
-`products/data_warehouse/backend/presentation/views/external_data_source.py`.
+`products/warehouse_sources/backend/presentation/views/external_data_source.py`.
 
 ---
 

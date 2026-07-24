@@ -20,6 +20,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     TimeToGreenBucket,
@@ -37,6 +39,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     LATEST_COMPLETED_RUN_FAILED,
+    RUN_DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
     run_duration_percentile_expr,
@@ -55,6 +58,9 @@ _SELECT = f"""
         repo_name,
         workflow_name,
         count() AS run_count,
+        countIf(status = 'completed' AND conclusion = 'success') AS successful_run_count,
+        countIf(status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')) AS conclusive_run_count,
+        countIf({RUN_DURATION_PERCENTILE_CONDITION}) AS percentile_run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
         {run_duration_percentile_expr(0.5)} AS p50_seconds,
         {run_duration_percentile_expr(0.95)} AS p95_seconds,
@@ -62,6 +68,8 @@ _SELECT = f"""
         countIf(status = 'completed') AS completed_count,
         {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
         argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
+        argMaxIf(id, (run_started_at, id), status = 'completed') AS latest_run_id,
+        argMaxIf(run_attempt, (run_started_at, id), status = 'completed') AS latest_run_attempt,
         countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
@@ -153,6 +161,7 @@ def query_workflow_health(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {
@@ -178,6 +187,7 @@ def query_workflow_health(
         fill(_SELECT),
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
+        workload=workload,
     )
     if not response.results:
         return []
@@ -186,6 +196,7 @@ def query_workflow_health(
         fill(_BUCKET_SELECT),
         query_type="engineering_analytics.workflow_health_buckets",
         placeholders=placeholders,
+        workload=workload,
     )
 
     end = date_to or datetime.now(tz=date_from.tzinfo)
@@ -200,6 +211,7 @@ def query_workflow_health(
             "prev_from": ast.Constant(value=prev_from),
             "run_started_floor": run_started_floor_constant(prev_from),
         },
+        workload=workload,
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)
@@ -215,7 +227,7 @@ def query_workflow_health(
         )
 
     cost_by_workflow = query_workflow_window_costs(
-        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope
+        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
     )
     window = window_buckets(date_from, date_to, granularity)
     return [
@@ -223,6 +235,9 @@ def query_workflow_health(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
+            successful_run_count=successful_run_count,
+            conclusive_run_count=conclusive_run_count,
+            percentile_run_count=percentile_run_count,
             success_rate=opt_float(success_rate),
             p50_seconds=opt_float(p50_seconds),
             p95_seconds=opt_float(p95_seconds),
@@ -233,6 +248,8 @@ def query_workflow_health(
             # The raw conclusion of that latest completed run, so the UI can tell a real pass from a
             # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
             latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
+            latest_run_id=int(latest_run_id) if completed_count else None,
+            latest_run_attempt=int(latest_run_attempt) if completed_count else None,
             granularity=granularity,
             buckets=[
                 buckets_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
@@ -249,5 +266,5 @@ def query_workflow_health(
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
     ]

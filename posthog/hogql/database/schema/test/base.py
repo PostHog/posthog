@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
+from products.revenue_analytics.backend.views.test.data.structure import (
     STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
@@ -35,13 +35,7 @@ CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_
 SUBSCRIPTIONS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions"
 CHARGES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 _TEST_DATA_DIR = (
-    Path(__file__).resolve().parents[5]
-    / "products"
-    / "revenue_analytics"
-    / "backend"
-    / "hogql_queries"
-    / "test"
-    / "data"
+    Path(__file__).resolve().parents[5] / "products" / "revenue_analytics" / "backend" / "views" / "test" / "data"
 )
 
 

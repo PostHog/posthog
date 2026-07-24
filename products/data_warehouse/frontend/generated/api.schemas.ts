@@ -1683,6 +1683,7 @@ export interface CredentialApi {
  * * `PrestaShop` - PrestaShop
  * * `Pretix` - Pretix
  * * `Primetric` - Primetric
+ * * `Printavo` - Printavo
  * * `Printify` - Printify
  * * `Productive` - Productive
  * * `Pylon` - Pylon
@@ -2493,6 +2494,9 @@ export interface CredentialApi {
  * * `Tally` - Tally
  * * `Nuntly` - Nuntly
  * * `Vturb` - Vturb
+ * * `Meltwater` - Meltwater
+ * * `UserCom` - UserCom
+ * * `Latitude` - Latitude
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2933,6 +2937,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PrestaShop: 'PrestaShop',
     Pretix: 'Pretix',
     Primetric: 'Primetric',
+    Printavo: 'Printavo',
     Printify: 'Printify',
     Productive: 'Productive',
     Pylon: 'Pylon',
@@ -3743,6 +3748,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Tally: 'Tally',
     Nuntly: 'Nuntly',
     Vturb: 'Vturb',
+    Meltwater: 'Meltwater',
+    UserCom: 'UserCom',
+    Latitude: 'Latitude',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3837,6 +3845,46 @@ export interface PatchedTableApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+/**
+ * * `csv` - csv
+ * * `json` - json
+ * * `parquet` - parquet
+ */
+export type CreateTableFromUploadFileFormatEnumApi =
+    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+
+export const CreateTableFromUploadFileFormatEnumApi = {
+    Csv: 'csv',
+    Json: 'json',
+    Parquet: 'parquet',
+} as const
+
+export interface CreateTableFromUploadApi {
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: CreateTableFromUploadFileFormatEnumApi
+    /** Name the resulting table is queried by in HogQL. */
+    table_name: string
+}
+
+export interface FileUploadResponseApi {
+    /** Id of the stored upload. Pass it to create_from_upload to build the table. */
+    upload_id: string
+    /** Sanitized name the file was stored under. */
+    filename: string
+    /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
+    file_format: string
+    /** Size of the stored file in bytes. */
+    size_bytes: number
 }
 
 export interface ViewLinkApi {
@@ -4052,6 +4100,25 @@ export type WarehouseTablesListParams = {
      * A search term.
      */
     search?: string
+}
+
+/**
+ * How the file will be read when the table is created.
+ */
+export type WarehouseTablesUploadFileCreateBodyFileFormat =
+    (typeof WarehouseTablesUploadFileCreateBodyFileFormat)[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat]
+
+export const WarehouseTablesUploadFileCreateBodyFileFormat = {
+    Csv: 'csv',
+    Json: 'json',
+    Parquet: 'parquet',
+} as const
+
+export type WarehouseTablesUploadFileCreateBody = {
+    /** The file to upload. */
+    file: Blob
+    /** How the file will be read when the table is created. */
+    file_format: WarehouseTablesUploadFileCreateBodyFileFormat
 }
 
 export type WarehouseViewLinkListParams = {

@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import Any, cast
 
 from django.conf import settings
@@ -23,7 +24,14 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
-from products.data_warehouse.backend.presentation.views.external_data_source import SimpleExternalDataSourceSerializers
+from products.data_warehouse.backend.facade.api import get_s3_client
+from products.warehouse_sources.backend.facade.api import (
+    FILE_FORMAT_TO_TABLE_FORMAT,
+    MAX_FILE_UPLOAD_SIZE_BYTES,
+    SUPPORTED_FILE_FORMATS,
+    build_file_upload_s3_path,
+    build_file_upload_url_pattern,
+)
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -35,6 +43,16 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    SimpleExternalDataSourceSerializers,
+)
+
+# Whole-request-body ceiling for the upload endpoint, checked from Content-Length before the
+# multipart parser spools anything to disk. The per-file check only sees request.FILES["file"], so
+# without this an authenticated caller could push many large parts through the parser and fill temp
+# storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
+# the small form fields sent alongside the file.
+MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -138,7 +156,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import (
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             SimpleExternalDataSchemaSerializer,
         )
 
@@ -266,6 +284,31 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
             )
             for field in fields
         ]
+
+
+class FileUploadResponseSerializer(serializers.Serializer):
+    upload_id = serializers.UUIDField(
+        help_text="Id of the stored upload. Pass it to create_from_upload to build the table."
+    )
+    filename = serializers.CharField(help_text="Sanitized name the file was stored under.")
+    file_format = serializers.CharField(help_text="Format the file will be read as: 'csv', 'json', or 'parquet'.")
+    size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
+
+
+class CreateTableFromUploadSerializer(serializers.Serializer):
+    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
+    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
+    file_format = serializers.ChoiceField(
+        choices=SUPPORTED_FILE_FORMATS, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
+    )
+    table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
+
+    def validate_table_name(self, table_name: str) -> str:
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+            raise serializers.ValidationError(
+                "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
+            )
+        return table_name
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -423,6 +466,194 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "format": "binary", "description": "The file to upload."},
+                    "file_format": {
+                        "type": "string",
+                        "enum": list(SUPPORTED_FILE_FORMATS),
+                        "description": "How the file will be read when the table is created.",
+                    },
+                },
+                "required": ["file", "file_format"],
+            }
+        },
+        responses={201: FileUploadResponseSerializer},
+        summary="Upload a file for a new self-managed warehouse table",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Store an uploaded file in object storage so a self-managed table can be created from it.
+
+        Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+        this returns an `upload_id` the caller passes back to build the table. The file is written under
+        a team-scoped prefix, so a table can only ever read back its own team's uploads.
+        """
+        if not settings.DATAWAREHOUSE_BUCKET:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to upload files."},
+            )
+
+        # Reject an oversized body up front, before accessing request.FILES triggers multipart parsing
+        # and spools every part to disk. Reading only Content-Length here keeps the guard cheap.
+        content_length = request.META.get("CONTENT_LENGTH")
+        try:
+            declared_body_size = int(content_length) if content_length else 0
+        except (TypeError, ValueError):
+            declared_body_size = 0
+        if declared_body_size > MAX_UPLOAD_REQUEST_BODY_BYTES:
+            return response.Response(
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                data={
+                    "message": f"Upload exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
+        if "file" not in request.FILES:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        # One upload per request: additional parts would already be spooled by the parser, but bounded
+        # by the body cap above; rejecting keeps the endpoint's contract single-file and unambiguous.
+        if len(request.FILES.getlist("file")) > 1 or len(request.FILES) > 1:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Upload one file per request."},
+            )
+
+        file = request.FILES["file"]
+
+        file_format = request.data.get("file_format")
+        if file_format not in SUPPORTED_FILE_FORMATS:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(SUPPORTED_FILE_FORMATS)}"},
+            )
+
+        if file.size > MAX_FILE_UPLOAD_SIZE_BYTES:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"File size exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
+        # Django strips path separators via os.path.basename in UploadedFile._set_name; restricting
+        # further to safe characters is defense-in-depth for the S3 key.
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name or "")
+        if not safe_filename or safe_filename.startswith("."):
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
+
+        upload_id = uuid.uuid4()
+        path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
+
+        try:
+            s3 = get_s3_client()
+            with s3.open(path, "wb") as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+        except Exception as e:
+            capture_exception(e)
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
+
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=FileUploadResponseSerializer(
+                {
+                    "upload_id": upload_id,
+                    "filename": safe_filename,
+                    "file_format": file_format,
+                    "size_bytes": file.size,
+                }
+            ).data,
+        )
+
+    @extend_schema(
+        request=CreateTableFromUploadSerializer,
+        responses={201: TableSerializer},
+        summary="Create a self-managed warehouse table from an uploaded file",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_table:write"])
+    def create_from_upload(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Turn a previously uploaded file into a self-managed warehouse table.
+
+        The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+        at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+        S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+        `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+        fall back to the node role, never a user-supplied key).
+        """
+        # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
+        # queryable url_pattern. Missing either would create a table whose every query fails.
+        if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to create a table from a file."},
+            )
+
+        serializer = CreateTableFromUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        upload_id = str(serializer.validated_data["upload_id"])
+        filename = serializer.validated_data["filename"]
+        file_format = serializer.validated_data["file_format"]
+        table_name = serializer.validated_data["table_name"]
+
+        # Reject duplicate names up front, the same way TableSerializer.validate_name does — has_table
+        # is user-filtered, so also resolve team-wide to stop a denied table being shadowed by a new one.
+        database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
+        if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "A table with this name already exists."}
+            )
+
+        # Confirm the object is actually there before creating a table that would fail every query.
+        upload_path = build_file_upload_s3_path(self.team_id, upload_id, filename)
+        try:
+            if not get_s3_client().exists(upload_path):
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Uploaded file not found. Please upload the file again."},
+                )
+        except Exception as e:
+            capture_exception(e)
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not verify the uploaded file. Please try uploading it again."},
+            )
+
+        table = DataWarehouseTable(
+            team_id=self.team_id,
+            name=table_name,
+            format=FILE_FORMAT_TO_TABLE_FORMAT[file_format],
+            url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
+            created_by=request.user if isinstance(request.user, User) else None,
+        )
+        try:
+            table.columns = table.get_columns()
+        except Exception as err:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not read columns from the uploaded file: {err}"},
+            )
+        table.save()
+
+        validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
+
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=TableSerializer(table, context=self.get_serializer_context()).data,
+        )
 
     @action(
         methods=["POST"],

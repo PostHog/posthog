@@ -159,28 +159,37 @@ def generate_random_token(nbytes: int = 32) -> str:
     return int_to_base(value, 57, alphabet=BASE57)
 
 
+# Key/token prefixes. Reserved-prefix checks elsewhere (auth, the admin key search) must
+# reference these constants rather than hardcoding the strings.
+PROJECT_API_TOKEN_PREFIX = "phc_"  # "c" standing for "client"
+PERSONAL_API_KEY_PREFIX = "phx_"  # "x" standing for nothing in particular
+SECRET_API_TOKEN_PREFIX = "phs_"  # "s" standing for "secret"; team secret tokens and project secret API keys
+OAUTH_ACCESS_TOKEN_PREFIX = "pha_"  # "a" standing for "access"
+OAUTH_REFRESH_TOKEN_PREFIX = "phr_"  # "r" standing for "refresh"
+
+
 def generate_random_token_project() -> str:
-    return "phc_" + generate_random_token()  # "c" standing for "client"
+    return PROJECT_API_TOKEN_PREFIX + generate_random_token()
 
 
 def generate_random_token_personal() -> str:
     # We want 32 bytes of entropy (https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use).
     # Note that we store the last 4 characters of a personal API key in plain text in the database, so that users
     # can recognize their keys in the UI. This means we need 3 bytes of extra entropy. Ultimately, we want 35 bytes.
-    return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
+    return PERSONAL_API_KEY_PREFIX + generate_random_token(35)
 
 
 def generate_random_token_secret() -> str:
     # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
-    return "phs_" + generate_random_token(35)  # "s" standing for "secret"
+    return SECRET_API_TOKEN_PREFIX + generate_random_token(35)
 
 
 def generate_random_oauth_access_token(_request) -> str:
-    return "pha_" + generate_random_token()  # "a" standing for "access"
+    return OAUTH_ACCESS_TOKEN_PREFIX + generate_random_token()
 
 
 def generate_random_oauth_refresh_token(_request) -> str:
-    return "phr_" + generate_random_token()  # "r" standing for "refresh"
+    return OAUTH_REFRESH_TOKEN_PREFIX + generate_random_token()
 
 
 def mask_key_value(value: str) -> str:

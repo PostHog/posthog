@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
-import { IconCollapse, IconExpand, IconExternal, IconWarning } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconExternal, IconMinus, IconWarning } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -47,9 +50,10 @@ function VariantTag({ item }: { item: ExperimentSessionContextItemApi }): JSX.El
     )
 }
 
-// Above this many in-bounds occurrences the per-event seek chips collapse behind a toggle so a
-// busy metric doesn't flood the sidebar.
-const INLINE_METRIC_EVENT_LIMIT = 6
+// A busy metric can carry up to the API's 50-event cap; rendering them all inline floods the narrow
+// sidebar. Show a sample of seek points and note the rest as a static count (no inline expansion —
+// the full picture lives on the recordings tab's metric filter and the experiment's own analysis).
+const MAX_INLINE_METRIC_EVENTS = 15
 
 function MetricEventChips({
     seekPoints,
@@ -58,9 +62,11 @@ function MetricEventChips({
     seekPoints: { ms: number; offsetSeconds: number }[]
     onSeek: (timestampMs: number) => void
 }): JSX.Element {
+    const shown = seekPoints.slice(0, MAX_INLINE_METRIC_EVENTS)
+    const hiddenCount = seekPoints.length - shown.length
     return (
         <div className="flex flex-row flex-wrap gap-1 pl-3">
-            {seekPoints.map(({ ms, offsetSeconds }) => (
+            {shown.map(({ ms, offsetSeconds }) => (
                 <Link
                     key={ms}
                     className="font-mono tabular-nums"
@@ -71,6 +77,7 @@ function MetricEventChips({
                     {colonDelimitedDuration(offsetSeconds, 2)}
                 </Link>
             ))}
+            {hiddenCount > 0 ? <span className="text-muted">+{hiddenCount} more</span> : null}
         </div>
     )
 }
@@ -98,18 +105,6 @@ function MetricHitRow({
             <span className="truncate">{hit.metric_name}</span>
             {seekPoints.length === 0 ? (
                 <span className="pl-3 text-muted">Fired outside the recording</span>
-            ) : seekPoints.length > INLINE_METRIC_EVENT_LIMIT ? (
-                <LemonCollapse
-                    embedded
-                    size="small"
-                    panels={[
-                        {
-                            key: 'events',
-                            header: `${seekPoints.length} events`,
-                            content: <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />,
-                        },
-                    ]}
-                />
             ) : (
                 <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />
             )}
@@ -144,16 +139,38 @@ function OpenExperimentButton({ item }: { item: ExperimentSessionContextItemApi 
 const OUT_OF_WINDOW_TOOLTIP =
     "The exposure was captured just outside this recording's playable range, so there's no moment to jump to."
 
-// Position of the exposure within the recording, so the list's chronological order is legible rather than
-// implied. Deliberately always relative (not the player's Relative/UTC/device setting like the inspector's
-// ItemTimeDisplay): "where in this recording" is the whole point here, and an absolute date would not fit
-// the sidebar's width. An exposure captured before the recording starts clamps to zero — the row's tooltip
-// is what explains that it landed outside the playable range.
-function ExposureTime({ timeInRecording }: { timeInRecording: number }): JSX.Element {
+// The person's counted first exposure may lie in an earlier session (the experiment analysis counts
+// exposure per person across the whole run window), so an in-session metric event can precede this one.
+const EXPOSURE_CAVEAT =
+    'They may have been enrolled in an earlier session, so metric events can fire before this moment.'
+
+function ExposureTime({
+    timeInRecording,
+    onSeek,
+    outOfWindow,
+}: {
+    timeInRecording: number
+    onSeek?: () => void
+    outOfWindow?: boolean
+}): JSX.Element {
+    const label = colonDelimitedDuration(Math.max(0, timeInRecording) / 1000, null)
+    if (onSeek) {
+        return (
+            <Tooltip title={`Jump to the first exposure in this session. ${EXPOSURE_CAVEAT}`}>
+                <Link
+                    className="text-xs tabular-nums shrink-0 min-w-10 text-right"
+                    onClick={onSeek}
+                    data-attr="replay-experiment-context-jump-to-first-exposure"
+                >
+                    {label}
+                </Link>
+            </Tooltip>
+        )
+    }
     return (
-        <span className="text-secondary text-xs tabular-nums shrink-0 min-w-10 text-right">
-            {colonDelimitedDuration(Math.max(0, timeInRecording) / 1000, null)}
-        </span>
+        <Tooltip title={outOfWindow ? OUT_OF_WINDOW_TOOLTIP : `First exposure in this session. ${EXPOSURE_CAVEAT}`}>
+            <span className="text-secondary text-xs tabular-nums shrink-0 min-w-10 text-right">{label}</span>
+        </Tooltip>
     )
 }
 
@@ -168,43 +185,32 @@ function ExperimentContextRow({
     onSeek?: () => void
     outOfWindow?: boolean
     timeInRecording?: number | null
-    // Leading slot rendered before the timestamp — the metric-events expand toggle, or an empty
-    // spacer of the same width so the timestamp and name columns line up across rows.
+    // Leading slot rendered before the timestamp — the metric-events expand toggle, or a same-width
+    // spacer so the timestamp and name columns line up across rows.
     leading?: JSX.Element | null
 }): JSX.Element {
-    let name: JSX.Element
-    if (onSeek) {
-        name = (
-            <Link
-                title="Jump to when this session matched the experiment's exposure criteria"
-                onClick={onSeek}
-                data-attr="replay-experiment-context-jump-to-first-exposure"
-            >
-                {item.experiment_name}
-            </Link>
-        )
-    } else if (outOfWindow) {
-        name = (
-            <Tooltip title={OUT_OF_WINDOW_TOOLTIP}>
-                <span>{item.experiment_name}</span>
-            </Tooltip>
-        )
-    } else {
-        name = <span>{item.experiment_name}</span>
-    }
-
-    // The name lives in its own flex-1 truncate box so the variant tag and open-experiment icon
-    // stay right-aligned whether the name is a plain span or a Link (a Link with no `to` renders a
-    // button wrapped in a non-flex span, which would otherwise let its tag hug the text).
+    // The name is a plain label in its own flex-1 truncate box (keeping the variant tag and
+    // open-experiment icon right-aligned). Seeking lives on the timestamp; opening the experiment on
+    // the icon — so the name identifies the row rather than pretending to be a control.
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0">
             {leading}
-            {timeInRecording != null ? <ExposureTime timeInRecording={timeInRecording} /> : null}
-            <div className="flex-1 min-w-0 truncate">{name}</div>
+            {timeInRecording != null ? (
+                <ExposureTime timeInRecording={timeInRecording} onSeek={onSeek} outOfWindow={outOfWindow} />
+            ) : null}
+            <div className="flex-1 min-w-0 truncate">{item.experiment_name}</div>
             <VariantTag item={item} />
             <OpenExperimentButton item={item} />
         </div>
     )
+}
+
+// The experiments scene keeps /experiments/<numeric id> in the path even while the player is embedded
+// in its recordings tab, so the experiment the viewer came from is recoverable from the route. Returns
+// null off that scene (the generic replay page), where there's no experiment to pin.
+function experimentIdFromPath(pathname: string): number | null {
+    const match = pathname.match(/\/experiments\/(\d+)/)
+    return match ? Number(match[1]) : null
 }
 
 export function PlayerSidebarExperimentsSection(): JSX.Element | null {
@@ -213,8 +219,52 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const experimentContextLogic = sessionRecordingExperimentContextLogic({
         sessionRecordingId: logicProps.sessionRecordingId,
     })
-    const { seenItems, enrolledItems, hasExperimentContext, expandedExperimentIds } = useValues(experimentContextLogic)
+    const { seenItems, enrolledItems, hasExperimentContext, expandedExperimentIds, experimentContextLoading } =
+        useValues(experimentContextLogic)
     const { setExperimentExpanded } = useActions(experimentContextLogic)
+    const { location } = useValues(router)
+
+    // The experiment the viewer arrived from: their recordings tab keeps the URL on /experiments/<id>
+    // while the player is embedded, so we can pin it and default-expand its metrics. Null on the
+    // generic replay page, where there's no experiment context.
+    const currentExperimentId = experimentIdFromPath(location.pathname)
+    const currentItem =
+        currentExperimentId != null
+            ? ([...seenItems, ...enrolledItems].find((item) => item.experiment_id === currentExperimentId) ?? null)
+            : null
+
+    // Default-expand the current experiment's metrics on load so they're visible right away — but only
+    // once per experiment. Auto-expanding again on a later metric-count change (e.g. a context refetch)
+    // would silently reopen a row the viewer deliberately collapsed, so a ref tracks who's been done.
+    const currentExpandableId = currentItem?.experiment_id
+    const currentMetricCount = currentItem?.metrics_in_session.length ?? 0
+    const autoExpandedIds = useRef<Set<number>>(new Set())
+    useEffect(() => {
+        if (
+            currentExpandableId != null &&
+            currentMetricCount > 0 &&
+            !autoExpandedIds.current.has(currentExpandableId)
+        ) {
+            autoExpandedIds.current.add(currentExpandableId)
+            setExperimentExpanded(currentExpandableId, true)
+        }
+    }, [currentExpandableId, currentMetricCount, setExperimentExpanded])
+
+    if (experimentContextLoading && !hasExperimentContext) {
+        if (currentExperimentId == null) {
+            return null
+        }
+        return (
+            <div
+                className="rounded border bg-surface-primary px-2 py-1 flex flex-col gap-y-1"
+                data-attr="replay-experiment-context-overview-loading"
+            >
+                <h4 className="font-semibold text-xs mb-0">Experiments</h4>
+                <LemonSkeleton className="h-4 w-2/3" />
+                <LemonSkeleton className="h-4 w-1/2" />
+            </div>
+        )
+    }
 
     if (!hasExperimentContext) {
         return null
@@ -239,6 +289,93 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     // one experiment has an expand toggle; with nothing expandable, keep the list flush-left.
     const anySeenExpandable = seenItems.some((seenItem) => seenItem.metrics_in_session.length > 0)
 
+    // One seen experiment rendered in full: its timestamp seek control, the expand toggle (or the
+    // no-metrics marker), and — when expanded — its metric hits. Extracted so the pinned "current"
+    // experiment reuses the exact same treatment as the list rows below it.
+    const renderSeenRow = (item: ExperimentSessionContextItemApi): JSX.Element => {
+        const exposedAtMs = item.first_exposure_timestamp ? dayjs(item.first_exposure_timestamp).valueOf() : null
+        const canSeek = isWithinRecording(exposedAtMs)
+        // Distinguish "seen but outside the window" (worth a tooltip) from "bounds not known yet"
+        // (transient, no tooltip) so we never explain a non-jump we can't actually vouch for.
+        const outOfWindow =
+            exposedAtMs != null &&
+            recordingStartMs != null &&
+            recordingEndMs != null &&
+            (exposedAtMs < recordingStartMs || exposedAtMs > recordingEndMs)
+        const hasMetrics = item.metrics_in_session.length > 0
+        const isExpanded = expandedExperimentIds.includes(item.experiment_id)
+        return (
+            <div key={item.experiment_id} className="flex flex-col gap-y-0.5 min-w-0">
+                <ExperimentContextRow
+                    item={item}
+                    onSeek={canSeek && exposedAtMs != null ? () => seekToTimestamp(exposedAtMs) : undefined}
+                    outOfWindow={outOfWindow}
+                    timeInRecording={
+                        exposedAtMs != null && recordingStartMs != null ? exposedAtMs - recordingStartMs : null
+                    }
+                    leading={
+                        // -me-1.5 pulls the timestamp back toward the toggle so the icon and time read
+                        // as one column (and line up better with the expanded metrics), without
+                        // tightening the timestamp-to-name gap.
+                        anySeenExpandable ? (
+                            <div className="shrink-0 flex w-[1.625rem] items-center justify-center -me-1.5">
+                                {hasMetrics ? (
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                        onClick={() => setExperimentExpanded(item.experiment_id, !isExpanded)}
+                                        tooltip={
+                                            isExpanded
+                                                ? 'Hide metric events'
+                                                : `Show metric events (${item.metrics_in_session.length})`
+                                        }
+                                        data-attr="replay-experiment-context-expand-metrics"
+                                    />
+                                ) : (
+                                    // Same component and size as the expand button so the marker has an
+                                    // identical box, border, and tooltip hover target. disabledReason keeps
+                                    // it hoverable (LemonButton disables via aria-disabled, not the native
+                                    // attribute) while signalling there's nothing to expand.
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconMinus />}
+                                        disabledReason="No experiment metric fired in this session"
+                                        data-attr="replay-experiment-context-no-metrics"
+                                    />
+                                )}
+                            </div>
+                        ) : undefined
+                    }
+                />
+                {isExpanded && hasMetrics ? (
+                    <div className="flex flex-col gap-y-0.5">
+                        {item.metrics_in_session.map((hit) => (
+                            <MetricHitRow
+                                key={hit.metric_uuid}
+                                hit={hit}
+                                recordingStartMs={recordingStartMs}
+                                isWithinRecording={isWithinRecording}
+                                onSeek={seekToTimestamp}
+                            />
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+        )
+    }
+
+    const otherSeenItems = currentItem
+        ? seenItems.filter((item) => item.experiment_id !== currentItem.experiment_id)
+        : seenItems
+    const otherEnrolledItems = currentItem
+        ? enrolledItems.filter((item) => item.experiment_id !== currentItem.experiment_id)
+        : enrolledItems
+    // Pin the current experiment only when there are other experiments to stand out from — a lone
+    // "Viewing" row is just clutter. Otherwise it stays inline in the normal lists below.
+    const pinnedItem = currentItem && (otherSeenItems.length > 0 || otherEnrolledItems.length > 0) ? currentItem : null
+    const listSeenItems = pinnedItem ? otherSeenItems : seenItems
+    const listEnrolledItems = pinnedItem ? otherEnrolledItems : enrolledItems
+
     return (
         <div
             className="rounded border bg-surface-primary px-2 py-1 flex flex-col gap-y-1"
@@ -246,77 +383,38 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
         >
             <h4 className="font-semibold text-xs mb-0">Experiments</h4>
 
-            {seenItems.map((item) => {
-                const exposedAtMs = item.first_exposure_timestamp
-                    ? dayjs(item.first_exposure_timestamp).valueOf()
-                    : null
-                const canSeek = isWithinRecording(exposedAtMs)
-                // Distinguish "seen but outside the window" (worth a tooltip) from "bounds not known
-                // yet" (transient, no tooltip) so we never explain a non-jump we can't actually vouch for.
-                const outOfWindow =
-                    exposedAtMs != null &&
-                    recordingStartMs != null &&
-                    recordingEndMs != null &&
-                    (exposedAtMs < recordingStartMs || exposedAtMs > recordingEndMs)
-                const hasMetrics = item.metrics_in_session.length > 0
-                const isExpanded = expandedExperimentIds.includes(item.experiment_id)
-                return (
-                    <div key={item.experiment_id} className="flex flex-col gap-y-0.5 min-w-0">
-                        <ExperimentContextRow
-                            item={item}
-                            onSeek={canSeek && exposedAtMs != null ? () => seekToTimestamp(exposedAtMs) : undefined}
-                            outOfWindow={outOfWindow}
-                            timeInRecording={
-                                exposedAtMs != null && recordingStartMs != null ? exposedAtMs - recordingStartMs : null
-                            }
-                            leading={
-                                anySeenExpandable ? (
-                                    <div className="shrink-0 flex w-[1.625rem] justify-center">
-                                        {hasMetrics ? (
-                                            <LemonButton
-                                                size="xsmall"
-                                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                                onClick={() => setExperimentExpanded(item.experiment_id, !isExpanded)}
-                                                tooltip={
-                                                    isExpanded
-                                                        ? 'Hide metric events'
-                                                        : `Show metric events (${item.metrics_in_session.length})`
-                                                }
-                                                data-attr="replay-experiment-context-expand-metrics"
-                                            />
-                                        ) : null}
-                                    </div>
-                                ) : undefined
-                            }
-                        />
-                        {isExpanded && hasMetrics ? (
-                            <div className="flex flex-col gap-y-0.5">
-                                {item.metrics_in_session.map((hit) => (
-                                    <MetricHitRow
-                                        key={hit.metric_uuid}
-                                        hit={hit}
-                                        recordingStartMs={recordingStartMs}
-                                        isWithinRecording={isWithinRecording}
-                                        onSeek={seekToTimestamp}
-                                    />
-                                ))}
-                            </div>
-                        ) : null}
-                    </div>
-                )
-            })}
+            {pinnedItem ? (
+                <div className="flex flex-col gap-y-0.5" data-attr="replay-experiment-context-current">
+                    <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-secondary">
+                        Viewing
+                    </span>
+                    {pinnedItem.first_exposure_timestamp != null ? (
+                        renderSeenRow(pinnedItem)
+                    ) : (
+                        <ExperimentContextRow item={pinnedItem} />
+                    )}
+                </div>
+            ) : null}
 
-            {enrolledItems.length > 0 ? (
+            {pinnedItem && listSeenItems.length > 0 ? (
+                <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted">
+                    Other experiments in this session
+                </span>
+            ) : null}
+
+            {listSeenItems.map((item) => renderSeenRow(item))}
+
+            {listEnrolledItems.length > 0 ? (
                 <LemonCollapse
                     embedded
                     size="small"
                     panels={[
                         {
                             key: 'enrolled',
-                            header: `Also enrolled, not exposed in this session (${enrolledItems.length})`,
+                            header: `Also enrolled, not exposed in this session (${listEnrolledItems.length})`,
                             content: (
                                 <div className="flex flex-col gap-y-1">
-                                    {enrolledItems.map((item) => (
+                                    {listEnrolledItems.map((item) => (
                                         <ExperimentContextRow key={item.experiment_id} item={item} />
                                     ))}
                                 </div>

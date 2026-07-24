@@ -1000,11 +1000,46 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Turn a previously uploaded file into a self-managed warehouse table.
+ *
+ * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+ * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+ * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+ * fall back to the node role, never a user-supplied key).
+ * @summary Create a self-managed warehouse table from an uploaded file
+ */
+export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
+    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet'])
+        .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
+        .describe(
+            "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
+        ),
+    table_name: zod.string().describe('Name the resulting table is queried by in HogQL.'),
+})
+
+/**
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Store an uploaded file in object storage so a self-managed table can be created from it.
+ *
+ * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+ * this returns an `upload_id` the caller passes back to build the table. The file is written under
+ * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * @summary Upload a file for a new self-managed warehouse table
+ */
+export const WarehouseTablesUploadFileCreateBody = /* @__PURE__ */ zod.object({
+    file: zod.instanceof(File).describe('The file to upload.'),
+    file_format: zod.enum(['csv', 'json', 'parquet']).describe('How the file will be read when the table is created.'),
+})
 
 /**
  * Create, Read, Update and Delete View Columns.

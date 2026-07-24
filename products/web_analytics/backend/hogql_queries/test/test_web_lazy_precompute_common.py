@@ -9,10 +9,13 @@ from parameterized import parameterized
 from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     DateRange,
     EventPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -31,25 +34,29 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
+    TEAM_SHAPE_SET_TTL_SECONDS,
     PerQueryOptedOut,
-    PerQueryOptInNotSet,
-    TooManyFilters,
-    UnsupportedFilterKey,
+    PropertyAccessControlled,
+    UnsupportedFilterType,
     _oom_pin_key,
+    _team_shape_set_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
+    compute_shape_cap_key,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
-    is_precompute_unrestricted_for_team,
     is_team_oom_pinned,
     pin_team_oom,
+    try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
 
@@ -84,23 +91,8 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
         assert is_precompute_enabled_for_team(self.team) is True
         flag.assert_not_called()
 
-    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
-    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
-    def test_unrestricted_team_is_enrolled_without_being_in_enrollment_list(self, flag) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            assert is_precompute_enabled_for_team(self.team) is True
-        flag.assert_not_called()
 
-    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[])
-    def test_team_not_in_unrestricted_list_is_restricted(self) -> None:
-        assert is_precompute_unrestricted_for_team(self.team) is False
-
-    def test_team_in_unrestricted_list_is_unrestricted(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            assert is_precompute_unrestricted_for_team(self.team) is True
-
-
-class TestCheckCommonEligibilityUnrestricted(BaseTest):
+class TestCheckCommonEligibility(BaseTest):
     def _check(self, *, use_precompute, properties=None) -> None:
         check_common_eligibility(
             team=self.team,
@@ -112,52 +104,81 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
             resolve_date_range=_date_range,
         )
 
-    def test_restricted_team_rejects_untouched_opt_in(self) -> None:
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-        ):
-            with self.assertRaises(PerQueryOptInNotSet):
-                self._check(use_precompute=None)
-
-    def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+    def test_enrolled_team_untouched_toggle_defaults_on(self) -> None:
+        # Re-introducing the old opt-in requirement would silently send every
+        # enrolled team without the UI toggle back to the raw path.
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None)
-            self._check(use_precompute=True)
-
-    def test_unrestricted_team_rejects_explicit_opt_out(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             with self.assertRaises(PerQueryOptedOut):
                 self._check(use_precompute=False)
 
-    def test_unrestricted_team_accepts_arbitrary_multi_filter(self) -> None:
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
+    def test_flag_enrolled_team_defaults_on_and_respects_opt_out(self, _flag) -> None:
+        # The fleet-rollout path: enrollment via the org flag alone must grant
+        # default-on reads, and the explicit opt-out must still be honored.
+        self._check(use_precompute=None)
+        with self.assertRaises(PerQueryOptedOut):
+            self._check(use_precompute=False)
+
+    def test_enrolled_team_accepts_arbitrary_filters(self) -> None:
+        # The filter gate is loosened for every enrolled team: multiple, non-`$host`,
+        # non-`exact` filters that the old restriction rejected must pass. Re-introducing
+        # that restriction would silently send every filtered dashboard back to live.
         props = [
             EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
             EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
         ]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=props)
 
-    def test_restricted_team_rejects_multi_filter(self) -> None:
-        props = [
-            EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT),
-            EventPropertyFilter(key="$host", value="b.com", operator=PropertyOperator.EXACT),
+    @parameterized.expand(
+        [
+            ("session", SessionPropertyFilter(key="$session_duration", value=10, operator=PropertyOperator.GT)),
+            ("cohort", CohortPropertyFilter(value=1)),
         ]
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-        ):
-            with self.assertRaises(TooManyFilters):
-                self._check(use_precompute=True, properties=props)
+    )
+    def test_session_and_cohort_filters_fall_through_to_live(self, _name, prop) -> None:
+        # The userless precompute INSERT would apply these, but the live runners handle
+        # session/cohort filters differently per family (web vitals drops them), so
+        # precomputing them would serve a different population than the live fallback.
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(UnsupportedFilterType):
+                self._check(use_precompute=None, properties=[prop])
 
-    def test_restricted_team_rejects_non_host_filter(self) -> None:
-        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-        ):
-            with self.assertRaises(UnsupportedFilterKey):
-                self._check(use_precompute=True, properties=props)
+    def test_person_filter_is_accepted(self) -> None:
+        prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None, properties=[prop])
+
+    @mock.patch(f"{_COMMON}.team_has_property_access_rules", return_value=True)
+    def test_team_with_property_access_controls_falls_through_to_live(self, _mock) -> None:
+        # Userless shared precompute can't honor per-user property restrictions, so a team
+        # with property access controls must not precompute — the live path enforces them.
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(PropertyAccessControlled):
+                self._check(use_precompute=None)
+
+
+class TestCacheKeyVariesWithRolloutState(BaseTest):
+    _RUNNER_MOD = "products.web_analytics.backend.hogql_queries.web_analytics_query_runner"
+
+    def _cache_key(self) -> str:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
+        )
+        return runner.get_cache_key()
+
+    def test_flipping_enrollment_changes_cache_key(self) -> None:
+        # With default-on reads, disabling the rollout flag (the kill switch)
+        # must invalidate cached precompute-produced results — otherwise a bad
+        # rollout keeps serving from the result cache until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            key_enabled = self._cache_key()
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
+            key_disabled = self._cache_key()
+        assert key_enabled != key_disabled
 
 
 class TestHostFilterExpr(BaseTest):
@@ -166,19 +187,18 @@ class TestHostFilterExpr(BaseTest):
         assert isinstance(expr, ast.Constant)
         assert expr.value is True
 
-    def test_restricted_team_builds_single_host_equals(self) -> None:
-        props = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]):
-            expr = host_filter_expr(props, team=self.team)
-        assert isinstance(expr, ast.Call)
-        assert expr.name == "equals"
-
-    def test_unrestricted_team_translates_arbitrary_filters(self) -> None:
-        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            expr = host_filter_expr(props, team=self.team)
-        # property_to_expr produces a comparison/AST node; it must not be the trivial True constant.
-        assert not (isinstance(expr, ast.Constant) and expr.value is True)
+    def test_translates_the_whole_filter_list(self) -> None:
+        # Every filter must reach the AST via property_to_expr. A regression to the
+        # old single-`$host` hand-built `equals` would keep only the first filter,
+        # so a two-filter query would silently share a cache key with a one-filter one.
+        props = [
+            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.EXACT),
+        ]
+        expr = host_filter_expr(props, team=self.team)
+        rendered = str(expr)
+        assert "$browser" in rendered
+        assert "$os" in rendered
 
 
 def _overview(
@@ -285,6 +305,44 @@ class TestComputeFiltersEligibilityHash(BaseTest):
         h = compute_filters_eligibility_hash(_overview(), "UTC")
         assert len(h) == 64
         int(h, 16)
+
+
+class TestComputeShapeCapKey(BaseTest):
+    def test_date_range_variants_share_one_slot(self) -> None:
+        # Buckets are reused across requested ranges (the namespace sentinelizes time
+        # windows), so date-range variants of one shape must map to one cap key —
+        # otherwise a user could exhaust the ceiling by replaying different timestamps.
+        a = compute_shape_cap_key(_overview(date_from="-7d"), "UTC")
+        b = compute_shape_cap_key(_overview(date_from="-30d"), "UTC")
+        assert a == b
+
+    def test_compare_filter_does_not_fragment(self) -> None:
+        # A compare query's current and previous period share the same namespace.
+        assert compute_shape_cap_key(_overview(compare=True), "UTC") == compute_shape_cap_key(_overview(), "UTC")
+
+    def test_test_account_filters_fragment_the_slot(self) -> None:
+        # Test-account filters resolve from team config into the INSERT namespace but not
+        # the query payload, so changing them must mint a distinct slot — otherwise an admin
+        # could alias many namespaces onto one slot by editing the filters (veria review).
+        taf_a = [EventPropertyFilter(key="email", value="@acme.com", operator=PropertyOperator.NOT_ICONTAINS)]
+        taf_b = [EventPropertyFilter(key="email", value="@test.com", operator=PropertyOperator.NOT_ICONTAINS)]
+        assert compute_shape_cap_key(_overview(), "UTC", taf_a) != compute_shape_cap_key(_overview(), "UTC", taf_b)
+        # No filters is the same as an empty list.
+        assert compute_shape_cap_key(_overview(), "UTC", None) == compute_shape_cap_key(_overview(), "UTC", [])
+
+    def test_filters_and_breakdown_still_fragment(self) -> None:
+        # Genuinely distinct namespaces must still occupy distinct slots.
+        base = compute_shape_cap_key(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
+        other_breakdown = compute_shape_cap_key(_stats(breakdown_by=WebStatsBreakdown.DEVICE_TYPE), "UTC")
+        filtered = compute_shape_cap_key(
+            _stats(
+                breakdown_by=WebStatsBreakdown.BROWSER,
+                properties=[EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT)],
+            ),
+            "UTC",
+        )
+        assert base != other_breakdown
+        assert base != filtered
 
 
 class TestFiltersEligibilityHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
@@ -493,12 +551,18 @@ class TestStaleRevalidationEnqueue(BaseTest):
 
     def tearDown(self):
         reset_query_tags()
+        # Debounce/budget keys persist in the shared test Redis; scrub so tests
+        # stay order-independent.
+        client = redis.get_client()
+        keys = client.keys(f"web_swr_reval*{self.team.pk}*")
+        if keys:
+            client.delete(*keys)
         super().tearDown()
 
     def _delay_patch(self):
         return mock.patch(
             "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
-            ".revalidate_web_analytics_precompute.delay"
+            ".revalidate_web_analytics_precompute.apply_async"
         )
 
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
@@ -512,7 +576,13 @@ class TestStaleRevalidationEnqueue(BaseTest):
                 handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
-        payload = delay.call_args.kwargs
+        # The warm gets a head start delay so it never contends with the
+        # dashboard burst that enqueued it.
+        assert delay.call_args.kwargs["countdown"] == REVALIDATION_START_DELAY_SECONDS
+        # Expiry is measured from publication, so the head start must not eat
+        # into the queue's pickup window.
+        assert delay.call_args.kwargs["expires"] == REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS
+        payload = delay.call_args.kwargs["kwargs"]
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
 
@@ -531,6 +601,39 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
 
+    def test_per_team_budget_bounds_distinct_shape_enqueues(self):
+        # Filters/dates are request-controlled, so distinct shapes are unbounded;
+        # the per-team budget must cap total enqueues per window regardless.
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+            REVALIDATION_TEAM_BUDGET_PER_WINDOW,
+        )
+
+        with self._delay_patch() as delay:
+            for i in range(REVALIDATION_TEAM_BUDGET_PER_WINDOW + 10):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from=f"2024-01-{(i % 27) + 1:02d}", date_to="2024-06-01"),
+                    properties=[
+                        EventPropertyFilter(key="$host", value=f"h{i}.example.com", operator=PropertyOperator.EXACT)
+                    ],
+                )
+                runner = WebOverviewQueryRunner(team=self.team, query=query)
+                handle_stale_served(runner=runner, family="web_overview")
+        assert delay.call_count == REVALIDATION_TEAM_BUDGET_PER_WINDOW
+
+        # A budget-rejected shape must not stay debounce-locked: once the budget
+        # window clears, the SAME shape (i=30 above was rejected) gets its warm
+        # on the next request — the rejection must release its debounce claim.
+        redis.get_client().delete(f"web_swr_reval_budget:{self.team.pk}")
+        rejected_query = WebOverviewQuery(
+            dateRange=DateRange(date_from=f"2024-01-{(30 % 27) + 1:02d}", date_to="2024-06-01"),
+            properties=[EventPropertyFilter(key="$host", value="h30.example.com", operator=PropertyOperator.EXACT)],
+        )
+        with self._delay_patch() as delay:
+            handle_stale_served(
+                runner=WebOverviewQueryRunner(team=self.team, query=rejected_query), family="web_overview"
+            )
+        assert delay.call_count == 1
+
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale
         # rows are read — a broker outage raising out of it would discard the stale
@@ -541,3 +644,128 @@ class TestStaleRevalidationEnqueue(BaseTest):
             delay.side_effect = Exception("broker down")
             handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
+
+
+class TestServeLiveWarmBehind(BaseTest):
+    """User-facing ensures are check-only (never insert inline); a miss enqueues
+    a background warm. Background warming triggers keep computing inline —
+    without that split, either dashboards pay for their own backfill again
+    (the inline self-DoS) or the warmers stop producing jobs entirely."""
+
+    def _runner(self):
+        runner = mock.Mock()
+        runner.team = self.team
+        runner.query = _overview()
+        runner._test_account_filters = []
+        return runner
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_is_check_only_and_warms_on_miss(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        runner = self._runner()
+        web_ensure_precomputed(
+            team=self.team, runner=runner, family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is False
+        assert "runner" not in mock_ensure.call_args.kwargs
+        assert "family" not in mock_ensure.call_args.kwargs
+        mock_enqueue.assert_called_once_with(team=self.team, query=runner.query, family="web_overview")
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_hit_does_not_enqueue(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(
+            team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        mock_enqueue.assert_not_called()
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_background_warming_still_inserts_inline(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+            web_ensure_precomputed(
+                team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is True
+        # The warmer IS the refresh mechanism; a miss must not re-enqueue itself.
+        mock_enqueue.assert_not_called()
+
+
+class TestTryReservePrecomputeShape(BaseTest):
+    def setUp(self):
+        super().setUp()
+        redis.get_client().delete(_team_shape_set_key(self.team.pk))
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=2)
+    def test_new_shapes_admitted_to_ceiling_then_only_known_ones(self):
+        assert try_reserve_precompute_shape(self.team.pk, "a") is True
+        assert try_reserve_precompute_shape(self.team.pk, "b") is True
+        # At the ceiling a brand-new shape is dropped early so the team stops minting namespaces,
+        assert try_reserve_precompute_shape(self.team.pk, "c") is False
+        # but a shape it already holds keeps building — capping refreshes would freeze live shapes stale.
+        assert try_reserve_precompute_shape(self.team.pk, "a") is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=0)
+    def test_zero_ceiling_disables_the_cap(self):
+        for i in range(5):
+            assert try_reserve_precompute_shape(self.team.pk, f"shape-{i}") is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=10)
+    def test_shape_set_gets_a_ttl_so_the_counter_self_heals(self):
+        try_reserve_precompute_shape(self.team.pk, "a")
+        ttl = redis.get_client().ttl(_team_shape_set_key(self.team.pk))
+        assert 0 < ttl <= TEAM_SHAPE_SET_TTL_SECONDS
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.redis.get_client", side_effect=Exception("redis down"))
+    def test_redis_failure_fails_open(self, _client):
+        # A backstop must never block a legitimate build: a Redis blip has to admit the shape.
+        assert try_reserve_precompute_shape(self.team.pk, "a") is True
+
+
+class TestPrecomputeShapeCapWiring(BaseTest):
+    def setUp(self):
+        super().setUp()
+        redis.get_client().delete(_team_shape_set_key(self.team.pk))
+
+    def _runner(self):
+        runner = mock.Mock()
+        runner.team = self.team
+        runner.query = _overview()
+        runner._test_account_filters = []
+        return runner
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_at_ceiling_new_shape_build_becomes_check_only(self, mock_ensure, _enqueue):
+        # With the team already at its ceiling, a background build for a new shape must drop to
+        # a check-only pass (run_inserts False) — otherwise the cap is computed and ignored and
+        # bounds nothing.
+        redis.get_client().sadd(_team_shape_set_key(self.team.pk), "an-existing-shape")
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsQueryWarming"):
+            web_ensure_precomputed(
+                team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_read_never_consults_the_cap(self, mock_ensure, _enqueue):
+        # User reads are already check-only; consulting the cap there would spend a Redis
+        # round-trip per dashboard load and count read-only shapes against the build ceiling.
+        redis.get_client().sadd(_team_shape_set_key(self.team.pk), "an-existing-shape")
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(
+            team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        # The new shape was never added to the set (cap not consulted on the read path).
+        assert not redis.get_client().sismember(
+            _team_shape_set_key(self.team.pk),
+            compute_shape_cap_key(self._runner().query, self.team.timezone),
+        )

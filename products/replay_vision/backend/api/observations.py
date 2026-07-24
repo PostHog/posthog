@@ -1,5 +1,6 @@
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
@@ -39,7 +40,7 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -604,7 +605,13 @@ class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
     )
 
 
-def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> tuple[str, str]:
+@dataclass(frozen=True)
+class _TaskContent:
+    title: str
+    description: str
+
+
+def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> _TaskContent:
     """Title and description for a Task created from an observation's finding."""
     snapshot = observation.scanner_snapshot or {}
     scanner_name = snapshot.get("name") or scanner.name or "Replay Vision scanner"
@@ -625,7 +632,7 @@ def _observation_task_content(observation: ReplayObservation, scanner: ReplaySca
         f"Scanner: {scanner.id}\n\n"
         f"{fenced_finding}\n"
     )
-    return title, description
+    return _TaskContent(title=title, description=description)
 
 
 @extend_schema_view(
@@ -802,7 +809,7 @@ class ReplayObservationViewSet(
         user = cast(User, request.user)
         if not has_tasks_access(user):
             raise PermissionDenied("Creating a task requires access to PostHog Code.")
-        title, description = _observation_task_content(observation, scanner)
+        content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.
         with transaction.atomic():
@@ -813,8 +820,8 @@ class ReplayObservationViewSet(
                 team=self.team,
                 user_id=user.id,
                 origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-                title=title,
-                description=description,
+                title=content.title,
+                description=content.description,
             )
             locked.created_task_id = task_id
             locked.save(update_fields=["created_task_id"])
@@ -873,13 +880,13 @@ class ReplayObservationViewSet(
         description=(
             "Set or update the observation's shared label: whether the scanner scored the session correctly, "
             "plus optional feedback on what it got wrong. One label per observation, shared across the team; "
-            "these labels feed prompt improvement. Requires session recording edit access."
+            "these labels feed prompt improvement. Requires editor access to the scanner."
         ),
     )
     @extend_schema(
         methods=["DELETE"],
         responses={204: None},
-        description="Remove the observation's shared label. Requires session recording edit access.",
+        description="Remove the observation's shared label. Requires editor access to the scanner.",
     )
     @action(
         detail=True,
@@ -889,17 +896,12 @@ class ReplayObservationViewSet(
         required_scopes=["replay_scanner:write", "session_recording:read"],
     )
     def label(self, request: Request, **kwargs: Any) -> Response:
-        # Viewset-level permissions cover all observation reads, so the quality sub-flag is checked
-        # here instead of in permission_classes; 404 (not 403) to match the flag permission classes.
-        if not is_replay_vision_quality_enabled(cast(User, request.user), self.team):
-            raise NotFound()
         observation = self.get_object()
         # Label writes are scanner writes; the session route's get_object only object-checks the observation row.
+        # `label`'s required_scopes carries replay_scanner:write, so this already resolves to an editor-level
+        # check — object-level too, so a per-scanner grant correctly overrides a resource-wide "none" default.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         self.check_object_permissions(self.request, scanner)
-        # Editing the shared label needs edit access, not just the viewer access reading needs.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
-            raise PermissionDenied("Editing observation labels requires session_recording edit access.")
         user = cast(User, request.user)
         if request.method == "DELETE":
             ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()

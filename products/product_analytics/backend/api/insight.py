@@ -91,12 +91,8 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.query_runner import (
-    BLOCKING_EXECUTION_MODES,
-    ExecutionMode,
-    execution_mode_from_refresh,
-    shared_insights_execution_mode,
-)
+from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import Filter, User
 from posthog.models.activity_logging.activity_log import (
@@ -552,11 +548,27 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
+# Bare query sources that only render inside an InsightVizNode. The UI (Query.tsx) routes
+# wrapper nodes and a few standalone kinds (e.g. WebOverviewQuery) to real renderers; the
+# kinds below have no bare renderer and fall through to a JSON-dump fallback that paints
+# ~0px inside a dashboard tile, so they are safe (and necessary) to auto-wrap on save.
+AUTO_WRAPPED_INSIGHT_QUERY_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+)
+
+
 class InsightFilterOverrideContext(BaseModel):
     dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters that remain active after applying tile precedence."
     )
-    tile: schema.DashboardFilter | None = PydanticField(
+    tile: schema.TileFilters | None = PydanticField(
         default=None, description="Tile filters applied above the dashboard filters."
     )
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
@@ -716,6 +728,30 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
         return super().validate(attrs)
+
+    def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Auto-wrap bare query sources in the wrapper node the UI renders.
+
+        Bare sources save and execute fine, but the UI only routes wrapper nodes to chart
+        renderers, so unwrapped queries show up as blank tiles. Everything else passes
+        through untouched: already-wrapped nodes must round-trip verbatim, and payloads we
+        don't positively recognize keep today's accept-as-is behavior — hard rejection
+        stays MCP-only (see MCPInsightSerializer).
+        """
+        if not value:
+            return value
+        try:
+            if value.get("kind") == "HogQLQuery":
+                return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+                    exclude_none=True, mode="json"
+                )
+            if value.get("kind") in AUTO_WRAPPED_INSIGHT_QUERY_KINDS:
+                return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
+                    exclude_none=True, mode="json"
+                )
+        except PydanticValidationError:
+            pass
+        return value
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -1281,8 +1317,11 @@ class InsightSerializer(InsightBasicSerializer):
         with upgrade_query(insight):
             try:
                 is_shared = self.context.get("is_shared", False)
-                refresh_requested = refresh_requested_by_client(self.context["request"])
-                execution_mode = execution_mode_from_refresh(refresh_requested)
+                execution_mode, shared_cache_age_seconds = resolve_execution_mode(
+                    self.context["request"],
+                    surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
+                    is_shared=is_shared,
+                )
                 filters_override = filters_override_requested_by_client(
                     self.context["request"], dashboard, is_shared=is_shared
                 )
@@ -1294,10 +1333,6 @@ class InsightSerializer(InsightBasicSerializer):
                 tile_filters_override = tile_filters_override_requested_by_client(
                     self.context["request"], dashboard_tile, is_shared=is_shared
                 )
-
-                shared_cache_age_seconds: int | None = None
-                if is_shared:
-                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1443,7 +1478,7 @@ class MCPInsightSerializer(InsightSerializer):
             raise serializers.ValidationError({"query": "This field is required."})
         return super().validate(attrs)
 
-    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
+    def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
@@ -1752,6 +1787,9 @@ class InsightViewSet(
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["compute_surface"] = (
+            ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
+        )
 
         return context
 
@@ -2177,6 +2215,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     "dashboard_access_method": dashboard_access_method(
                         request, is_shared=serializer_context["is_shared"]
                     ),
+                    "compute_surface": ComputeSurface.DASHBOARD_TILE,
                 }
             )
 
@@ -2342,7 +2381,7 @@ When set, the specified dashboard's filters and date range override will be appl
     ) -> dict[str, Any]:
         """Convert Filter-style params to a query and run via process_query_dict.
 
-        Uses the unified QueryRunner cache instead of the legacy @cached_by_filters system.
+        Uses the unified QueryRunner cache instead of the removed legacy filter-based cache.
         """
         team = self.team
         filter = Filter(request=request, team=team)
