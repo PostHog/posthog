@@ -98,10 +98,6 @@ Cutover checklist — when done, the sync and this section are deleted:
   run — per account per sync run. No cap and no emission-volume observability. Acceptable while the
   product is internal-only; before external exposure add emission counts to `SyncResult` and
   guidance to trigger on stable columns.
-- **First sets emit, so connecting a source fires once per matched account.** A first-time set
-  emits with a null `previous_value`; the initial backfill of a newly connected source therefore
-  triggers workflows for every account it matches, one-shot per new source (subsequent runs are
-  silenced by the same-value gate). Add a backfill guard before external exposure if this bites.
 - **Multi-property triggers fan out.** One event per changed property, so one run per property,
   never one per batch write. The trigger UI warns; routing logic is the workflow author's job.
 - **Cross-workflow loops are damped, not prevented.** Same-value writes never emit and frequency
