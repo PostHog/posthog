@@ -107,7 +107,7 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     # user=None: this is beat-task maintenance, so it must take the system-write
     # path — a user-bearing write would engage the approval gate, and this task
     # cannot surface an ApprovalRequired change request.
-    return create_flag(
+    flag = create_flag(
         {
             "key": str(survey.id),
             "active": True,
@@ -118,6 +118,14 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
         team=survey.team,
         user=None,
     )
+    # The system write nulls created_by, which would cost the survey's creator their
+    # guaranteed access to the flag. Restore attribution with a raw column update:
+    # QuerySet.update() bypasses save()/signals, so the write stays system-attributed
+    # (is_system activity log, null last_modified_by) and cannot engage the gate.
+    if survey.created_by is not None:
+        FeatureFlag.objects.filter(pk=flag.pk).update(created_by=survey.created_by)
+        flag.created_by = survey.created_by
+    return flag
 
 
 def _get_current_iteration(survey: Survey) -> int:

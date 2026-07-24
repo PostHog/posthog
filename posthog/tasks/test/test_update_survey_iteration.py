@@ -251,7 +251,8 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             update_survey_iteration()
 
         internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
-        self.assertIsNone(internal_flag.created_by)
+        # System write, but attribution is restored so the creator keeps flag access
+        self.assertEqual(internal_flag.created_by, self.user)
         self.assertTrue(internal_flag.active)
         self.assertEqual(internal_flag.filters, self._expected_iteration_filters(3))
         self.assertFalse(ChangeRequest.objects.filter(team=self.team).exists())
