@@ -95,6 +95,43 @@ queryset.filter(name__icontains=value)  # SAFE
 
 > **JSONField note:** If the first path segment is a JSONField (e.g. `detail__`), Django routes all subsequent `__` as JSON key lookups rather than FK traversals, which mitigates the risk. An allowlist is still recommended as defense in depth.
 
+## Deserialization (pickle)
+
+**Do not add new `pickle` usage.**
+Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
+This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs with `--error` (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
+
+**Use JSON instead.**
+For plain data, use `json`.
+For typed objects, use a schema-validated (de)serializer that constructs only declared types — Pydantic `model.model_dump_json()` / `Model.model_validate_json(...)` is the house default (the AI conversation stream in `ee/hogai/stream/redis_stream.py` uses exactly this).
+Anything that crosses a process, cache, queue, or the wire must be JSON-shaped, not pickle-shaped.
+
+**If pickle is genuinely unavoidable** — almost always an existing cross-language or cross-version format contract you can't change unilaterally (e.g. Django's cache backend and the Rust services both wrap JSON in pickle) — it must satisfy all of:
+
+1. **Internal, self-generated data only.** Never unpickle anything a user, tenant, or untrusted service could write. "Internal Redis" is not a trust boundary — anyone with write access to the datastore controls the bytes.
+2. **A restricted `pickle.Unpickler`.** Override `find_class` to a strict allowlist of the exact classes you expect, or — when the payload is JSON-shaped (str/dict/list/number/bool/None) — a deny-all `find_class` that raises for everything. JSON-shaped values deserialize through dedicated opcodes that never call `find_class`, so denying it blocks every code-execution path while still loading your data.
+3. **A justified `# nosemgrep`** on the line immediately before the call (per the repo nosemgrep convention), stating why it's safe.
+
+Reference implementations:
+
+```python
+# Deny-all: the payload is only ever a JSON string / dict, so no class is ever legitimate.
+# posthog/storage/auth_token_cache_verifier.py -> _JsonOnlyUnpickler
+class _JsonOnlyUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> Any:
+        raise pickle.UnpicklingError(f"refusing to unpickle disallowed global {module}.{name}")
+
+# Allowlist: reconstruct only our own catalog classes.
+# posthog/hogql/database/database.py -> _CatalogUnpickler
+class _CatalogUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> Any:
+        if module.startswith(_ALLOWED_PREFIXES) or module in _ALLOWED_MODULES:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"refusing to unpickle disallowed global {module}.{name}")
+```
+
 ## Semgrep Rules
 
 Run `semgrep --config .semgrep/rules/security/ .` to check for injection issues.

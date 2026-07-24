@@ -61,6 +61,10 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability'
+    } else if (resource === AccessControlResourceType.McpAnalytics) {
+        return 'MCP analytics'
+    } else if (resource === AccessControlResourceType.LlmSkill) {
+        return 'skills'
     } else if (resource === AccessControlResourceType.AiObservabilityClusters) {
         return 'AI trace clusters'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
@@ -125,6 +129,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability resource'
+    } else if (resourceType === AccessControlResourceType.LlmSkill) {
+        return 'skill'
     } else if (resourceType === AccessControlResourceType.AiObservabilityClusters) {
         return 'AI trace clusters resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
@@ -141,6 +147,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'tracing resource'
     } else if (resourceType === AccessControlResourceType.Workflow) {
         return 'workflow'
+    } else if (resourceType === AccessControlResourceType.McpAnalytics) {
+        return 'MCP analytic'
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
     }

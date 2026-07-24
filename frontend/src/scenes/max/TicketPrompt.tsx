@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -51,12 +50,8 @@ export function TicketPrompt({
 
     const handleTicketCreated = useCallback(
         (ticketId: string): void => {
-            posthog.capture('posthog_ai_support_ticket_created', {
-                $ai_conversation_id: conversationId,
-                $ai_session_id: conversationId,
-                $ai_trace_id: traceId,
-                $ai_support_ticket_id: ticketId,
-            })
+            // The posthog_ai_support_ticket_created event is captured in supportLogic once the ticket
+            // id resolves, so it fires on every submit path (see ai_conversation_id below).
 
             // Persist the confirmation message and add it to the thread
             const confirmationMessage = formatConfirmationMessage(ticketId)
@@ -66,7 +61,7 @@ export function TicketPrompt({
             setIsSubmitting(false)
             closeSupportForm()
         },
-        [conversationId, traceId, appendMessageToConversation, closeSupportForm]
+        [appendMessageToConversation, closeSupportForm]
     )
 
     useEffect(() => {
@@ -92,6 +87,8 @@ export function TicketPrompt({
             severity_level: 'low',
             message: messageContent,
             tags: ['raised_from_posthog_ai_chat'],
+            ai_conversation_id: conversationId,
+            ai_trace_id: traceId,
         })
         setIsSupportModalOpen(true)
     }

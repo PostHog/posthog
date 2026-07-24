@@ -1,5 +1,5 @@
 // PKCE (RFC 7636) helpers for the OAuth authorization-code flow. Ported from the
-// PostHog Code desktop app, using the browser's Web Crypto API.
+// PostHog Desktop app, using the browser's Web Crypto API.
 
 function base64UrlEncode(bytes: Uint8Array): string {
     let binary = ''

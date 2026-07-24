@@ -5,6 +5,7 @@ import { IconComment, IconGitBranch } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils/strings'
 import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSurveyHelper'
@@ -14,6 +15,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
 
@@ -22,11 +24,28 @@ import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowMo
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
         return (
-            <span>
-                Repeats every {survey.iteration_frequency_days}{' '}
-                {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
-                {pluralize(survey.iteration_count, 'time', 'times', false)}
+            <span className="flex flex-col">
+                <span>
+                    Repeats every {survey.iteration_frequency_days}{' '}
+                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
+                    {pluralize(survey.iteration_count, 'time', 'times', false)}
+                </span>
+                {scheduleInfo &&
+                    (!scheduleInfo.autoCloseDate ? (
+                        <span className="text-xs text-muted">
+                            Runs for {pluralize(scheduleInfo.totalDurationDays, 'day')} once launched
+                        </span>
+                    ) : scheduleInfo.autoCloseDate.isBefore(dayjs()) ? (
+                        <span className="text-xs text-muted">
+                            Schedule ended {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}; closing soon
+                        </span>
+                    ) : (
+                        <span className="text-xs text-muted">
+                            Automatically closes on {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}
+                        </span>
+                    ))}
             </span>
         )
     }

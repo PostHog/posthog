@@ -16,6 +16,7 @@ import {
     evaluationsTestHogCreate,
     llmAnalyticsEvaluationSummaryCreate,
 } from '../generated/api'
+import type { TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
@@ -46,7 +47,6 @@ import type {
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
-    HogTestResult,
     ModelConfiguration,
     SentimentEvaluation,
 } from './types'
@@ -132,6 +132,24 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
 }
 
+function buildHogTestRequest(evaluation: HogEvaluation): TestHogRequestApi {
+    const request: TestHogRequestApi = {
+        source: evaluation.evaluation_config.source,
+        sample_count: 5,
+        allows_na: evaluation.output_config?.allows_na ?? false,
+        conditions: evaluation.conditions
+            .filter((condition) => condition.properties && condition.properties.length > 0)
+            .map((condition) => ({ properties: condition.properties })),
+        target: evaluation.target,
+    }
+    if (evaluation.target === 'trace') {
+        request.target_config = {
+            window_seconds: evaluation.target_config.window_seconds ?? DEFAULT_TRACE_WINDOW_SECONDS,
+        }
+    }
+    return request
+}
+
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
@@ -162,7 +180,7 @@ export interface llmEvaluationLogicValues {
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
     hasUnsavedChanges: boolean
-    hogTestResults: HogTestResult[] | null
+    hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
     isForceRefresh: boolean
     isNewEvaluation: boolean
@@ -327,7 +345,7 @@ export interface llmEvaluationLogicActions {
     setTriggerConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
     }
-    testHogOnSample: () => any
+    testHogOnSample: (_?: void) => void
     testHogOnSampleFailure: (
         error: string,
         errorObject?: any
@@ -336,11 +354,11 @@ export interface llmEvaluationLogicActions {
         errorObject?: any
     }
     testHogOnSampleSuccess: (
-        hogTestResults: HogTestResult[] | null,
-        payload?: any
+        hogTestResults: TestHogResultItemApi[] | null,
+        payload?: void
     ) => {
-        hogTestResults: HogTestResult[] | null
-        payload?: any
+        hogTestResults: TestHogResultItemApi[] | null
+        payload?: void
     }
     toggleSummaryExpanded: () => {
         value: true
@@ -472,9 +490,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     loaders(({ props, values }) => ({
         hogTestResults: [
-            null as HogTestResult[] | null,
+            null as TestHogResultItemApi[] | null,
             {
-                testHogOnSample: async (): Promise<HogTestResult[] | null> => {
+                testHogOnSample: async (_?: void, breakpoint?: () => void): Promise<TestHogResultItemApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -483,25 +501,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!evaluation || evaluation.evaluation_type !== 'hog') {
                         return null
                     }
+
+                    const request = buildHogTestRequest(evaluation)
+                    const requestFingerprint = JSON.stringify(request)
+                    let results: TestHogResultItemApi[]
                     try {
-                        const conditions = evaluation.conditions
-                            .filter((c) => c.properties && c.properties.length > 0)
-                            .map((c) => ({ properties: c.properties }))
-                        const response = await evaluationsTestHogCreate(teamId.toString(), {
-                            source: evaluation.evaluation_config.source,
-                            sample_count: 5,
-                            allows_na: evaluation.output_config?.allows_na ?? false,
-                            conditions,
-                        })
-                        return response.results.map((result) => ({
+                        const response = await evaluationsTestHogCreate(teamId.toString(), request)
+                        results = response.results.map((result) => ({
                             ...result,
                             reasoning: result.reasoning ?? '',
                         }))
                     } catch (e: unknown) {
                         const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
-                        return [
+                        results = [
                             {
-                                event_uuid: 'error',
+                                sample_id: 'error',
+                                sample_type: evaluation.target,
+                                event_uuid: null,
+                                trace_id: null,
                                 input_preview: '',
                                 output_preview: '',
                                 result: null,
@@ -510,6 +527,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             },
                         ]
                     }
+
+                    breakpoint?.()
+                    const currentEvaluation = values.evaluation
+                    if (
+                        !currentEvaluation ||
+                        currentEvaluation.evaluation_type !== 'hog' ||
+                        JSON.stringify(buildHogTestRequest(currentEvaluation)) !== requestFingerprint
+                    ) {
+                        return null
+                    }
+                    return results
                 },
             },
         ],
@@ -684,7 +712,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
         hogTestResults: {
             clearHogTestResults: () => null,
+            setAllowsNA: () => null,
+            setEvaluationTarget: () => null,
+            setEvaluationType: () => null,
             setHogSource: () => null,
+            setTraceWindowSeconds: () => null,
+            setTriggerConditions: () => null,
         },
         selectedModel: [
             '' as string,
