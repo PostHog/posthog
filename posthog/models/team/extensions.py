@@ -32,14 +32,21 @@ def get_or_create_team_extension(
     """
     defaults = defaults or {}
     try:
-        return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+        instance = model_class.objects.get(team=team)  # type: ignore[attr-defined]
     except model_class.DoesNotExist:  # type: ignore[attr-defined]
         try:
             with transaction.atomic():
+                # create() sets the forward relation, so `.team` reads back the passed instance
                 return model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
         except IntegrityError:
             # Race condition: another thread created it first
-            return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+            instance = model_class.objects.get(team=team)  # type: ignore[attr-defined]
+
+    # Back-populate the forward relation with the team we already hold. get(team=team) only sets
+    # team_id, so accessing `instance.team` would otherwise trigger a fresh query to reload a Team
+    # we already have in memory — hot on the actors/cohort cache-key path (to_cache_key_dict).
+    instance.team = team
+    return instance
 
 
 def register_team_extension_signal(
