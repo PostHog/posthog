@@ -36371,6 +36371,8 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+      readonly owners: readonly UserBasic[];
       /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -36407,7 +36409,7 @@ export namespace Schemas {
     }
 
     /**
-     * Create serializer — accepts bundled files as write-only input on POST.
+     * Create serializer — accepts bundled files and owners as write-only input on POST.
      */
     export interface LLMSkillCreate {
       readonly id: string;
@@ -36446,6 +36448,11 @@ export namespace Schemas {
       metadata?: LLMSkillCreateMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /**
+         * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
+         * @maxItems 25
+         */
+      owners?: string[];
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -36573,6 +36580,8 @@ export namespace Schemas {
       metadata?: LLMSkillListMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+      readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -49176,7 +49185,12 @@ export namespace Schemas {
       /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
       file_edits?: LLMSkillFileEdit[];
       /**
-         * Latest version you are editing from. Used for optimistic concurrency checks.
+         * Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership.
+         * @maxItems 25
+         */
+      owners?: string[];
+      /**
+         * Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).
          * @minimum 1
          */
       base_version?: number;
