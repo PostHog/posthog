@@ -224,7 +224,17 @@ def _get_previous_recordings_zset_tokens() -> set[str]:
 
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
     limited_team_attributes = list_limited_team_attributes(resource, cache_key)
-    return team_api_token in limited_team_attributes
+    if team_api_token not in limited_team_attributes:
+        return False
+
+    # The cached list can be a stale positive. `list_limited_team_attributes` is cached per
+    # process for 30s with background_refresh, which returns the OLD value on the request that
+    # triggers the refresh — so right after a team's limit clears (e.g. a plan upgrade), warm web
+    # pods keep reporting it as limited for minutes, blocking a user who already paid. Only when
+    # the cached answer says "limited" (the rare branch), confirm against live Redis before
+    # actually limiting. The extra read costs nothing on the common not-limited path.
+    fresh_limited_team_attributes = list_limited_team_attributes(resource, cache_key, use_cache=False)
+    return team_api_token in fresh_limited_team_attributes
 
 
 def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:
