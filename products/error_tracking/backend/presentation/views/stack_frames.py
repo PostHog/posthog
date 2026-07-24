@@ -1,10 +1,11 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
@@ -23,7 +24,9 @@ class ErrorTrackingStackFrameSerializer(DataclassSerializer):
 class ErrorTrackingStackFrameBatchGetRequestSerializer(serializers.Serializer):
     raw_ids = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Raw frame IDs in 'hash/part' format to resolve in a single request.",
+        required=False,
+        help_text="Raw frame IDs in 'hash/part' format to resolve in a single request. "
+        "When omitted, all stack frames for the team are returned.",
     )
     symbol_set = serializers.CharField(
         required=False,
@@ -55,13 +58,13 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
             raise NotFound()
         return Response(self.get_serializer(frame).data)
 
-    @extend_schema(
-        request=ErrorTrackingStackFrameBatchGetRequestSerializer,
+    @validated_request(
+        request_serializer=ErrorTrackingStackFrameBatchGetRequestSerializer,
         responses={200: OpenApiResponse(response=ErrorTrackingStackFrameBatchGetResponseSerializer)},
     )
     @action(methods=["POST"], detail=False)
-    def batch_get(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-        symbol_set = request.data.get("symbol_set", None)
+    def batch_get(self, request: ValidatedRequest, **kwargs):
+        raw_ids = request.validated_data.get("raw_ids", [])
+        symbol_set = request.validated_data.get("symbol_set")
         frames = error_tracking_api.batch_get_stack_frames(self.team.id, raw_ids, symbol_set)
         return Response({"results": self.get_serializer(frames, many=True).data})

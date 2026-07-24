@@ -1391,7 +1391,7 @@ export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) 
 
 export const errorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
-    errorTrackingStackFrameBatchGetRequestApi: ErrorTrackingStackFrameBatchGetRequestApi,
+    errorTrackingStackFrameBatchGetRequestApi?: ErrorTrackingStackFrameBatchGetRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingStackFrameBatchGetResponseApi> => {
     return apiMutator<ErrorTrackingStackFrameBatchGetResponseApi>(

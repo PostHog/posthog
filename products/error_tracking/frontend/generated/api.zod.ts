@@ -967,7 +967,12 @@ export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /*
 })
 
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
-    raw_ids: zod.array(zod.string()).describe("Raw frame IDs in 'hash\/part' format to resolve in a single request."),
+    raw_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            "Raw frame IDs in 'hash\/part' format to resolve in a single request. When omitted, all stack frames for the team are returned."
+        ),
     symbol_set: zod
         .string()
         .nullish()

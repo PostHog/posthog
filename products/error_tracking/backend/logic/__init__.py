@@ -426,6 +426,8 @@ def list_spike_events(
 
 
 def split_stack_frame_raw_id(raw_id: str) -> tuple[str, int]:
+    if not isinstance(raw_id, str):
+        return "", 0
     parts = raw_id.split("/")
     if len(parts) != 2:
         return raw_id, 0
