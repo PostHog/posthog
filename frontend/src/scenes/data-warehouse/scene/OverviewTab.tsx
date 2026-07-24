@@ -215,6 +215,9 @@ export function OverviewTab(): JSX.Element {
                 </div>
                 {managedWarehouseDataStatus.sources.sources.length ? (
                     <LemonTable
+                        // Distinct id so this table's pagination/sort URL params don't collide with
+                        // the schema modal's table (both default to ?page/?order otherwise).
+                        id="managed-warehouse-imported-sources"
                         embedded
                         columns={sourceSummaryColumns}
                         dataSource={managedWarehouseDataStatus.sources.sources}

@@ -38,6 +38,9 @@ export function SourceSchemasModal(): JSX.Element {
                 </LemonBanner>
             ) : (
                 <LemonTable
+                    // Distinct id so the modal paginator/sort drives only this table via its own
+                    // URL params, not the Overview tab's imported-sources table behind it.
+                    id="managed-warehouse-source-schemas"
                     dataSource={sourceSchemas}
                     columns={sourceSchemaColumns}
                     loading={sourceSchemasLoading}
