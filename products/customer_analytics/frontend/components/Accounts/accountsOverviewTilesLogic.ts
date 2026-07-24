@@ -35,10 +35,15 @@ import {
     NUMERIC_FIELD_TYPES,
 } from './constants'
 
+// Single-column scalar aggregations whose metric-type name is also the HogQL
+// aggregate function name (see tileMetricExpression). They share one shape and
+// support an optional `scale` multiplier, e.g. sum(mrr) * 12 to annualize.
+export const COLUMN_AGGREGATE_TYPES = ['sum', 'avg', 'min', 'max', 'median'] as const
+export type ColumnAggregateType = (typeof COLUMN_AGGREGATE_TYPES)[number]
+
 export type AccountsOverviewTileMetric =
     | { type: 'count' }
-    | { type: 'sum'; columnExpression: string; columnLabel: string }
-    | { type: 'avg'; columnExpression: string; columnLabel: string }
+    | { type: ColumnAggregateType; columnExpression: string; columnLabel: string; scale?: number }
     | {
           type: 'count_threshold'
           columnExpression: string
@@ -49,10 +54,27 @@ export type AccountsOverviewTileMetric =
 
 export type AccountsOverviewTileMetricType = AccountsOverviewTileMetric['type']
 
+// Per-tile value display format. A subset of OverviewGrid's WebAnalyticsItemKind
+// (we omit `duration_s`, no account metric is a duration), so `format` maps 1:1
+// to the render `kind`. `currency` uses the team's base currency; `percentage`
+// treats the value as already in percent units (85 → "85%").
+export const TILE_VALUE_FORMATS = ['unit', 'currency', 'percentage'] as const
+export type TileValueFormat = (typeof TILE_VALUE_FORMATS)[number]
+
+export function isColumnAggregateMetric(
+    metric: AccountsOverviewTileMetric
+): metric is Extract<AccountsOverviewTileMetric, { type: ColumnAggregateType }> {
+    return (COLUMN_AGGREGATE_TYPES as readonly string[]).includes(metric.type)
+}
+
 export interface AccountsOverviewTile {
     id: string
     label: string
     metric: AccountsOverviewTileMetric
+    // Custom subtitle; empty/whitespace/undefined falls back to the auto-derived caption.
+    caption?: string
+    // Value display format; undefined renders as a plain unit.
+    format?: TileValueFormat
 }
 
 export interface TileFilter {
@@ -93,23 +115,59 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         )
 }
 
+// A `scale` of undefined/1 (or anything non-finite) is a no-op; otherwise the
+// aggregation is multiplied by the literal. `scale` is always a finite number
+// from the editor's numeric input, so it is safe to inline into the HogQL.
+export function applyScale(expression: string, scale: number | undefined): string {
+    if (scale === undefined || !Number.isFinite(scale) || scale === 1) {
+        return expression
+    }
+    return `${expression} * ${scale}`
+}
+
+// Human-readable multiplier suffix for tile labels/captions (e.g. " × 12").
+// Empty when the scale is a no-op, mirroring applyScale's guard.
+export function scaleSuffix(scale: number | undefined): string {
+    return scale === undefined || !Number.isFinite(scale) || scale === 1 ? '' : ` × ${scale}`
+}
+
 export function tileMetricExpression(tile: AccountsOverviewTile): string {
     const { metric } = tile
     switch (metric.type) {
         case 'count':
             return 'count()'
-        case 'sum':
-            return `sum(${metric.columnExpression})`
-        case 'avg':
-            return `avg(${metric.columnExpression})`
         case 'count_threshold':
             return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
+        default:
+            // sum | avg | min | max | median: the metric type is the HogQL aggregate fn name.
+            return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
     }
 }
 
+// The auto-derived subtitle for a tile, from its metric. `count` has none.
+export function autoCaption(tile: AccountsOverviewTile): string | undefined {
+    const { metric } = tile
+    switch (metric.type) {
+        case 'count':
+            return undefined
+        case 'count_threshold':
+            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
+        default:
+            // sum | avg | min | max | median: the metric type reads as the aggregation verb.
+            return `${metric.type} of ${metric.columnLabel}${scaleSuffix(metric.scale)}`
+    }
+}
+
+// The subtitle shown on a tile: the user's custom caption when set, else the
+// auto-derived one. A whitespace-only caption is treated as unset.
+export function tileCaption(tile: AccountsOverviewTile): string | undefined {
+    const custom = tile.caption?.trim()
+    return custom ? custom : autoCaption(tile)
+}
+
 // A tile only acts as a row-level predicate when it represents an
-// inherently row-level condition. `count_threshold` does; `count`/`sum`/`avg`
-// describe the whole set, not a subset.
+// inherently row-level condition. `count_threshold` does; `count` and the
+// column aggregations describe the whole set, not a subset.
 export function tileToRowFilter(tile: AccountsOverviewTile): string | null {
     if (tile.metric.type !== 'count_threshold') {
         return null
