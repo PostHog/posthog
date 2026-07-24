@@ -124,7 +124,8 @@ fn lib_rules() -> &'static [LibRule] {
         rules.push(LibRule {
             lib: "posthog-python",
             fix: WireOrderFix::EXCEPTION_LIST,
-            canonical_since: None,
+            // posthog-python ships the flip in 7.30.0 (PostHog/posthog-python#728).
+            canonical_since: Some(Version::new(7, 30, 0)),
         });
 
         rules
@@ -329,6 +330,45 @@ mod test {
         // Natively-canonical SDKs have no legacy order.
         assert!(legacy_wire_order(Some("posthog-node"), &canonical).is_none());
         assert!(legacy_wire_order(None, &canonical).is_none());
+    }
+
+    #[test]
+    fn python_cutoff_gates_exception_list_normalization_by_version() {
+        // Python's fix reverses the exception list (root-cause-first ->
+        // outermost-first), not frames — the gate must key on the same fix.
+        let make_list = || -> ExceptionList {
+            vec![
+                exception_with_frames("RootCause", &["main", "boom"]),
+                exception_with_frames("Wrapper", &["main", "wrap"]),
+            ]
+            .into()
+        };
+
+        for version in [Some("7.29.0"), Some("6.0.0"), Some("garbage"), None] {
+            let mut list = make_list();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-python"), version);
+            assert!(legacy.is_some(), "{version:?} should normalize");
+            assert_eq!(list[0].exception_type, "Wrapper", "list reversed");
+            assert_eq!(
+                frame_names(&list[0]),
+                vec!["main", "wrap"],
+                "frames untouched"
+            );
+        }
+
+        for version in ["7.30.0", "7.30.1", "7.31.0", "8.0.0"] {
+            let mut list = make_list();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-python"), Some(version));
+            assert!(legacy.is_none(), "{version} should pass through");
+            assert_eq!(list[0].exception_type, "RootCause", "list untouched");
+        }
+
+        // Legacy hashing still reconstructs pre-flip list order post-cutoff.
+        let canonical = make_list();
+        let legacy = legacy_wire_order(Some("posthog-python"), &canonical)
+            .expect("reconstruction must ignore the cutoff");
+        assert_eq!(legacy[0].exception_type, "Wrapper");
+        assert_eq!(frame_names(&legacy[0]), vec!["main", "wrap"]);
     }
 
     #[test]
