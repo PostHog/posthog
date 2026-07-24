@@ -74,12 +74,7 @@ export function AssigneeMultiSelect({
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={
-                                        <LemonCheckbox
-                                            checked={isSelected('me')}
-                                            className="pointer-events-none"
-                                        />
-                                    }
+                                    icon={<LemonCheckbox checked={isSelected('me')} className="pointer-events-none" />}
                                     disabledReason={isSelected('me') ? undefined : selectionCapReason}
                                     onClick={() => toggleEntry('me')}
                                 >
