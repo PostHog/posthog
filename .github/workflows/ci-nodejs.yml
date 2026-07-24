@@ -416,7 +416,14 @@ jobs:
             # Build the workspace deps (the Rust addons + TS) up front so the Jest step below times
             # only the tests. Otherwise turbo's `test` task pulls `^build`, folding the addon compile
             # into the test step and making a slow shard ambiguous (cold cargo vs slow tests).
+            # SHARD_INDEX/SHARD_COUNT are in the `build` task's turbo cache key, so they must match the
+            # Jest step's values here — otherwise `^build` hashes differently in the two steps and the
+            # addon rebuilds inside Jest anyway. (The build output doesn't actually vary by shard; the
+            # real fix is dropping them from the build task's env in turbo.json.)
             - name: Prepare Node.js workspace
+              env:
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: 3
               run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Test with Jest
