@@ -13,9 +13,14 @@ def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
     if isinstance(expr, ast.Alias):
         return _extract_join_key_field(expr.expr)
 
-    if isinstance(expr, ast.Call) and len(expr.args) > 0:
-        # We always descend into the first argument; the join-key field is expected to be args[0].
-        return _extract_join_key_field(expr.args[0])
+    if isinstance(expr, ast.Call):
+        # The field isn't always the first argument. For conditional keys like
+        # `if(event = 'X', properties.domain, NULL)` the field sits in a later argument,
+        # so search every argument and return the first one that resolves to a Field.
+        for arg in expr.args:
+            field = _extract_join_key_field(arg)
+            if field is not None:
+                return field
 
     return None
 
