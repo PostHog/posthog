@@ -332,13 +332,16 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         # A loop fire freezes its bundle set onto the run's state; seeding reads only
         # this snapshot, never the live loop, and validates every source path against
         # the owning loop's prefix.
-        loop = Loop.objects.create(
+        # Direct save, like LoopRunsTestCase.create_loop: the scoped manager's create()
+        # fails closed without an ambient team scope.
+        loop = Loop(
             team=self.team,
             created_by=self.user,
             name="Digest",
             instructions="/my-skill",
             runtime_adapter="claude",
         )
+        loop.save()
         self.task.origin_product = Task.OriginProduct.LOOP
         self.task.loop = loop
         self.task.save(update_fields=["origin_product", "loop"])
