@@ -54,6 +54,17 @@ from products.conversations.backend.services.identity import verify_identity_has
 logger = logging.getLogger(__name__)
 
 
+def _bounded_identifier(value: object, max_length: int = 200) -> str | None:
+    """Coerce an untrusted request identifier to a bounded string for telemetry, or None.
+
+    The widget message endpoint is public and unauthenticated, so request identifiers are
+    attacker-controlled — cap the length so a stuffed value can't inflate the event payload.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    return value[:max_length]
+
+
 class IdentityVerificationFailed(Exception):
     """Raised when identity fields are present but HMAC verification fails."""
 
@@ -134,6 +145,20 @@ class WidgetMessageView(APIView):
                         "error_fields": sorted(serializer.errors.keys()),
                         "session_context_field_count": session_context_field_count,
                         "session_context_field_lengths": session_context_field_lengths,
+                        # Tie the failure back to who and where it came from. team.uuid is the
+                        # capture distinct_id and org/project ride along as groups, but neither is
+                        # queryable as an event property, and the end user who hit the error isn't
+                        # captured at all — so surface team_id plus the submitter's identifiers.
+                        "team_id": team.id,
+                        "organization_id": str(team.organization_id),
+                        "submitted_distinct_id": _bounded_identifier(
+                            request.data.get("distinct_id") or request.data.get("identity_distinct_id")
+                        ),
+                        "submitted_widget_session_id": _bounded_identifier(request.data.get("widget_session_id")),
+                        "submitted_ticket_id": _bounded_identifier(request.data.get("ticket_id")),
+                        "identity_attempted": bool(
+                            request.data.get("identity_distinct_id") and request.data.get("identity_hash")
+                        ),
                     },
                 )
             except Exception as e:

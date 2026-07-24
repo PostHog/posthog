@@ -217,6 +217,27 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_failed_send_telemetry_includes_submitter_identity(self):
+        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "",  # empty content fails validation
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args.args[1], mock_report.call_args.args[2]
+        self.assertEqual(event, "support ticket send failed")
+        self.assertEqual(properties["reason"], "validation_error")
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertEqual(properties["submitted_distinct_id"], self.distinct_id)
+        self.assertEqual(properties["submitted_widget_session_id"], self.widget_session_id)
+
     def test_create_message_with_traits(self):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
