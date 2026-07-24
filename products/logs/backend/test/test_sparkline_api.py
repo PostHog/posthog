@@ -4,11 +4,16 @@ from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+
+from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -52,3 +57,10 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
         # local time when comparing against the (UTC) live_logs_checkpoint.
         for bucket in buckets:
             self.assertIsNotNone(datetime.fromisoformat(bucket["time"]).tzinfo)
+
+    def test_sparkline_user_query_error_returns_400(self):
+        # A user-caused query error must surface as a clean 400, matching the sibling `query`
+        # action — not a generic 500 that escalates to a frontend uncaught-exception capture.
+        with patch.object(SparklineQueryRunner, "run", side_effect=QueryError("bad filter")):
+            response = self._sparkline({"dateRange": _FIXTURE_WINDOW}, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "bad filter")
