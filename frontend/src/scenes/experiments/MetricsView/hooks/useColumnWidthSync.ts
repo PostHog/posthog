@@ -7,10 +7,9 @@ interface UseColumnWidthSyncParams {
     nestedTableRef: React.RefObject<HTMLTableElement>
 }
 
-// Constants for table structure validation
+// Constants for mapping nested breakdown cells back to their parent columns
 const BASELINE_ROW_CELL_COUNT = 7
 const VARIANT_ROW_CELL_COUNT = 5
-const EXPECTED_COLUMN_COUNT = 7
 const WIDTH_COMPARISON_TOLERANCE = 0.5 // Tolerance for sub-pixel rendering differences
 
 /**
@@ -44,64 +43,44 @@ const getParentColumnIndex = (cellIndex: number, cellCount: number): number | nu
 }
 
 /**
- * Measure column widths from a parent table's first data row
+ * Measure column widths from a parent table's first data row.
+ *
+ * Returns null (rather than throwing) when the measurement is not usable yet — no data row,
+ * no cells, or a cell that measures 0 mid-transition. Callers must treat null as "keep the
+ * widths that are already applied" so a failed remeasure never blanks the breakdown cells.
  */
-const measureColumnWidths = (parentTable: HTMLTableElement): number[] => {
+const measureColumnWidths = (parentTable: HTMLTableElement): number[] | null => {
     // Get the first data row from the parent table (not the header, not the breakdown row)
-    const firstDataRow = parentTable.querySelector('tbody tr:not([data-breakdown-row])') as HTMLTableRowElement
+    const firstDataRow = parentTable.querySelector('tbody tr:not([data-breakdown-row])') as HTMLTableRowElement | null
     if (!firstDataRow) {
-        throw new Error('No data row found in parent table')
+        return null
     }
 
-    // Measure each cell's actual width (offsetWidth includes borders and padding)
+    // Measure each cell's actual width (offsetWidth includes borders and padding).
+    // Measure whatever columns exist rather than asserting a fixed count, so an added or
+    // removed column doesn't silently blank the table.
     const cells = Array.from(firstDataRow.querySelectorAll('td'))
-
-    // Validate we have the expected number of columns
-    if (cells.length !== EXPECTED_COLUMN_COUNT) {
-        console.warn(
-            `[useColumnWidthSync] Unexpected parent table structure: expected ${EXPECTED_COLUMN_COUNT} columns, got ${cells.length}`
-        )
-        throw new Error('Unexpected column count')
+    if (cells.length === 0) {
+        return null
     }
 
-    const widths = cells.map((cell) => {
+    const widths: number[] = []
+    for (const cell of cells) {
         const width = (cell as HTMLElement).offsetWidth
         if (width <= 0) {
-            throw new Error('Measured column width is invalid (zero or negative)')
+            // Mid-transition measurement; bail out and keep the previously applied widths.
+            return null
         }
-        return width
-    })
+        widths.push(width)
+    }
 
     return widths
-}
-
-/**
- * Clear inline width styles from nested table rows
- */
-const clearRowStyles = (rows: NodeListOf<Element>): void => {
-    rows.forEach((row) => {
-        const cells = Array.from(row.querySelectorAll('td'))
-        cells.forEach((cell) => {
-            const cellElement = cell as HTMLElement
-            cellElement.style.width = ''
-            cellElement.style.minWidth = ''
-            cellElement.style.maxWidth = ''
-        })
-    })
 }
 
 /**
  * Apply measured widths to nested table rows
  */
 const applyWidthsToRows = (rows: NodeListOf<Element>, widths: number[]): void => {
-    // Validate column widths array
-    if (widths.length !== EXPECTED_COLUMN_COUNT) {
-        console.warn(
-            `[useColumnWidthSync] Column widths array has unexpected length: expected ${EXPECTED_COLUMN_COUNT}, got ${widths.length}`
-        )
-        return
-    }
-
     rows.forEach((row) => {
         const cells = Array.from(row.querySelectorAll('td'))
         const cellCount = cells.length
@@ -178,8 +157,13 @@ export const useColumnWidthSync = (
                     return
                 }
 
-                // Measure column widths from parent table
+                // Measure column widths from parent table. A null result means the parent
+                // isn't in a measurable state yet; keep any widths already applied rather
+                // than clearing them, so the breakdown cells never collapse.
                 const widths = measureColumnWidths(parentTable)
+                if (!widths) {
+                    return
+                }
 
                 // Check if nested table is new (different instance from last time)
                 const isNewNestedTable = nestedTableRef.current !== previousNestedTableRef.current
@@ -203,20 +187,16 @@ export const useColumnWidthSync = (
             }
         }
 
-        // Debounced resize handler - clear styles first to allow natural reflow
+        // Debounced resize handler. The parent table's column widths are driven by its own
+        // data rows and reflow on resize independently of the nested table's inline widths,
+        // so we can remeasure and overwrite in place. We deliberately do NOT clear the
+        // existing widths first: if the remeasure fails, the cells keep their last-known
+        // widths instead of staying collapsed.
         const handleResize = (): void => {
             if (resizeTimeoutRef.current) {
                 clearTimeout(resizeTimeoutRef.current)
             }
-            resizeTimeoutRef.current = setTimeout(() => {
-                // Clear existing styles to allow parent table to reflow naturally
-                if (nestedTableRef.current) {
-                    const rows = nestedTableRef.current.querySelectorAll('tbody tr')
-                    clearRowStyles(rows)
-                }
-                // Small delay to let DOM reflow, then remeasure
-                setTimeout(measureAndApplyWidths, 10)
-            }, 150)
+            resizeTimeoutRef.current = setTimeout(measureAndApplyWidths, 150)
         }
 
         // Initial measurement with a small delay to allow DOM to settle
