@@ -43,18 +43,13 @@ const VARIANT_CONTENT: Record<HedgehogDonationVariant, { image: string; title: s
     },
     money: {
         image: moneyHog,
-        title: "We've got plenty of money",
+        title: "We don't need the money, but...",
         body: (
-            <>
-                <p className="m-0">
-                    You've been using PostHog for free, which is great. We don't need the money, but we know who does.
-                </p>
-                <p className="m-0">
-                    The <TrustLink /> has benefitted from PostHog's support since we started. Twice a year, we ask that
-                    if you've enjoyed using PostHog for free then you consider supporting their cause. Or, you can
-                    donate elsewhere if you prefer!
-                </p>
-            </>
+            <p className="m-0">
+                The <TrustLink /> has benefitted from PostHog's support since we started. Twice a year, we ask that if
+                you've enjoyed using PostHog for free then you consider supporting their cause. Or, you can donate
+                elsewhere if you prefer!
+            </p>
         ),
     },
 }
