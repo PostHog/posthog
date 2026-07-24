@@ -103,7 +103,11 @@ def _parse_iso(ts: str) -> datetime:
 
 def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResult:
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        # select_related("organization") hydrates the org up front. HogQL printing
+        # dereferences team.organization for property-access-control, and a lazy fetch
+        # for the org's UUID pk would run in this thread_sensitive=False executor thread
+        # where psycopg3 can't adapt the UUID param, crashing sampling.
+        team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
         logger.info("Team not found, skipping eval sampler run", team_id=inputs.team_id, job_id=inputs.job_id)
         return SamplerActivityResult(team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0)
