@@ -21,7 +21,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
     def _listing(self) -> SessionRecordingListFromQuery:
         # `surfacing_score` ordering is flag-gated; gate here so every path that materializes the query
         # (the MCP/query endpoint via `_calculate`, plus `to_query` for explain/debug) shares one check.
-        gate_surfacing_score_order(self.query, self.user)
+        gate_surfacing_score_order(self.query, self.team)
         return SessionRecordingListFromQuery(
             team=self.team,
             query=self.query,
