@@ -45,6 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
@@ -343,6 +344,9 @@ def _build_environment_variables(
         # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
         # the cache key) and cost attribution. Rely on Temporal retries instead.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
+
+    if ctx.agent_otel_telemetry_enabled:
+        environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)

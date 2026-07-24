@@ -188,6 +188,41 @@ def _first_error_string(detail: Any) -> Optional[str]:
     return None
 
 
+# The literal template_id each fixed-template node type requires. A saved library template
+# (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
+# putting its UUID in template_id is the dominant authoring mistake on these nodes.
+_FIXED_TEMPLATE_IDS = {
+    "function_email": "template-email",
+    "function_sms": "template-twilio",
+    "function_push": "template-native-push",
+}
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid_mod.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _describe_unknown_template(action: dict, template_id: str) -> str:
+    fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
+    if fixed_id and _looks_like_uuid(template_id):
+        return (
+            f"Template not found. template_id must be the literal '{fixed_id}' for this step type. "
+            "To use a saved template from the library, set config.template_uuid to its UUID instead."
+        )
+    if fixed_id:
+        return f"Template not found. template_id must be the literal '{fixed_id}' for this step type."
+    if _looks_like_uuid(template_id):
+        return (
+            "Template not found. Function steps reference a destination template id like "
+            "'template-webhook' (discover them with the template catalog), not a UUID."
+        )
+    return "Template not found"
+
+
 def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
@@ -586,7 +621,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
-                    raise serializers.ValidationError({"template_id": "Template not found"})
+                    raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
@@ -1381,6 +1416,13 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
 
 
 class HogFlowGraphUpdateSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored "
+            "graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit."
+        ),
+    )
     operations = serializers.ListField(
         child=HogFlowGraphOperationSerializer(),
         allow_empty=False,
@@ -1848,6 +1890,16 @@ class HogFlowViewSet(
                     "workflows-archive — they can't be combined with other field updates."
                 )
 
+            # Whole-graph replacement through a plain update wipes any step the payload omits - a
+            # partial actions list has destroyed live graphs. MCP edits the graph exclusively through
+            # the id-addressed patch endpoint; the web builder keeps full-save semantics.
+            if keys & {"actions", "edges"}:
+                raise exceptions.ValidationError(
+                    "actions/edges can't be replaced via workflows-update - a partial list silently "
+                    "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
+                    "changes steps by id and leaves the rest of the graph untouched."
+                )
+
             # Content edits on an active workflow stage a draft when the revisions cycle is on for the
             # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
             # tools) pass through either way, and metadata-only edits apply live once the flag is on.
@@ -2041,6 +2093,20 @@ class HogFlowViewSet(
                 if not revisions_enabled:
                     raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = True
+
+            # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
+            # path that writes graph content, so it carries the base_updated_at staleness contract.
+            # Draft edits race against other draft edits, so the baseline is the draft's timestamp
+            # once one exists.
+            base_updated_at_raw = request.data.get("base_updated_at")
+            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+            if base_updated_at is not None and timezone.is_naive(base_updated_at):
+                base_updated_at = timezone.make_aware(base_updated_at)
+            guard_timestamp = locked.updated_at
+            if route_to_draft and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleWorkflowUpdateError()
 
             # Draft edits compose on the staged draft, not on live — a second patch must see the first.
             if route_to_draft and locked.draft:

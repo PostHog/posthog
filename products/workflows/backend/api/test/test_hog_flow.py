@@ -126,6 +126,41 @@ class TestHogFlowAPI(APIBaseTest):
         assert "actions" in web_response.json()["results"][0]
         assert secret in web_response.content.decode()
 
+    def test_mcp_update_rejects_graph_replacement(self):
+        # A partial actions list through a plain update silently drops every step it omits -
+        # an agent doing this wiped a live graph in production. MCP graph edits must go
+        # through the id-addressed patch endpoint; the web builder keeps full-save semantics.
+        flow_id = self._create_simple_flow()
+
+        # A structurally valid partial list (trigger only) passes serializer validation and would
+        # silently drop the webhook step - exactly the production wipe.
+        trigger_only = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                },
+            }
+        ]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": trigger_only},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 400, response.json()
+        assert "workflows-patch-graph" in response.json()["detail"]
+
+        # Metadata stays editable over MCP, and the web builder keeps sending full graphs.
+        mcp_rename = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"}, HTTP_X_POSTHOG_CLIENT="mcp"
+        )
+        assert mcp_rename.status_code == 200, mcp_rename.json()
+        web_actions = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": trigger_only})
+        assert web_actions.status_code == 200, web_actions.json()
+
     def test_invalid_action_input_error_carries_the_field_message(self):
         # A programmatic caller sending a broken function input must get back the validator's
         # actual message (what is wrong with which field), not a bare code: agents retry blind
@@ -140,6 +175,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert body["type"] == "validation_error"
         assert "url" in (body["attr"] or ""), body
         assert "required" in body["detail"].lower(), body
+
+    @parameterized.expand(
+        [
+            (
+                "uuid_in_email_template_id",
+                "function_email",
+                "0199aabb-ccdd-0000-1122-334455667788",
+                ["template-email", "template_uuid"],
+            ),
+            (
+                "uuid_in_generic_function",
+                "function",
+                "0199aabb-ccdd-0000-1122-334455667788",
+                ["template-webhook", "not a UUID"],
+            ),
+        ]
+    )
+    def test_unknown_template_id_error_names_the_expected_form(self, _name, action_type, template_id, fragments):
+        # Agents keep putting saved-email-template UUIDs (from the template library) into
+        # config.template_id, where only the fixed literal is valid - the bare "Template not
+        # found" left them retrying formats blind. The error must name the literal and point
+        # UUID-holders at config.template_uuid.
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": template_id, "inputs": {}})
+        action["type"] = action_type
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        for fragment in fragments:
+            assert fragment in detail, (fragment, detail)
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()

@@ -13,6 +13,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.logic.services.loop_runs import (
+    DISABLED_REASON_REPEATED_FAILURES,
+    DISABLED_REASON_USAGE_LIMITED,
     LOOP_AUTO_PAUSE_THRESHOLD,
     LOOP_RATE_CAP_PER_DAY,
     LOOP_TEAM_RATE_CAP_PER_DAY,
@@ -217,6 +219,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 1)
         self.assertEqual(loop.last_error, "cloud usage limit exceeded")
+        self.assertIsNone(loop.disabled_reason)
         self.assertEqual(Task.objects.filter(team=self.team).count(), 0)
         mock_dispatch.assert_called_once_with(loop, "needs_attention", {"reason": "gate_blocked"})
 
@@ -233,6 +236,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_USAGE_LIMITED)
         self.assertEqual(loop.consecutive_failures, LOOP_AUTO_PAUSE_THRESHOLD)
         mock_pause.assert_called_once()
         mock_dispatch.assert_any_call(
@@ -449,6 +453,37 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         self.assertEqual(task_run.state["config_snapshot"]["connectors"], loop.connectors)
         self.assertEqual(task_run.state["config_snapshot"]["notifications"], loop.notifications)
         self.assertEqual(task_run.state["config_snapshot"]["repositories"], loop.repositories)
+
+    @parameterized.expand(
+        [
+            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
+            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
+            (
+                "pinned_model_clamps_unsupported_stored_effort",
+                "claude",
+                "@cf/zai-org/glm-5.2",
+                "low",
+                "@cf/zai-org/glm-5.2",
+                None,
+            ),
+        ]
+    )
+    def test_fire_resolves_model_and_reasoning_effort(
+        self, _name, runtime_adapter, model, reasoning_effort, expected_model, expected_effort
+    ):
+        loop = self.create_loop(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(task_run.state["model"], expected_model)
+        self.assertEqual(task_run.state["reasoning_effort"], expected_effort)
 
     @parameterized.expand(
         [
@@ -767,6 +802,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         self.assertEqual(loop.consecutive_failures, 1)
         self.assertEqual(loop.last_error, "boom")
         self.assertTrue(loop.enabled)
+        self.assertIsNone(loop.disabled_reason)
         mock_dispatch.assert_called_once_with(
             loop,
             "run_failed",
@@ -783,6 +819,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_REPEATED_FAILURES)
         self.assertEqual(loop.consecutive_failures, LOOP_AUTO_PAUSE_THRESHOLD)
         mock_pause.assert_called_once()
         mock_dispatch.assert_any_call(
