@@ -7,6 +7,7 @@ import sys
 import shlex
 import shutil
 import tempfile
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -978,3 +979,64 @@ class TestParseExcludeInput:
         excluded, out_of_range = _parse_exclude_input(raw, self.UNITS)
         assert excluded == expected_excluded
         assert out_of_range == expected_out_of_range
+
+
+class TestDockerComposeShellFailurePath:
+    """The docker-compose proc shell must not emit the ready marker when `up` fails.
+
+    `up_cmd || { fail_cmd; exit 1; } && echo 'docker-compose ready'` only adds
+    a friendlier failure message over a plain `up_cmd && echo ready` chain —
+    both already skip the ready marker on failure. What this guards against is
+    someone dropping the `exit 1` from `fail_cmd`: then the `{ ...; }` group
+    exits 0, the `||` is satisfied, and `docker-compose ready` fires even
+    though `up` failed, so every dependent proc starts against a dead stack.
+    Covers both the generated shell and its independently maintained twin in
+    bin/mprocs.yaml (the static fallback used when hogli is unavailable).
+    """
+
+    @staticmethod
+    def _shells() -> list[tuple[str, str]]:
+        generated = MprocsGenerator(MockRegistry({}))._generate_docker_compose_config({}, [])["shell"]
+        repo_root = Path(__file__).resolve().parents[4]
+        static = yaml.safe_load((repo_root / "bin" / "mprocs.yaml").read_text())["procs"]["docker-compose"]["shell"]
+        return [("generated", generated), ("static", static)]
+
+    @parameterized.expand(
+        [
+            ("generated", 0, True),
+            ("generated", 1, False),
+            ("static", 0, True),
+            ("static", 1, False),
+        ]
+    )
+    def test_ready_marker_tracks_up_result(self, source: str, up_exit: int, expect_ready: bool) -> None:
+        shell = dict(self._shells())[source]
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "docker"
+            fake.write_text(f'#!/bin/sh\ncase "$*" in *" up "*) exit {up_exit};; esac\nexit 0\n')
+            fake.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}"}
+            env.pop("POSTHOG_SANDBOX", None)
+            result = subprocess.run(
+                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
+            )
+        assert ("docker-compose ready" in result.stdout) == expect_ready
+        assert (result.returncode == 0) == expect_ready
+
+    @parameterized.expand([("generated",), ("static",)])
+    def test_sandbox_guard_short_circuits_before_docker(self, source: str) -> None:
+        # Sandboxes have no docker CLI; the shell must report ready without
+        # invoking docker at all. A fake docker that always fails proves the
+        # guard short-circuits; a fake sleep lets the sandbox branch terminate.
+        shell = dict(self._shells())[source]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, body in [("docker", "#!/bin/sh\nexit 1\n"), ("sleep", "#!/bin/sh\nexit 0\n")]:
+                fake = Path(tmp) / name
+                fake.write_text(body)
+                fake.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "POSTHOG_SANDBOX": "1"}
+            result = subprocess.run(
+                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
+            )
+        assert "docker-compose ready" in result.stdout
+        assert result.returncode == 0

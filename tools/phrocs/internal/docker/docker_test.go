@@ -108,6 +108,11 @@ func TestStripComposeLogsTail(t *testing.T) {
 			shell: "docker compose up",
 			want:  "docker compose up",
 		},
+		{
+			name:  "logs tail inside if/else keeps the fi",
+			shell: `if [ "$S" = "1" ]; then sleep infinity; else docker compose -f a.yml up -d && echo ready && docker compose -f a.yml logs --tail=100 -f; fi`,
+			want:  `if [ "$S" = "1" ]; then sleep infinity; else docker compose -f a.yml up -d && echo ready; fi`,
+		},
 	}
 
 	for _, tc := range tests {

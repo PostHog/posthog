@@ -147,23 +147,35 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
-# Warn about a duplicate infra stack under a different compose project. It binds the
-# same host ports as "$COMPOSE_PROJECT_NAME", so our clickhouse/kafka can't start and
-# get stuck in "Created" — the "database missing" hang. Advisory only (never fail).
-foreign_stacks=$(docker ps --filter 'label=com.docker.compose.service=clickhouse' \
-    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
-    | grep -vx "$COMPOSE_PROJECT_NAME" | sort -u || true)
-if [[ -n "$foreign_stacks" ]]; then
-    echo "⚠️  Another dev infra stack is running under a different compose project:"
-    while IFS= read -r stack; do
-        [[ -n "$stack" ]] && echo "     • $stack"
-    done <<< "$foreign_stacks"
-    echo "   It holds the same host ports as '$COMPOSE_PROJECT_NAME', so clickhouse/kafka"
-    echo "   here may fail to start and get reported as 'missing'. Tear it down with:"
-    while IFS= read -r stack; do
-        [[ -n "$stack" ]] && echo "     docker compose -p $stack -f docker-compose.dev.yml down --remove-orphans"
-    done <<< "$foreign_stacks"
+# Pre-flight: detect who already holds the host ports the dev stack needs. A stale
+# stack under a *different* compose project binds the same ports, so one of our
+# containers fails to bind — and that aborts the entire `docker compose up`,
+# sometimes leaving a container detached from the compose network. In a TTY, offer
+# to tear foreign stacks down; otherwise stay advisory. Delegated to hogli (tested
+# there, see doctor_ports in hogli_commands/doctor.py); skipped if hogli isn't on
+# PATH, same as doctor:zombies above.
+if command -v hogli &>/dev/null; then
+    hogli doctor:ports || true
 fi
+
+# One-time notice for the July 2026 named-volume switch: the named volume is
+# absent until the first `up` after the switch, and if a clickhouse container
+# already exists under this project, its data is about to be reset. See the
+# "Local ClickHouse suddenly empty" gotcha in developing-locally.md. Fail-open,
+# like the port pre-flight above.
+named_volume_reset_notice() {
+    command -v docker &>/dev/null || return 0
+    docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
+    docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
+        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+        | grep -qx "$COMPOSE_PROJECT_NAME" || return 0
+    echo "⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start"
+    echo "   recreates them empty, so local ClickHouse data resets once (happens once"
+    echo "   per machine). Run 'hogli migrations:run' after, or 'hogli dev:reset' for a"
+    echo "   full wipe plus demo data. See 'Local ClickHouse suddenly empty' in"
+    echo "   docs/published/handbook/engineering/developing-locally.md to salvage old data."
+}
+named_volume_reset_notice || true
 
 # Geo files
 ./bin/download-mmdb
