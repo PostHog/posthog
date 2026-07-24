@@ -10,18 +10,8 @@ import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Suppor
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isDOMModificationError } from 'lib/utils/domMutationError'
 import { teamLogic } from 'scenes/teamLogic'
-
-const DOM_MUTATION_PATTERNS = [
-    "Failed to execute 'removeChild' on 'Node'",
-    "Failed to execute 'insertBefore' on 'Node'",
-    "Failed to execute 'appendChild' on 'Node'",
-]
-
-function isDOMModificationError(error: Error): boolean {
-    const message = error.message || ''
-    return DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
-}
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode

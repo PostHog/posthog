@@ -3,7 +3,9 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { registerBeforeSendFilter } from 'lib/posthogBeforeSend'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { fingerprintDOMMutationExceptions } from 'lib/utils/domMutationError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
@@ -56,7 +58,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // `before_send` is owned by the composable registry (see below) so multiple filters
+            // can share the single posthog-js slot instead of clobbering each other.
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -174,6 +177,14 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
+
+        // Caller-supplied filters run first (e.g. the exporter redacts share tokens), then the
+        // DOM-mutation fingerprint collapses browser-extension crashes onto one issue.
+        if (options.beforeSend) {
+            const callerFilters = Array.isArray(options.beforeSend) ? options.beforeSend : [options.beforeSend]
+            callerFilters.forEach(registerBeforeSendFilter)
+        }
+        registerBeforeSendFilter(fingerprintDOMMutationExceptions)
 
         posthog.onFeatureFlags((_flags, _variants, context) => {
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
