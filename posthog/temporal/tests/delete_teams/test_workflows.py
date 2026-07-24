@@ -245,6 +245,69 @@ async def test_recursion_error_fails_fast_without_retry():
     assert len(attempts) == 1
 
 
+async def test_project_workflow_clears_pending_deletion_on_nonretryable_failure():
+    # A non-retryable failure must clear is_pending_deletion (via reset_project_pending_deletion_activity)
+    # so the project isn't welded shut on the pending-deletion screen forever, while still surfacing as
+    # a failed run for alerting.
+    from django.db.models.deletion import ProtectedError
+
+    calls: list[str] = []
+    reset_project_ids: list[int] = []
+
+    @activity.defn(name="delete_misc_small_tables_activity")
+    async def raises_protected(inputs: TeamDataActivityInputs) -> None:
+        raise ProtectedError("blocked by a PROTECT foreign key", set())
+
+    activities: list = [raises_protected]
+    for name in CORE_ACTIVITY_ORDER:
+        if name == "delete_misc_small_tables_activity":
+            continue
+
+        @activity.defn(name=name)
+        async def _noop(inputs: TeamDataActivityInputs) -> None:
+            pass
+
+        activities.append(_noop)
+
+    @activity.defn(name="delete_project_record_activity")
+    async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
+        calls.append("delete_project_record_activity")
+
+    @activity.defn(name="send_project_deleted_email_activity")
+    async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> None:
+        calls.append("send_project_deleted_email_activity")
+
+    @activity.defn(name="reset_project_pending_deletion_activity")
+    async def reset_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> None:
+        reset_project_ids.append(inputs.project_id)
+
+    activities += [
+        delete_project_record_activity,
+        send_project_deleted_email_activity,
+        reset_project_pending_deletion_activity,
+    ]
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=activities,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    DeleteProjectDataWorkflow.run,
+                    DeleteProjectDataWorkflowInputs(team_ids=[1], project_id=42, user_id=7, project_name="proj"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    assert reset_project_ids == [42]  # the lock was cleared for the failed project
+    assert "delete_project_record_activity" not in calls  # never reached the later phases
+
+
 async def test_delete_team_records_activity_converts_recursion_error():
     # The real activity turns a RecursionError from the cascade into a small, non-retryable
     # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.

@@ -153,6 +153,14 @@ async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
         await database_sync_to_async_pool(delete_project_record)(inputs.project_id)
 
 
+@temporalio.activity.defn
+async def reset_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> None:
+    async with Heartbeater():
+        from posthog.models.team.util import reset_project_pending_deletion
+
+        await database_sync_to_async_pool(reset_project_pending_deletion)(inputs.project_id)
+
+
 def _delete_organization_record(organization_id: str, user_id: int) -> None:
     from posthog.event_usage import report_organization_deletion_completed
     from posthog.models.team.util import delete_organization_record

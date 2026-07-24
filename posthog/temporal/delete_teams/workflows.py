@@ -19,6 +19,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_team_records_activity,
     enqueue_clickhouse_deletion_activity,
     queue_recording_deletions_activity,
+    reset_project_pending_deletion_activity,
     send_organization_deleted_email_activity,
     send_project_deleted_email_activity,
 )
@@ -179,29 +180,45 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteProjectDataWorkflowInputs) -> None:
-        if inputs.team_ids:
-            await _delete_teams_data_child(
-                DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),
-                f"{temporalio.workflow.info().workflow_id}-teams-data",
-            )
+        try:
+            if inputs.team_ids:
+                await _delete_teams_data_child(
+                    DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),
+                    f"{temporalio.workflow.info().workflow_id}-teams-data",
+                )
 
-        # For environment-only deletion (project_id is None) the team rows are already gone.
-        if inputs.project_id is not None:
+            # For environment-only deletion (project_id is None) the team rows are already gone.
+            if inputs.project_id is not None:
+                await temporalio.workflow.execute_activity(
+                    delete_project_record_activity,
+                    ProjectRecordInputs(project_id=inputs.project_id),
+                    start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                    retry_policy=DELETE_RETRY_POLICY,
+                )
+
             await temporalio.workflow.execute_activity(
-                delete_project_record_activity,
-                ProjectRecordInputs(project_id=inputs.project_id),
-                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-                retry_policy=DELETE_RETRY_POLICY,
+                send_project_deleted_email_activity,
+                ProjectEmailInputs(user_id=inputs.user_id, project_name=inputs.project_name),
+                start_to_close_timeout=EMAIL_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=EMAIL_HEARTBEAT_TIMEOUT,
+                retry_policy=SIDE_EFFECT_RETRY_POLICY,
             )
-
-        await temporalio.workflow.execute_activity(
-            send_project_deleted_email_activity,
-            ProjectEmailInputs(user_id=inputs.user_id, project_name=inputs.project_name),
-            start_to_close_timeout=EMAIL_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=EMAIL_HEARTBEAT_TIMEOUT,
-            retry_policy=SIDE_EFFECT_RETRY_POLICY,
-        )
+        except Exception:
+            # A non-retryable failure (e.g. ProtectedError/RecursionError) would otherwise leave the
+            # project's is_pending_deletion flag set forever — welding it shut on the pending-deletion
+            # screen with no self-service recovery. Clear the flag so the user can retry or contact
+            # support, then re-raise so the run still surfaces as failed for alerting. The project row
+            # itself is only deleted in the final step, so it's still present to unlock here.
+            if inputs.project_id is not None and temporalio.workflow.patched("delete-project-reset-pending-on-failure"):
+                await temporalio.workflow.execute_activity(
+                    reset_project_pending_deletion_activity,
+                    ProjectRecordInputs(project_id=inputs.project_id),
+                    start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                    retry_policy=SIDE_EFFECT_RETRY_POLICY,
+                )
+            raise
 
 
 @temporalio.workflow.defn(name="delete-organization")

@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
@@ -7,11 +7,15 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { OrgSwitcher } from 'lib/components/Account/OrgSwitcher'
 import { ProjectSwitcher } from 'lib/components/Account/ProjectSwitcher'
 import { HogWelder } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+
+import { pendingDeletionLogic } from './pendingDeletionLogic'
 
 export const scene: SceneExport = {
     component: ProjectPendingDeletion,
@@ -19,6 +23,8 @@ export const scene: SceneExport = {
 }
 
 export function ProjectPendingDeletion(): JSX.Element {
+    // Mount the poller so the screen reacts on its own when deletion finishes or the lock is cleared.
+    useMountedLogic(pendingDeletionLogic)
     const { currentProject } = useValues(projectLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
@@ -36,9 +42,20 @@ export function ProjectPendingDeletion(): JSX.Element {
                         circuit level
                     </h3>
                     <p className="text-secondary">
-                        Our hedgehog engineer is carefully taking everything apart. This project will be completely
-                        deleted shortly. For projects with lots of data, cleanup can take a while — we'll email you when
-                        it's done.
+                        Our hedgehog engineer is carefully taking everything apart. This runs in the background, so it's
+                        safe to close this page. Projects with a lot of data can take several hours, sometimes
+                        overnight. We'll email you when it's done.
+                    </p>
+                    <div className="flex items-center gap-2 text-secondary text-sm">
+                        <Spinner />
+                        <span>
+                            {currentProject?.updated_at
+                                ? `Deletion started ${dayjs(currentProject.updated_at).fromNow()}`
+                                : 'Deletion in progress'}
+                        </span>
+                    </div>
+                    <p className="text-muted text-xs">
+                        Still here after a day or more? That's unusual. Contact support and we'll take a look.
                     </p>
                     <div className="flex items-center gap-2">
                         <Popover

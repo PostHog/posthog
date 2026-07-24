@@ -557,8 +557,16 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion"]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
+        fields = [
+            "id",
+            "organization_id",
+            "name",
+            "product_description",
+            "created_at",
+            "updated_at",
+            "is_pending_deletion",
+        ]
+        read_only_fields = ["id", "organization_id", "created_at", "updated_at", "is_pending_deletion"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -1511,8 +1519,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 raise exceptions.ValidationError(warehouse_block_reason)
 
         # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        # Bump updated_at too: nothing else writes this row during deletion, so it becomes a reliable
+        # "deletion started at" timestamp the pending-deletion screen can surface.
         project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        project.save(update_fields=["is_pending_deletion", "updated_at"])
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
