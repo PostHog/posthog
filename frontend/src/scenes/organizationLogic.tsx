@@ -24,6 +24,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'name'
         | 'logo_media_id'
         | 'enforce_2fa'
+        | 'enforce_login_with_verified_domain'
         | 'members_can_invite'
         | 'members_can_create_projects'
         | 'members_can_use_personal_api_keys'
