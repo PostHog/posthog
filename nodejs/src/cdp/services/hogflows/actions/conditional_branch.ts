@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
@@ -8,17 +7,6 @@ import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
-
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
-
-// Increments only when the 10-minute polling re-check advances a wait_until_condition that the
-// subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
-// signal for removing the poll: while it sits at ~0 across teams for a sustained window, the
-// person/event/internal streams cover every wake and polling is provably redundant.
-export const counterHogflowWaitPollOnlyAdvance = new Counter({
-    name: 'cdp_hogflow_wait_poll_only_advance',
-    help: 'wait_until_condition advanced via the polling re-check, not the subscription matcher — a wake the streams missed.',
-})
 
 export class ConditionalBranchHandler implements ActionHandler {
     async execute({
@@ -57,21 +45,9 @@ export class ConditionalBranchHandler implements ActionHandler {
                   }
         )
 
-        const isWait = action.type === 'wait_until_condition'
-
         if (conditionResult.scheduledAt) {
-            // Record that this wait has re-parked at least once, so a later condition match is
-            // attributable to the polling re-check rather than an evaluate-on-entry match.
-            if (isWait && invocation.state.currentAction) {
-                invocation.state.currentAction.pollReparked = true
-            }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            // Poll-only advance: a wait whose condition matched on a re-check (not via the matcher's
-            // eventMatched short-circuit above, and not on entry). This is the wake the streams missed.
-            if (isWait && invocation.state.currentAction?.pollReparked === true) {
-                counterHogflowWaitPollOnlyAdvance.inc()
-            }
             return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
@@ -103,13 +79,13 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
-        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
-        // for now; removing it is a follow-up once the matcher streams are proven in production.
+        // Park once until the max_wait deadline. The subscription matcher wakes the job early on any
+        // matching signal (the events / clickhouse_person / cdp_internal_events / person-repoint
+        // streams); if none arrives the job resumes at the deadline and takes the timeout branch. The
+        // 10-minute polling re-check was removed once those streams were proven to cover every wake.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
-            invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            invocation.state.currentAction?.startedAtTimestamp
         )
 
         if (scheduledAt) {

@@ -8,10 +8,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
-import { ConditionalBranchHandler, checkConditions, counterHogflowWaitPollOnlyAdvance } from './conditional_branch'
-
-const pollOnlyAdvanceCount = async (): Promise<number> =>
-    (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.value ?? 0
+import { ConditionalBranchHandler, checkConditions } from './conditional_branch'
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -86,8 +83,9 @@ describe('action.conditional_branch', () => {
                 action.config.delay_duration = '2h'
                 const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    // Should schedule for 10 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
+                    // With the poll removed, the wait parks once to its full max_wait deadline (2h)
+                    // rather than the old 10-minute cap; the matcher wakes it earlier on a match.
+                    scheduledAt: DateTime.utc().plus({ hours: 2 }),
                 })
             })
 
@@ -204,7 +202,6 @@ describe('action.conditional_branch', () => {
                 startedAtTimestamp: DateTime.utc().toMillis(),
             }
             handler = new ConditionalBranchHandler()
-            counterHogflowWaitPollOnlyAdvance.reset()
         })
 
         it('advances to the matched branch and clears eventMatched', async () => {
@@ -253,10 +250,11 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('re-parks a wait_until_condition on the 10-minute cap (polling retained as backstop)', async () => {
-            // Polling is kept for now: a wait_until_condition re-parks on the 10-minute cap and
-            // re-checks its condition, even though the subscription matcher also wakes it early on a
-            // matching signal. A 30-minute wait therefore schedules ~10 minutes out, not ~30.
+        it('parks a wait_until_condition once until its max_wait deadline', async () => {
+            // With polling removed, the wait parks a single time to startedAt + max_wait rather than
+            // re-parking on a 10-minute cap. A 30-minute wait therefore schedules ~30 minutes out; the
+            // subscription matcher wakes it earlier on a matching signal, and if none arrives it resumes
+            // at the deadline and takes the timeout branch.
             waitAction.config.max_wait_duration = '30m'
 
             const result = await handler.execute({
@@ -265,34 +263,18 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
         })
 
-        it('marks the wait as re-parked when its condition does not match', async () => {
-            // The default condition does not match, so the wait re-parks and records that it has
-            // polled at least once — without counting a poll-only advance.
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.scheduledAt).toBeDefined()
-            expect(waitInvocation.state.currentAction!.pollReparked).toBe(true)
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-        })
-
-        it('counts a poll-only advance when a re-parked wait matches on a later re-check', async () => {
-            // Evaluable event-name filter that matches the example invocation's `test` event.
+        it('advances to the matched branch when the condition is true on evaluation', async () => {
+            // A wait whose condition evaluates true — re-checked when the matcher wakes it, or at the
+            // deadline — advances down the matched branch rather than the timeout branch.
             waitAction.config.condition = {
                 filters: {
                     bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
                     events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
                 },
             }
-            // The wait already re-parked at least once and the matcher did not wake it: the periodic
-            // re-check is what found the condition true.
-            waitInvocation.state.currentAction!.pollReparked = true
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -301,40 +283,6 @@ describe('action.conditional_branch', () => {
             })
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(1)
-        })
-
-        it('does not count an evaluate-on-entry match (the wait never re-parked)', async () => {
-            // Evaluable event-name filter that matches the example invocation's `test` event.
-            waitAction.config.condition = {
-                filters: {
-                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
-                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
-                },
-            }
-            // pollReparked is unset: the condition was already true on entry, which polling did not catch.
-
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-        })
-
-        it('does not count a matcher (eventMatched) wake as poll-only', async () => {
-            waitInvocation.state.currentAction!.pollReparked = true
-            waitInvocation.state.currentAction!.eventMatched = true
-
-            await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(await pollOnlyAdvanceCount()).toBe(0)
         })
     })
 })
