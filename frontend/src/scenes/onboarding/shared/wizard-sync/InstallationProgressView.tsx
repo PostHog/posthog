@@ -80,6 +80,7 @@ export function InstallationProgressContent({
     onDashboardClick,
     onDismiss,
     onRetryLocally,
+    bare = false,
 }: {
     progress: InstallationProgress
     /** Tailors the connecting state (copy + upcoming-step preview) to where the run happens. */
@@ -92,6 +93,8 @@ export function InstallationProgressContent({
     /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
     onRetryLocally?: () => void
+    /** Drops the card chrome for hosts that already render the content inside their own card. */
+    bare?: boolean
 }): JSX.Element {
     const { phase, steps, error, prUrl, prMerged } = progress
 
@@ -159,7 +162,7 @@ export function InstallationProgressContent({
 
     return (
         <div
-            className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3"
+            className={cn('flex flex-col gap-3', !bare && 'rounded-lg border border-border bg-bg-light p-4')}
             data-attr="installation-progress"
         >
             <HogfettiComponent />
@@ -372,6 +375,7 @@ export function InstallationProgressView({
     floating = false,
     onDismiss,
     onRetryLocally,
+    bare = false,
 }: {
     mode: 'local' | 'cloud'
     /** The TaskRun handle — required for cloud runs, absent for local ones. */
@@ -382,6 +386,8 @@ export function InstallationProgressView({
     onDismiss?: () => void
     /** Forwarded to the failed-run fallback (see InstallationProgressContent). */
     onRetryLocally?: () => void
+    /** Forwarded to InstallationProgressContent: drop the card chrome inside an existing card. */
+    bare?: boolean
 }): JSX.Element {
     const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode, runId, taskId }))
     const { setPanelMounted } = useActions(activeCloudRunLogic)
@@ -434,6 +440,7 @@ export function InstallationProgressView({
             }
             onDismiss={onDismiss ?? defaultLocalDismiss}
             onRetryLocally={onRetryLocally}
+            bare={bare}
         />
     )
 }

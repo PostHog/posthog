@@ -101,7 +101,7 @@ export function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode })
                     )
                 ) : effectiveMode === 'local' ? (
                     isLocalRunActive ? (
-                        <InstallationProgressView mode="local" />
+                        <InstallationProgressView mode="local" bare />
                     ) : (
                         <WizardCommandBlock hideHog align="start" />
                     )
