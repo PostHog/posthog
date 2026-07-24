@@ -24,6 +24,7 @@ from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
@@ -38,6 +39,26 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
 
 
 @pytest.mark.requires_secrets
+class TestIsAgentOtelTelemetryEnabled:
+    @pytest.mark.parametrize(
+        "debug,state,expected",
+        [
+            # DEBUG must win over the stamp: local dev always stamps False (SDK disabled),
+            # and the SANDBOX_AGENT_OTEL_* settings are the local opt-in.
+            (True, {"agent_otel_telemetry_enabled": False}, True),
+            (True, {}, True),
+            (False, {"agent_otel_telemetry_enabled": True}, True),
+            (False, {"agent_otel_telemetry_enabled": False}, False),
+        ],
+    )
+    def test_debug_wins_then_stamp(self, debug, state, expected):
+        with override_settings(DEBUG=debug):
+            assert (
+                _is_agent_otel_telemetry_enabled(distinct_id="d", organization_id="o", run_id="r", state=state)
+                is expected
+            )
+
+
 class TestGetTaskProcessingContextActivity:
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(

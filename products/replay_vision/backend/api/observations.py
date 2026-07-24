@@ -18,7 +18,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -859,6 +859,9 @@ class ReplayObservationViewSet(
             ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
                 created_at=original_created_at
             )
+        if outcome is WorkflowStartOutcome.CAPPED:
+            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
+            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(

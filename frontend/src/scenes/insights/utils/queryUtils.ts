@@ -3,9 +3,20 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import {
+    DataNode,
+    HogQLVariable,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    ProductAnalyticsInsightQueryNode,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
+    filterKeyForQuery,
     getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
@@ -131,6 +142,53 @@ export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts):
     }
 
     return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+}
+
+/**
+ * Whether an unsaved query is worth persisting as a browser draft (and later resurfacing as an
+ * "unsaved insight" on the saved insights page).
+ *
+ * Skips queries that only differ from their type's default in cosmetic ways (date range, interval,
+ * test account toggle, display options), and query kinds that `queryChanged` treats as changed by
+ * construction (web analytics tiles, kinds without a product analytics default) — for those,
+ * merely opening the editor would persist a draft the user never edited.
+ */
+export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: boolean): boolean => {
+    if (!isInsightVizNode(query)) {
+        // Tables and SQL drafts have no cheap default to compare against
+        return true
+    }
+    if (isWebAnalyticsInsightQuery(query.source) || !(query.source.kind in nodeKindToInsightType)) {
+        return false
+    }
+    const source = query.source as ProductAnalyticsInsightQueryNode
+    let defaultQuery: Node
+    try {
+        defaultQuery = getDefaultQuery(nodeKindToInsightType[source.kind], filterTestAccountsDefault)
+    } catch {
+        return true
+    }
+    if (!isInsightVizNode(defaultQuery)) {
+        return true
+    }
+    // Overlay the draft's cosmetic fields onto the default: if that alone makes the two equal,
+    // nothing worth resurfacing was edited. `tags` is query log metadata the editor attaches on
+    // scene init (see `withDefaultProductAnalyticsTags`), never a user edit, so it's overlaid too.
+    const draftSource = source as Record<string, any>
+    const overlaidSource: Record<string, any> = { ...defaultQuery.source }
+    for (const key of ['dateRange', 'interval', 'filterTestAccounts', 'tags']) {
+        if (key in draftSource) {
+            overlaidSource[key] = draftSource[key]
+        } else {
+            delete overlaidSource[key]
+        }
+    }
+    const filterKey = filterKeyForQuery(source)
+    if (draftSource[filterKey]?.display) {
+        overlaidSource[filterKey] = { ...overlaidSource[filterKey], display: draftSource[filterKey].display }
+    }
+    const overlaidDefault: InsightVizNode = { ...defaultQuery, source: overlaidSource as InsightQueryNode }
+    return !compareQuery(overlaidDefault, query, { ignoreVisualizationOnlyChanges: true })
 }
 
 export const hasInvalidRegexFilter = (obj: unknown): boolean => {

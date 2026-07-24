@@ -126,6 +126,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "The incremental field configured for this table doesn't exist in the data the source returns. "
         "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
     ),
+    # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
+    # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
+    # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry
+    # replays the same failure. Already non-retryable for SQL sources; declare it here so REST and
+    # managed sources stop retrying too.
+    "Source column type changed": (
+        "A column's type changed in your source and no longer fits the type we stored. We can't widen "
+        "an existing column in place — please reset and fully re-sync this table to adopt the new type."
+    ),
 }
 
 
@@ -498,7 +507,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             elif incremental_or_append:
@@ -506,14 +515,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             else:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
 

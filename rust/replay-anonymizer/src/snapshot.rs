@@ -27,17 +27,20 @@ use simd_json::borrowed::Value;
 use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
+use crate::collect::{CollectedImage, ImageCollection};
 use crate::context::Ctx;
 use crate::event::{
     route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
     SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
+use crate::images::ImagePolicy;
 use crate::json::{
     as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
     reject_if_too_deep,
 };
 use crate::scan::{self, Span};
+use crate::timings::PhaseTimings;
 
 /// Why a payload could not be anonymized; maps onto the TS pipeline's dlq/drop reasons so the fused
 /// step classifies failures exactly like the TS parse step does.
@@ -123,6 +126,14 @@ pub struct EventMeta {
     pub href: Option<String>,
 }
 
+/// One collected original image: `offset..offset+len` in [`AnonymizedMessage::image_bytes`].
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ImageEntry {
+    pub hash: String,
+    pub offset: usize,
+    pub len: usize,
+}
+
 /// Message envelope + per-event metadata the TS scaffolding needs for routing/batching.
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +153,9 @@ pub struct SnapshotMeta {
     pub console_warn_count: u32,
     pub console_error_count: u32,
     pub events: Vec<EventMeta>,
+    /// Collected original images (hash-sorted); non-empty only on the image-collection lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageEntry>,
 }
 
 /// Which implementation produced the output (tree = the whole-message fallback fired). Both are
@@ -169,11 +183,17 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
+    /// How images are scrubbed: inline on the walk thread, or deferred onto the shared worker
+    /// pool with a token-patch pass over the serialized output. The differential tests pin both.
+    pub image_policy: ImagePolicy,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
-        Self { byte_walk: true }
+        Self {
+            byte_walk: true,
+            image_policy: ImagePolicy::Inline,
+        }
     }
 }
 
@@ -183,6 +203,8 @@ pub struct AnonymizedMessage {
     pub lines: Vec<u8>,
     pub meta: SnapshotMeta,
     pub route: Route,
+    /// Original bytes of the collected images, concatenated in `meta.images` order.
+    pub image_bytes: Vec<u8>,
 }
 
 const GZIP_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x00];
@@ -215,26 +237,49 @@ pub fn anonymize_kafka_payload(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default())
+    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default(), None)
 }
 
 pub fn anonymize_kafka_payload_opts(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
+    image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
-    contain_panics(|| anonymize_kafka_payload_opts_impl(allow, payload, opts))
+    anonymize_kafka_payload_timed(allow, payload, opts, None, image_collection)
+}
+
+/// [`anonymize_kafka_payload_opts`] with a phase-timing sink, which the caller should own outside
+/// any `catch_unwind` boundary so partial timings survive a contained panic.
+pub fn anonymize_kafka_payload_timed(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+    image_collection: Option<ImageCollection>,
+) -> SResult<AnonymizedMessage> {
+    contain_panics(|| {
+        anonymize_kafka_payload_opts_impl(allow, payload, opts, timings, image_collection)
+    })
 }
 
 fn anonymize_kafka_payload_opts_impl(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+    image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload, opts);
+            return anonymize_kafka_payload_via_parse(
+                allow,
+                payload,
+                opts,
+                timings,
+                image_collection,
+            );
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -252,9 +297,16 @@ fn anonymize_kafka_payload_opts_impl(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts);
+        return anonymize_snapshot_data_inner(
+            allow,
+            &distinct_id,
+            inner,
+            opts,
+            timings,
+            image_collection,
+        );
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts)
+    anonymize_kafka_payload_via_parse(allow, payload, opts, timings, image_collection)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -329,6 +381,8 @@ fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+    image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -354,7 +408,14 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts)
+    anonymize_snapshot_data_inner(
+        allow,
+        distinct_id,
+        &mut data_bytes,
+        opts,
+        timings,
+        image_collection,
+    )
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -365,7 +426,7 @@ pub fn anonymize_snapshot_data(
     distinct_id: &str,
     inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_snapshot_data_opts(allow, distinct_id, inner, AnonymizeOpts::default())
+    anonymize_snapshot_data_opts(allow, distinct_id, inner, AnonymizeOpts::default(), None)
 }
 
 pub fn anonymize_snapshot_data_opts(
@@ -373,19 +434,51 @@ pub fn anonymize_snapshot_data_opts(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
+    image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
     contain_panics(|| {
-        // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
-        // past its limit, and every recursive parse below is preceded by a span-local
-        // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-        let ctx = Ctx::new(allow);
-        match stream_message(&ctx, distinct_id, inner, opts)? {
-            Some(msg) => Ok(msg),
-            // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
-            // consumed before the signal, so the tree path re-reads the intact buffer.
-            None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
-        }
+        anonymize_snapshot_data_inner(allow, distinct_id, inner, opts, None, image_collection)
     })
+}
+
+fn anonymize_snapshot_data_inner(
+    allow: &AllowLists,
+    distinct_id: &str,
+    inner: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+    image_collection: Option<ImageCollection>,
+) -> SResult<AnonymizedMessage> {
+    // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
+    // past its limit, and every recursive parse below is preceded by a span-local
+    // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
+    let ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection);
+    let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
+        Some(msg) => msg,
+        // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
+        // consumed before the signal, so the tree path re-reads the intact buffer.
+        None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
+    };
+    let (entries, image_bytes) = pack_images(ctx.into_collected_images());
+    msg.meta.images = entries;
+    msg.image_bytes = image_bytes;
+    Ok(msg)
+}
+
+/// Concatenate the collected images into one buffer, describing each slice in an [`ImageEntry`].
+fn pack_images(images: Vec<CollectedImage>) -> (Vec<ImageEntry>, Vec<u8>) {
+    let total: usize = images.iter().map(|i| i.bytes.len()).sum();
+    let mut bytes = Vec::with_capacity(total);
+    let mut entries = Vec::with_capacity(images.len());
+    for image in images {
+        entries.push(ImageEntry {
+            hash: image.hash,
+            offset: bytes.len(),
+            len: image.bytes.len(),
+        });
+        bytes.extend_from_slice(&image.bytes);
+    }
+    (entries, bytes)
 }
 
 const MAX_FAIL_DETAIL: usize = 200;
@@ -682,7 +775,7 @@ fn stream_message(
     if let Some(e) = deferred {
         return Err(e);
     }
-    finish(distinct_id, env, sink, Route::Stream).map(Some)
+    finish(ctx, distinct_id, env, sink, Route::Stream).map(Some)
 }
 
 /// Locate a props value span and advance the cursor past it.
@@ -735,6 +828,7 @@ impl Sink {
 }
 
 fn finish(
+    ctx: &Ctx<'_>,
     distinct_id: &str,
     env: ScannedEnvelope,
     sink: Sink,
@@ -774,6 +868,8 @@ fn finish(
         lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
         lines.extend_from_slice(b"]\n");
     }
+    // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
+    let lines = ctx.patch_pending_images(lines);
     Ok(AnonymizedMessage {
         lines,
         route,
@@ -789,7 +885,10 @@ fn finish(
             console_warn_count: sink.console[1],
             console_error_count: sink.console[2],
             events: sink.events,
+            // The collector lives on the Ctx, not the Sink; the entry point packs it in.
+            images: Vec::new(),
         },
+        image_bytes: Vec::new(),
     })
 }
 
@@ -1357,6 +1456,7 @@ fn anonymize_via_tree_mut(
     }
 
     finish(
+        ctx,
         distinct_id,
         ScannedEnvelope {
             session_id,
