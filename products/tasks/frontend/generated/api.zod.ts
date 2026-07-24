@@ -1895,6 +1895,12 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        always_on: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether the agent should apply the uploaded skill bundle for the entire session.'
+                            ),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -1990,6 +1996,12 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        always_on: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether the agent should apply the uploaded skill bundle for the entire session.'
+                            ),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2269,6 +2281,12 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        always_on: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether the agent should apply the uploaded skill bundle for the entire session.'
+                            ),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2377,6 +2395,12 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        always_on: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether the agent should apply the uploaded skill bundle for the entire session.'
+                            ),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2470,6 +2494,12 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        always_on: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether the agent should apply the uploaded skill bundle for the entire session.'
+                            ),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),

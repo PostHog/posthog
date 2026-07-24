@@ -216,6 +216,10 @@ class TaskRunArtifactMetadataSerializer(serializers.Serializer):
         min_value=1,
         help_text="Version of the local skill bundle metadata schema.",
     )
+    always_on = serializers.BooleanField(
+        required=False,
+        help_text="Whether the agent should apply the uploaded skill bundle for the entire session.",
+    )
 
 
 def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:

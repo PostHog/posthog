@@ -44535,6 +44535,8 @@ export namespace Schemas {
          * @minimum 1
          */
       schema_version: number;
+      /** Whether the agent should apply the uploaded skill bundle for the entire session. */
+      always_on?: boolean;
     }
 
     export interface TaskRunArtifactResponse {
