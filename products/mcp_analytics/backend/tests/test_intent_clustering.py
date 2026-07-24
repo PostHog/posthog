@@ -9,6 +9,7 @@ import math
 import uuid
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -506,7 +507,9 @@ class TestEmbedIntentsAsyncCacheLogic:
             patch.object(intent_clustering, "_persist_embedding", side_effect=_persist),
             patch.object(intent_clustering, "async_generate_embedding", side_effect=worker),
         ):
-            return asyncio.run(embed_intents_async(object(), texts))  # type: ignore[arg-type]
+            # A stub with an `id` stands in for Team — the failure-path log
+            # reads team.id, and the cache IO that needs a real team is mocked.
+            return asyncio.run(embed_intents_async(SimpleNamespace(id=0), texts))  # type: ignore[arg-type]
 
     def test_first_run_populates_cache(self) -> None:
         cached: dict[str, np.ndarray] = {}

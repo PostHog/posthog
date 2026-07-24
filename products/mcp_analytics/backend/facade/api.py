@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.team.team import Team
@@ -136,26 +137,31 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     # COMPUTING, another dispatch would only stack a duplicate workflow on the
     # queue behind it. A run stuck past STALE_COMPUTING_THRESHOLD is presumed
     # dead (same rule as the sweep in get_intent_cluster_snapshot), so a
-    # retry is allowed through.
-    in_flight = MCPIntentClusterSnapshot.objects.filter(team=team).first()
-    if (
-        in_flight is not None
-        and in_flight.status == MCPIntentClusterSnapshot.Status.COMPUTING
-        and in_flight.updated_at >= timezone.now() - logic.STALE_COMPUTING_THRESHOLD
-    ):
-        return
-
-    # Flip to COMPUTING before dispatching so the 202 response and any
-    # immediate poll see consistent state. The workflow's activity
-    # re-asserts COMPUTING on pickup; both writes are idempotent.
-    MCPIntentClusterSnapshot.objects.update_or_create(
-        team=team,
-        defaults={
-            "status": MCPIntentClusterSnapshot.Status.COMPUTING,
-            "error_message": "",
-            "last_computed_by": user,
-        },
-    )
+    # retry is allowed through. The row lock serialises concurrent triggers so
+    # they can't all pass the freshness check before any of them claims the
+    # snapshot; the Temporal dispatch stays outside the transaction.
+    # Claiming COMPUTING before dispatching also means the 202 response and
+    # any immediate poll see consistent state — the workflow's activity
+    # re-asserts COMPUTING on pickup, and both writes are idempotent.
+    with transaction.atomic():
+        snapshot, created = MCPIntentClusterSnapshot.objects.select_for_update().get_or_create(
+            team=team,
+            defaults={
+                "status": MCPIntentClusterSnapshot.Status.COMPUTING,
+                "error_message": "",
+                "last_computed_by": user,
+            },
+        )
+        if not created:
+            if (
+                snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+                and snapshot.updated_at >= timezone.now() - logic.STALE_COMPUTING_THRESHOLD
+            ):
+                return
+            snapshot.status = MCPIntentClusterSnapshot.Status.COMPUTING
+            snapshot.error_message = ""
+            snapshot.last_computed_by = user
+            snapshot.save(update_fields=["status", "error_message", "last_computed_by", "updated_at"])
 
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
