@@ -4,6 +4,7 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -90,9 +91,15 @@ async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -
             continue
         try:
             description = await temporal.get_workflow_handle(job.workflow_id).describe()
+        except RPCError as e:
+            # NOT_FOUND is the only error that proves absence. Timeouts, unavailability and
+            # permission errors say nothing about the workflow, and marking a live job Failed is
+            # unrecoverable (succeed_materialization refuses to overwrite a terminal status), so
+            # anything else leaves the row alone for a later run to judge.
+            if e.status == RPCStatusCode.NOT_FOUND:
+                abandoned.append(job)
+            continue
         except Exception:
-            # Not found: Temporal has no record of it, so nothing is running.
-            abandoned.append(job)
             continue
         if description.status != WorkflowExecutionStatus.RUNNING:
             abandoned.append(job)
@@ -132,33 +139,46 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
         await logger.adebug("No previous DAG run to preempt")
         return
 
+    try:
+        temporal = await async_connect()
+    except Exception as e:
+        # Nothing has been touched yet, and marking a row Failed without cancelling its workflow
+        # is the corruption this activity exists to avoid. Leave everything Running and let the
+        # activity's own retry (or the next run) handle it.
+        capture_exception(e)
+        await logger.aexception(f"Failed to connect to Temporal: {str(e)}")
+        raise
+
+    # Preempt first, and cancel before marking. Reaping below makes one RPC per candidate row and
+    # can outrun the activity timeout; if that happens after the owned rows are already marked, a
+    # retry no longer finds them as Running and their workflows would never be cancelled, leaving
+    # the new run free to materialize the same node concurrently. Cancelling first also means a
+    # crash between the two steps is recoverable: the rows are still Running, so the retry
+    # re-finds them and cancellation is idempotent.
     if ours:
         await logger.ainfo(
             f"Preempting previous DAG run: found {len(ours)} running jobs",
             dag_id=inputs.dag_id,
         )
+        for workflow_id in {job.workflow_id for job in ours if job.workflow_id}:
+            try:
+                await temporal.get_workflow_handle(workflow_id).cancel()
+                await logger.ainfo(f"Requested cancellation of materialize workflow {workflow_id}")
+            except Exception as e:
+                # workflow may have already completed — that's fine
+                await logger.awarning(f"Could not cancel materialize workflow {workflow_id}: {str(e)}")
         updated_count = await _mark_jobs_failed([str(job.id) for job in ours], PREEMPTED_ERROR)
         await logger.ainfo(f"Marked {updated_count} jobs as preempted", dag_id=inputs.dag_id)
 
-    try:
-        temporal = await async_connect()
-    except Exception as e:
-        # The preemption marks above already landed; without a client we can neither cancel
-        # nor prove anything is abandoned, so leave the rest for the next run.
-        capture_exception(e)
-        await logger.aexception(f"Failed to connect to Temporal: {str(e)}")
+    if not others:
         return
 
-    if others:
+    # Best-effort cleanup: it must never undo or block the preemption above.
+    try:
         abandoned = await _abandoned_jobs(temporal, others)
         if abandoned:
             reaped = await _mark_jobs_failed([str(job.id) for job in abandoned], ABANDONED_ERROR)
             await logger.ainfo(f"Reaped {reaped} abandoned jobs", dag_id=inputs.dag_id)
-
-    for workflow_id in {job.workflow_id for job in ours if job.workflow_id}:
-        try:
-            await temporal.get_workflow_handle(workflow_id).cancel()
-            await logger.ainfo(f"Requested cancellation of materialize workflow {workflow_id}")
-        except Exception as e:
-            # workflow may have already completed — that's fine
-            await logger.awarning(f"Could not cancel materialize workflow {workflow_id}: {str(e)}")
+    except Exception as e:
+        capture_exception(e)
+        await logger.aexception(f"Failed to reap abandoned jobs: {str(e)}")

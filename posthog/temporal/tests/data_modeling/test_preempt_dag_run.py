@@ -5,6 +5,7 @@ import unittest.mock
 
 import pytest_asyncio
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
@@ -58,18 +59,22 @@ async def tier_jobs(ateam):
     }
 
 
+NOT_FOUND = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+UNAVAILABLE = RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
+
+
 async def _run_activity(
     team_id: int,
     node_ids: list[str] | None,
-    workflow_status: dict[str, WorkflowExecutionStatus | None] | None = None,
+    workflow_status: dict[str, WorkflowExecutionStatus | Exception] | None = None,
 ) -> list[str]:
     """Run the activity against a stubbed Temporal client, returning the workflows it cancelled.
 
-    `workflow_status` maps a workflow id to what describe() reports, where None means Temporal
-    has no record of it. Anything unlisted is reported as still RUNNING.
+    `workflow_status` maps a workflow id to what describe() does: a status to report, or an
+    exception to raise. Anything unlisted is reported as still RUNNING.
     """
     cancelled: list[str] = []
-    statuses = workflow_status or {}
+    statuses: dict[str, WorkflowExecutionStatus | Exception] = workflow_status or {}
 
     def get_workflow_handle(workflow_id: str) -> unittest.mock.MagicMock:
         handle = unittest.mock.MagicMock()
@@ -78,10 +83,11 @@ async def _run_activity(
             cancelled.append(workflow_id)
 
         async def describe() -> unittest.mock.MagicMock:
-            if workflow_id in statuses and statuses[workflow_id] is None:
-                raise RuntimeError("workflow not found")
+            outcome = statuses.get(workflow_id, WorkflowExecutionStatus.RUNNING)
+            if isinstance(outcome, Exception):
+                raise outcome
             description = unittest.mock.MagicMock()
-            description.status = statuses.get(workflow_id, WorkflowExecutionStatus.RUNNING)
+            description.status = outcome
             return description
 
         handle.cancel = cancel
@@ -146,14 +152,18 @@ async def test_preempt_is_scoped_to_the_tiers_own_nodes(
     [
         pytest.param(WorkflowExecutionStatus.COMPLETED, True, id="closed_workflow_is_reaped"),
         pytest.param(WorkflowExecutionStatus.TERMINATED, True, id="terminated_workflow_is_reaped"),
-        pytest.param(None, True, id="missing_workflow_is_reaped"),
+        pytest.param(NOT_FOUND, True, id="missing_workflow_is_reaped"),
         # The one that age could not tell apart: still running, just slow. Nothing bounds a
         # materialization's wall clock, so this must be decided by status, not elapsed time.
         pytest.param(WorkflowExecutionStatus.RUNNING, False, id="slow_live_workflow_is_left_alone"),
+        # A transient RPC failure proves nothing about the workflow. Treating it as "gone" would
+        # mark a live job Failed without cancelling it — the exact corruption this fix prevents,
+        # and unrecoverable because succeed_materialization won't overwrite a terminal status.
+        pytest.param(UNAVAILABLE, False, id="transient_rpc_error_leaves_row_alone"),
     ],
 )
 async def test_rows_we_do_not_own_are_reaped_only_when_their_workflow_is_gone(
-    status: WorkflowExecutionStatus | None,
+    status: WorkflowExecutionStatus | Exception,
     expect_reaped: bool,
     ateam,
     tier_jobs,
@@ -183,4 +193,29 @@ async def test_rows_we_do_not_own_are_reaped_only_when_their_workflow_is_gone(
 
     # Reaping only marks the row. There is no live workflow left to cancel, and cancelling on
     # another tier's behalf is precisely what this activity must not do.
+    assert cancelled == [_child_workflow_id(NODE_QUARTER_HOURLY)]
+
+
+async def test_owned_workflows_are_cancelled_even_if_reaping_blows_up(ateam, tier_jobs) -> None:
+    """Reaping makes one RPC per foreign row and can outrun the activity timeout. If that happened
+    after the owned rows were marked Failed, a retry would no longer see them as Running and their
+    workflows would never be cancelled — leaving the new run free to materialize the same node
+    concurrently. Preemption must therefore complete before reaping is attempted at all."""
+    await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        status=DataModelingJobStatus.RUNNING,
+        workflow_id=_child_workflow_id(NODE_ORPHAN),
+        parent_workflow_id=PARENT_HOURLY,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.data_modeling.activities.preempt_dag_run._abandoned_jobs",
+        unittest.mock.AsyncMock(side_effect=RuntimeError("reaping exploded")),
+    ):
+        cancelled = await _run_activity(ateam.pk, [NODE_QUARTER_HOURLY])
+
+    owned = tier_jobs[NODE_QUARTER_HOURLY]
+    await database_sync_to_async(owned.refresh_from_db)()
+    assert owned.status == DataModelingJobStatus.FAILED
+    assert owned.error == PREEMPTED_ERROR
     assert cancelled == [_child_workflow_id(NODE_QUARTER_HOURLY)]
