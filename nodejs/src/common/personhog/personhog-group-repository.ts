@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
 import {
+    GroupCreate,
+    GroupCreateResult,
     GroupKey,
     GroupPropertiesToSetUpdate,
     GroupRepository,
@@ -192,6 +194,10 @@ export class PersonHogGroupRepository implements GroupRepository {
 
     updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]> {
         return this.postgres.updateGroupsBatch(updates)
+    }
+
+    insertGroupsBatch(creates: GroupCreate[]): Promise<GroupCreateResult[]> {
+        return this.postgres.insertGroupsBatch(creates)
     }
 
     updateGroupOptimistically(

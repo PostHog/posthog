@@ -16,7 +16,13 @@ import {
 } from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
-import { GroupKey, GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
+import {
+    GroupCreate,
+    GroupCreateResult,
+    GroupKey,
+    GroupPropertiesToSetUpdate,
+    GroupRepository,
+} from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
@@ -171,6 +177,62 @@ export class PostgresGroupRepository
         )
 
         return rows.map((row) => this.toGroup(row))
+    }
+
+    async insertGroupsBatch(creates: GroupCreate[]): Promise<GroupCreateResult[]> {
+        if (creates.length === 0) {
+            return []
+        }
+
+        // Sort by row identity for the same cross-pod lock-ordering hygiene as
+        // updateGroupsBatch. UNNEST keeps the statement shape constant for
+        // prepared-statement reuse.
+        const sortedCreates = [...creates].sort(
+            (a, b) => a.teamId - b.teamId || a.groupTypeIndex - b.groupTypeIndex || a.groupKey.localeCompare(b.groupKey)
+        )
+
+        const teamIds: number[] = []
+        const groupTypeIndexes: number[] = []
+        const groupKeys: string[] = []
+        const groupProperties: string[] = []
+        const createdAts: string[] = []
+
+        for (const create of sortedCreates) {
+            teamIds.push(create.teamId)
+            groupTypeIndexes.push(create.groupTypeIndex)
+            groupKeys.push(create.groupKey)
+            groupProperties.push(sanitizeJsonbValue(create.groupProperties))
+            createdAts.push(create.createdAt.toISO()!)
+        }
+
+        // Rows that already exist (a lost cross-pod race) are merged in the
+        // same statement with updateGroupsBatch's jsonb semantics, so callers
+        // never need a second round trip to converge. `xmax = 0` is the
+        // standard idiom for telling fresh inserts from conflict-updates:
+        // an updated row carries the locking transaction's xid there.
+        const { rows } = await this.postgres.query<RawGroup & { inserted: boolean }>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            INSERT INTO posthog_group AS g (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            SELECT batch_team_id, batch_group_key, batch_group_type_index, new_properties::jsonb, new_created_at::timestamp with time zone, '{}'::jsonb, '{}'::jsonb, 1
+            FROM UNNEST(
+                $1::int[],
+                $2::int[],
+                $3::text[],
+                $4::text[],
+                $5::text[]
+            ) AS batch(batch_team_id, batch_group_type_index, batch_group_key, new_properties, new_created_at)
+            ON CONFLICT (team_id, group_key, group_type_index) DO UPDATE SET
+                group_properties = COALESCE(g.group_properties, '{}'::jsonb) || EXCLUDED.group_properties,
+                created_at = LEAST(g.created_at, EXCLUDED.created_at),
+                version = COALESCE(g.version, 0)::numeric + 1
+            RETURNING g.*, (g.xmax = 0) AS inserted
+            `,
+            [teamIds, groupTypeIndexes, groupKeys, groupProperties, createdAts],
+            'insertGroupsBatch'
+        )
+
+        return rows.map(({ inserted, ...row }) => ({ ...this.toGroup(row), inserted }))
     }
 
     async insertGroup(
