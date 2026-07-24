@@ -28,6 +28,13 @@ jest.mock('@temporalio/common', () => ({
             ;(err as any)._isNonRetryable = true
             return err
         }),
+        retryable: jest.fn().mockImplementation((message, type, cause) => {
+            const err = new Error(message)
+            ;(err as any).type = type
+            ;(err as any).cause = cause
+            ;(err as any)._isNonRetryable = false
+            return err
+        }),
     },
 }))
 
@@ -213,6 +220,22 @@ describe('rasterizeRecordingActivity', () => {
             await expect(rejection).rejects.toThrow('browser crashed')
             await expect(rejection).rejects.toBeInstanceOf(RasterizationError)
 
+            expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
+        })
+
+        it('wraps an object-store deserialization error as ApplicationFailure.retryable', async () => {
+            // AWS SDK Smithy error when the store/proxy returns a non-XML body.
+            const error = new Error("char 'E' is not expected.:1:1 / Deserialization error")
+            mockSuccessfulRecording()
+            mockedUploadToS3.mockRejectedValue(error)
+
+            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('is not expected')
+
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith(
+                "char 'E' is not expected.:1:1 / Deserialization error",
+                'S3_TRANSIENT',
+                error
+            )
             expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
         })
 

@@ -123,8 +123,18 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             prep.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=dt.timedelta(minutes=30),
-            heartbeat_timeout=dt.timedelta(seconds=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=2),
+            # A momentary object-store stall shouldn't be read as a stuck upload:
+            # give the heartbeat enough slack to ride out a brief hiccup, and more
+            # retry headroom with backoff so a transient failure (e.g. a non-XML
+            # store/proxy response the AWS SDK can't parse) reruns instead of
+            # burning the job.
+            heartbeat_timeout=dt.timedelta(seconds=60),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=4,
+                initial_interval=dt.timedelta(seconds=2),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(seconds=30),
+            ),
         )
 
         result = RasterizationActivityOutput.model_validate(raw_result)
