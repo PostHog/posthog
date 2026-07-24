@@ -611,6 +611,47 @@ class TestTicketAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         self.assertEqual(ids, [str(enterprise.id), str(free.id)])
 
+    def test_order_by_plan_returns_per_group_counts(self, mock_on_commit):
+        """Plan-ordered responses carry filtered per-group counts for the section headers."""
+        self.user.is_staff = True
+        self.user.save()
+        # setUp's self.ticket is untagged → Triage (rank 0)
+        self._ticket_with_tags("plan_enterprise")
+        self._ticket_with_tags("plan_enterprise", "vip")
+        self._ticket_with_tags("plan_free")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "plan"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["plan_counts"], {"0": 1, "3": 2, "8": 1})
+
+    def test_order_by_plan_counts_respect_filters_and_dedupe(self, mock_on_commit):
+        """Counts aggregate the filtered queryset, counting multi-tag-matched tickets once."""
+        self.user.is_staff = True
+        self.user.save()
+        self.ticket.delete()
+        self._ticket_with_tags("plan_enterprise", "vip", "beta")  # matches both filter tags → count once
+        self._ticket_with_tags("plan_free", "vip")
+        self._ticket_with_tags("plan_top20")  # filtered out
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/",
+            data={"tags": json.dumps(["vip", "beta"]), "order_by": "plan"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["plan_counts"], {"3": 1, "8": 1})
+
+    def test_plan_counts_absent_without_plan_ordering_or_staff(self, mock_on_commit):
+        """No plan_counts on default-ordered responses, nor for non-staff plan requests."""
+        self.user.is_staff = True
+        self.user.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertNotIn("plan_counts", response.json())
+
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "plan"})
+        self.assertNotIn("plan_counts", response.json())
+
     def test_order_by_plan_requires_staff(self, mock_on_commit):
         """Non-staff requests fall back to the default ordering instead of plan rank."""
         self.assertFalse(self.user.is_staff)

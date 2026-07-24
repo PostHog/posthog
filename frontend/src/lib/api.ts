@@ -7120,7 +7120,9 @@ const api = {
                 limit?: number
                 offset?: number
             } = {}
-        ): Promise<CountedPaginatedResponse<any>> {
+            // plan_counts: per-plan-group totals over the filtered result set,
+            // present only on staff `order_by=plan`/`-plan` responses.
+        ): Promise<CountedPaginatedResponse<any> & { plan_counts?: Record<string, number> }> {
             return await new ApiRequest().conversationsTickets().withQueryString(params).get()
         },
 

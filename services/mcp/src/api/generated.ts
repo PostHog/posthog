@@ -73041,7 +73041,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak; non-staff requests fall back to the default.
+     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak and adds a `plan_counts` object (per-plan-rank totals over the filtered result set) to the response; non-staff requests fall back to the default.
      */
     order_by?: string;
     /**
