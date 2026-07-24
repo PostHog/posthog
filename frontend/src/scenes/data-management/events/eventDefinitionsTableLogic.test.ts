@@ -225,6 +225,34 @@ describe('eventDefinitionsTableLogic', () => {
         })
     })
 
+    describe('hidden filter', () => {
+        it('omits exclude_hidden by default and forwards it once enabled', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+            expect(logic.values.paramsFromFilters.exclude_hidden).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ excludeHidden: true })
+            }).toDispatchActions(['setFilters', 'loadEventDefinitions', 'loadEventDefinitionsSuccess'])
+            expect(logic.values.paramsFromFilters.exclude_hidden).toBe(true)
+
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('exclude_hidden=true'))
+        })
+
+        it('shows the hidden filter when results carry the enterprise `hidden` field', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            // mockEventDefinitions are non-enterprise (no `hidden` field), so the filter stays hidden
+            // until a value is explicitly set.
+            await expectLogic(logic).toMatchValues({ showHiddenFilter: false })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ excludeHidden: true })
+            }).toMatchValues({ showHiddenFilter: true })
+        })
+    })
+
     describe('property definitions', () => {
         const eventDefinition = mockEventDefinitions[0]
         const propertiesStartingUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${

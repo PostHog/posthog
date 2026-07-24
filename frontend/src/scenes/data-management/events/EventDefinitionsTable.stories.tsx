@@ -20,6 +20,7 @@ const MOCK_EVENT_DEFINITIONS = {
             verified: true,
             verified_at: '2026-01-15T10:00:00Z',
             verified_by: 'user1',
+            hidden: false,
         },
         {
             id: '2',
@@ -31,6 +32,7 @@ const MOCK_EVENT_DEFINITIONS = {
             verified: true,
             verified_at: '2026-02-01T10:00:00Z',
             verified_by: 'user1',
+            hidden: false,
         },
         {
             id: '3',
@@ -40,15 +42,17 @@ const MOCK_EVENT_DEFINITIONS = {
             last_seen_at: '2026-03-28T15:00:00Z',
             created_at: '2025-02-01T00:00:00Z',
             verified: false,
+            hidden: false,
         },
         {
             id: '4',
-            name: 'purchase_completed',
-            description: 'When a user completes a purchase',
-            tags: ['revenue', 'conversion'],
+            name: 'legacy_deprecated_event',
+            description: 'An old event kept out of the UI by an admin',
+            tags: ['legacy'],
             last_seen_at: '2026-03-25T10:00:00Z',
             created_at: '2025-03-01T00:00:00Z',
             verified: false,
+            hidden: true,
         },
         {
             id: '5',
@@ -60,6 +64,7 @@ const MOCK_EVENT_DEFINITIONS = {
             verified: true,
             verified_at: '2026-03-01T10:00:00Z',
             verified_by: 'user2',
+            hidden: false,
         },
     ],
 }
@@ -76,13 +81,18 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/event_definitions/': ({ request }) => {
-                    const verified = new URL(request.url).searchParams.get('verified')
+                    const params = new URL(request.url).searchParams
+                    const verified = params.get('verified')
                     let results = MOCK_EVENT_DEFINITIONS.results
 
                     if (verified === 'true') {
                         results = results.filter((e) => e.verified === true)
                     } else if (verified === 'false') {
                         results = results.filter((e) => !e.verified)
+                    }
+
+                    if (params.get('exclude_hidden') === 'true') {
+                        results = results.filter((e) => !e.hidden)
                     }
 
                     return [200, { ...MOCK_EVENT_DEFINITIONS, results, count: results.length }]
@@ -110,5 +120,11 @@ export const FilteredVerifiedOnly: Story = {
 export const FilteredUnverifiedOnly: Story = {
     parameters: {
         pageUrl: urls.eventDefinitions() + '?verified=false',
+    },
+}
+
+export const FilteredExcludeHidden: Story = {
+    parameters: {
+        pageUrl: urls.eventDefinitions() + '?excludeHidden=true',
     },
 }
