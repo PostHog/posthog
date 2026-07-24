@@ -95,7 +95,6 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     strip_group_cohort_restriction,
 )
-from products.feature_flags.backend.facade.rules import experiment_rule_from_filters
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -115,8 +114,6 @@ logger = structlog.get_logger(__name__)
 # Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
 # experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
 EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
-# Repository the cleanup PR is opened against. Hardcoded for the dogfood; auto-detection comes later.
-EXPERIMENT_CLEANUP_REPOSITORY = "PostHog/posthog"
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -945,6 +942,7 @@ class ExperimentService:
         deleted: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        repository: str | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
@@ -1088,6 +1086,7 @@ class ExperimentService:
             "deleted": deleted,
             "conclusion": conclusion,
             "conclusion_comment": conclusion_comment,
+            "repository": repository,
         }
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder
@@ -1223,7 +1222,7 @@ class ExperimentService:
 
         if existing_flag:
             self._validate_existing_flag(existing_flag)
-            variants = experiment_rule_from_filters(existing_flag.filters or {}).variants or list(DEFAULT_VARIANTS)
+            variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
 
         config = feature_flag_config or {}
@@ -2356,6 +2355,17 @@ class ExperimentService:
                 return
 
             flag_key = experiment.get_feature_flag_key()
+            repository = self._resolve_cleanup_repository(experiment)
+            if repository is None:
+                # No safe target — skipping beats opening a PR against the wrong repo.
+                logger.info(
+                    "experiment_cleanup_pr_skipped_no_repository",
+                    experiment_id=experiment.id,
+                    team_id=experiment.team_id,
+                    flag_key=flag_key,
+                )
+                return
+
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
             title, description = build_cleanup_prompt(experiment, flag_key, plan)
             team = experiment.team
@@ -2370,12 +2380,14 @@ class ExperimentService:
                         description=description,
                         origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
                         user_id=user_id,
-                        repository=EXPERIMENT_CLEANUP_REPOSITORY,
+                        repository=repository,
                         create_pr=True,
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
-                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                    # A concurrent reset may have already returned the experiment to draft —
+                    # only attach the pointer while it is still ended.
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id, end_date__isnull=False).update(
                         flag_cleanup_task_id=created.task_id
                     )
                     # on_commit runs before the view serializes the response — reflect the id on the
@@ -2396,6 +2408,32 @@ class ExperimentService:
             )
         except Exception:
             logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
+
+    def _resolve_cleanup_repository(self, experiment: Experiment) -> str | None:
+        """Repository the cleanup PR targets: the experiment's explicit `repository`, else the
+        team's only cached GitHub repo. Several repos (or no GitHub integration) means there is
+        no safe target and the cleanup is skipped — a wrong-repo PR is worse than none.
+        """
+        # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+        # request import path.
+        from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+        github = tasks_repo_selection.resolve_team_github_integration(experiment.team_id, team=experiment.team)
+        if github is None:
+            return None
+        cached = {
+            full_name.lower()
+            for repo in github.list_all_cached_repositories(max_repos=1000)
+            if (full_name := repo.get("full_name"))
+        }
+        if experiment.repository:
+            # An explicit repo must still belong to this team's installation — GitHub
+            # installations can be shared, so an unchecked name could reach another
+            # project's private repository through the shared credential.
+            return experiment.repository if experiment.repository.lower() in cached else None
+        if len(cached) == 1:
+            return cached.pop()
+        return None
 
     def _report_experiment_ended(
         self,
@@ -2519,6 +2557,9 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
+        # The cleanup task belongs to the ended run — keeping the pointer would resurrect a
+        # stale "Cleanup PR opened" line after the experiment is re-ended without opting in.
+        experiment.flag_cleanup_task_id = None
 
         experiment.save()
 
@@ -2551,11 +2592,10 @@ class ExperimentService:
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
-            # FeatureFlagSerializer needs a real request for its context; for non-HTTP callers
-            # write directly — flag caches still refresh via model save signals, only the flag's
-            # activity-log entry is skipped.
-            flag.filters = stripped_filters
-            flag.save(update_fields=["filters"])
+            # Non-HTTP callers have no acting user: a system write (user=None) skips the
+            # approval gate — this runs inside the caller's transaction, where an
+            # ApprovalRequired could never surface as a 409/change request anyway.
+            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=None)
 
         flag.refresh_from_db()
         experiment.feature_flag = flag
@@ -3236,6 +3276,7 @@ class ExperimentService:
             "secondary_metrics_ordered_uuids",
             "saved_metrics_ids",
             "only_count_matured_users",
+            "repository",
         }
         extra_keys = set(update_data.keys()) - expected_keys
 

@@ -9,8 +9,10 @@ from django.db.models import QuerySet
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
 
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
     LLMPromptLabel,
@@ -158,6 +160,14 @@ def resolve_versions_page(
     return versions[:limit], has_more
 
 
+def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
+    return (
+        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name)
+        .select_related("prompt", "created_by")
+        .order_by("name")
+    )
+
+
 def publish_prompt_version(
     team: Team,
     *,
@@ -197,6 +207,27 @@ def publish_prompt_version(
             is_latest=True,
             created_by=user,
             version_description=version_description,
+        )
+
+        changes = [
+            Change(
+                type="LLMPrompt",
+                action="changed",
+                field="version",
+                before=current_latest.version,
+                after=published_prompt.version,
+            )
+        ]
+        if version_description:
+            changes.append(
+                Change(type="LLMPrompt", action="created", field="version_description", after=version_description)
+            )
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="published",
+            changes=changes,
         )
 
         refreshed_prompt = (
@@ -254,11 +285,28 @@ def duplicate_prompt(
                 raise LLMPromptDuplicateNameConflictError() from err
             raise
 
+        # One entry per prompt history: the copy records where it came from, the
+        # source records where it went.
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=new_name,
+            activity="created",
+            changes=[Change(type="LLMPrompt", action="created", field="duplicated_from", after=source_name)],
+        )
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=source_name,
+            activity="duplicated",
+            changes=[Change(type="LLMPrompt", action="created", field="duplicated_to", after=new_name)],
+        )
+
     refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
     return refreshed if refreshed is not None else new_prompt
 
 
-def archive_prompt(team: Team, prompt_name: str) -> list[int]:
+def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> list[int]:
     with transaction.atomic():
         prompt_versions = list(
             LLMPrompt.objects.select_for_update()
@@ -276,6 +324,14 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
         # Instance-level deletes so ModelActivityMixin logs each label removal.
         for label in LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name):
             label.delete()
+
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="archived",
+            changes=[Change(type="LLMPrompt", action="deleted", field="version_count", before=len(prompt_versions))],
+        )
 
         def invalidate_caches_on_commit() -> None:
             invalidate_prompt_latest_cache(team.id, prompt_name)

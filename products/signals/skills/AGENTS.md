@@ -282,6 +282,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   has problem tools; falls back to one report per tool where category coverage is absent
   (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
   against real telemetry.
+- `signals-scout-conversations/` — support-delivery health watcher for the
+  Conversations (support inbox) product. Reads the `$conversation_*` ticket-lifecycle
+  events for operational regressions: SLA breach-rate steps on team replies
+  (`sla_active` / `sla_breached`), first-response latency blowouts (ticket-created →
+  first team reply), backlog inflow-vs-resolution imbalance, and channel / assignment /
+  priority concentration. Its discriminator is a _rate against a volume-stable
+  denominator, per operational dimension, stepping away from its own trailing baseline
+  while ticket volume holds_ — a breach share / response latency / inflow-minus-resolution
+  delta moving on steady volume is signal, a raw count that tracks inbound volume is
+  baseline — always gated by a minimum-volume guard. On the **report channel**
+  (`emit_report` / `edit_report`): files each dated, dimension-named regression as a 1:1
+  inbox report, editing the live report while the regression persists. It is the
+  operational complement to the per-ticket emission path: the emission pipeline
+  (`source_product="conversations"`) already reads each ticket thread and fires a
+  per-ticket _product-feedback_ signal (bugs / feature requests / usability), so this
+  scout never re-surfaces individual ticket content — it owns the aggregate throughput /
+  SLA / backlog / routing shape the one-ticket-at-a-time emitter can't see, and (reading
+  analytics events) it works whether or not that emission source is enabled.
 
 ### How the coordinator decides what runs
 

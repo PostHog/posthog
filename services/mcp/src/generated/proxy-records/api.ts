@@ -15,7 +15,7 @@ export const ProxyRecordsListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -26,7 +26,7 @@ export const ProxyRecordsCreateParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -44,7 +44,7 @@ export const ProxyRecordsRetrieveParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -56,7 +56,7 @@ export const ProxyRecordsDestroyParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -68,7 +68,7 @@ export const ProxyRecordsDiagnoseCreateParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -80,6 +80,6 @@ export const ProxyRecordsRetryCreateParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })

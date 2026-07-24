@@ -1,6 +1,6 @@
 [package]
 name = "posthog-replay-anonymizer"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "PII scrubber for rrweb session-replay events: text/URL redaction, native image blur, and canvas/cv neutralization"
 license = "MIT"
@@ -24,9 +24,11 @@ libdeflater = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+jpeg-decoder = { version = "0.3", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simd-json = { version = "0.15", features = ["serde_impl"] }
+url = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]

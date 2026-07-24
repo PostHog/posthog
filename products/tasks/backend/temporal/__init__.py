@@ -1,12 +1,6 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
 from .build_image.workflow import BuildSandboxImageWorkflow
-from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
-from .code_workstreams.activities.list_active_teams import list_active_code_teams
-from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
-from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
-from .code_workstreams.activities.rebuild_workstreams import rebuild_team_workstreams
-from .code_workstreams.workflow import EvaluateCodeWorkstreamsWorkflow, EvaluateTeamCodeWorkstreamsWorkflow
 from .create_snapshot.activities import (
     cleanup_sandbox as snapshot_cleanup_sandbox,
     clone_repository as snapshot_clone_repository,
@@ -16,6 +10,7 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
+from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -66,8 +61,7 @@ WORKFLOWS = [
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
     RunTaskAutomationWorkflow,
-    EvaluateCodeWorkstreamsWorkflow,
-    EvaluateTeamCodeWorkstreamsWorkflow,
+    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
 ]
 
@@ -111,6 +105,7 @@ ACTIVITIES = [
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
     run_task_automation_activity,
+    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,
@@ -122,9 +117,4 @@ ACTIVITIES = [
     scan_image_spec,
     build_and_publish_image,
     mark_image_build_failed,
-    list_active_code_teams,
-    load_team_pr_urls,
-    discover_branch_prs,
-    poll_team_pull_requests,
-    rebuild_team_workstreams,
 ]

@@ -18,11 +18,15 @@ TOOL_DESCRIPTION = """Test Hog evaluation code against sample events from the la
 
 Returns compilation errors if the code is invalid, or pass/fail/error results for each sample event.
 
-The Hog code receives these globals:
-- `input` (string): the LLM input (prompt/messages)
-- `output` (string): the LLM output (completion/response)
-- `properties` (object): all event properties
-- `event` (object): event metadata with `uuid`, `event`, `distinct_id`
+Write new evaluations using these globals:
+- `evaluation_events` (array): the sampled event. Each item has `uuid`, `event`, `timestamp`,
+  serialized `input` and `output`, readable `input_text` and `output_text`, and `properties`
+  without large input, output, and tool payloads.
+- `target` (object): the sampled generation's `type`, `id`, `total_cost_usd`, and
+  `total_latency_seconds`.
+
+Saved evaluations can still use the generation-only compatibility globals `input`, `output`,
+`properties`, and `event`, but do not use them in new source that should also work for traces.
 
 The code must return a boolean: `true` for pass, `false` for fail.
 Use `print()` statements to output reasoning.
@@ -67,6 +71,7 @@ class RunHogEvalTestTool(MaxTool):
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["timestamp"]),
                 *[ast.Field(chain=[col]) for col in HEAVY_COLUMN_NAMES],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
@@ -106,7 +111,7 @@ class RunHogEvalTestTool(MaxTool):
             )
 
         # Parse all events first to collect property keys and build event data.
-        # Heavy columns trail the four base columns in row order — re-merge them
+        # Heavy columns trail the five base columns in row order — re-merge them
         # into `properties` so the Hog body can read `properties.$ai_input` etc.
         # `merge_heavy_properties` skips NULL heavy slots, so on the events
         # fallback (heavy columns absent) it re-merges nothing, and on ai_events
@@ -114,7 +119,7 @@ class RunHogEvalTestTool(MaxTool):
         parsed_events: list[dict[str, Any]] = []
         all_property_keys: set[str] = set()
         for row in response.results:
-            heavy_values = row[4 : 4 + len(HEAVY_COLUMN_NAMES)]
+            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
             heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values))
             properties = merge_heavy_properties(row[2], heavy_columns)
             all_property_keys.update(properties.keys())
@@ -124,6 +129,7 @@ class RunHogEvalTestTool(MaxTool):
                     "event": row[1],
                     "properties": properties,
                     "distinct_id": row[3] or "",
+                    "timestamp": row[4],
                 }
             )
 

@@ -21,18 +21,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
-import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import {
-    type Ticket,
-    type TicketPriority,
-    type TicketStatus,
-    priorityOptions,
-    statusOptionsWithoutAll,
-} from '../../types'
+import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -50,18 +44,11 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
 }
 
-// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
-function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
-    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
-        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
-    }
-    return undefined
-}
-
-const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; label: string }[] = [
-    { value: 'pending', label: 'Send and set pending' },
-    { value: 'on_hold', label: 'Send and set on hold' },
-    { value: 'resolved', label: 'Send and set resolved' },
+// The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
+const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
+    { value: 'pending', statusLabel: 'pending' },
+    { value: 'on_hold', statusLabel: 'on hold' },
+    { value: 'resolved', statusLabel: 'resolved' },
 ]
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
@@ -213,6 +200,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        channel={ticket?.channel_source}
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
@@ -277,6 +265,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                   }
                                         }
                                         withIcon
+                                        withCopyEmailButton
                                         withComposeTicketButton
                                     />
                                     <IdentityBadge verified={ticket.identity_verified} />
@@ -477,8 +466,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     </LemonCard>
 
                     {/* Related Groups Panel */}
-                    {person?.uuid && (
-                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    {(person?.uuid || ticket?.organization_id) && (
+                        <RelatedGroupsPanel
+                            personUuid={person?.uuid}
+                            organizationId={ticket?.organization_id}
+                            organizationIdSource={ticket?.organization_id_source}
+                        />
                     )}
 
                     {/* Staff Actions Panel */}
@@ -520,6 +513,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                personDistinctIds={person?.distinct_ids}
                             />
                         </>
                     )}

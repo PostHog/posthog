@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ZendeskSunshineSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
+    email_address: str

@@ -14,11 +14,13 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -95,8 +97,17 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
+    const {
+        tickets,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+        sorting,
+        selectedTicketIds,
+        searchQuery,
+        hasActiveFilters,
+    } = useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { currentTeam } = useValues(teamLogic)
@@ -168,11 +179,27 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         toggleRow,
     ])
 
+    const emptyState =
+        searchQuery && hasActiveFilters ? (
+            <div className="flex flex-col items-center gap-2 py-2">
+                <span>No tickets match your search with the current filters applied.</span>
+                <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
+                    Search again without filters
+                </LemonButton>
+            </div>
+        ) : (
+            'No tickets'
+        )
+
     return (
         <LemonTable<Ticket>
             dataSource={tickets}
             rowKey="id"
+            emptyState={emptyState}
             loading={ticketsLoading}
+            // Keep rows clickable while a background refresh is in flight; the loading overlay
+            // otherwise captures pointer events and blocks navigation on every reload.
+            disableTableWhileLoading={false}
             embedded={embedded}
             sorting={sorting}
             onSort={(newSorting) => setSorting(newSorting)}
@@ -235,6 +262,8 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         dateFrom,
         dateTo,
         ticketsLoading,
+        totalCount,
+        hasActiveFilters,
     } = useValues(logic)
     const {
         setSearchQuery,
@@ -265,6 +294,23 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     size="small"
                     className="min-w-64"
                 />
+                <Tooltip
+                    title={
+                        hasActiveFilters || searchQuery
+                            ? 'Tickets matching the current filters, search, and view — not the total across all tickets'
+                            : 'Tickets in the current view'
+                    }
+                >
+                    {/* Count of tickets matching the current query, shown next to the search/filter
+                        controls so it reads as the filtered count rather than an all-time total.
+                        Hidden until the first load resolves; dims on subsequent background refreshes. */}
+                    <span
+                        className={clsx('text-secondary text-sm whitespace-nowrap', ticketsLoading && 'opacity-50')}
+                        aria-live="polite"
+                    >
+                        {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
+                    </span>
+                </Tooltip>
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}

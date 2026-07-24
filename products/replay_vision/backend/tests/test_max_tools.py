@@ -101,7 +101,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "rate frustration"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _create_observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:

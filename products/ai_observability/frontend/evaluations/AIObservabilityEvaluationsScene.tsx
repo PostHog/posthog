@@ -428,15 +428,12 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an AI observability event.
-            </LemonBanner>
-
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Online evals</h2>
                     <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your AI generations.
+                        Configure evaluation prompts and triggers to automatically assess your AI generations. Each
+                        evaluation run is billed as an AI observability event.
                     </p>
                 </div>
                 <AccessControlAction

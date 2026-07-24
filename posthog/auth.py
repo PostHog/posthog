@@ -33,6 +33,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -43,10 +44,17 @@ from posthog.models.personal_api_key import (
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import hash_key_value
+from posthog.models.utils import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    PERSONAL_API_KEY_PREFIX,
+    SECRET_API_TOKEN_PREFIX,
+    hash_key_value,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
@@ -214,7 +222,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 token = authorization_match.group(1).strip()
 
                 if token.startswith(
-                    "pha_"
+                    OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
                 return token, cls.SOURCE_HEADER
@@ -315,6 +323,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 api_key_mask=personal_api_key_object.mask_value,
                 api_key_label=personal_api_key_object.label,
             )
+
+            # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
+            # DRF auth), so signal-driven activity logging would otherwise record bearer-token
+            # requests as system actions. Only write when the middleware owns cleanup: outside a
+            # request cycle (e.g. authenticate() called directly) the thread-local would leak.
+            if activity_storage.is_request_scoped():
+                activity_storage.set_user(personal_api_key_object.user)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -544,7 +559,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
         # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith(("phx_", "pha_", "phs_")):
+        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
             return False
 
         if token.count(".") != 2:
@@ -848,6 +863,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 if not access_token:
                     raise AuthenticationFailed(detail="Invalid access token.")
 
+                self._enforce_toolbar_access(access_token)
+
                 self.access_token = access_token
 
                 tag_authentication(
@@ -855,6 +872,18 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     team_id=access_token.user.current_team_id,
                     access_method=AccessMethod.OAUTH,
                 )
+
+                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+                # before DRF auth), so signal-driven activity logging would otherwise record
+                # bearer-token requests as system actions. Only write when the middleware owns
+                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+                # thread-local would leak.
+                if activity_storage.is_request_scoped():
+                    activity_storage.set_user(access_token.user)
+                    # Tokens minted during staff impersonation must keep the impersonation
+                    # marker in the audit trail.
+                    if access_token.impersonated_by_id is not None:
+                        activity_storage.set_was_impersonated(True)
 
                 return access_token.user, None
 
@@ -874,9 +903,32 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 return None
         return None
 
+    def _enforce_toolbar_access(self, access_token: OAuthAccessToken) -> None:
+        """
+        Toolbar OAuth tokens are only checked against the `toolbar` access level when
+        they're minted (see toolbar_oauth_callback / ToolbarOAuthRefreshView) - that
+        check doesn't re-run on every subsequent API request, so a token minted before
+        access was revoked would otherwise keep authenticating until its natural
+        expiry. Re-check here, scoped to the single team narrowed onto the token at
+        mint time, failing closed if that scoping is missing or ambiguous.
+        """
+        application = access_token.application
+        if not application or application.name != settings.TOOLBAR_OAUTH_APPLICATION_NAME:
+            return
+
+        user = access_token.user
+        scoped_team_ids = access_token.scoped_teams or []
+        team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+        if (
+            not user
+            or not team
+            or not UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+        ):
+            raise AuthenticationFailed(detail="You don't have access to the toolbar for this project.")
+
     def _validate_token(self, token: str):
         try:
-            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(token=token)
 
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")

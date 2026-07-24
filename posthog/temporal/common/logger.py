@@ -493,6 +493,7 @@ def configure_logger(
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
     raise_on_producer_error: bool = False,
+    otel_log_mirror: structlog.types.Processor | None = None,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -522,6 +523,8 @@ def configure_logger(
         raise_on_producer_error: Raise any producer startup errors when `True`,
             otherwise only log them. Set to `False` as in production environments, we
             prefer only logging as most products can survive without logs.
+        otel_log_mirror: Optionally, a processor inserted before the renderer to mirror
+            records to the Logs product over OTLP.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -539,6 +542,10 @@ def configure_logger(
             additional_ignores=["posthog.temporal.common.logger", "WrapperLogger"],
         ),
     ]
+
+    # Before the renderers, so the mirror sees the structured event dict (message still under `event`).
+    if otel_log_mirror is not None:
+        base_processors.append(otel_log_mirror)
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=0)
     log_producer = None

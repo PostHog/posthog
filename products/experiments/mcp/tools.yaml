@@ -19,6 +19,26 @@ ui_apps:
         type: detail
         view_prop: data
 tools:
+    experiment-activity:
+        operation: experiments_activity_retrieve
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment change history
+        description: >
+            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment
+            and its holdouts and shared metrics: who made each change, what was changed (field-level before/after
+            values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to
+            the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for
+            pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the
+            flag itself — use feature-flags-activity-retrieve with the flag's ID for those.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-archive:
         operation: experiments_archive_create
         enabled: true
@@ -321,6 +341,57 @@ tools:
 
             Other options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate
             the flag without ending.
+        param_overrides:
+            id:
+                cast: string-int
+        ui_app: experiment
+    experiment-freeze-exposure:
+        operation: experiments_freeze_exposure_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Freeze experiment exposure
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions, limitations, and
+            side effects.
+
+
+            Freeze exposure on a running experiment: stop enrolling NEW users while already-enrolled users keep their
+            variant and metrics keep flowing (end_date stays null). Snapshots the already-exposed users into a static
+            cohort and narrows every release condition on the feature flag to that cohort. Use for long-horizon metrics
+            (revenue, LTV, retention, renewals) where enrollment should stop but measurement should continue — unlike
+            end (stops measurement at end_date) or pause (deactivates the flag for everyone). Status becomes
+            "exposure_frozen". Reversible via experiment-unfreeze-exposure.
+
+
+            SYNCHRONOUS AND POTENTIALLY SLOW: the exposure scan and cohort snapshot run inline in this call, and
+            duration scales with the number of exposed persons — experiments with tens of thousands of exposed users can
+            take tens of seconds. Wait for the response rather than assuming failure or retrying.
+
+
+            Not applicable (returns 400) for: experiments that aren't running ("Experiment has not been launched yet.",
+            "Experiment has already ended.", "Cannot freeze a paused experiment. Resume it first.", "Experiment exposure
+            is already frozen."), group-aggregated experiments (a person cohort cannot freeze group-based matching),
+            experiments in a holdout (holdout assignment is evaluated before release conditions), flags with early
+            access conditions (also evaluated before release conditions), flags that are deleted, missing, or have no
+            release conditions, exposed sets too large to snapshot synchronously (the scan is bounded by a person cap
+            and a timeout), and experiments where more than a small share of exposures are anonymous ("personless")
+            users — they can never match a person cohort, so experiments on logged-out surfaces are not freezable. When
+            a freeze is rejected, explain the limitation to the user instead of retrying.
+
+
+            Good to know: SDKs using local evaluation cannot resolve static cohorts, so a frozen flag evaluates via the
+            /decide endpoint; exposures ingested in the final moments before freezing may miss the snapshot;
+            ship-variant and reset strip the freeze, while end leaves the flag narrowed to the snapshot cohort.
+
+
+            No request body needed.
         param_overrides:
             id:
                 cast: string-int
@@ -909,6 +980,45 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-unfreeze-exposure:
+        operation: experiments_unfreeze_exposure_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Unfreeze experiment exposure
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
+
+
+            Reopen enrollment on an exposure-frozen experiment. Removes the snapshot-cohort condition and freeze markers
+            from every release group, restoring the flag's original targeting: new users can enroll again and
+            already-enrolled users keep their variant (deterministic bucketing). The snapshot cohort is deleted. Status
+            returns to "running".
+
+
+            WARNING — can introduce bias: reopening enrollment re-exposes the flag to a potentially new population.
+            Users who enrolled before the freeze and users who enroll after the unfreeze joined at different times (and
+            possibly under different conditions), so mixing the two cohorts in one analysis can bias the results. Warn
+            the user about this before unfreezing, especially if the freeze lasted a while or something about the
+            audience or product changed in between. If they only wanted to sanity-check the frozen results, they may not
+            need to unfreeze at all.
+
+
+            Returns 400 if the experiment is a draft ("Experiment has not been launched yet."), already ended
+            ("Experiment has already ended."), or its exposure is not frozen ("Experiment exposure is not frozen.").
+
+
+            No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
+        ui_app: experiment
     experiment-update:
         operation: experiments_partial_update
         enabled: true
@@ -1036,9 +1146,6 @@ tools:
     experiments-flag-cleanup-task-retrieve:
         operation: experiments_flag_cleanup_task_retrieve
         enabled: false
-    experiments-freeze-exposure-create:
-        operation: experiments_freeze_exposure_create
-        enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: false
@@ -1056,9 +1163,6 @@ tools:
         enabled: false
     experiments-session-context-retrieve:
         operation: experiments_session_context_retrieve
-        enabled: false
-    experiments-unfreeze-exposure-create:
-        operation: experiments_unfreeze_exposure_create
         enabled: false
     experiments-update:
         operation: experiments_update

@@ -1,11 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
@@ -31,7 +30,9 @@ import {
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
+import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
+import { getHogEvalExample } from './hogEvalExamples'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -52,21 +53,22 @@ import type {
 // evaluation is switched to the trace target. The backend re-defaults and clamps regardless.
 export const DEFAULT_TRACE_WINDOW_SECONDS = 30 * 60
 
-export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
+export const DEFAULT_HOG_SOURCE = getHogEvalExample('output_not_empty').source
+
+const LEGACY_HOG_DEFAULT_SOURCES = [
+    `// Check that the output is not empty
 let result := length(output) > 0
 if (not result) {
     print('Output is empty')
 }
-return result`
-
-// Trace Hog globals expose `events` and `trace`, not a top-level `output`, so the generation
-// default can't run against them — seed a trace-shaped check instead.
-export const DEFAULT_TRACE_HOG_SOURCE = `// Check that the trace produced at least one event
+return result`,
+    `// Check that the trace produced at least one event
 let result := length(events) > 0
 if (not result) {
     print('Trace has no events')
 }
-return result`
+return result`,
+]
 
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
@@ -86,7 +88,7 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: evaluation.target === 'trace' ? DEFAULT_TRACE_HOG_SOURCE : DEFAULT_HOG_SOURCE },
+        evaluation_config: { source: DEFAULT_HOG_SOURCE },
         output_type: 'boolean',
         model_configuration: null,
         output_config: { ...evaluation.output_config, allows_na: false },
@@ -143,6 +145,7 @@ export interface llmEvaluationLogicValues {
     canEnable: boolean
     canEnableReason: string | null
     evaluation: EvaluationConfig | null
+    evaluationBackTarget: EvaluationBackTarget
     evaluationFormSubmitting: boolean
     evaluationLoading: boolean
     evaluationProviderKeyIssue: LLMProviderKey | null
@@ -345,6 +348,7 @@ export interface llmEvaluationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewEvaluation: (evaluationId: string) => boolean
+        evaluationBackTarget: (isNewEvaluation: boolean, searchParams: Record<string, any>) => EvaluationBackTarget
         modelSelectionRequired: (
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null,
@@ -377,7 +381,12 @@ export interface llmEvaluationLogicMeta {
             filteredEvaluationRuns: EvaluationRun[],
             evaluationSummaryFilter: EvaluationSummaryFilter
         ) => number
-        breadcrumbs: (evaluation: EvaluationConfig | null, searchParams: Record<string, any>) => Breadcrumb[]
+        breadcrumbs: (
+            evaluation: EvaluationConfig | null,
+            isNewEvaluation: boolean,
+            evaluationBackTarget: EvaluationBackTarget,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
         maxContext: (evaluation: EvaluationConfig | null) => MaxContextInput[]
     }
 }
@@ -621,25 +630,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     // Seed the window when switching to trace so the field shows a sane default;
                     // clear the bag when switching back so we don't persist a stale window.
                     const target_config = target === 'trace' ? { window_seconds: DEFAULT_TRACE_WINDOW_SECONDS } : {}
-                    // Swap the default Hog source to match the new target, but only while it's still the
-                    // untouched default for the other target — never clobber a source the user edited.
-                    if (state.evaluation_type === 'hog') {
-                        const source = state.evaluation_config.source
-                        if (target === 'trace' && source === DEFAULT_HOG_SOURCE) {
-                            return {
-                                ...state,
-                                target,
-                                target_config,
-                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_TRACE_HOG_SOURCE },
-                            }
-                        }
-                        if (target !== 'trace' && source === DEFAULT_TRACE_HOG_SOURCE) {
-                            return {
-                                ...state,
-                                target,
-                                target_config,
-                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_HOG_SOURCE },
-                            }
+                    if (
+                        state.evaluation_type === 'hog' &&
+                        LEGACY_HOG_DEFAULT_SOURCES.includes(state.evaluation_config.source)
+                    ) {
+                        return {
+                            ...state,
+                            target,
+                            target_config,
+                            evaluation_config: { ...state.evaluation_config, source: DEFAULT_HOG_SOURCE },
                         }
                     }
                     return { ...state, target, target_config }
@@ -816,7 +815,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     updated_at: new Date().toISOString(),
                 }
                 const newEvaluation: EvaluationConfig =
-                    props.evaluationType === 'sentiment'
+                    props.evaluationType === 'sentiment' || template?.evaluation_type === 'sentiment'
                         ? {
                               ...baseFields,
                               evaluation_type: 'sentiment' as const,
@@ -978,7 +977,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const reportConfigStillLoading =
                         !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
                     if (reportConfigStillLoading) {
-                        router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                        router.actions.push(getEvaluationBackTarget(false, router.values.searchParams).path)
                         return
                     }
 
@@ -997,7 +996,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                 }
 
-                router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                router.actions.push(getEvaluationBackTarget(false, router.values.searchParams).path)
             } catch (error) {
                 const message = evaluationErrorMessage(error, 'Failed to save evaluation')
                 lemonToast.error(message)
@@ -1036,6 +1035,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        evaluationBackTarget: [
+            (s) => [s.isNewEvaluation, router.selectors.searchParams],
+            (isNewEvaluation: boolean, searchParams: Record<string, any>): EvaluationBackTarget =>
+                getEvaluationBackTarget(isNewEvaluation, searchParams),
+        ],
 
         modelSelectionRequired: [
             (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId],
@@ -1161,20 +1166,31 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation, router.selectors.searchParams],
-            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
-                {
-                    name: 'Evaluations',
-                    path: combineUrl(urls.aiObservabilityEvaluations(), searchParams).url,
-                    key: 'AIObservabilityEvaluations',
-                    iconType: 'llm_evaluations',
-                },
-                {
-                    name: evaluation?.name || 'New Evaluation',
-                    key: 'AIObservabilityEvaluationEdit',
-                    iconType: 'llm_evaluations',
-                },
-            ],
+            (s) => [s.evaluation, s.isNewEvaluation, s.evaluationBackTarget, router.selectors.searchParams],
+            (
+                evaluation: EvaluationConfig | null,
+                isNewEvaluation: boolean,
+                evaluationBackTarget: EvaluationBackTarget,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
+                const evaluationsTarget = getEvaluationBackTarget(false, searchParams)
+                const parentBreadcrumbs: Breadcrumb[] =
+                    isNewEvaluation && evaluationBackTarget.name !== 'Evaluations'
+                        ? [
+                              ...(evaluationBackTarget.name === 'Templates' ? [evaluationsTarget] : []),
+                              evaluationBackTarget,
+                          ]
+                        : [evaluationsTarget]
+
+                return [
+                    ...parentBreadcrumbs,
+                    {
+                        name: evaluation?.name || 'New Evaluation',
+                        key: 'AIObservabilityEvaluationEdit',
+                        iconType: 'llm_evaluations',
+                    },
+                ]
+            },
         ],
 
         maxContext: [

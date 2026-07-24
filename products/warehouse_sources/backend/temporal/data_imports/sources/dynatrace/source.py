@@ -128,6 +128,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -145,12 +146,16 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
         return schemas
 
     def validate_credentials(
-        self, config: DynatraceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DynatraceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_dynatrace_credentials(config.environment_url, config.api_token, team_id, schema_name)
 
     def get_endpoint_permissions(
-        self, config: DynatraceSourceConfig, team_id: int, endpoints: list[str]
+        self, config: DynatraceSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Dynatrace scopes are granted per API area, so per-table access varies with the token.
         # Probe each scope so the schema picker can flag tables the token can't read.

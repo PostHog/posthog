@@ -48,6 +48,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        skipToFirstMatchingEvent,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -66,6 +67,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        skipToFirstMatchingEvent,
     }
 
     return (

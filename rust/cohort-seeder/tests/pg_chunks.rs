@@ -11,13 +11,17 @@ use std::num::NonZeroU16;
 use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
-use cohort_core::filters::CohortId;
+use cohort_core::filters::{CohortId, TeamId};
+use cohort_seeder::app::reconcile_dispatch::{
+    prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
+    RegisterBackfillConfirmation,
+};
 use cohort_seeder::domain::{ClaimEpoch, PinnedWarning, ProduceHwms};
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
-    discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome, RunError,
-    RunStatus, RunWarningNote,
+    discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
+    BoundaryOutcome, ReconcileRunError, RunError, RunStatus, RunWarningNote,
 };
 use cohort_seeder::store::{Claimant, LeaseDuration, MaxAttempts, RenderedError};
 use cohort_seeder::test_support;
@@ -299,6 +303,158 @@ async fn load_pinned_drops_superseded_and_rejects_cross_team_and_dr() -> Result<
     .await
 }
 
+/// Manual dispatch reads only active participations, carries the behavioral-only shape hash onto
+/// the control tile, and refuses stale run states or malformed tenant/hash data before Kafka.
+#[tokio::test]
+async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_run(
+            &pool,
+            20,
+            "team_enablement",
+            "seeding",
+            true,
+            empty_pinned(),
+        )
+        .await?;
+        insert_participation(
+            &pool,
+            run_id,
+            20,
+            201,
+            false,
+            behavioral_filter(ACTIVE_HASH, "active-event"),
+        )
+        .await?;
+        insert_participation(
+            &pool,
+            run_id,
+            20,
+            202,
+            true,
+            behavioral_filter(SUPERSEDED_HASH, "superseded-event"),
+        )
+        .await?;
+
+        let register_backfill = RegisterBackfillConfirmation::confirmed_by_operator();
+        ensure!(matches!(
+            prepare_reconcile_dispatch(
+                &pool,
+                run_id,
+                CompletionRequirement::Complete,
+                register_backfill,
+            )
+            .await,
+            Err(PrepareReconcileDispatchError::EmptyChunkLedger(id)) if id == run_id
+        ));
+        let overridden = prepare_reconcile_dispatch(
+            &pool,
+            run_id,
+            CompletionRequirement::AllowIncomplete,
+            register_backfill,
+        )
+        .await?;
+        ensure!(overridden.total_chunks() == 0);
+        ensure!(overridden.remaining_chunks() == 0);
+
+        let reconcile = load_reconcile_run(&pool, run_id).await?;
+        ensure!(reconcile.run_id() == run_id);
+        ensure!(reconcile.status() == RunStatus::Seeding);
+        ensure!(reconcile.cohort_count() == 1);
+        let tile = reconcile
+            .tiles()
+            .next()
+            .context("missing active cohort tile")?;
+        ensure!(tile.team_id() == TeamId(20));
+        ensure!(tile.cohort_id() == CohortId(201));
+        ensure!(tile.filters_hash().as_str() == "behavioral-shape");
+        ensure!(tile.run_id() == run_id);
+
+        sqlx::query("UPDATE cohort_backfill_runs SET status = 'reconciling' WHERE id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
+        ensure!(load_reconcile_run(&pool, run_id).await?.status() == RunStatus::Reconciling);
+        ensure!(prepare_reconcile_dispatch(
+            &pool,
+            run_id,
+            CompletionRequirement::Complete,
+            register_backfill,
+        )
+        .await
+        .is_ok());
+
+        sqlx::query(
+            "UPDATE cohort_backfill_run_cohorts SET behavioral_filters_shape_hash = '' \
+             WHERE run_id = $1 AND cohort_id = 201",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        ensure!(matches!(
+            load_reconcile_run(&pool, run_id).await,
+            Err(ReconcileRunError::InvalidBehavioralShapeHash { cohort_id, .. })
+                if cohort_id == CohortId(201)
+        ));
+
+        sqlx::query(
+            "UPDATE cohort_backfill_run_cohorts \
+             SET behavioral_filters_shape_hash = 'behavioral-shape', team_id = 999 \
+             WHERE run_id = $1 AND cohort_id = 201",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        ensure!(matches!(
+            load_reconcile_run(&pool, run_id).await,
+            Err(ReconcileRunError::CrossTeamParticipation {
+                expected_team_id: 20,
+                actual_team_id: 999,
+                ..
+            })
+        ));
+
+        sqlx::query(
+            "UPDATE cohort_backfill_run_cohorts SET superseded_at = now() WHERE run_id = $1",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        ensure!(matches!(
+            load_reconcile_run(&pool, run_id).await,
+            Err(ReconcileRunError::NoActiveParticipations(id)) if id == run_id
+        ));
+
+        let completed_run = insert_run(
+            &pool,
+            21,
+            "team_enablement",
+            "completed",
+            true,
+            empty_pinned(),
+        )
+        .await?;
+        insert_participation(
+            &pool,
+            completed_run,
+            21,
+            211,
+            false,
+            behavioral_filter(ACTIVE_HASH, "active-event"),
+        )
+        .await?;
+        ensure!(matches!(
+            load_reconcile_run(&pool, completed_run).await,
+            Err(ReconcileRunError::Status {
+                status: RunStatus::Completed,
+                ..
+            })
+        ));
+        Ok(())
+    })
+    .await
+}
+
 /// Planning a seeding run's days is idempotent (re-planning inserts nothing), stamps the run's team
 /// onto every chunk, and reports `RunNotSeeding` for a run that is not seeding.
 #[tokio::test]
@@ -310,6 +466,9 @@ async fn planning_is_idempotent_scopes_team_and_gates_on_seeding() -> Result<()>
 
         ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
         ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 0);
+        let progress = store.chunk_progress(seeding_run).await?;
+        ensure!(progress.total() == 2);
+        ensure!(progress.remaining() == 2);
         let chunk_teams_match: bool = sqlx::query_scalar(
             "SELECT bool_and(team_id = 2) FROM cohort_backfill_chunks WHERE run_id = $1",
         )

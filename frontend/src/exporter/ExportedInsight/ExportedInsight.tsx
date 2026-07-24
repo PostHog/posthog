@@ -20,7 +20,7 @@ import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
@@ -55,8 +55,9 @@ export function ExportedInsight({
     const { short_id, query, name, derived_name, description } = insight
 
     const showWatermark = noHeader && !whitelabel
-    const trendsDisplay =
-        isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
+    // getDisplay rather than a raw trendsFilter read, so deprecated display aliases pick the same
+    // legend layout here as the chart they get normalized to.
+    const trendsDisplay = isInsightVizNode(query) && isTrendsQuery(query.source) ? getDisplay(query.source) : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
     const isMetric = trendsDisplay === ChartDisplayType.Metric
     const showLegend =

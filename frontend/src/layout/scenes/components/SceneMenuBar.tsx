@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { Children, ComponentProps, MouseEvent, ReactNode, useEffect } from 'react'
+import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
 
 import { IconExternal, IconSidePanel, IconSparkles } from '@posthog/icons'
 import {
@@ -24,6 +24,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import { SetupReminderContext } from 'lib/components/ProductEmptyState/setupReminderContext'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -62,37 +63,44 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     const layout = sceneLayoutConfig?.layout ?? 'app'
     const isPaddedLayout = PADDED_LAYOUTS.has(layout)
 
+    // A skipped product empty state parks its "isn't receiving data yet" reminder here so it
+    // sits just below the bar. Null for every other scene, so nothing extra renders.
+    const setupReminder = useContext(SetupReminderContext)
+
     useEffect(() => {
         captureSceneMenuBar('scene menu bar shown')
     }, [])
 
     return (
-        <div
-            data-attr="scene-menu-bar"
-            data-scene-layout={layout}
-            className={cn(
-                'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
-                // Bleed past the scene container's padding so the bar feels full-width — only
-                // safe when the layout actually has padding to cancel. Unpadded layouts
-                // (app-raw, plain, etc.) would overflow.
-                isPaddedLayout && '-mx-4 -mt-4',
-                // When LemonTabs is the immediately preceding sibling it already bleeds with
-                // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
-                // bar up so they sit flush.
-                '[.LemonTabs+&]:-mt-6',
-                className
-            )}
-        >
-            {/*
-              Right-side cluster lives OUTSIDE <Menubar> so it doesn't pollute the Menubar's
-              CompositeRoot — that's what coordinates ArrowLeft/Right navigation and
-              hover-to-switch between menus.
-            */}
-            <Menubar className="gap-0 border-0">{children}</Menubar>
+        <>
+            <div
+                data-attr="scene-menu-bar"
+                data-scene-layout={layout}
+                className={cn(
+                    'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
+                    // Bleed past the scene container's padding so the bar feels full-width — only
+                    // safe when the layout actually has padding to cancel. Unpadded layouts
+                    // (app-raw, plain, etc.) would overflow.
+                    isPaddedLayout && '-mx-4 -mt-4',
+                    // When LemonTabs is the immediately preceding sibling it already bleeds with
+                    // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
+                    // bar up so they sit flush.
+                    '[.LemonTabs+&]:-mt-6',
+                    className
+                )}
+            >
+                {/*
+                  Right-side cluster lives OUTSIDE <Menubar> so it doesn't pollute the Menubar's
+                  CompositeRoot — that's what coordinates ArrowLeft/Right navigation and
+                  hover-to-switch between menus.
+                */}
+                <Menubar className="gap-0 border-0">{children}</Menubar>
 
-            <Badge className="hidden @[800px]:flex">OS-like menu (alpha)</Badge>
-            <SceneMenuBarRightLinks />
-        </div>
+                <Badge className="hidden @[800px]:flex">OS-like menu (alpha)</Badge>
+                <SceneMenuBarRightLinks />
+            </div>
+            {setupReminder}
+        </>
     )
 }
 

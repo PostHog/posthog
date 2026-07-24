@@ -208,7 +208,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
     # Image bytes for <img src>; deliberately outside the typed client surface.
     @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["project:read"])
     def icon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         # Canonicalized (lowercase, no FQDN trailing dot) before validation so case variants
         # share one cache entry downstream.

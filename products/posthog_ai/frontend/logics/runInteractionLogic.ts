@@ -25,7 +25,7 @@ import {
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
-import { wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
@@ -72,6 +72,7 @@ const MODE_CONFIG_ID = 'mode'
 export interface runInteractionLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     currentProjectId: number | null // projectLogic
     currentMode: string | null // runStreamLogic
@@ -305,6 +306,7 @@ export interface runInteractionLogicMeta {
         pendingContextItems: (
             contextItems: AttachedContextItem[],
             sentContextKeysByTask: Record<string, string[]>,
+            seenContextLinesByTask: Record<string, string[]>,
             arg: string
         ) => AttachedContextItem[]
     }
@@ -342,7 +344,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking', 'currentMode'],
             attachedContextLogic,
-            ['contextItems', 'sentContextKeysByTask'],
+            ['contextItems', 'sentContextKeysByTask', 'seenContextLinesByTask'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
         ],
@@ -560,20 +562,31 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (sending: boolean, startingRun: boolean): boolean => sending || startingRun,
         ],
         // Attached context not yet wrapped into a message for this task, the snapshot the next send wraps.
-        // The sent-key bookkeeping is task-scoped (`attachedContextLogic.sentContextKeysByTask`), not
-        // run-scoped, so the dedupe survives a terminal-run send re-pointing to a fresh run instance.
+        // Two dedupe layers, both task-scoped (not run-scoped, so the dedupe survives a terminal-run send
+        // re-pointing to a fresh run instance): the in-memory sent keys marked by this session's sends, and
+        // the durable seen lines `runStreamLogic` reconstructs from the run log's resume-chain history —
+        // without the latter, a reload or another tab would re-wrap context the chain already carries.
         // `text` items are never deduped (matches the backend's `prune_repeated_entity_refs`: repeated
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
-            (s) => [s.contextItems, s.sentContextKeysByTask, (_, p: RunInteractionLogicProps) => p.taskId],
+            (s) => [
+                s.contextItems,
+                s.sentContextKeysByTask,
+                s.seenContextLinesByTask,
+                (_, p: RunInteractionLogicProps) => p.taskId,
+            ],
             (
                 contextItems: AttachedContextItem[],
                 sentContextKeysByTask: Record<string, string[]>,
+                seenContextLinesByTask: Record<string, string[]>,
                 taskId: string
             ): AttachedContextItem[] => {
                 const sentKeys = new Set(sentContextKeysByTask[taskId] ?? [])
+                const seenLines = new Set(seenContextLinesByTask[taskId] ?? [])
                 return contextItems.filter(
-                    (item) => item.type === 'text' || !sentKeys.has(attachedContextItemKey(item))
+                    (item) =>
+                        item.type === 'text' ||
+                        (!sentKeys.has(attachedContextItemKey(item)) && !seenLines.has(contextItemLine(item)))
                 )
             },
         ],

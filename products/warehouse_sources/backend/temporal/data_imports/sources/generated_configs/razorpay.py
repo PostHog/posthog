@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class RazorpaySourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str

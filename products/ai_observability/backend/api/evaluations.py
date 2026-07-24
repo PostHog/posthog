@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from django.db import transaction
@@ -14,11 +13,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
@@ -850,13 +856,6 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
 
-        from posthog.hogql import ast
-        from posthog.hogql.property import property_to_expr
-        from posthog.hogql.query import execute_hogql_query
-
-        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-        from posthog.models.team import Team
-
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
@@ -905,17 +904,30 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["timestamp"]),
+                *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=where_exprs),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+            where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             limit=ast.Constant(value=sample_count),
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        try:
+            response = query_ai_events(
+                query=query,
+                placeholders={"where_clause": ast.And(exprs=where_exprs)},
+                team=team,
+                query_type="EvaluationTestHog",
+                fall_back_to_events=False,
+                limit_context=None,
+            )
+            query_results = response.results or []
+        except AIEventsUnavailableError:
+            query_results = []
 
-        if not response.results:
+        if not query_results:
             report_user_action(
                 request.user,
                 "llma evaluation hog code tested",
@@ -936,20 +948,21 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
 
         results = []
-        for row in response.results:
+        for row in query_results:
             event_uuid = str(row[0])
             event_type = row[1]
-            properties = row[2]
+            timestamp = row[4]
+            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
+            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
+            properties = merge_heavy_properties(row[2], heavy_columns)
             distinct_id = row[3]
-
-            if isinstance(properties, str):
-                properties = json.loads(properties)
 
             event_data = {
                 "uuid": event_uuid,
                 "event": event_type,
                 "properties": properties,
                 "distinct_id": distinct_id or "",
+                "timestamp": timestamp,
             }
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
