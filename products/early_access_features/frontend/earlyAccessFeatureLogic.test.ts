@@ -11,10 +11,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, FeatureFlagBasicType, Region } from '~/types'
 
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { POSTHOG_TEAM_ID, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
-
-const POSTHOG_TEAM_ID = 2
 
 const FEATURE_FLAG: FeatureFlagBasicType = {
     id: 1,
@@ -159,10 +157,11 @@ describe('earlyAccessFeatureLogic', () => {
         async function mountWith(id: string, teamId: number, region: Region): Promise<void> {
             logic = earlyAccessFeatureLogic({ id })
             logic.mount()
-            // Set the connected context before touching the form so the errors selector recomputes with it.
+            // Wait for the mounted loaders (including preflightLogic's own fetch of the default
+            // US-region fixture) to settle first, so they can't overwrite the state set below.
+            await expectLogic(logic).toFinishAllListeners()
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: teamId })
             preflightLogic.actions.loadPreflightSuccess({ region } as any)
-            await expectLogic(logic).toFinishAllListeners()
         }
 
         it('requires a description when creating on US-cloud project 2', async () => {
@@ -171,6 +170,14 @@ describe('earlyAccessFeatureLogic', () => {
             logic.actions.setEarlyAccessFeatureValue('description', '   ')
 
             expect(logic.values.earlyAccessFeatureValidationErrors.description).toEqual('A description is required')
+        })
+
+        it('accepts a valid description when creating on US-cloud project 2', async () => {
+            await mountWith('new', POSTHOG_TEAM_ID, Region.US)
+            logic.actions.setEarlyAccessFeatureValue('name', 'My feature')
+            logic.actions.setEarlyAccessFeatureValue('description', 'A real description')
+
+            expect(logic.values.earlyAccessFeatureValidationErrors.description).toBeUndefined()
         })
 
         it('does not require a description for other teams on US cloud', async () => {

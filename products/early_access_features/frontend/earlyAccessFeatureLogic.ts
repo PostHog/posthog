@@ -38,6 +38,9 @@ import {
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
+/** PostHog's own dogfooding project on US cloud — mirrors POSTHOG_TEAM_ID in the backend. */
+export const POSTHOG_TEAM_ID = 2
+
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
@@ -329,8 +332,8 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     // on newly created features. Create-only and US-only to match the serializer.
                     description:
                         props.id === 'new' &&
-                        values.preflight?.region === Region.US &&
-                        values.currentTeamId === 2 &&
+                        values.preflight?.region?.toUpperCase() === Region.US &&
+                        values.currentTeamId === POSTHOG_TEAM_ID &&
                         !description?.trim()
                             ? 'A description is required'
                             : undefined,
