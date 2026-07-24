@@ -10,11 +10,13 @@ import type {
     ExperimentMeanMetric,
     ExperimentMetricSource,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 
@@ -97,6 +99,18 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
                         <span className="truncate">{denominatorName}</span>
                         <span className="text-muted">({denominatorMath})</span>
                     </div>
+                </div>
+            )
+        })
+        .when(isExperimentRetentionMetric, (retentionMetric: ExperimentRetentionMetric) => {
+            const startName = getSourceName(retentionMetric.start_event)
+            const completionName = getSourceName(retentionMetric.completion_event)
+
+            return (
+                <div className="flex items-center gap-1 flex-wrap text-xs text-muted">
+                    <span className="truncate max-w-[150px]">{startName}</span>
+                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <span className="truncate max-w-[150px]">{completionName}</span>
                 </div>
             )
         })
