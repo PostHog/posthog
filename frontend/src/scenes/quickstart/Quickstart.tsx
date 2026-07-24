@@ -39,6 +39,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -1639,10 +1640,29 @@ function QuickstartRunStatus({
         )
     }
     return (
-        <div className="flex items-center gap-2" role="status" aria-live="polite">
-            <Spinner className="text-lg" />
-            <span className="text-sm">The agent is working on your integration.</span>
-            {currentTaskLabel(progress) && <span className="text-secondary text-sm">{currentTaskLabel(progress)}</span>}
+        <div className="flex flex-col gap-2" role="status" aria-live="polite">
+            <div className="flex items-center gap-2">
+                <Spinner className="text-base" />
+                <span className="text-sm font-medium">
+                    {currentTaskLabel(progress) ?? 'The agent is working on your integration'}
+                </span>
+            </div>
+            {progress.steps.length > 0 && (
+                <div className="flex items-center gap-2">
+                    <LemonProgress
+                        percent={
+                            (progress.steps.filter((step) => step.status === 'completed').length /
+                                progress.steps.length) *
+                            100
+                        }
+                        className="flex-1"
+                    />
+                    <span className="text-xs text-secondary tabular-nums whitespace-nowrap">
+                        {progress.steps.filter((step) => step.status === 'completed').length} of {progress.steps.length}{' '}
+                        steps
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
