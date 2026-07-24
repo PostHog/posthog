@@ -247,9 +247,16 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                         ),
                     )
                 except temporalio.exceptions.ActivityError as e:
-                    # Schedule-to-close expiring IS the max-age cap: evaluate what we have.
+                    # A schedule-to-close or still-not-settled timeout means the trace never settled
+                    # within max_age — anything else is a real failure and should propagate.
                     if not (_is_schedule_to_close_timeout(e) or _is_still_not_settled(e)):
                         raise
+                    # Temporal stops polling once the next retry would overrun schedule-to-close, so it
+                    # can give up as much as one poll_interval before max_age. Wait out the remainder so
+                    # we always honor the full max-age window before grading a still-active trace.
+                    remaining = max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
+                    if remaining > 0:
+                        await asyncio.sleep(remaining)
         elif primary_seconds:
             await asyncio.sleep(primary_seconds)
 

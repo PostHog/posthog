@@ -275,10 +275,10 @@ class TestRunAggregateEvaluationWorkflow:
                 elapsed = description.close_time - description.start_time
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
-        # The poll gives up once the next retry would cross the budget rather than waiting
-        # out the remainder: quiet (300) + last failed attempt before the 300s budget (225).
-        assert elapsed >= timedelta(seconds=500)
-        assert elapsed < timedelta(seconds=600)
+        # The trace never settles, so we wait out the full max-age window (600) before grading,
+        # rather than giving up early once the next poll would overrun the budget.
+        assert elapsed >= timedelta(seconds=600)
+        assert elapsed < timedelta(seconds=750)
 
 
 @freeze_time("2026-07-23T12:00:00Z")
