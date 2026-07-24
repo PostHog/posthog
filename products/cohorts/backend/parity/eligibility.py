@@ -198,16 +198,45 @@ def _interval_window(node: Mapping[str, Any]) -> Optional[_Window]:
     return _Window("days", float(time_value * _INTERVAL_DAYS[interval]))
 
 
-def _behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
-    """The leaf's window in days, or None when the state variant is unsupported (drop)."""
-    # Non-string values read as absent (Rust opt_string), so coerce before the presence check.
+def resolve_behavioral_window(node: Mapping[str, Any]) -> Optional[_Window]:
+    """The eviction window a behavioral leaf resolves to (``kind`` = days / seconds / explicit),
+    or ``None`` when it has no representable window (leaf drops).
+
+    Public entry point to the private window-resolution the eligibility screen uses, so the
+    recompute oracle (``recompute.py``) shares one window-semantics source. Mirror of
+    ``rust/cohort-core/src/leaf_state/select.rs`` ``eviction_window``: an ``explicit_datetime``(_to)
+    pair takes precedence over ``time_value``/``time_interval``. Non-string bounds read as absent
+    (Rust ``opt_string``), so coerce before the presence check.
+    """
     explicit_from = node.get("explicit_datetime") if isinstance(node.get("explicit_datetime"), str) else None
     explicit_to = node.get("explicit_datetime_to") if isinstance(node.get("explicit_datetime_to"), str) else None
     if explicit_from is not None or explicit_to is not None:
-        window = _explicit_window(explicit_from, explicit_to)
-    else:
-        window = _interval_window(node)
+        return _explicit_window(explicit_from, explicit_to)
+    return _interval_window(node)
 
+
+def explain_unsupported_window(node: Mapping[str, Any]) -> str:
+    """Why :func:`resolve_behavioral_window` returned ``None`` for this leaf.
+
+    Recompute needs the specific shape ``resolve_behavioral_window`` collapses to ``None`` so it can
+    SKIP with a precise reason. Mirror of the ``None`` branches of ``select.rs``
+    ``explicit_eviction_window`` — an unparseable present bound vs a relative range it cannot model —
+    plus the missing-interval case. The grammar stays centralized in :func:`_classify_bound`.
+    """
+    explicit_from = node.get("explicit_datetime") if isinstance(node.get("explicit_datetime"), str) else None
+    explicit_to = node.get("explicit_datetime_to") if isinstance(node.get("explicit_datetime_to"), str) else None
+    if explicit_from is None and explicit_to is None:
+        return "missing_window"
+    from_kind = _classify_bound(explicit_from)[0] if explicit_from is not None else None
+    to_kind = _classify_bound(explicit_to)[0] if explicit_to is not None else None
+    if from_kind == "unparseable" or to_kind == "unparseable":
+        return "unparseable_explicit_bound"
+    return "relative_range_unsupported"
+
+
+def _behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
+    """The leaf's window in days, or None when the state variant is unsupported (drop)."""
+    window = resolve_behavioral_window(node)
     if value == "performed_event":
         return window.days if window is not None else None
     # performed_event_multiple: only whole-day sliding windows ≥ 1 day are representable.

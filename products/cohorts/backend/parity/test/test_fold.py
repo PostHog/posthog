@@ -107,6 +107,33 @@ class TestFold(SimpleTestCase):
         self.assertEqual(members(state[10]), {"p2"})
         self.assertEqual(stats.dropped_before_since, 1)
 
+    def test_until_bound_converges_the_fold_to_the_pinned_instant(self) -> None:
+        # A pinned comparison clock must see the state as of that instant: an entry stamped after it
+        # is invisible to the oracle's window and would otherwise read as an unexplained over-count,
+        # and a later `left` must not retroactively remove a person who was a member at the instant.
+        state, stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:01:00.000001", person_id="P1"),
+                _msg("left", "2026-07-07 19:09:00.000001", person_id="P1"),
+                _msg("entered", "2026-07-07 19:09:00.000001", person_id="P2"),
+            ],
+            team_id=2,
+            since=SINCE,
+            until=datetime(2026, 7, 7, 19, 5, tzinfo=UTC),
+        )
+        self.assertEqual(members(state[10]), {"p1"})
+        self.assertEqual(stats.dropped_after_until, 2)
+
+    def test_until_bound_drops_later_reconcile_markers(self) -> None:
+        _state, stats = fold_membership_changes(
+            [_marker(0, ts="2026-07-07 19:01:00.000001"), _marker(1, ts="2026-07-07 19:09:00.000001")],
+            team_id=2,
+            since=SINCE,
+            until=datetime(2026, 7, 7, 19, 5, tzinfo=UTC),
+        )
+        self.assertEqual(reconcile_completeness(stats, 10)[0].partitions_seen, 1)
+        self.assertEqual(stats.dropped_after_until, 1)
+
     def test_wrong_team_messages_are_dropped(self) -> None:
         state, stats = fold_membership_changes(
             [
