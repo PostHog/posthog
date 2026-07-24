@@ -221,3 +221,23 @@ def create_telegram_task_activity(inputs: TelegramAppMentionWorkflowInputs, repo
         slack_thread_context=context,
         posthog_mcp_scopes="full",
     )
+
+
+@activity.defn
+@close_db_connections
+def classify_telegram_task_needs_repo_activity(inputs: TelegramAppMentionWorkflowInputs) -> bool:
+    """Whether the message needs code repository access, via the shared classifier.
+
+    Biased toward False (like Slack): answering an analytics ask with a no-repo task
+    is recoverable, while demanding a repo for every question dead-ends the chat.
+    The quoted reply_to message, when present, is the only extra context Telegram has.
+    """
+    from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo  # noqa: PLC0415
+
+    message = inputs.message
+    thread_messages: list[dict[str, str]] = []
+    reply_to = message.get("reply_to_message")
+    if isinstance(reply_to, dict) and reply_to.get("text"):
+        author = (reply_to.get("from") or {}).get("first_name") or "someone"
+        thread_messages.append({"user": author, "text": str(reply_to["text"]), "ts": ""})
+    return classify_task_needs_repo(_strip_bot_mention(str(message.get("text") or "")), thread_messages)

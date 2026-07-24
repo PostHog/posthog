@@ -31,9 +31,10 @@ def _inputs() -> TelegramAppMentionWorkflowInputs:
 
 
 class _Recorder:
-    def __init__(self, *, limited: bool = False, cascade_mode: _CascadeMode = "auto") -> None:
+    def __init__(self, *, limited: bool = False, cascade_mode: _CascadeMode = "auto", needs_repo: bool = True) -> None:
         self.limited = limited
         self.cascade_mode = cascade_mode
+        self.needs_repo = needs_repo
         self.replies: list[str] = []
         # repository argument per create-task call.
         self.created: list[str | None] = []
@@ -53,11 +54,15 @@ def _fake_activities(rec: _Recorder) -> list:
         repository = "org/repo" if rec.cascade_mode == "auto" else None
         return PostHogCodeRepoCascadeOutcome(mode=rec.cascade_mode, repository=repository, reason="test")
 
+    @activity.defn(name="classify_telegram_task_needs_repo_activity")
+    async def fake_classify(inputs: TelegramAppMentionWorkflowInputs) -> bool:
+        return rec.needs_repo
+
     @activity.defn(name="create_telegram_task_activity")
     async def fake_create(inputs: TelegramAppMentionWorkflowInputs, repository: str | None) -> None:
         rec.created.append(repository)
 
-    return [fake_quota, fake_reply, fake_cascade, fake_create]
+    return [fake_quota, fake_reply, fake_cascade, fake_classify, fake_create]
 
 
 async def _run(rec: _Recorder) -> None:
@@ -103,13 +108,26 @@ async def test_quota_blocked_posts_denial_and_creates_nothing():
 async def test_unresolvable_repo_asks_instead_of_dead_ending(mode: _CascadeMode, expected_snippet: str):
     # The no-picker contract: when the cascade can't resolve a repo, the user gets an
     # actionable reply — a silent stop would read as the bot ignoring the mention.
-    rec = _Recorder(cascade_mode=mode)
+    rec = _Recorder(cascade_mode=mode, needs_repo=True)
 
     await _run(rec)
 
     assert rec.created == []
     assert len(rec.replies) == 1
     assert expected_snippet in rec.replies[0]
+
+
+@pytest.mark.asyncio
+async def test_analytics_question_with_many_repos_creates_no_repo_task():
+    # A multi-repo workspace must still answer analytics/config questions: the
+    # needs-repo classifier gates the ask-for-repo reply, so dropping it turns
+    # every question into "tell me which repo" (the v1 dogfood bug).
+    rec = _Recorder(cascade_mode="agent_needed", needs_repo=False)
+
+    await _run(rec)
+
+    assert rec.created == [None]
+    assert rec.replies == []
 
 
 @pytest.mark.asyncio
