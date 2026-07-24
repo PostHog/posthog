@@ -1,4 +1,4 @@
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, isRetryableStorageError } from '~/session-replay/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {
@@ -43,5 +43,27 @@ describe('RasterizationError', () => {
             expect(json).not.toHaveProperty('cause')
             expect(json).not.toHaveProperty('stack')
         })
+    })
+})
+
+describe('isRetryableStorageError', () => {
+    it.each([
+        ['Smithy deserialization of a non-XML body', Object.assign(new Error("char 'E' is not expected.:1:1"), {})],
+        ['explicit Deserialization error text', new Error('Deserialization error: something')],
+        ['AWS SDK $retryable tag', Object.assign(new Error('throttled'), { $retryable: { throttling: true } })],
+        ['5xx via $metadata', Object.assign(new Error('boom'), { $metadata: { httpStatusCode: 503 } })],
+        ['5xx via $response', Object.assign(new Error('boom'), { $response: { statusCode: 500 } })],
+        ['transient socket reset', Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })],
+        ['SDK TimeoutError', Object.assign(new Error('timed out'), { name: 'TimeoutError' })],
+    ])('treats %s as retryable', (_label, err) => {
+        expect(isRetryableStorageError(err)).toBe(true)
+    })
+
+    it.each([
+        ['a 4xx client error', Object.assign(new Error('AccessDenied'), { $metadata: { httpStatusCode: 403 } })],
+        ['a plain unrelated error', new Error('unexpected failure')],
+        ['a non-Error value', 'string error'],
+    ])('does not treat %s as retryable', (_label, err) => {
+        expect(isRetryableStorageError(err)).toBe(false)
     })
 })

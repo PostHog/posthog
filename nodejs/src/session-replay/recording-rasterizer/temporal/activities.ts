@@ -7,7 +7,7 @@ import * as path from 'path'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, isRetryableStorageError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
@@ -23,6 +23,13 @@ import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 function toActivityError(err: unknown): Error {
     if (err instanceof RasterizationError && !err.retryable) {
         return ApplicationFailure.nonRetryable(err.message, 'NON_RETRYABLE', err)
+    }
+    // A non-XML object-store/proxy response makes the AWS SDK throw a Smithy
+    // deserialization error that isn't a RasterizationError. Surface it as an
+    // explicitly retryable failure with a stable type so the render/upload is
+    // retried rather than burning the job.
+    if (isRetryableStorageError(err)) {
+        return ApplicationFailure.retryable((err as Error).message, 'S3_TRANSIENT', err)
     }
     return err instanceof Error ? err : new Error(String(err))
 }
@@ -123,6 +130,8 @@ async function rasterizeRecordingActivity(
         RasterizationMetrics.observeActivity('error', timings.total_s)
         if (err instanceof RasterizationError) {
             RasterizationMetrics.incrementError(err.code, err.retryable)
+        } else if (isRetryableStorageError(err)) {
+            RasterizationMetrics.incrementError('S3_TRANSIENT', true)
         } else {
             RasterizationMetrics.incrementError('UNKNOWN', true)
         }
