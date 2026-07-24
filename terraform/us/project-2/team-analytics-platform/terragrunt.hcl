@@ -15,4 +15,5 @@ inputs = {
   analytics_platform_slack_channel_id          = "C09S5802LMU"
   analytics_platform_slack_workspace_id        = 54567
   analytics_platform_alert_subscribed_user_ids = [339134]
+  billing_slack_channel_id                     = "C08ERRQT41E"
 }
