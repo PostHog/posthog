@@ -320,6 +320,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$browser_version", False),
         ]
 
+    def test_malformed_event_names_returns_400_not_500(self):
+        # a non-JSON `event_names` used to raise an unhandled JSONDecodeError and return a 500
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?event_names=$pageview")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_is_event_property_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=firs")
         assert response.status_code == status.HTTP_200_OK
@@ -1052,6 +1057,8 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["event_names not valid JSON", {"type": "event", "event_names": "$pageview"}],
+            ["event_names JSON but not a list", {"type": "event", "event_names": '{"foo": "bar"}'}],
             ["group type without index", {"type": "group"}],
             ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
             ["negative group_type_index", {"type": "group", "group_type_index": -1}],
