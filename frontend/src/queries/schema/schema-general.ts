@@ -6482,6 +6482,7 @@ export interface MarketingAnalyticsConfig {
 
 export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
+    ChannelSource = 'channel_source',
     Source = 'source',
     Campaign = 'campaign',
     AdGroup = 'ad_group',
@@ -6547,6 +6548,12 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
         ],
+    },
+    [MarketingAnalyticsDrillDownLevel.ChannelSource]: {
+        // Channel is the grouping alias; Source survives as the second column so a channel's
+        // rows break down into the sources that make it up.
+        columnAlias: 'Channel',
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.Campaign],
     },
     [MarketingAnalyticsDrillDownLevel.Source]: {
         columnAlias: 'Source',
