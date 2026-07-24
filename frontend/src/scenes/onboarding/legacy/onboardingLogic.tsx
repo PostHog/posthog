@@ -17,6 +17,7 @@ import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { setQuickstartAsDefaultHomepageOnce } from 'scenes/quickstart/quickstartHomepage'
+import { isQuickstartHomepageEnabled } from 'scenes/quickstart/quickstartVariant'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -641,7 +642,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test') {
+                if (isQuickstartHomepageEnabled(featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE])) {
                     return urls.quickstart()
                 }
                 if (!productKey) {
@@ -850,7 +851,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
                 router.actions.push(
                     getRelativeNextPath(router.values.searchParams['next'], window.location) ??
-                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
+                        (isQuickstartHomepageEnabled(values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE])
                             ? urls.quickstart()
                             : urls.default())
                 )

@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -95,7 +96,14 @@ export interface wizardCloudRunLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         githubIntegration: (integrations: IntegrationType[] | null) => IntegrationType | null
         isGithubConnected: (githubIntegration: IntegrationType | null) => boolean
-        connectGitHubUrl: (currentStepProductKey: ProductKey | null) => string
+        connectGitHubUrl: (
+            currentStepProductKey: ProductKey | null,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string
         skillId: (selectedSDK: SDK | null) => string | undefined
     }
 }
@@ -194,16 +202,22 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             (githubIntegration: IntegrationType | null): boolean => !!githubIntegration,
         ],
         connectGitHubUrl: [
-            (s) => [s.currentStepProductKey],
-            (currentStepProductKey: null | import('../../../../queries/schema').ProductKey): string => {
+            (s) => [s.currentStepProductKey, router.selectors.location],
+            (
+                currentStepProductKey: null | import('../../../../queries/schema').ProductKey,
+                location: { pathname: string }
+            ): string => {
                 // Full-page redirect to install/authorize the GitHub App, then back to
-                // the install step. integrationsLogic's callback appends the new
-                // integration id, and loadIntegrations() repopulates githubIntegration,
-                // so the block advances from "connect" to "pick a repo" on return.
-                const next = urls.onboarding({
-                    productKey: currentStepProductKey ?? undefined,
-                    stepKey: OnboardingStepKey.INSTALL,
-                })
+                // wherever the block is mounted (quickstart or the onboarding install
+                // step). integrationsLogic's callback appends the new integration id,
+                // and loadIntegrations() repopulates githubIntegration, so the block
+                // advances from "connect" to "pick a repo" on return.
+                const next = location.pathname.endsWith('/quickstart')
+                    ? urls.quickstart()
+                    : urls.onboarding({
+                          productKey: currentStepProductKey ?? undefined,
+                          stepKey: OnboardingStepKey.INSTALL,
+                      })
                 return api.integrations.authorizeUrl({ kind: 'github', next })
             },
         ],

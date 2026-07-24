@@ -1,6 +1,7 @@
+import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
+
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { InstallationProgress } from '../onboarding/shared/wizard-sync/installationProgressLogic'
 import { isQuickstartProductInstalling } from './QuickstartWizardProgress'
 
 function progress(phase: InstallationProgress['phase']): InstallationProgress {

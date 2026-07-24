@@ -3,14 +3,14 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductCard } from './Quickstart'
 import {
     QuickstartJourneyStep,
     QuickstartProduct,
     QuickstartTaskGuide,
     QuickstartToolCta,
     QuickstartToolLevel,
-} from './quickstartLogic'
+} from '../../quickstartLogic'
+import { ProductCard } from './ProductCard'
 
 interface CardArgs {
     name: string

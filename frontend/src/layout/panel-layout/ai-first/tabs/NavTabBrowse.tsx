@@ -35,6 +35,7 @@ import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isQuickstartHomepageEnabled } from 'scenes/quickstart/quickstartVariant'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -207,7 +208,7 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
-                    {featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' && (
+                    {isQuickstartHomepageEnabled(featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]) && (
                         <NavLink
                             to={urls.quickstart()}
                             label="Quickstart"

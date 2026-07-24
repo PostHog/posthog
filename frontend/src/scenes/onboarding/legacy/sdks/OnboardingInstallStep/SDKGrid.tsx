@@ -18,6 +18,7 @@ export function SDKGrid({
     onSearchChange,
     onTagChange,
     currentTeam,
+    onCopyProjectToken,
     showTopControls = true,
     installationComplete,
     showTopSkipButton,
@@ -37,7 +38,10 @@ export function SDKGrid({
                             <LemonButton
                                 size="small"
                                 type="primary"
-                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project token')}
+                                onClick={() => {
+                                    onCopyProjectToken?.()
+                                    void copyToClipboard(currentTeam?.api_token || '', 'Project token')
+                                }}
                                 icon={<IconCopy />}
                                 data-attr="copy-project-token"
                             >
