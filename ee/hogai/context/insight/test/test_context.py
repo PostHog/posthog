@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery
 
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 
 
 class TestInsightContext(BaseTest):
@@ -132,16 +132,38 @@ class TestInsightContext(BaseTest):
         self.assertIn("Test Results", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
-    async def test_execute_and_format_raises_error_by_default(self, mock_execute):
+    async def test_execute_and_format_wraps_unclassified_error_as_transient(self, mock_execute):
+        # An unclassified failure (e.g. the backend being unreachable) must surface as transient,
+        # not as a fixable query — otherwise the agent regenerates and re-runs it on the billable
+        # path during an outage.
         mock_execute.side_effect = Exception("Query failed")
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query, user=self.user)
 
-        with self.assertRaises(MaxToolRetryableError) as exc:
+        with self.assertRaises(MaxToolTransientError) as exc:
             await context.execute_and_format()
 
         self.assertIn("Error executing query: Query failed", str(exc.exception))
+
+    @parameterized.expand(
+        [
+            (MaxToolTransientError,),
+            (MaxToolRetryableError,),
+            (MaxToolFatalError,),
+        ]
+    )
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_execute_and_format_preserves_classified_error(self, error_cls, mock_execute):
+        # The executor classifies failures (transient vs. fixable vs. fatal); the wrapper must keep
+        # that classification rather than collapsing everything onto the retry-with-adjusted path.
+        mock_execute.side_effect = error_cls("boom")
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(team=self.team, query=query, user=self.user)
+
+        with self.assertRaises(error_cls):
+            await context.execute_and_format()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_returns_exception_when_flag_set(self, mock_execute):

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactContentType,
@@ -18,6 +19,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversa
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -70,6 +72,30 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact_messages.messages[1], AssistantToolCallMessage)
         self.assertIn("test_event", artifact_messages.messages[1].content)
         self.assertIn("another_event", artifact_messages.messages[1].content)
+
+    @parameterized.expand(
+        [
+            # Transient backend trouble must tell the agent NOT to retry (no billable loop);
+            # a genuine query-shape error must invite a corrected retry.
+            (MaxToolTransientError, "try again", False),
+            (MaxToolRetryableError, "fix it", True),
+        ]
+    )
+    async def test_sql_execution_error_routing(self, error_cls, expected_snippet, invites_retry):
+        tool = await self._create_tool()
+
+        with patch(
+            "ee.hogai.tools.execute_sql.tool.InsightContext.execute_and_format",
+            new=AsyncMock(side_effect=error_cls("backend problem")),
+        ):
+            result_text, artifact_messages = await tool._arun_impl(
+                "SELECT count() FROM events", "Event count", "Count events"
+            )
+
+        self.assertIsNone(artifact_messages)
+        self.assertIn(expected_snippet, result_text.lower())
+        # Only a fixable query should carry the recoverable "generate a new query" instruction.
+        self.assertEqual("generate a new query" in result_text.lower(), invites_retry)
 
     async def test_successful_sql_execution_can_set_chart_axis_labels(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

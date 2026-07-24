@@ -163,6 +163,17 @@ Acknowledge to the user that you encountered an error and do not attempt to fix 
 </system_reminder>
 """.strip()
 
+EXECUTE_SQL_TRANSIENT_ERROR_PROMPT = """
+The query could not be run right now because of a temporary backend problem, not because of anything wrong with the query:
+```
+{{{error}}}
+```
+
+<system_reminder>
+Tell the user the query couldn't be run because of a temporary issue and to try again in a little while. Do NOT rewrite or re-run the query — the query itself is fine.
+</system_reminder>
+""".strip()
+
 EXECUTE_SQL_CONTEXT_PROMPT = """
 The current HogQL query (which CAN be empty) is:
 <current_query>
