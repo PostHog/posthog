@@ -5,6 +5,7 @@ from typing import Optional
 from django.conf import settings
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.query_cache.failures import FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import fetch_entry
@@ -14,14 +15,16 @@ from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 
 @dataclass(frozen=True)
 class CacheLookup:
-    """Everything the cache knows about a cache key in one read."""
+    """Everything the cache knows about a cache key: the stored entry and any open failure record."""
 
     entry: Optional[CachedEntry]
+    failure: Optional[QueryFailureRecord] = None
 
 
 class QueryCache:
     """Facade over query result cache storage: blob store, wire format, per-team size limits,
-    and the freshness index. Code outside posthog/query_cache goes through this class."""
+    the freshness index, and the failure circuit breaker. Code outside posthog/query_cache
+    goes through this class."""
 
     def __init__(
         self,
@@ -36,8 +39,21 @@ class QueryCache:
         self.insight_id = insight_id
         self.dashboard_id = dashboard_id
 
-    def lookup(self) -> CacheLookup:
-        return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id))
+    def lookup(self, *, include_failure: bool = False) -> CacheLookup:
+        # The failure read is opt-in so callers that never consult the breaker (and the
+        # feature-flag-off path) don't pay an extra cache roundtrip per query.
+        failure = QueryFailureCache(self.cache_key).get_open() if include_failure else None
+        return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id), failure=failure)
+
+    def open_failure(self) -> Optional[QueryFailureRecord]:
+        """The open breaker record alone, for paths that skip the result cache entirely."""
+        return QueryFailureCache(self.cache_key).get_open()
+
+    def record_failure(self, kind: FailureKind, detail: str, *, scope: str) -> Optional[QueryFailureRecord]:
+        return QueryFailureCache(self.cache_key).record_failure(kind, detail, scope=scope)
+
+    def clear_failure(self) -> None:
+        QueryFailureCache(self.cache_key).clear()
 
     def store_result(self, *, response: dict, target_age: Optional[datetime]) -> None:
         if isinstance(response.get("results"), list):
