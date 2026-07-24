@@ -147,7 +147,10 @@ export function TrendsBarChart({
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
-    const twoDimensionStack = stackBreakdowns && (breakdownFilter?.breakdowns?.length ?? 0) === 2
+    // "Multi" because two or more breakdowns collapse into: band = first breakdown's value,
+    // stacked segment = every remaining breakdown's value joined with "::" (same separator the
+    // backend already uses for flattened labels, so it reads consistently with the rest of the app).
+    const multiDimensionStack = stackBreakdowns && (breakdownFilter?.breakdowns?.length ?? 0) >= 2
 
     const getBandKey = useCallback(
         (r: IndexedTrendResult): string => {
@@ -164,16 +167,18 @@ export function TrendsBarChart({
         [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
-    const getSegmentLabel = useCallback(
+    // Joins every breakdown value after the first (the band) into one segment label, e.g. for
+    // three breakdowns [Browser, OS, Country] this returns "OS::Country". Each value keeps its
+    // own original index so type-specific formatting (e.g. cohort) still resolves correctly.
+    const getSegmentKey = useCallback(
         (r: IndexedTrendResult): string => {
-            const secondValue = Array.isArray(r.breakdown_value) ? r.breakdown_value[1] : undefined
-            return formatBreakdownLabel(
-                secondValue,
-                breakdownFilter,
-                allCohorts?.results,
-                formatPropertyValueForDisplay,
-                1
-            )
+            const values = Array.isArray(r.breakdown_value) ? r.breakdown_value : []
+            return values
+                .slice(1)
+                .map((v, i) =>
+                    formatBreakdownLabel(v, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay, i + 1)
+                )
+                .join('::')
         },
         [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
@@ -182,26 +187,58 @@ export function TrendsBarChart({
         (r: IndexedTrendResult): TrendsSeriesMeta => {
             const meta = buildTrendsSeriesMeta(r)
             // Tooltip reads meta.breakdown_value directly and re-formats it, bypassing series.label.
-            // With two-dimension stacking, the band already shows the first breakdown ("Chrome"),
-            // so the tooltip should show only the second ("Linux"), not the full "Chrome::Linux".
-            if (twoDimensionStack && Array.isArray(r.breakdown_value)) {
-                return { ...meta, breakdown_value: r.breakdown_value[1] }
+            // With multi-dimension stacking, the band already shows the first breakdown ("Chrome"),
+            // so the tooltip should show only the remaining ones ("Linux" or "Linux::US"), not the
+            // full flattened "Chrome::Linux::US".
+            if (multiDimensionStack && Array.isArray(r.breakdown_value)) {
+                return { ...meta, breakdown_value: getSegmentKey(r) }
             }
             return meta
         },
-        [twoDimensionStack]
+        [multiDimensionStack, getSegmentKey]
+    )
+
+    // Default colorIndex is keyed by the full breakdown combination, so e.g. `mcp::TrendsQuery`
+    // and `api::TrendsQuery` get different colors. For multi-dimension stacking we want the
+    // segment (everything after the band) to have one consistent color across every band, so
+    // segments are comparable at a glance (matches how a normal legend works for one breakdown).
+    const segmentColorIndex = useMemo(() => {
+        if (!multiDimensionStack) {
+            return null
+        }
+        const map = new Map<string, number>()
+        ;(indexedResults ?? []).forEach((r: IndexedTrendResult) => {
+            if (Array.isArray(r.breakdown_value)) {
+                const key = getSegmentKey(r)
+                if (!map.has(key)) {
+                    map.set(key, map.size)
+                }
+            }
+        })
+        return map
+    }, [multiDimensionStack, indexedResults, getSegmentKey])
+
+    const getAggregatedColor = useCallback(
+        (r: IndexedTrendResult): string => {
+            if (segmentColorIndex && Array.isArray(r.breakdown_value)) {
+                const idx = segmentColorIndex.get(getSegmentKey(r)) ?? 0
+                return getTrendsColor({ ...r, colorIndex: idx })
+            }
+            return getTrendsColor(r)
+        },
+        [segmentColorIndex, getSegmentKey, getTrendsColor]
     )
 
     const getAggregatedDisplayLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
                 stackBreakdowns,
-                twoDimensionStack,
+                twoDimensionStack: multiDimensionStack,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [stackBreakdowns, twoDimensionStack, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [stackBreakdowns, multiDimensionStack, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
@@ -217,13 +254,13 @@ export function TrendsBarChart({
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                getColor: getTrendsColor,
+                getColor: getAggregatedColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildAggregatedMeta,
                 stackBreakdowns,
                 getDisplayLabel: getAggregatedDisplayLabel,
-                getBandKey: twoDimensionStack ? getBandKey : undefined,
-                getLabel: twoDimensionStack ? getSegmentLabel : undefined,
+                getBandKey: multiDimensionStack ? getBandKey : undefined,
+                getLabel: multiDimensionStack ? getSegmentKey : undefined,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -244,13 +281,14 @@ export function TrendsBarChart({
         isAggregated,
         indexedResults,
         getTrendsColor,
+        getAggregatedColor,
         getTrendsHidden,
         currentPeriodResult?.labels,
         stackBreakdowns,
-        twoDimensionStack,
+        multiDimensionStack,
         getAggregatedDisplayLabel,
         getBandKey,
-        getSegmentLabel,
+        getSegmentKey,
         getLabel,
         applyMultipleYAxes,
         quillLegendEnabled,

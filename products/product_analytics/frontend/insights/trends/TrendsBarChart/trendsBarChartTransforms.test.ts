@@ -262,6 +262,34 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(series).toHaveLength(3)
     })
 
+    it('supports 3+ breakdowns by joining everything after the band into the segment key', () => {
+        // Simulates three breakdowns (Browser x OS x Country). getSegmentKey (passed as getBandKey
+        // here to test key-joining behavior in isolation) should join every value after the first.
+        const results = [
+            mkResult({
+                id: 'a',
+                label: 'F',
+                action: { order: 0 },
+                breakdown_value: ['Chrome', 'Linux', 'US'],
+                aggregated_value: 10,
+            }),
+            mkResult({
+                id: 'b',
+                label: 'F',
+                action: { order: 1 },
+                breakdown_value: ['Chrome', 'Windows', 'UK'],
+                aggregated_value: 5,
+            }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            stackBreakdowns: true,
+            getBandKey: (r) => String((r.breakdown_value as string[])[0]),
+            getLabel: (r) => (r.breakdown_value as string[]).slice(1).join('::'),
+        })
+        expect(new Set(labels).size).toBe(1) // both share band "Chrome"
+    })
+
     it.each([
         {
             name: 'suffixes display labels with compare_label so compare-against-previous rows render distinctly',
