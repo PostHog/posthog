@@ -15,6 +15,7 @@ import {
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
+import { IconArrowUpRight } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -28,11 +29,18 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, ExternalDataSource, ExternalDataSourceApiVersionDeprecation } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    ExternalDataSource,
+    ExternalDataSourceApiVersionDeprecation,
+    SidePanelTab,
+} from '~/types'
 
 import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
@@ -257,6 +265,7 @@ function ManagedSourceTabs({
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
     const { source, sourceLoading } = useValues(settingsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     useAttachedLogic(settingsLogic, attachTo)
 
@@ -287,7 +296,10 @@ function ManagedSourceTabs({
         return <LemonSkeleton className="w-full h-12" />
     }
 
-    const tabs: LemonTab<SourceSceneTab>[] = [
+    // 'access-control' is a content-less pseudo-tab: selecting it opens the side panel
+    // (where the source scene already registers the access-control context) and the
+    // active tab stays put, so it's deliberately not part of SOURCE_SCENE_TABS/URLs.
+    const tabs: LemonTab<SourceSceneTab | 'access-control'>[] = [
         { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },
     ]
 
@@ -315,6 +327,16 @@ function ManagedSourceTabs({
         content: <ActivityLog id={sourceId} scope={ActivityScope.EXTERNAL_DATA_SOURCE} />,
     })
 
+    tabs.push({
+        label: (
+            <span className="flex items-center gap-1">
+                Access control
+                <IconArrowUpRight />
+            </span>
+        ),
+        key: 'access-control',
+    })
+
     return (
         <>
             {source?.api_version_deprecation && (
@@ -323,7 +345,18 @@ function ManagedSourceTabs({
                     deprecation={source.api_version_deprecation}
                 />
             )}
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            <LemonTabs
+                activeKey={currentTab}
+                tabs={tabs}
+                onChange={(tab) => {
+                    if (tab === 'access-control') {
+                        openSidePanel(SidePanelTab.AccessControl)
+                        return
+                    }
+                    setCurrentTab(tab)
+                }}
+                sceneInset
+            />
         </>
     )
 }
