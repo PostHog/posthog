@@ -1570,6 +1570,17 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                     {"name": "cnt", "type": "integer"},
                 ],
             ),
+            (
+                "query_with_variable_in_limit_and_offset",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT event, distinct_id FROM events LIMIT {variables.limit} OFFSET {variables.offset}",
+                },
+                [
+                    {"name": "event", "type": "string"},
+                    {"name": "distinct_id", "type": "string"},
+                ],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
