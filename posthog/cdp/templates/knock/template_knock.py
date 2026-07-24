@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-knock",
@@ -94,4 +94,12 @@ if (res.status >= 400) {
             "required": False,
         },
     ],
+    filters={
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+        ],
+        "actions": [],
+        "filter_test_accounts": True,
+    },
 )
