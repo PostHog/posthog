@@ -1564,20 +1564,20 @@ function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIn
                     </span>
                     <span
                         className={cn(
-                            'ml-1.5 text-xs whitespace-nowrap',
+                            'ml-1 text-xs whitespace-nowrap',
                             index === activeIndex ? 'text-primary font-medium' : 'text-muted'
                         )}
                     >
                         {step}
                     </span>
-                    {index < steps.length - 1 && <span className="w-5 h-px bg-border mx-2 shrink-0" />}
+                    {index < steps.length - 1 && <span className="w-3 h-px bg-border mx-1.5 shrink-0" />}
                 </li>
             ))}
         </ol>
     )
 }
 
-const CLOUD_PATH_STEPS = ['Connect GitHub', 'Choose your repo', 'Agent opens a PR', 'Merge and deploy', 'Data arrives']
+const CLOUD_PATH_STEPS = ['Connect GitHub', 'Pick repo', 'PR opens', 'Merge', 'Data arrives']
 const LOCAL_PATH_STEPS = [
     'Copy the command',
     'Run it in your terminal',
