@@ -111,6 +111,32 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
     })
 
+    test('replaceOne/replaceAll treat the replacement literally', () => {
+        const options = { globals: {} }
+        // Use versioned bytecode so arguments are passed in source order.
+        const replaceAll = (s: string, from: string, to: string) =>
+            execSync(['_H', 1, op.STRING, s, op.STRING, from, op.STRING, to, op.CALL_GLOBAL, 'replaceAll', 3], options)
+        const replaceOne = (s: string, from: string, to: string) =>
+            execSync(['_H', 1, op.STRING, s, op.STRING, from, op.STRING, to, op.CALL_GLOBAL, 'replaceOne', 3], options)
+
+        // Ordinary replacements are unaffected.
+        expect(replaceAll('hello world', 'l', 'L')).toBe('heLLo worLd')
+        expect(replaceOne('hello world', 'l', 'L')).toBe('heLlo world')
+
+        // Dollar sequences in the replacement must not be interpreted as
+        // JavaScript special patterns ($$, $&, $`, $'). This matches the Python
+        // interpreter and ClickHouse's replaceOne/replaceAll.
+        expect(replaceAll('price', 'price', '$$')).toBe('$$')
+        expect(replaceAll('a_b', '_', '$&')).toBe('a$&b')
+        expect(replaceAll('xYx', 'x', '($&)')).toBe('($&)Y($&)')
+        expect(replaceAll('a-b', '-', '$`')).toBe('a$`b')
+        expect(replaceAll('a-b', '-', "$'")).toBe("a$'b")
+
+        expect(replaceOne('price', 'price', '$$')).toBe('$$')
+        expect(replaceOne('a_b', '_', '$&')).toBe('a$&b')
+        expect(replaceOne('xYx', 'x', '($&)')).toBe('($&)Yx')
+    })
+
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
