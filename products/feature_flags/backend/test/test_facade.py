@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -6,19 +7,25 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.facade.api import (
     _roll_out_variant,
     archive_flag,
+    create_flag,
     flag_disable_requires_approval,
+    set_flag_active,
     ship_variant,
+    update_flag,
 )
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    replace_variant_distribution,
     restrict_groups_to_cohort,
     set_holdout,
     strip_group_cohort_restriction,
@@ -112,6 +119,73 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.archived is False
+        assert flag.active is True
+
+    def test_system_create_logs_system_activity(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            flag = create_flag(
+                {
+                    "key": "system-created-flag",
+                    "name": "System created",
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                team=self.team,
+                user=None,
+            )
+
+        assert flag.created_by is None
+        assert flag.last_modified_by is None
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="created")
+        assert log.is_system is True
+        assert log.user is None
+
+    def test_system_update_logs_system_activity(self):
+        flag = self._create_flag(active=True)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_flag(
+                flag,
+                {"filters": {"groups": [{"properties": [], "rollout_percentage": 55}]}},
+                team=self.team,
+                user=None,
+            )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 55
+        assert flag.last_modified_by is None
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
+        assert log.is_system is True
+        assert log.user is None
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_system_write_never_raises_approval_required(self, _mock_enabled):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._create_flag(active=True)
+
+        set_flag_active(flag, False, team=self.team, user=None)
+
+        flag.refresh_from_db()
+        assert flag.active is False
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_system_write_rejects_user_bearing_request(self):
+        flag = self._create_flag(active=True)
+
+        with self.assertRaises(ValueError):
+            update_flag(flag, {"active": False}, team=self.team, user=None, request=ServiceRequest(self.user))
+
+        flag.refresh_from_db()
         assert flag.active is True
 
 
@@ -319,6 +393,54 @@ class TestFilterTransforms:
 
         assert result == {"groups": [{"properties": []}], "holdout": expected}
         assert filters["holdout"] == {"id": 1, "exclusion_percentage": 5}
+
+
+class TestReplaceVariantDistribution:
+    def test_rebuilds_variants_preserving_everything_else(self):
+        current_filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                    ],
+                    "rollout_percentage": 50,
+                    "variant": "test",
+                }
+            ],
+            "payloads": {"test": '{"color": "blue"}'},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+            "holdout": None,
+        }
+        new_variants = [
+            {"key": "control", "rollout_percentage": 30},
+            {"key": "test", "rollout_percentage": 70},
+        ]
+
+        result = replace_variant_distribution(current_filters, new_variants)
+
+        assert result["multivariate"] == {"variants": new_variants}
+        assert {k: v for k, v in result.items() if k != "multivariate"} == {
+            k: v for k, v in current_filters.items() if k != "multivariate"
+        }
+
+    def test_does_not_alias_input(self):
+        current_filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+        }
+        new_variants = [{"key": "control", "rollout_percentage": 100}]
+
+        result = replace_variant_distribution(current_filters, new_variants)
+        result["multivariate"]["variants"][0]["rollout_percentage"] = 0
+
+        assert new_variants == [{"key": "control", "rollout_percentage": 100}]
+        assert current_filters["multivariate"]["variants"][0]["rollout_percentage"] == 100
 
 
 class TestExperimentRuleFromFilters:

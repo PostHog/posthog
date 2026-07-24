@@ -90,12 +90,14 @@ class TestSourceForPipeline:
         monkeypatch.setattr(source_module, "ding_connect_source", fake_ding_connect_source)
 
         manager = MagicMock()
-        inputs = MagicMock(schema_name="TransferRecords", logger=MagicMock())
+        inputs = MagicMock(schema_name="TransferRecords", team_id=7, job_id="job-1")
         result = DingConnectSource().source_for_pipeline(MagicMock(api_key="key"), manager, inputs)
 
         assert result is sentinel
         assert captured["api_key"] == "key"
         assert captured["endpoint"] == "TransferRecords"
+        assert captured["team_id"] == 7
+        assert captured["job_id"] == "job-1"
         assert captured["resumable_source_manager"] is manager
 
 

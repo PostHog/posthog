@@ -341,6 +341,48 @@ const meta: Meta = {
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
+                    // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
+                        return [
+                            200,
+                            {
+                                results: TOOL_QUALITY_ROWS.map((r) => ({
+                                    tool: r[0],
+                                    total_calls: r[1],
+                                    errors: r[2],
+                                    error_rate_pct: r[3],
+                                    p50_duration_ms: r[4],
+                                    p95_duration_ms: r[5],
+                                    p99_duration_ms: r[6],
+                                    users: r[7],
+                                    sessions: r[8],
+                                    first_seen: r[9],
+                                    last_seen: r[10],
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolQualityDailyStatsQuery') {
+                        return [
+                            200,
+                            {
+                                results: DAILY_STATS.map((r) => ({
+                                    day: r[0],
+                                    calls: r[1],
+                                    errors: r[2],
+                                    p50: r[3],
+                                    p95: r[4],
+                                    p99: r[5],
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoriesQuery') {
+                        return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
+                        return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -348,22 +390,6 @@ const meta: Meta = {
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
-                    }
-                    // Tool quality tab queries — checked before the dashboard's
-                    // p95 tool table so the more specific markers win. The daily series
-                    // buckets by dateTrunc at the active interval; `AS day,` + the p99
-                    // quantile uniquely identify it (the per-tool table has neither).
-                    if (query.includes('quantile(0.99)') && query.includes('AS day,')) {
-                        return [200, { results: DAILY_STATS }]
-                    }
-                    if (query.includes('p99_duration_ms')) {
-                        return [200, { results: TOOL_QUALITY_ROWS }]
-                    }
-                    if (query.includes('DISTINCT') && query.includes('AS category')) {
-                        return [200, { results: CATEGORY_LIST }]
-                    }
-                    if (query.includes('count() AS calls') && query.includes('GROUP BY category')) {
-                        return [200, { results: CATEGORY_COUNTS }]
                     }
                     if (query.includes('AS successes')) {
                         return [200, { results: ACTIVITY_RESULTS }]

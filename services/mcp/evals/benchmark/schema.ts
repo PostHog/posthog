@@ -54,7 +54,7 @@ export const BenchmarkTaskSchema = z.object({
 })
 
 export const BenchmarkFileSchema = z.object({
-    version: z.literal(0),
+    version: z.literal(1),
     tasks: z.array(BenchmarkTaskSchema).min(1),
 })
 

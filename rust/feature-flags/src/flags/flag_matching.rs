@@ -1794,7 +1794,7 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         if let Some(holdout) = &flag.filters.holdout {
-            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
+            let percentage = holdout.exclusion_percentage_clamped();
 
             if percentage < 100.0
                 && self.get_holdout_hash(flag, None, request_hash_key_override)?

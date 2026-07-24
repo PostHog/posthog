@@ -12,7 +12,7 @@ export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -22,9 +22,11 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
-        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
         .describe(
-            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+            '\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
+        )
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
@@ -35,7 +37,7 @@ export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -49,10 +51,12 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
-        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            '\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
+        )
         .optional()
         .describe(
-            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
@@ -63,7 +67,7 @@ export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -78,7 +82,7 @@ export const SavedQueryColumnAnnotationsListParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -102,7 +106,7 @@ export const SavedQueryColumnAnnotationsCreateParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -112,7 +116,7 @@ export const SavedQueryColumnAnnotationsCreateBody = /* @__PURE__ */ zod
         column_name: zod
             .string()
             .optional()
-            .describe('Column this annotation describes. Empty string denotes the table/view-level description.'),
+            .describe('Column this annotation describes. Empty string denotes the table\/view-level description.'),
         description: zod
             .string()
             .describe(
@@ -120,7 +124,7 @@ export const SavedQueryColumnAnnotationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -134,7 +138,7 @@ export const WarehouseColumnAnnotationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -155,7 +159,7 @@ export const WarehouseColumnAnnotationsCreateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -165,7 +169,7 @@ export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod
         column_name: zod
             .string()
             .optional()
-            .describe('Column this annotation describes. Empty string denotes the table/view-level description.'),
+            .describe('Column this annotation describes. Empty string denotes the table\/view-level description.'),
         description: zod
             .string()
             .describe(
@@ -173,7 +177,7 @@ export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -188,7 +192,7 @@ export const WarehouseColumnAnnotationsPartialUpdateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -198,7 +202,7 @@ export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
         column_name: zod
             .string()
             .optional()
-            .describe('Column this annotation describes. Empty string denotes the table/view-level description.'),
+            .describe('Column this annotation describes. Empty string denotes the table\/view-level description.'),
         description: zod
             .string()
             .optional()
@@ -207,7 +211,7 @@ export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -217,7 +221,7 @@ export const WarehouseSavedQueriesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -233,7 +237,7 @@ export const WarehouseSavedQueriesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -255,7 +259,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
             ),
         description: zod
             .string()
@@ -268,13 +272,13 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -295,7 +299,7 @@ export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -307,7 +311,7 @@ export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -331,7 +335,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
             ),
         description: zod
             .string()
@@ -344,13 +348,13 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -375,7 +379,7 @@ export const WarehouseSavedQueriesDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -387,7 +391,7 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -410,7 +414,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
             ),
         description: zod
             .string()
@@ -423,13 +427,13 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -459,7 +463,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -484,7 +488,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
             ),
         description: zod
             .string()
@@ -497,13 +501,13 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 zod
                     .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -532,7 +536,7 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -555,7 +559,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
             ),
         description: zod
             .string()
@@ -568,13 +572,13 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -603,7 +607,7 @@ export const WarehouseSavedQueriesRunHistoryRetrieveParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -616,6 +620,6 @@ export const WarehouseTablesRefreshSchemaCreateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

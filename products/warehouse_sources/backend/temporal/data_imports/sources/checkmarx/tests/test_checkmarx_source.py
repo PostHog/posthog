@@ -8,7 +8,9 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx import CheckmarxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source import CheckmarxSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CheckmarxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkmarx import (
+    CheckmarxSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

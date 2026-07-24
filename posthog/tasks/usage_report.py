@@ -61,6 +61,7 @@ from products.surveys.backend.util import (
     get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
+from products.tasks.backend.facade.billing import SandboxUsageByTeam, get_task_sandbox_usage_by_team
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -236,8 +237,14 @@ class UsageReportCounters:
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
 
-    # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    # PostHog Desktop Billing Credits (PostHog Desktop product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
     posthog_code_credits_used_in_period: int
+
+    # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
+    # SandboxSession ledger — unpriced until a billing model is decided; pre-warm time excluded)
+    task_sandbox_seconds_in_period: int
+    task_sandbox_cpu_core_seconds_in_period: int
+    task_sandbox_memory_gib_seconds_in_period: int
 
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -299,6 +306,11 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
+
+    # Distributed Tracing (APM)
+    apm_tracing_bytes_in_period: int
+    apm_tracing_spans_in_period: int
+    apm_tracing_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -1386,7 +1398,7 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
-# PostHog Code bills model costs as pure pass-through: no markup
+# PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
@@ -1413,7 +1425,7 @@ POSTHOG_AI_PRODUCTS = [
     "replay_vision",
 ]
 
-# ai_product values billed as PostHog Code credits.
+# ai_product values billed as PostHog Desktop credits.
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
@@ -1679,7 +1691,7 @@ def get_teams_with_posthog_code_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'.
+    """PostHog Desktop billing credits — only events tagged with ai_product='posthog_code'.
 
     Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
     """
@@ -1691,6 +1703,17 @@ def get_teams_with_posthog_code_credits_used_in_period(
         product_tag=Product.POSTHOG_CODE,
         markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
     )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_task_sandbox_usage_in_period(begin: datetime, end: datetime) -> SandboxUsageByTeam:
+    """Raw cloud-sandbox compute per team — wall seconds and resource-seconds of the
+    user-attributed window, from the SandboxSession ledger (Postgres, region-local).
+
+    Unpriced: reported for visibility until a sandbox billing model is decided.
+    """
+    return get_task_sandbox_usage_by_team(begin, end)
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
@@ -2295,6 +2318,44 @@ def get_teams_with_sdk_logs_records_in_period(
     return by_sdk
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_apm_tracing_usage_in_period(
+    begin: datetime,
+    end: datetime,
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns Distributed Tracing (APM) ingested bytes and span counts per team for the period,
+    keyed by `bytes` / `spans`; each value is a list of `(team_id, count)` tuples ready for
+    `convert_team_usage_rows_to_dict`.
+
+    The traces ingestion consumer subclasses the logs consumer, so it emits the same
+    pre-aggregated `app_metrics2` counters under `app_source='traces'`. A span is one record,
+    so `records_ingested` is the span count.
+    """
+    with tags_context(product=Product.TRACING, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='traces'
+              AND metric_name IN ('bytes_ingested', 'records_ingested')
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+    key_by_metric = {"bytes_ingested": "bytes", "records_ingested": "spans"}
+    usage: dict[str, list[tuple[int, int]]] = {"bytes": [], "spans": []}
+    for team_id, metric_name, count in rows:
+        usage[key_by_metric[metric_name]].append((team_id, count))
+    return usage
+
+
 def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
     """Drop the per-team breakdown when the serialized report would exceed Kafka's
     message size limit, so the org-level roll-up still makes it through ingestion.
@@ -2411,7 +2472,9 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
+        or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
+        or report.apm_tracing_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2448,9 +2511,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
+    apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
+    task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -2681,6 +2746,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
+        "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
+        "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2704,6 +2772,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
+        "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
     }
 
 
@@ -2864,6 +2934,13 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+        task_sandbox_seconds_in_period=all_data["teams_with_task_sandbox_seconds_in_period"].get(team.id, 0),
+        task_sandbox_cpu_core_seconds_in_period=all_data["teams_with_task_sandbox_cpu_core_seconds_in_period"].get(
+            team.id, 0
+        ),
+        task_sandbox_memory_gib_seconds_in_period=all_data["teams_with_task_sandbox_memory_gib_seconds_in_period"].get(
+            team.id, 0
+        ),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
@@ -2892,6 +2969,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        apm_tracing_bytes_in_period=all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0),
+        apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
+        apm_tracing_mb_in_period=int(all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 

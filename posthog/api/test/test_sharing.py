@@ -24,7 +24,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
+from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -34,8 +34,12 @@ from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def mock_exporter_template(test_func):
@@ -149,6 +153,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @parameterized.expand(
@@ -191,6 +196,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
         response = self.client.patch(
@@ -204,6 +210,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -1777,3 +1784,452 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         results = response.json().get("inline_query_results", {})
         assert "wh" in results
         assert not results["wh"].get("error")
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestSharingPublishGate(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+            },
+            created_by=self.user,
+        )
+
+    def _deny_warehouse(self) -> None:
+
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _enable_sharing(self, kind: str):
+        if kind == "insight":
+            url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
+        elif kind == "dashboard":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
+        else:
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=self.user,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "wh",
+                                "query": {
+                                    "kind": "DataTableNode",
+                                    "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                                },
+                            },
+                        }
+                    ],
+                },
+            )
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        return self.client.patch(url, {"enabled": True})
+
+    @parameterized.expand([("insight",), ("dashboard",), ("notebook",)])
+    def test_denied_publisher_cannot_enable_sharing(self, kind: str):
+        self._deny_warehouse()
+
+        response = self._enable_sharing(kind)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Can't enable sharing" in str(response.json())
+        assert "governed_view" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
+    def test_publisher_with_access_can_enable_sharing(self):
+        response = self._enable_sharing("dashboard")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is True
+
+    def test_system_table_denial_blocks_publishing(self):
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM system.dashboards"},
+        }
+        self.insight.save()
+
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.dashboards" in str(response.json())
+
+    @parameterized.expand([("denied",), ("allowed",)])
+    def test_runner_level_resource_access_gates_publishing(self, case: str):
+        # AccountsQuery enforces access in validate_query_runner_access (resource level),
+        # not per-table - the compile check alone is blind to it.
+        self.insight.query = {"kind": "AccountsQuery"}
+        self.insight.save()
+        if case == "denied":
+            AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+
+        response = self._enable_sharing("insight")
+
+        if case == "denied":
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "customer_analytics" in str(response.json())
+            assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_already_enabled_share_is_not_regated(self):
+        config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        self._deny_warehouse()
+
+        # Not an enable transition: settings edits on an already-published share stay possible
+        # even if the editor has since lost access to the underlying tables.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": True, "settings": {"whitelabel": True}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.enabled is True
+
+    @parameterized.expand([("non_materialized",), ("materialized",)])
+    def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
+
+        inner = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_inner",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        outer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="safe_view",
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM restricted_inner"},
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_view", resource_id=str(inner.id), access_level="none"
+        )
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM safe_view"},
+        }
+        self.insight.save()
+        if case == "materialized":
+            from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+            credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+            backing = DataWarehouseTable.objects.create(
+                name=outer.name,
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                team=self.team,
+                credential=credential,
+                url_pattern=outer.url_pattern,
+                columns={"id": "String"},
+            )
+            outer.table = backing
+            outer.is_materialized = True
+            outer.save(update_fields=["table", "is_materialized"])
+
+        response = self._enable_sharing("insight")
+
+        if case == "materialized":
+            # A granted materialized view resolves to its backing table - the recommended
+            # "grant safe views" setup stays publishable.
+            assert response.status_code == status.HTTP_200_OK, response.content
+        else:
+            # A non-materialized view re-resolves through its underlying tables, exactly like
+            # the publisher's own in-app run - so it can't be published either. This is the
+            # compile-vs-name-level distinction: a name-level check would let this through.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "restricted_inner" in str(response.json())
+
+    def test_unparseable_query_does_not_block_publishing(self):
+        self._deny_warehouse()
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT FROM WHERE ((("},
+        }
+        self.insight.save()
+
+        # A broken query errors for everyone at view time - that's not an access problem,
+        # so it must not block publishing.
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestSaveTimeAccessBlock(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"}},
+            created_by=self.user,
+        )
+
+    def _deny_editor(self) -> None:
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    _DENIED_QUERY = {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"}}
+
+    def _patch_insight_query(self):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"query": self._DENIED_QUERY}
+        )
+
+    @parameterized.expand([("direct",), ("dashboard",), ("notebook",)])
+    def test_query_update_blocked_when_insight_is_publicly_shared(self, coverage: str):
+        self._deny_editor()
+        if coverage == "direct":
+            SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        elif coverage == "dashboard":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        else:
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=self.user,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "e1",
+                                "query": {"kind": "SavedInsightNode", "shortId": self.insight.short_id},
+                            },
+                        }
+                    ],
+                },
+            )
+            SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+
+        response = self._patch_insight_query()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        self.insight.refresh_from_db()
+        assert self.insight.query == {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+        }
+
+    def test_query_update_allowed_when_not_shared(self):
+        self._deny_editor()
+
+        response = self._patch_insight_query()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_adding_insight_to_shared_dashboard_blocked(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+
+    def test_adding_insight_to_unshared_dashboard_allowed(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def _shared_notebook(self, content: dict) -> Notebook:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, content=content, version=1)
+        SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+        return notebook
+
+    def _patch_notebook_content(self, notebook: Notebook, content: dict):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
+            {"content": content, "version": notebook.version},
+        )
+
+    @parameterized.expand(
+        [
+            ("inline_query", {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"}),
+            ("incomplete_query", {"kind": "HogQLQuery", "query": "SELECT FROM WHERE ((("}),
+        ]
+    )
+    def test_notebook_edit_adding_inline_query(self, case: str, source: dict):
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {"nodeId": "n1", "query": {"kind": "DataTableNode", "source": source}},
+                }
+            ],
+        }
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        if case == "inline_query":
+            # A publicly shared notebook must not accept queries the editor can't run.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "publicly shared" in str(response.json())
+        else:
+            # Broken mid-typing content isn't an access problem - autosave keeps flowing.
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_notebook_edit_untouched_denied_query_does_not_gate(self):
+        self._deny_editor()
+        denied_node = {
+            "type": "ph-query",
+            "attrs": {
+                "nodeId": "n1",
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                },
+            },
+        }
+        notebook = self._shared_notebook({"type": "doc", "content": [denied_node]})
+        # Only the edit's delta is checked - pre-existing content never re-gates an autosave.
+        new_content = {"type": "doc", "content": [denied_node, {"type": "paragraph"}]}
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_notebook_collab_save_blocked_for_denied_query(self):
+        # Collab saves write content directly (not through NotebookSerializer.update), so the
+        # guard must exist on that path too - otherwise collab-enabled notebooks bypass the gate.
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "n1",
+                        "query": {
+                            "kind": "DataTableNode",
+                            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                        },
+                    },
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/save/",
+            data={"client_id": "c1", "version": notebook.version, "steps": [], "content": new_content},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        notebook.refresh_from_db()
+        assert notebook.content == {"type": "doc", "content": []}
+
+    def test_notebook_markdown_save_blocked_for_denied_query(self):
+        # The markdown editor autosaves through collab/markdown_save, a third write path that also
+        # persists content directly - without the guard here, markdown notebooks bypass the gate.
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        denied_query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+        }
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-markdown-notebook",
+                    "attrs": {
+                        "nodeId": "markdown-notebook-v2",
+                        "markdown": '<Query nodeId="q1" query={' + json.dumps(denied_query) + "} />",
+                    },
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/markdown_save/",
+            data={"client_id": "c1", "version": notebook.version, "content": new_content, "text_content": ""},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        notebook.refresh_from_db()
+        assert notebook.content == {"type": "doc", "content": []}
+
+    def test_notebook_embedding_denied_insight_blocked(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "e1",
+                        "query": {"kind": "SavedInsightNode", "shortId": self.insight.short_id},
+                    },
+                }
+            ],
+        }
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())

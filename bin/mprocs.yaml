@@ -113,6 +113,27 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
+    ingestion-ai:
+        sandbox: true
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2 INGESTION_PIPELINE=ai HTTP_SERVER_PORT=6746 ./bin/posthog-node'
+        capability: ai_capture
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
+        env:
+            INGESTION_CONSUMER_CONSUME_TOPIC: ai_events_ingestion
+            INGESTION_CONSUMER_GROUP_ID: ingestion-ai
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ADDR: '127.0.0.1:50052'
+            AI_BLOB_S3_BUCKET: ai-blobs
+            AI_BLOB_S3_PREFIX: 'aio/'
+            AI_BLOB_S3_ENDPOINT: 'http://localhost:19000'
+            AI_BLOB_S3_REGION: us-east-1
+            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
+            AI_BLOB_OFFLOAD_TEAMS: '1'
+
     ingestion:
         sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
@@ -452,6 +473,16 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service personhog-router
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    personhog-identity:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-identity
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
         groups:

@@ -23,7 +23,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
-const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
+export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
     { value: 'medium', label: 'Medium (1 paragraph)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },

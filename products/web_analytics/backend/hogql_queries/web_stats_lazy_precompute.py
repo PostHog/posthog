@@ -278,6 +278,8 @@ def ensure_web_stats_precomputed(
     }
 
     return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,

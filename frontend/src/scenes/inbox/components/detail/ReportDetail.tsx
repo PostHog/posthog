@@ -5,12 +5,10 @@ import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullReques
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -40,7 +38,7 @@ import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
-import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
+import { useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -247,7 +245,7 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    /** Active inbox tab — drives the copy-link target in the merged header. */
+    /** Active inbox tab — drives the back link and the report URL seeded into Discuss. */
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
@@ -263,7 +261,7 @@ interface InboxDetailFrameProps {
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
- * (title, copy link) merged with the badges/meta/actions, then summary on the left
+ * (title) merged with the badges/meta/actions, then summary on the left
  * and supporting sections (Evidence, Runs, Reviewers) on the right. Mirrors desktop
  * `InboxDetailFrame`. AgentRunDetail keeps its own layout + shell header.
  */
@@ -291,23 +289,13 @@ export function InboxDetailFrame({
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    // Absolute URL to this report – used for the copy-link action and seeded into the Discuss prompt
-    // so the agent can open and read the report directly.
+    // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
+    // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
-    const detailActions = useReportDetailActions(report)
-    const reportActions: ReportDetailAction[] = [
-        {
-            key: 'copy-link',
-            label: 'Copy link',
-            icon: <IconLink />,
-            tooltip: 'Copy a link to this report',
-            onClick: () => void copyToClipboard(reportUrl, 'report link'),
-        },
-        ...detailActions,
-    ]
+    const reportActions = useReportDetailActions(report)
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,

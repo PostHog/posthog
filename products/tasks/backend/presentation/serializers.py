@@ -327,7 +327,7 @@ class WizardCloudRunSerializer(DataclassSerializer):
 
 
 # The relationship a client asserts between a task and a signal report when creating a task from the
-# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
+# report (e.g. PostHog Desktop inbox), recorded as a signals `task_run` work-log entry. This is a
 # free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
 # been access-controlled — so no relationship is reserved here either. `implementation` additionally
 # opens the auto-start spend gate (recorded server-side via `record_report_task`). Only the routing-
@@ -595,6 +595,16 @@ class TaskWriteSerializer(serializers.Serializer):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
+            # Experiments tasks are team-readable, so letting API callers pick this origin
+            # would let them expose an arbitrary task to the whole team. The experiments
+            # flow creates its tasks server-side through the facade, never through here.
+            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
+        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
+            # Scout tasks are created only by the signals scout harness. A forged scout origin
+            # would route the task's run logs into PostHog's internal Logs project
+            # (run_log_mirror) and inherit scout visibility semantics.
+            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
         return value
 
     def validate_repository(self, value):
@@ -1601,7 +1611,7 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
         default=None,
         write_only=True,
         help_text=(
-            "Local url-based MCP servers from the creating client (PostHog Code) to make "
+            "Local url-based MCP servers from the creating client (PostHog Desktop) to make "
             "available inside the cloud sandbox. Header values are treated as credentials: "
             "stored encrypted and never returned by the API."
         ),
@@ -1641,7 +1651,7 @@ class RelayedMcpServersFieldMixin(serializers.Serializer):
         default=None,
         write_only=True,
         help_text=(
-            "Names of desktop-only MCP servers the creating client (PostHog Code) relays into the "
+            "Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the "
             "cloud sandbox over the durable event/command channel. Names only — the server "
             "configuration (command, env, URL, headers) never crosses the wire."
         ),
@@ -1773,7 +1783,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         allow_blank=False,
         write_only=True,
         help_text=(
-            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. "
             "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
             "this field remains supported for callers that still manage their own tokens."
         ),
@@ -1952,7 +1962,7 @@ class TaskRunBootstrapCreateRequestSerializer(
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text="Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests.",
     )
     initial_permission_mode = serializers.ChoiceField(
         choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -1972,13 +1982,6 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Whether rtk command-output compression is enabled for this run. Omitted or null "
             "follows the server-side default (enabled); false opts this run out."
         ),
-    )
-    home_quick_action = serializers.CharField(
-        required=False,
-        default=None,
-        allow_blank=False,
-        max_length=120,
-        help_text="Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.",
     )
 
     def validate(self, attrs):
@@ -2249,7 +2252,7 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         allow_blank=False,
         write_only=True,
         help_text=(
-            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. "
             "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
             "this field remains supported for callers that still manage their own tokens."
         ),
@@ -2685,6 +2688,27 @@ class SandboxCustomImageBuildSerializer(serializers.Serializer):
         default=None,
         help_text="Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.",
     )
+
+
+class SandboxCustomImageUpdateSerializer(serializers.Serializer):
+    """Request body for renaming / re-describing a custom sandbox base image."""
+
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=255,
+        help_text="New display name for the custom image. Omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New description. Omit to leave unchanged; pass an empty string to clear it.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value
 
 
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):

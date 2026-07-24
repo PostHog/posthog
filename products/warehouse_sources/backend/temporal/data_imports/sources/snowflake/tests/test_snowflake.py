@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,

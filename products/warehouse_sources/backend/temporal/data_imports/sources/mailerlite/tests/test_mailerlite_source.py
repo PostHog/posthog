@@ -5,7 +5,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailerLiteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailerlite import (
+    MailerLiteSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
     MailerLiteResumeConfig,
 )
@@ -96,6 +98,8 @@ class TestMailerLiteSourceClass:
         inputs.schema_name = "subscribers"
         inputs.logger = MagicMock()
         inputs.api_version = pin
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = MagicMock(spec=ResumableSourceManager)
 
         with patch(
@@ -105,7 +109,8 @@ class TestMailerLiteSourceClass:
             mock_source.assert_called_once_with(
                 api_key="test-key",
                 endpoint="subscribers",
-                logger=inputs.logger,
+                team_id=7,
+                job_id="job-1",
                 resumable_source_manager=manager,
                 api_version=expected_version,
             )

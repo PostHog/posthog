@@ -77,7 +77,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     format_projected_select_clause,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [

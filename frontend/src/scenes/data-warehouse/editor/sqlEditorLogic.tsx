@@ -3484,11 +3484,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         if (
             (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) || !hasExplicitEditorUrlState) &&
-            shouldSyncDatabaseConnection &&
-            !values.databaseLoading
+            shouldSyncDatabaseConnection
         ) {
             actions.setConnection(values.selectedConnectionId ?? null)
-            actions.loadDatabase()
+            // `databaseTableListLogic` is a shared singleton. If a prior visit left `databaseLoading`
+            // stuck true (a load that never settled), the plain guard would skip the reload and the
+            // editor would sit on "Loading..." forever. On remount we still need data, so force a
+            // fresh request to bypass any hung in-flight load.
+            actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
         }
     }),
     beforeUnmount(({ cache, props }) => {

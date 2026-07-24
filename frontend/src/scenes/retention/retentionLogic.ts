@@ -488,7 +488,7 @@ export const retentionLogic = kea<retentionLogicType>([
                         values: [`-90${periodChar}`],
                     },
                     {
-                        key: 'Year to date',
+                        key: 'This year',
                         values: ['yStart'],
                         getFormattedDate: (date: dayjs.Dayjs): string =>
                             formatDateRange(date.startOf('y'), date.endOf('d')),

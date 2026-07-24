@@ -3,36 +3,28 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
+import { InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
+import { AlertStateIndicator } from '../components/AlertDefinition'
+import { buildAlertSummary } from '../components/alertSummary'
+import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
-
-export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    switch (alert.state) {
-        case AlertState.FIRING:
-            return <LemonTag type="danger">FIRING</LemonTag>
-        case AlertState.ERRORED:
-            return <LemonTag type="danger">ERRORED</LemonTag>
-        case AlertState.SNOOZED:
-            return <LemonTag type="muted">SNOOZED</LemonTag>
-        case AlertState.NOT_FIRING:
-            return <LemonTag type="success">NOT FIRING</LemonTag>
-    }
-}
 
 interface AlertListItemProps {
     alert: AlertType
     onClick: () => void
+    redesigned: boolean
 }
 
 function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
@@ -74,7 +66,26 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
     )
 }
 
-export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
+export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps): JSX.Element {
+    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0)
+
+    if (redesigned) {
+        return (
+            <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
+                <AlertSummaryBanner
+                    summary={summary}
+                    header={
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate">{alert.name}</span>
+                            <AlertStateIndicator alert={alert} />
+                        </div>
+                    }
+                    footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
+                />
+            </LemonButton>
+        )
+    }
+
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
             <div className="flex justify-between flex-auto items-center p-2">
@@ -106,6 +117,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const logic = insightAlertsLogic(props)
 
     const { alerts, alertsLoading } = useValues(logic)
+    const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
     const openAlert = (alertId: AlertType['id']): void => {
@@ -153,7 +165,12 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         </div>
 
                         {alerts.map((alert) => (
-                            <AlertListItem key={alert.id} alert={alert} onClick={() => openAlert(alert.id)} />
+                            <AlertListItem
+                                key={alert.id}
+                                alert={alert}
+                                onClick={() => openAlert(alert.id)}
+                                redesigned={redesigned}
+                            />
                         ))}
                     </div>
                 ) : (
@@ -166,6 +183,9 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
+                <LemonButton type="secondary" onClick={props.onClose}>
+                    Close
+                </LemonButton>
                 <LemonButton
                     type="primary"
                     onClick={createAlert}
@@ -174,9 +194,6 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     }
                 >
                     New alert
-                </LemonButton>
-                <LemonButton type="secondary" onClick={props.onClose}>
-                    Close
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

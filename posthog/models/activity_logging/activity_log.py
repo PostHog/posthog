@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
@@ -98,6 +99,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "Billing",
+    "Loop",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -357,6 +359,12 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "Loop": [
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
+    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -428,11 +436,31 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "HogFlow": [
+        # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
+        # writes — bookkeeping, not a user edit, so keep it out of change diffs.
+        "action_redirects",
+    ],
     "Metric": [
         # Derived/throttled fields, not user-meaningful change diffs.
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "Loop": [
+        # FK relations are not JSON-serializable for the change detail (same reason
+        # FeatureFlag/Subscription exclude theirs).
+        "team",
+        "sandbox_environment",
+        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
+        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
+        "triggers",
+        "fires",
+        # Run bookkeeping, not user-meaningful config.
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",

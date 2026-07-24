@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v9"
+INVENTORY_SOURCE_VERSION = "v10"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -409,8 +409,13 @@ def _recent_feature_flags(team: Team) -> dict[str, Any]:
     answers "could a user be hitting this code path?" — which is the question worth
     distinguishing from "does this flag exist?" Sort by `updated_at`, which captures
     both creation and rollout-percentage changes.
+
+    Excludes archived flags to match the live roster: the `feature-flag-get-all`
+    (list) endpoint hides archived flags by default, so counting them here would let
+    a scout read a stale inventory that disagrees with the current roster after a flag
+    is archived. (Soft-deleted flags are already excluded via `deleted=False`.)
     """
-    qs = FeatureFlag.objects.filter(team=team, deleted=False)
+    qs = FeatureFlag.objects.filter(team=team, deleted=False, archived=False)
     total = qs.count()
     active = qs.filter(active=True).count()
     recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "key", "name", "active", "updated_at")

@@ -91,7 +91,11 @@ export function Message({
                     <div className="max-w-full min-w-80">
                         <div
                             className={`border py-2 px-3 rounded-lg ${
-                                isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
+                                isPrivate
+                                    ? 'bg-warning-highlight border-warning'
+                                    : isCustomer
+                                      ? 'bg-surface-secondary'
+                                      : 'bg-surface-primary'
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (

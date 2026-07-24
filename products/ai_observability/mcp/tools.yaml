@@ -433,9 +433,11 @@ tools:
             idempotent: false
         title: Test Hog evaluation code
         description: >
-            Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns
-            per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code
-            before creating or updating a 'hog' type evaluation.
+            Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the
+            evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and
+            runs against trace-level globals. For trace previews, pass target_config.window_seconds to match the saved
+            evaluation's aggregation window. Returns per-sample results (pass/fail/N/A), reasoning, and input/output
+            previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
@@ -597,9 +599,6 @@ tools:
             - edits
             - base_version
             - version_description
-    llma-provider-key-assign:
-        operation: llm_analytics_provider_keys_assign_create
-        enabled: false
     llma-provider-key-create:
         operation: llm_analytics_provider_keys_create
         enabled: false
@@ -638,9 +637,6 @@ tools:
             name, validation state, and a masked preview — never the secret itself. Call this before creating an
             llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
             updating, and deleting keys are intentionally UI-only.
-    llma-provider-key-trial-evaluations-get:
-        operation: llm_analytics_provider_keys_trial_evaluations_retrieve
-        enabled: false
     llma-provider-key-update:
         operation: llm_analytics_provider_keys_partial_update
         enabled: false

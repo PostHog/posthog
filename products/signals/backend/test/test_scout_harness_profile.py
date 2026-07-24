@@ -363,8 +363,11 @@ class TestRecentFeatureFlags(BaseTest):
         FeatureFlag.objects.create(team=self.team, key="a", name="A", active=True, created_by=self.user)
         FeatureFlag.objects.create(team=self.team, key="b", name="B", active=False, created_by=self.user)
         FeatureFlag.objects.create(team=self.team, key="c", name="C", active=True, deleted=True, created_by=self.user)
+        # `d` is archived (always disabled) — hidden from the live roster by default, so it
+        # must not be counted here either.
+        FeatureFlag.objects.create(team=self.team, key="d", name="D", active=False, archived=True, created_by=self.user)
         result = _recent_feature_flags(self.team)
-        # `c` is soft-deleted — excluded from total.
+        # `c` is soft-deleted and `d` is archived — both excluded from total.
         assert result["total_count"] == 2
         assert result["active_count"] == 1
         keys = {row["key"] for row in result["recent"]}

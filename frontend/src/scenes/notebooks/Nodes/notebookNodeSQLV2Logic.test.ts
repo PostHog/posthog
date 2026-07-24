@@ -2,10 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
+import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
 import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 
@@ -67,9 +69,18 @@ describe('notebookNodeSQLV2Logic', () => {
             expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
-        it('resolves blank names to the default the dependency graph shows', () => {
-            const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
+        it('skips unnamed cells and lets a named sibling keep the default name', () => {
+            // The dataframe name is optional: a blank-name cell is display-only and exports
+            // nothing — and it must not push a real 'sql_df' cell into a disambiguated name.
+            const document = doc(sqlNode('a', ''), sqlNode('b', '  '), sqlNode('c', 'sql_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('c') })
+        })
+
+        it('skips cells with an invalid (non-identifier) name', () => {
+            // `people-df` can never be referenced as a bare table name, so it must not be
+            // offered as a ref that a downstream cell would fail to resolve.
+            const document = doc(sqlNode('a', 'people-df'), sqlNode('b', 'good_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ good_df: hogql('b') })
         })
 
         it('finds SQLV2 nodes nested inside other content', () => {
@@ -116,6 +127,60 @@ describe('notebookNodeSQLV2Logic', () => {
             // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
             expect(refs.df3?.node_id).toMatch(/^mdn-/)
             expect(refs.new_events).toEqual(local('py'))
+        })
+    })
+
+    describe('execution lanes', () => {
+        it('pages a direct run client-side from the rows the result poll returned', async () => {
+            // The server page endpoint refuses hogql runs; losing the local slice would
+            // strand every page beyond the envelope's first.
+            const rows = Array.from({ length: 120 }, (_, index) => [index])
+            resultSpy.mockResolvedValue({
+                status: 'done',
+                result: {
+                    columns: ['a'],
+                    types: [['a', 'Int64']],
+                    row_count: 50,
+                    first_page: rows.slice(0, 50),
+                    has_more: true,
+                },
+                error: null,
+                rows,
+            })
+            const pageSpy = jest.spyOn(api.notebooks, 'sqlV2RunPage')
+            mount({ runId: 'r1', hasResult: false })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.directRows?.rows).toHaveLength(120)
+
+            logic.actions.setPage(3)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(pageSpy).not.toHaveBeenCalled()
+            expect(logic.values.pageResult).toEqual({
+                columns: ['a'],
+                types: [['a', 'Int64']],
+                rows: rows.slice(100, 120),
+                has_more: false,
+            })
+        })
+
+        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
+            // Scenario B: a run that needs the sandbox must surface the provisioning wait;
+            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
+            const toastSpy = jest.spyOn(lemonToast, 'info')
+            mount()
+            logic.actions.runQuery('select 1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeRunLane).toEqual('direct')
+            expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
+            expect(logic.values.pendingKernelStart).toBe(false)
+            expect(toastSpy).not.toHaveBeenCalled()
+
+            logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeRunLane).toEqual('kernel')
+            expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
+            expect(logic.values.pendingKernelStart).toBe(true)
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
         })
     })
 

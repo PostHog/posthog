@@ -7,6 +7,11 @@ import psycopg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
     _has_inflight_replace_run,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
+    KIND_RETIRED_BY_REPLAN,
+    REASON_RETIRED_BY_REPLAN,
+    retire_backfill_run,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
     DUCKGRES_LEASE_TABLE,
@@ -262,7 +267,11 @@ class TestDuckgresBatchQueueEligibility:
         assert batches[0].latest_attempt == 1
 
     @pytest.mark.asyncio
-    async def test_enforces_prior_batch_apply_order(self, conn):
+    async def test_co_claims_consecutive_live_prefix_in_one_fetch(self, conn):
+        # A live run's delta-succeeded prefix drains in ONE claim (the chunk
+        # co-claim semantics): each fetch-rotation wait amortizes across the
+        # prefix instead of gating every batch — the head-of-line throughput
+        # ceiling behind the 2026-07 team-2 workflow_histories backlog.
         first_id = await _insert_batch(conn, batch_index=0)
         second_id = await _insert_batch(conn, batch_index=1)
         await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
@@ -270,7 +279,54 @@ class TestDuckgresBatchQueueEligibility:
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
+        assert [batch.batch_index for batch in batches] == [0, 1]
+
+    @pytest.mark.asyncio
+    async def test_live_prefix_stops_at_a_non_delta_succeeded_gap(self, conn):
+        # Only the CONSECUTIVE delta-succeeded prefix is claimable: a gap fails
+        # closed exactly like the chunk gate, so ordering can never skip a hole.
+        first_id = await _insert_batch(conn, batch_index=0)
+        await _insert_batch(conn, batch_index=1)
+        third_id = await _insert_batch(conn, batch_index=2)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=third_id, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
         assert [batch.batch_index for batch in batches] == [0]
+
+    @pytest.mark.asyncio
+    async def test_live_batch_blocked_behind_executing_predecessor(self, conn):
+        first_id = await _insert_batch(conn, batch_index=0)
+        second_id = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=first_id, job_state="executing", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "backoff_seconds,expected_indexes",
+        [
+            (3600, []),  # predecessor inside its backoff window gates the run
+            (0, [0, 1]),  # backoff elapsed: predecessor and successor co-claim
+        ],
+    )
+    async def test_retry_backoff_gates_successor_live_batches(self, conn, backoff_seconds, expected_indexes):
+        first_id = await _insert_batch(conn, batch_index=0)
+        second_id = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=first_id, job_state="waiting_retry", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", retry_backoff_base_seconds=backoff_seconds
+        )
+
+        assert [b.batch_index for b in batches] == expected_indexes
 
     @pytest.mark.asyncio
     async def test_final_marker_waits_for_matching_data_batch_apply(self, conn):
@@ -280,13 +336,9 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=final_id, job_state="succeeded", attempt=1)
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
-        assert [str(batch.id) for batch in batches] == [data_id]
-
-        await DuckgresBatchQueue.mark_applied(conn, batch=batches[0])
-        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
-
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
-        assert [str(batch.id) for batch in batches] == [final_id]
+        # Co-claimed in one fetch, data batch strictly first — the group loop
+        # applies in order and halts before the final on any non-success.
+        assert [str(batch.id) for batch in batches] == [data_id, final_id]
 
     @pytest.mark.asyncio
     async def test_delta_failed_run_is_skipped(self, conn):
@@ -1099,4 +1151,39 @@ class TestOrgConcurrencyBudget:
 
         # org-a: 1 live lease of budget 1 -> saturated; org-b: 1 of 2 -> not.
         assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=one_each) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRetireBackfillRun:
+    @pytest.mark.asyncio
+    async def test_marks_unapplied_chunks_failed_with_replan_reason(
+        self, conn: psycopg.AsyncConnection[Any], _db_url: str
+    ) -> None:
+        # Regression: retire_backfill_run built error_response with bare
+        # placeholders inside jsonb_build_object (a VARIADIC "any" function), so
+        # Postgres raised IndeterminateDatatype ("could not determine data type
+        # of parameter $1") on EVERY replan of a schema that still had a live
+        # backfill_run_uuid -- silently blocking operator un-sticking. The
+        # ::text casts fix it; this test executes the real SQL that regressed.
+        run_uuid = "run-to-retire"
+        b0 = await _insert_batch(conn, run_uuid=run_uuid, batch_index=0)
+        b1 = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+        # An already-applied chunk must be left alone (the a.id IS NULL filter).
+        applied = await _insert_batch(conn, run_uuid=run_uuid, batch_index=2)
+        await _mark_applied_raw(conn, batch_id=applied, run_uuid=run_uuid, batch_index=2)
+
+        # retire_backfill_run takes a *sync* psycopg connection (it runs inline
+        # in the consumer fetch path), so open one against the same test DB.
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            retire_backfill_run(sync_conn, run_uuid=run_uuid)
+
+        cur = await conn.execute(f"SELECT batch_id, job_state, error_response FROM {DUCKGRES_STATUS_TABLE}")
+        rows = await cur.fetchall()
+
+        retired = {str(batch_id): (job_state, err) for batch_id, job_state, err in rows}
+        assert set(retired) == {str(b0), str(b1)}  # applied chunk untouched
+        for job_state, err in retired.values():
+            assert job_state == "failed"
+            assert err["error"] == REASON_RETIRED_BY_REPLAN
+            assert err["kind"] == KIND_RETIRED_BY_REPLAN
         assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=[]) == 0

@@ -61,10 +61,15 @@ class ServiceRequest:
 
     Provides the subset of the DRF Request interface that serializers actually
     use (request.user and friends), without DRF's authentication machinery.
+
+    ``is_system=True`` explicitly declares a system write with no acting user —
+    the approval gate skips only requests that declare this, never inferring it
+    from a merely absent user.
     """
 
-    def __init__(self, user: Any):
+    def __init__(self, user: Any, *, is_system: bool = False):
         self.user = user
+        self.is_system = is_system
         self.method = "POST"
         self.path = "/"
         self.data: dict = {}

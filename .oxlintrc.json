@@ -202,6 +202,12 @@
             }
         },
         {
+            "files": ["services/mcp/src/generated/**/*.ts"],
+            "rules": {
+                "no-useless-escape": "off"
+            }
+        },
+        {
             "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [

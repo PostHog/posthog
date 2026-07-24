@@ -1,171 +1,185 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach import smartreach
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import (
     ENDPOINTS,
     SMARTREACH_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
+    SMARTREACH_BASE_URL,
     SmartreachResumeConfig,
-    SmartreachRetryableError,
     check_access,
-    get_rows,
     smartreach_source,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = smartreach._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# check_access builds its own tracked session in the smartreach module.
+SMARTREACH_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SmartreachResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SmartreachResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SmartreachResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SmartreachResumeConfig) -> None:
-        self.saved.append(data)
+def _response(rows: list[dict[str, Any]] | None, data_key: str, next_url: str | None, status: int = 200) -> Response:
+    body: dict[str, Any] = {"data": {data_key: rows if rows is not None else []}, "links": {"next": next_url}}
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.url = f"{SMARTREACH_BASE_URL}/prospects"
+    return resp
 
 
-def _page(rows: list[dict], data_key: str, next_url: str | None) -> dict[str, Any]:
-    return {"data": {data_key: rows}, "links": {"next": next_url}}
+def _make_manager(resume_state: SmartreachResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages_by_url: dict[str, dict],
-        endpoint: str = "prospects",
-    ) -> tuple[list[dict], list[str]]:
-        fetched_urls: list[str] = []
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+    """Wire a mock session and return a list that captures each request's URL AT SEND TIME.
 
-        def fake_fetch(session: Any, url: str, logger: Any) -> dict:
-            fetched_urls.append(url)
-            return pages_by_url[url]
+    The paginator rewrites ``request.url`` in place across pages, so snapshot it as each request is
+    prepared. The prepared request must expose a real ``url`` string because the client's host-pinning
+    guard (``allowed_hosts``) runs on ``prepared.url`` before every send.
+    """
+    session.headers = {}
+    url_snapshots: list[str] = []
 
-        monkeypatch.setattr(smartreach, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(smartreach, "make_tracked_session", lambda **kwargs: MagicMock())
+    def _prepare(request: Any) -> mock.MagicMock:
+        url_snapshots.append(request.url)
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="uk_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows, fetched_urls
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots
 
-    def test_single_page_yields_rows_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        start = "https://api.smartreach.io/api/v1/prospects"
-        rows, urls = self._collect(
-            manager, monkeypatch, {start: _page([{"id": 1}, {"id": 2}], "prospects", next_url=None)}
-        )
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "prospects") -> Any:
+    return smartreach_source(
+        api_key="uk_test",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_yields_rows_and_stops(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        urls = _wire(session, [_response([{"id": 1}, {"id": 2}], "prospects", next_url=None)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": 1}, {"id": 2}]
-        assert urls == [start]
+        assert urls == [f"{SMARTREACH_BASE_URL}/prospects"]
         # No further pages, so no resume state is persisted.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_links_next_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        start = "https://api.smartreach.io/api/v1/prospects"
-        p2 = "https://api.smartreach.io/api/v1/prospects?cursor=abc"
-        p3 = "https://api.smartreach.io/api/v1/prospects?cursor=def"
-        pages = {
-            start: _page([{"id": 1}], "prospects", next_url=p2),
-            p2: _page([{"id": 2}], "prospects", next_url=p3),
-            p3: _page([{"id": 3}], "prospects", next_url=None),
-        }
-        rows, urls = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_links_next_until_null(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
+        p3 = f"{SMARTREACH_BASE_URL}/prospects?cursor=def"
+        urls = _wire(
+            session,
+            [
+                _response([{"id": 1}], "prospects", next_url=p2),
+                _response([{"id": 2}], "prospects", next_url=p3),
+                _response([{"id": 3}], "prospects", next_url=None),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager()))
+
         assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
         # The follow-up requests hit the verbatim links.next URLs.
-        assert urls == [start, p2, p3]
+        assert urls == [f"{SMARTREACH_BASE_URL}/prospects", p2, p3]
 
-    def test_saves_next_url_after_yielding_each_batch(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        start = "https://api.smartreach.io/api/v1/prospects"
-        p2 = "https://api.smartreach.io/api/v1/prospects?cursor=abc"
-        pages = {
-            start: _page([{"id": 1}], "prospects", next_url=p2),
-            p2: _page([{"id": 2}], "prospects", next_url=None),
-        }
-        self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_next_url_after_yielding_each_batch(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
+        _wire(
+            session,
+            [
+                _response([{"id": 1}], "prospects", next_url=p2),
+                _response([{"id": 2}], "prospects", next_url=None),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source(manager))
+
         # State is saved AFTER page 1 is yielded (pointing at the next URL), never for the final page.
-        assert [s.next_url for s in manager.saved] == [p2]
+        manager.save_state.assert_called_once_with(SmartreachResumeConfig(next_url=p2))
 
-    def test_resumes_from_saved_cursor_url(self, monkeypatch: Any) -> None:
-        p2 = "https://api.smartreach.io/api/v1/prospects?cursor=abc"
-        p3 = "https://api.smartreach.io/api/v1/prospects?cursor=def"
-        manager = _FakeResumableManager(SmartreachResumeConfig(next_url=p2))
-        pages = {
-            # The first-page URL must never be fetched on resume.
-            p2: _page([{"id": 2}], "prospects", next_url=p3),
-            p3: _page([{"id": 3}], "prospects", next_url=None),
-        }
-        rows, urls = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor_url(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
+        p3 = f"{SMARTREACH_BASE_URL}/prospects?cursor=def"
+        urls = _wire(
+            session,
+            [
+                _response([{"id": 2}], "prospects", next_url=p3),
+                _response([{"id": 3}], "prospects", next_url=None),
+            ],
+        )
+
+        manager = _make_manager(SmartreachResumeConfig(next_url=p2))
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": 2}, {"id": 3}]
+        # The first-page URL is never fetched on resume — the run starts at the saved cursor.
         assert urls == [p2, p3]
 
-    def test_empty_page_does_not_yield(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        start = "https://api.smartreach.io/api/v1/prospects"
-        rows, _urls = self._collect(manager, monkeypatch, {start: _page([], "prospects", next_url=None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_yields_no_rows(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], "prospects", next_url=None)])
+
+        rows = _rows(_source(_make_manager()))
         assert rows == []
 
-    def test_reads_rows_from_endpoint_specific_data_key(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        start = "https://api.smartreach.io/api/v1/campaigns"
-        rows, _urls = self._collect(
-            manager,
-            monkeypatch,
-            {start: _page([{"id": 9}], "campaigns", next_url=None)},
-            endpoint="campaigns",
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_rows_from_endpoint_specific_data_key(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 9}], "campaigns", next_url=None)])
+
+        rows = _rows(_source(_make_manager(), endpoint="campaigns"))
         assert rows == [{"id": 9}]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_yields_empty_page(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        # A body without the endpoint's data key is tolerated as an empty page (not a hard error).
+        resp = Response()
+        resp.status_code = 200
+        resp._content = json.dumps({"data": {"other": []}, "links": {"next": None}}).encode()
+        resp.url = f"{SMARTREACH_BASE_URL}/prospects"
+        _wire(session, [resp])
 
-class TestExtractRows:
-    def test_reads_nested_data_key(self) -> None:
-        data = {"data": {"prospects": [{"id": 1}]}}
-        assert smartreach._extract_rows(data, "prospects") == [{"id": 1}]
-
-    def test_tolerates_bare_data_list(self) -> None:
-        data = {"data": [{"id": 1}]}
-        assert smartreach._extract_rows(data, "prospects") == [{"id": 1}]
-
-    @parameterized.expand([("missing_data", {}), ("null_data", {"data": None}), ("wrong_key", {"data": {"other": []}})])
-    def test_returns_empty_when_rows_absent(self, _name: str, data: dict[str, Any]) -> None:
-        assert smartreach._extract_rows(data, "prospects") == []
+        assert _rows(_source(_make_manager())) == []
 
 
-class TestNextUrl:
-    @parameterized.expand(
-        [
-            ("cursor", "https://api.smartreach.io/api/v1/prospects?cursor=abc"),
-            ("plain", "https://api.smartreach.io/api/v1/prospects"),
-        ]
-    )
-    def test_same_origin_url_is_returned(self, _name: str, url: str) -> None:
-        assert smartreach._next_url({"links": {"next": url}}) == url
-
-    @parameterized.expand([("missing_links", {}), ("null_next", {"links": {"next": None}}), ("empty", {"links": {}})])
-    def test_absent_next_returns_none(self, _name: str, data: dict[str, Any]) -> None:
-        assert smartreach._next_url(data) is None
-
+class TestSSRFHostPinning:
     @parameterized.expand(
         [
             ("other_host", "https://evil.example.com/api/v1/prospects"),
@@ -173,98 +187,86 @@ class TestNextUrl:
             ("http_downgrade", "http://api.smartreach.io/api/v1/prospects"),
         ]
     )
-    def test_off_origin_next_url_raises(self, _name: str, url: str) -> None:
-        # Following an off-origin cursor would send the user's API key to an attacker-named host.
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_origin_next_url_is_rejected(self, _name: str, bad_next: str, MockSession: Any) -> None:
+        # Following an off-origin (or scheme-downgraded) cursor would send the user's API key to a host
+        # other than SmartReach's own https origin — reject it before the request leaves the process.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}], "prospects", next_url=bad_next)])
+
         with pytest.raises(ValueError):
-            smartreach._next_url({"links": {"next": url}})
+            _rows(_source(_make_manager()))
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: dict | None = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body or {}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+class TestRetryAndFailLoud:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_transient_5xx_is_retried_then_succeeds(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(None, "prospects", next_url=None, status=500),
+                _response([{"id": 1}], "prospects", next_url=None, status=200),
+            ],
         )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SmartreachRetryableError):
-            _fetch_page_unwrapped(session, "https://api.smartreach.io/api/v1/prospects", MagicMock())
+        rows = _rows(_source(_make_manager()))
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_fail_loud(self, _name: str, status: int, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, "prospects", next_url=None, status=status)])
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "https://api.smartreach.io/api/v1/prospects", MagicMock())
-
-    def test_success_returns_json_body(self) -> None:
-        body = _page([{"id": 1}], "prospects", next_url=None)
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "https://api.smartreach.io/api/v1/prospects", MagicMock())
-        assert result == body
-
-    def test_follows_next_url_verbatim_without_extra_params(self) -> None:
-        # A links.next URL already carries its pagination params; the fetch must not add its own.
-        session = self._session_returning(200, _page([], "prospects", next_url=None))
-        next_url = "https://api.smartreach.io/api/v1/prospects?cursor=abc"
-        _fetch_page_unwrapped(session, next_url, MagicMock())
-        args, kwargs = session.get.call_args
-        assert args[0] == next_url
-        assert "params" not in kwargs
+            _rows(_source(_make_manager()))
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
+    def _patch_session(self, response: Any) -> Any:
+        session = mock.MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
-        monkeypatch.setattr(smartreach, "make_tracked_session", lambda **kwargs: session)
-        return session
+        return mock.patch(SMARTREACH_SESSION_PATCH, return_value=session)
 
     @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+        "status, expected_status, expected_message",
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "SmartReach returned HTTP 500"),
+            (200, 200, None),
+            (401, 401, None),
+            (403, 403, None),
+            (500, 500, "SmartReach returned HTTP 500"),
         ],
     )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
-        response = MagicMock()
+    def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
+        response = mock.MagicMock()
         response.status_code = status
-        response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("uk_test") == (expected_status, expected_message)
+        with self._patch_session(response):
+            assert check_access("uk_test") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("uk_test")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with self._patch_session(requests.ConnectionError("boom")):
+            status, message = check_access("uk_test")
         assert status == 0
-        assert message is not None and "boom" in message
+        assert message == "Could not connect to SmartReach"
+
+    def test_probes_campaigns_endpoint(self) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        with self._patch_session(response) as patched:
+            check_access("uk_test")
+        session = patched.return_value
+        assert session.get.call_args.args[0] == f"{SMARTREACH_BASE_URL}/campaigns"
 
 
 class TestSmartreachSourceResponse:
     @parameterized.expand([("prospects",), ("campaigns",)])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = smartreach_source(
-            api_key="uk_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Full refresh only: no datetime partitioning is configured.

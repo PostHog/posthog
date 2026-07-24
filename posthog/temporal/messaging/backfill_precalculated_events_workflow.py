@@ -54,21 +54,39 @@ async def flush_kafka_batch_async(
     team_id: int,
     logger: structlog.BoundLogger,
 ) -> int:
-    """Flush Kafka messages asynchronously and return count of successful messages."""
+    """Flush Kafka messages asynchronously, raising if any failed to deliver.
+
+    flush() blocks until every outstanding delivery callback has fired, so checking
+    each result afterwards is non-blocking. Raising lets the Temporal retry policy
+    redrive the whole batch instead of silently treating undelivered rows as corrected.
+    """
     if not kafka_results:
         return 0
 
-    successful_count = len(kafka_results)
     flush_start_time = time.monotonic()
     await asyncio.to_thread(kafka_producer.flush)
     flush_duration = time.monotonic() - flush_start_time
 
+    errors = []
+    for result in kafka_results:
+        try:
+            result.get(timeout=0)
+        except Exception as e:
+            errors.append(str(e))
+
+    successful_count = len(kafka_results) - len(errors)
+
     logger.info(
-        f"Flushed batch in {flush_duration:.3f}s: {successful_count} messages",
+        f"Flushed batch in {flush_duration:.3f}s: {successful_count}/{len(kafka_results)} messages",
         team_id=team_id,
         successful_messages=successful_count,
         flush_duration_seconds=flush_duration,
     )
+
+    if errors:
+        raise RuntimeError(
+            f"Kafka delivery failed for {len(errors)}/{len(kafka_results)} messages for team {team_id}: {errors[0]}"
+        )
 
     return successful_count
 
@@ -236,21 +254,36 @@ async def backfill_precalculated_events_activity(
             logger.warning("Invalid BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
             KAFKA_FLUSH_BATCH_SIZE = 1000
 
+        # events.person_id is the value resolved at ingestion time; if the distinct_id was
+        # later re-identified or merged onto another person, only person_distinct_id_overrides
+        # knows about it (until the squash job folds overrides back into events). Resolve
+        # through the overrides here — mirroring the HogQL events↔overrides lazy join — so
+        # backfills write current identity and re-runs repair rows made stale by merges.
         events_query = """
             SELECT
-                uuid,
-                event,
-                toDate(timestamp) as date,
-                distinct_id,
-                person_id,
-                properties
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND event IN %(event_names)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              AND person_id IS NOT NULL
-            ORDER BY timestamp
+                e.uuid AS uuid,
+                e.event AS event,
+                toDate(e.timestamp) AS date,
+                e.distinct_id AS distinct_id,
+                if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                e.properties AS properties
+            FROM events AS e
+            LEFT JOIN (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) AS person_id
+                FROM person_distinct_id_overrides
+                WHERE team_id = %(team_id)s
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+                SETTINGS optimize_aggregation_in_order = 1
+            ) AS o ON e.distinct_id = o.distinct_id
+            WHERE e.team_id = %(team_id)s
+              AND e.event IN %(event_names)s
+              AND e.timestamp >= %(start_time)s
+              AND e.timestamp < %(end_time)s
+              AND e.person_id IS NOT NULL
+            ORDER BY e.timestamp
             FORMAT JSONEachRow
         """
 

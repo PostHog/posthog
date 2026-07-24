@@ -29,18 +29,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1084,18 +1075,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1132,25 +1114,16 @@
 # name: TestWebStatsTableQueryRunner.test_comparison
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC')))))) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))), sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC')))))) AS `context.columns.views`,
+         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.views`,
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), or(and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')), toIntervalDay(3)))), and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC')), toIntervalDay(3))))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1602,18 +1575,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1950,18 +1914,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2032,18 +1987,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')), '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2326,18 +2272,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2619,18 +2556,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')), '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2671,18 +2599,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2723,18 +2642,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2775,18 +2685,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2920,18 +2821,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser_language'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3001,18 +2893,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3053,18 +2936,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3105,18 +2979,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3283,18 +3148,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3537,18 +3393,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3609,18 +3456,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/admin\\/settings\\/.*', '/admin/settings/<page>'), '\\/admin\\/.*', '/admin/<section>'), '\\/user\\/\\d+\\/.*', '/user/<id>/<page>') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3681,18 +3519,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3754,18 +3583,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3807,18 +3627,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3880,18 +3691,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/item\\/(\\d+)\\/detail\\/(\\d+)', '/item/<id>/detail/<detail_id>') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3952,18 +3754,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/item/(\\d+)/list/(\\d+)/spp/insessionForm/(\\d+)', '/item/<id>/list/<list_id>/spp/insessionForm/<form>'), '/item/(\\d+)/detail1/(\\d+)', '/item/<id>/detail1/<consultation>'), '/item/(\\d+)/list/(\\d+)', '/item/<id>/list/<list_id>'), '/item/(\\d+)', '/item/<id>') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-06 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4076,18 +3869,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4652,18 +4436,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4704,18 +4479,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4776,18 +4542,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4828,18 +4585,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5066,18 +4814,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             divide(minus(0, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$timezone_offset'), ''), 'null'), '^"|"$', ''), 'Float64')), 60) AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5137,18 +4876,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             divide(minus(0, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$timezone_offset'), ''), 'null'), '^"|"$', ''), 'Float64')), 60) AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5188,18 +4918,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             divide(minus(0, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$timezone_offset'), ''), 'null'), '^"|"$', ''), 'Float64')), 60) AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5239,18 +4960,9 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             divide(minus(0, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$timezone_offset'), ''), 'null'), '^"|"$', ''), 'Float64')), 60) AS breakdown_value,
-            events__session.session_id AS session_id,
-            any(events__session.`$is_bounce`) AS is_bounce,
-            min(events__session.`$start_timestamp`) AS start_timestamp
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id

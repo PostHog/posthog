@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
@@ -20,6 +20,10 @@ import { NotebookDataframeResult } from './pythonExecution'
 // The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
 // path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
 // the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
+
+// The default node height only fits a couple of table rows; grow to this once output lands
+// so results and figures aren't clipped and the user doesn't have to resize by hand to read them.
+const RESULT_MIN_HEIGHT = 300
 
 export type NotebookNodePythonV2Attributes = {
     code: string
@@ -66,6 +70,7 @@ const Component = ({
         isStale,
         isChainRunning,
         staleDownstreamCount,
+        pendingKernelStart,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
@@ -84,11 +89,26 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
+    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+
+    // Grow a still-default (too-short) node the first time output lands so it's readable without
+    // a manual resize. Only grows below the target and only on fresh output, so a deliberate
+    // resize (or a taller reload) is left untouched.
+    const hadOutputRef = useRef(hasStreamOutput || !!dataframeResult)
+    useEffect(() => {
+        const hasOutput = hasStreamOutput || !!dataframeResult
+        if (hasOutput && !hadOutputRef.current) {
+            if (typeof attributes.height !== 'number' || attributes.height < RESULT_MIN_HEIGHT) {
+                updateAttributes({ height: RESULT_MIN_HEIGHT })
+            }
+        }
+        hadOutputRef.current = hasOutput
+        // oxlint-disable-next-line exhaustive-deps
+    }, [dataframeResult, hasStreamOutput])
+
     if (!expanded) {
         return null
     }
-
-    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
@@ -109,6 +129,9 @@ const Component = ({
                             disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
                         />
                     </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
@@ -140,6 +163,9 @@ const Component = ({
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
+                            // Wide text columns (long strings, JSON blobs) shouldn't make every
+                            // row tall; clamp to one line here and let the user open a cell.
+                            truncateCells
                             paginationDisabledReason={
                                 pageLoading
                                     ? 'Fetching page…'

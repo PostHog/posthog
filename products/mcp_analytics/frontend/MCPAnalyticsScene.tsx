@@ -9,14 +9,15 @@ import { urls } from 'scenes/urls'
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
+import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
-import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
@@ -28,6 +29,8 @@ import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
     logic: mcpAnalyticsSceneLogic,
+    productKey: ProductKey.MCP_ANALYTICS,
+    emptyState: mcpAnalyticsEmptyState,
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
@@ -43,7 +46,7 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
@@ -134,16 +137,11 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                     </>
                 }
             />
-            {/* `signals === null` means we don't know yet — still loading, or a transient
-                query failure. Hold the skeleton rather than falling through to the empty
-                dashboard (the very state this onboarding exists to avoid); the 20s poll retries. */}
-            {signals === null ? (
-                <MCPAnalyticsLoading />
-            ) : onboardingState && onboardingState !== 'onboarded' ? (
-                <MCPAnalyticsOnboarding state={onboardingState} />
-            ) : (
-                <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
-            )}
+
+            {/* Loading and pre-data states are handled by the app-shell empty-state gate
+                (see `emptyState` on the SceneExport) — by the time this renders, either
+                tool calls exist or the user explicitly skipped setup. */}
+            <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

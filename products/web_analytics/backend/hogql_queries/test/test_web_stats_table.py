@@ -2583,7 +2583,9 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             ),
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
             ("non_page_breakdown", {"breakdownBy": WebStatsBreakdown.INITIAL_CHANNEL_TYPE}, False),
-            ("no_bounce_rate", {"includeBounceRate": False}, False),
+            # PAGE without bounce displays no session-derived column, so it now
+            # takes the simple-breakdown no-join path (single events scan).
+            ("no_bounce_rate", {"includeBounceRate": False}, True),
         ]
     )
     def test_no_join_paths_strategy_selection(self, _name: str, query_kwargs: dict, expect_no_join: bool):
@@ -2594,6 +2596,43 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_no_join_paths_requires_team_allowlist(self):
         runner = self._make_runner()
         assert not runner.query_strategy().startswith("stats_table_no_join")
+
+    @parameterized.expand(
+        [
+            ("device_type", WebStatsBreakdown.DEVICE_TYPE, [], True),
+            (
+                "device_type_filtered",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="a.com")],
+                True,
+            ),
+            ("country", WebStatsBreakdown.COUNTRY, [], True),
+            # Breakdown value reads session-entry fields -> needs the join.
+            ("initial_utm_source", WebStatsBreakdown.INITIAL_UTM_SOURCE, [], False),
+            ("initial_channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE, [], False),
+            # Session-property FILTERS also need the join (the predicate reads
+            # session fields; routing to no-join would silently re-add the join).
+            (
+                "session_property_filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+        ]
+    )
+    def test_simple_breakdown_no_join_selection(self, _name, breakdown_by, properties, expect_no_join):
+        # No allowlist: the simple-breakdown no-join path is shape-gated only,
+        # and filtered queries are eligible (single scan, filters inline).
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-29"),
+                properties=properties,
+                breakdownBy=breakdown_by,
+            ),
+        )
+        is_no_join = runner.query_strategy() == "stats_table_no_join_simple_breakdown"
+        assert is_no_join == expect_no_join
 
 
 class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):

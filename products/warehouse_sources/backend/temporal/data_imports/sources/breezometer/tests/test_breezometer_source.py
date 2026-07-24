@@ -8,7 +8,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.source import BreezometerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BreezometerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
+    BreezometerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

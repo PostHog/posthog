@@ -25,6 +25,8 @@ import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
@@ -121,6 +123,8 @@ interface ObservationListParams {
     verdict?: string
     tags?: string
     recording_subject?: string
+    date_from?: string
+    date_to?: string
     order_by?: string
 }
 
@@ -151,13 +155,21 @@ interface ObservationFilterValues {
     observationVerdictFilter: ObservationVerdictValue[]
     observationTagFilter: string[]
     observationSubjectFilter: string
+    observationDateFrom: string | null
+    observationDateTo: string | null
 }
 
 /** The filter (non-pagination, non-sort) params shared by the list/stats endpoints and the URL query string. */
 function observationFilterParams(
     values: ObservationFilterValues
-): Pick<ObservationListParams, 'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject'> {
-    const params: Pick<ObservationListParams, 'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject'> = {}
+): Pick<
+    ObservationListParams,
+    'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to'
+> {
+    const params: Pick<
+        ObservationListParams,
+        'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to'
+    > = {}
     if (values.observationStatusFilter.length > 0) {
         params.status = values.observationStatusFilter.join(',')
     }
@@ -172,6 +184,12 @@ function observationFilterParams(
     }
     if (values.observationSubjectFilter.trim()) {
         params.recording_subject = values.observationSubjectFilter.trim()
+    }
+    if (values.observationDateFrom) {
+        params.date_from = values.observationDateFrom
+    }
+    if (values.observationDateTo) {
+        params.date_to = values.observationDateTo
     }
     return params
 }
@@ -233,13 +251,14 @@ export interface replayScannerLogicValues {
         noTotal: number
         yesTotal: number
     }
+    observationDateFrom: string | null
+    observationDateTo: string | null
     observationDetailLinkParams: Record<string, string>
     observationStats: {
         failed: number
         ineligible: number
         inFlight: number
         succeeded: number
-        successRate: number | null
         total: number
     }
     observationStatsApi: ObservationStatsApi | null
@@ -288,6 +307,7 @@ export interface replayScannerLogicValues {
         p75: number
     } | null
     showScannerErrors: boolean
+    sidePanelContext: SidePanelSceneContext | null
     submitIntent: 'advance' | 'save'
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
@@ -392,6 +412,8 @@ export interface replayScannerLogicActions {
         values?: ReplayScanner
     }
     restoreObservationsTableState: (state: {
+        dateFrom: string | null
+        dateTo: string | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusValue[]
@@ -400,6 +422,8 @@ export interface replayScannerLogicActions {
         triggeredBy: ObservationTriggeredByValue[]
         verdict: ObservationVerdictValue[]
     }) => {
+        dateFrom: string | null
+        dateTo: string | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusEnumApi[]
@@ -446,6 +470,13 @@ export interface replayScannerLogicActions {
         scanner: ReplayScanner
     }
     setChartDateRange: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setObservationDateRange: (
         dateFrom: string | null,
         dateTo: string | null
     ) => {
@@ -548,7 +579,9 @@ export interface replayScannerLogicMeta {
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
-            observationSubjectFilter: string
+            observationSubjectFilter: string,
+            observationDateFrom: string | null,
+            observationDateTo: string | null
         ) => boolean
         observationDetailLinkParams: (
             observationStatusFilter: ObservationStatusEnumApi[],
@@ -556,6 +589,8 @@ export interface replayScannerLogicMeta {
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
             observationSubjectFilter: string,
+            observationDateFrom: string | null,
+            observationDateTo: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ReplayScanner
         ) => Record<string, string>
@@ -565,7 +600,6 @@ export interface replayScannerLogicMeta {
             ineligible: number
             inFlight: number
             succeeded: number
-            successRate: number | null
             total: number
         }
         monitorStats: (observationStatsApi: ObservationStatsApi | null) => {
@@ -596,6 +630,7 @@ export interface replayScannerLogicMeta {
             recentSessions: number
             totalSessions: number
         }
+        sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
     }
 }
 
@@ -640,6 +675,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
         setObservationSubjectFilter: (value: string) => ({ value }),
+        setObservationDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         clearObservationFilters: true,
         restoreObservationsTableState: (state: {
             page: number
@@ -649,6 +685,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             verdict: ObservationVerdictValue[]
             tags: string[]
             subject: string
+            dateFrom: string | null
+            dateTo: string | null
         }) => state,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         requestScannerEstimate: true,
@@ -931,6 +969,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setObservationVerdictFilter: () => 1,
                 setObservationTagFilter: () => 1,
                 setObservationSubjectFilter: () => 1,
+                setObservationDateRange: () => 1,
                 setObservationsSort: () => 1,
                 clearObservationFilters: () => 1,
                 restoreObservationsTableState: (_, { page }) => Math.max(1, page),
@@ -1036,6 +1075,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { subject }) => subject,
             },
         ],
+        observationDateFrom: [
+            null as string | null,
+            {
+                setObservationDateRange: (_, { dateFrom }) => dateFrom,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        observationDateTo: [
+            null as string | null,
+            {
+                setObservationDateRange: (_, { dateTo }) => dateTo,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { dateTo }) => dateTo,
+            },
+        ],
         chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
         chartDateTo: [null as string | null, { setChartDateRange: (_, { dateTo }) => dateTo }],
     }),
@@ -1074,19 +1129,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationVerdictFilter,
                 s.observationTagFilter,
                 s.observationSubjectFilter,
+                s.observationDateFrom,
+                s.observationDateTo,
             ],
             (
                 statusFilter: ObservationStatusValue[],
                 triggeredByFilter: ObservationTriggeredByValue[],
                 verdictFilter: ObservationVerdictValue[],
                 tagFilter: string[],
-                subjectFilter: string
+                subjectFilter: string,
+                dateFrom: string | null,
+                dateTo: string | null
             ): boolean =>
                 statusFilter.length > 0 ||
                 triggeredByFilter.length > 0 ||
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
-                subjectFilter.trim().length > 0,
+                subjectFilter.trim().length > 0 ||
+                dateFrom !== null ||
+                dateTo !== null,
         ],
         // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
         observationDetailLinkParams: [
@@ -1096,6 +1157,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationVerdictFilter,
                 s.observationTagFilter,
                 s.observationSubjectFilter,
+                s.observationDateFrom,
+                s.observationDateTo,
                 s.observationsSort,
                 s.scanner,
             ],
@@ -1105,6 +1168,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationVerdictFilter: ObservationVerdictValue[],
                 observationTagFilter: string[],
                 observationSubjectFilter: string,
+                observationDateFrom: string | null,
+                observationDateTo: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
             ): Record<string, string> =>
@@ -1114,6 +1179,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationVerdictFilter,
                     observationTagFilter,
                     observationSubjectFilter,
+                    observationDateFrom,
+                    observationDateTo,
                     observationsSort,
                     scanner,
                 }) as Record<string, string>,
@@ -1132,10 +1199,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 failed: number
                 ineligible: number
                 inFlight: number
-                successRate: number | null
             } => {
                 if (!stats) {
-                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0, successRate: null }
+                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
                 }
                 const c = stats.status_counts
                 return {
@@ -1144,7 +1210,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     failed: c.failed,
                     ineligible: c.ineligible,
                     inFlight: c.in_flight,
-                    successRate: c.success_rate,
                 }
             },
         ],
@@ -1200,6 +1265,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 totalSessions: stats?.coverage.total_sessions ?? 0,
                 recentDays: stats?.coverage.recent_days ?? 14,
             }),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.scanner, s.isNew],
+            (scanner: ReplayScanner | null, isNew: boolean): SidePanelSceneContext | null => {
+                return scanner && !isNew
+                    ? {
+                          access_control_resource: 'replay_scanner',
+                          access_control_resource_id: scanner.id,
+                      }
+                    : null
+            },
         ],
     }),
 
@@ -1460,6 +1536,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: () => reloadObservationsAndStats(),
             setObservationVerdictFilter: () => reloadObservationsAndStats(),
             setObservationTagFilter: () => reloadObservationsAndStats(),
+            setObservationDateRange: () => reloadObservationsAndStats(),
             setObservationSubjectFilter: async (_, breakpoint) => {
                 // Free-text search — debounce so typing doesn't fire a request per keystroke.
                 await breakpoint(300)
@@ -1538,6 +1615,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: writeUrl,
             setObservationVerdictFilter: writeUrl,
             setObservationTagFilter: writeUrl,
+            setObservationDateRange: writeUrl,
             setObservationSubjectFilter: writeUrlReplace,
             clearObservationFilters: writeUrl,
         }
@@ -1560,6 +1638,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
             const subject =
                 typeof subjectRaw === 'string' ? subjectRaw : typeof subjectRaw === 'number' ? String(subjectRaw) : ''
+            const dateFrom = typeof searchParams.date_from === 'string' ? searchParams.date_from : null
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             const sameAsCurrent =
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
@@ -1568,9 +1648,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 objectsEqual(triggeredBy, values.observationTriggeredByFilter) &&
                 objectsEqual(verdict, values.observationVerdictFilter) &&
                 objectsEqual(tags, values.observationTagFilter) &&
-                subject === values.observationSubjectFilter
+                subject === values.observationSubjectFilter &&
+                dateFrom === values.observationDateFrom &&
+                dateTo === values.observationDateTo
             if (!sameAsCurrent) {
-                actions.restoreObservationsTableState({ page, sort, status, triggeredBy, verdict, tags, subject })
+                actions.restoreObservationsTableState({
+                    page,
+                    sort,
+                    status,
+                    triggeredBy,
+                    verdict,
+                    tags,
+                    subject,
+                    dateFrom,
+                    dateTo,
+                })
             }
         },
     })),
@@ -1601,7 +1693,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 ])
 
-const TABLE_URL_PARAM_KEYS = ['page', 'sort', 'status', 'triggered_by', 'verdict', 'tags', 'recording_subject'] as const
+const TABLE_URL_PARAM_KEYS = [
+    'page',
+    'sort',
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'recording_subject',
+    'date_from',
+    'date_to',
+] as const
 
 /** The three step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {

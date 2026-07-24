@@ -62,6 +62,16 @@ class TestCheckProductAccess:
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
             ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # Custom image scans accept only server-minted OAuth credentials.
+            ("custom_image_scans", "personal_api_key", None, "@cf/zai-org/glm-5.2", False, "requires OAuth"),
+            (
+                "custom_image_scans",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "@cf/zai-org/glm-5.2",
+                False,
+                "server-minted",
+            ),
             # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
@@ -481,7 +491,7 @@ class TestCheckFreeTierModelAccess:
             # The alias routes are the same surface - a URL spelling must not bypass
             ("array", "claude-fable-5", False, False, False),
             ("twig", "gpt-5.5", False, False, False),
-            # Org pays for Code usage: everything stays open
+            # Org pays for Desktop usage: everything stays open
             ("posthog_code", "claude-fable-5", True, False, True),
             # Staff bypass mirrors the cost-throttle exemption
             ("posthog_code", "claude-fable-5", False, True, True),
@@ -537,9 +547,9 @@ class TestCheckFreeTierModelAccess:
 
 
 class TestServerCredentialRequirement:
-    """The internal products that share the PostHog Code OAuth app (background_agents, signals,
+    """The internal products that share the PostHog Desktop OAuth app (background_agents, signals,
     slack_app, conversations) must accept only server-minted tokens — those carrying the internal
-    `internal_run:read` marker. Otherwise a user's own Code OAuth token could route around the
+    `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around the
     posthog_code free-tier gate through these products to premium models."""
 
     _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
@@ -616,8 +626,8 @@ class TestServerCredentialConfigInvariant:
     @pytest.mark.parametrize("product", [p for p in _CODE_APP_PRODUCTS if p != "posthog_code"])
     def test_internal_code_app_products_require_a_server_credential(self, product: str):
         assert PRODUCTS[product].requires_server_credential, (
-            f"'{product}' accepts the PostHog Code OAuth app but doesn't require a server-minted "
-            "credential, so a user's own Code OAuth token could reach it and route around the "
+            f"'{product}' accepts the PostHog Desktop OAuth app but doesn't require a server-minted "
+            "credential, so a user's own Desktop OAuth token could reach it and route around the "
             "posthog_code free-tier model gate"
         )
 

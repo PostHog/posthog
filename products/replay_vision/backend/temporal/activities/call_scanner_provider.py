@@ -86,7 +86,12 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner = scanner_from_snapshot(snapshot)
 
-    preamble_text = scanner.preamble(team_name=team_name, session_metadata=llm_inputs.metadata.as_prompt_dict())
+    preamble_text = scanner.preamble(
+        team_name=team_name,
+        session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        navigation=[entry.model_dump() for entry in llm_inputs.navigation],
+        navigation_dropped=llm_inputs.navigation_dropped,
+    )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
     finalized, signals = await _run_mission(

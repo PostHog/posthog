@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconArchive, IconMessage, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
+import { captureInboxReportAction, captureInboxReportFeedback } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -16,6 +16,7 @@ import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/report
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 import { useReportRefund } from '../cards/useReportRefund'
+import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
 
 /**
  * One detail-pane action, rendered either inline as a `LemonButton` (wide layouts) or as a
@@ -54,10 +55,10 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore and Create PR. Discuss is rendered separately as a
- * standalone dropdown button (`DiscussReportButton`) since it opens a question popover rather than
- * firing on click. Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
- * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Feedback (always), Archive/Restore, and Create PR. Discuss is
+ * rendered separately as a standalone dropdown button (`DiscussReportButton`) since it opens a
+ * question popover rather than firing on click. Task creation is owned by `inboxTaskKickoffLogic`;
+ * archiving reuses the shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
@@ -143,11 +144,28 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         }
     }
 
-    // A resolved report is terminal – its PR already merged, so only Discuss (rendered separately)
-    // and Refund apply. The PR can still be refunded (auto-approved by design; the weekly review
+    // Feedback is always available – it never changes the report's state, just records what the
+    // user thinks of it (and its PR), so it stays even for resolved/archived reports.
+    const feedback: ReportDetailAction = {
+        key: 'feedback',
+        label: 'Feedback',
+        icon: <IconMessage />,
+        tooltip: 'Tell us how useful this report was',
+        onClick: () =>
+            openFeedbackReportDialog({
+                reportTitle: report.title ?? 'Untitled report',
+                onConfirm: ({ sentiment, note }) => {
+                    captureInboxReportFeedback({ report, sentiment, note, surface: 'detail_pane' })
+                    lemonToast.success('Thanks for the feedback')
+                },
+            }),
+    }
+
+    // A resolved report is terminal – its PR already merged, so only feedback and Discuss (rendered
+    // separately) apply. The PR can still be refunded (auto-approved by design; the weekly review
     // watches refunded-then-merged).
     if (isResolved) {
-        return canRefund ? [refund] : []
+        return [feedback, ...(canRefund ? [refund] : [])]
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR). A refunded
@@ -155,6 +173,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // archived-but-still-charged report can still be refunded.
     if (isArchived) {
         return [
+            feedback,
             ...(canRefund ? [refund] : []),
             ...(report.refund
                 ? []
@@ -172,6 +191,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
+        feedback,
         {
             key: 'archive',
             label: 'Archive',

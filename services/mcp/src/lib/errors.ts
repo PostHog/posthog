@@ -56,7 +56,7 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
         '2. If you already know the project id, call `switch-project { projectId: <id> }` directly.\n' +
         '3. (For MCP client maintainers) Pin a project at session start by sending the `x-posthog-project-id` header on the initialize request.' +
         '\n\n' +
-        'If `projects-get` returns nothing, call `organizations-list` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
+        'If `projects-get` returns nothing, call `organizations-get` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
     )
 }
 
@@ -79,7 +79,7 @@ function formatMissingOrganizationContextMessage(): string {
         'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
         '\n\n' +
         'To pick one (in order of preference):\n' +
-        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '1. Call `organizations-get` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
         '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
     )
 }

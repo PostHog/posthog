@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HetznerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
+    HetznerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
     HetznerResumeConfig,
     hetzner_source,
@@ -28,7 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.he
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
     ENDPOINTS,
-    HETZNER_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -84,7 +88,7 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # A revoked or invalid token surfaces as an HTTPError when `_fetch_page` calls
+            # A revoked or invalid token surfaces as an HTTPError when the client calls
             # `raise_for_status()`. Retrying can never fix a credential problem, so stop the sync.
             # Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.hetzner.cloud": "Your Hetzner Cloud API token is invalid or has been revoked. Create a new token in the Hetzner Cloud Console, then reconnect.",
@@ -98,28 +102,20 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Hetzner Cloud API has no server-side timestamp filter on any list endpoint, so every
         # table is full refresh only — no incremental, no append (append would re-append the whole
-        # list every run and materialize duplicates).
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = HETZNER_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # list every run and materialize duplicates). INCREMENTAL_FIELDS is empty for every endpoint,
+        # so build_endpoint_schemas yields supports_incremental/supports_append=False for all.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HetznerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HetznerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_hetzner_credentials(config.api_token)
 
@@ -135,6 +131,8 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         return hetzner_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Hetzner endpoint is full refresh
         )

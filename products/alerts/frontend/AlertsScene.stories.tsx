@@ -166,7 +166,7 @@ const logAlerts = [
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Alerts',
+    title: 'Products/Alerts/Alerts scene',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -188,7 +188,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const ListView: Story = {}
+export const InsightAlerts: Story = {}
 
 export const EmptyState: Story = {
     decorators: [

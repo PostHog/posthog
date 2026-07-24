@@ -1,3 +1,5 @@
+import os from 'node:os'
+
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
@@ -21,6 +23,12 @@ export type MlMirrorConfig = {
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
+    /**
+     * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
+     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * both the scrub consumer lane AND ref-aware downstream readers must be live first.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -33,9 +41,19 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
-    // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
+    // Scrub-phase budget, covering scrub time only — mid-batch flush time is excluded (each flush is
+    // separately bounded at 2x the S3 write timeout). Sized so scrub plus the worst-case flushes for
+    // one poll batch stays under Kafka's max.poll.interval.ms (300s), or a hung sidecar/S3 evicts us
+    // mid-batch and livelocks.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
+
+    /**
+     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
+     * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
+     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
+     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
+     */
+    SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -49,6 +67,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
@@ -61,5 +80,23 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
+        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
+}
+
+const DEFAULT_UV_THREADPOOL_SIZE = 4
+
+/**
+ * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
+ * cores, not the node's.
+ */
+export function resolveMlAnonymizeMaxConcurrency(
+    configured: number,
+    availableParallelism: number = os.availableParallelism(),
+    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
+): number {
+    if (configured > 0) {
+        return configured
+    }
+    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
 }

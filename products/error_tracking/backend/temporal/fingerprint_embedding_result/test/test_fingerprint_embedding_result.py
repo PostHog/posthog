@@ -315,6 +315,119 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["source_issue_id"] == str(source_issue_id)
         assert properties["target_issue_id"] == str(target_issue_id)
 
+    def test_merge_fingerprint_skips_missing_and_same_issue_candidates(self) -> None:
+        source_issue_id = uuid.uuid4()
+        target_issue_id = uuid.uuid4()
+        source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
+        same_issue_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="same-issue")
+        target_issue = MagicMock()
+        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
+        target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="valid-target")
+        fingerprint_query = MagicMock()
+        fingerprint_query.select_related.return_value.order_by.return_value = [
+            source_fingerprint,
+            same_issue_fingerprint,
+            target_fingerprint,
+        ]
+        capture_context = MagicMock()
+        capture_context.__enter__.return_value = MagicMock()
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                return_value=fingerprint_query,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
+                return_value=capture_context,
+            ),
+        ):
+            result = _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2, uuid=uuid.uuid4()),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[
+                    SimilarFingerprintDistance(fingerprint="missing", distance=0.01),
+                    SimilarFingerprintDistance(fingerprint="same-issue", distance=0.011),
+                    SimilarFingerprintDistance(fingerprint="valid-target", distance=0.012),
+                ],
+            )
+
+        assert result == 1
+        target_issue.merge.assert_called_once_with(
+            issue_ids=[source_issue_id],
+            expected_fingerprint_issue_ids={
+                "test-fingerprint": source_issue_id,
+                "valid-target": target_issue_id,
+            },
+        )
+
+    def test_merge_fingerprint_retry_keeps_merged_outcome(self) -> None:
+        original_issue_id = uuid.uuid4()
+        merged_issue_id = uuid.uuid4()
+        source_fingerprint = MagicMock(issue_id=merged_issue_id, fingerprint="test-fingerprint")
+        target_fingerprint = MagicMock(issue_id=merged_issue_id, fingerprint="fingerprint-1")
+        fingerprint_query = MagicMock()
+        fingerprint_query.select_related.return_value.order_by.return_value = [
+            target_fingerprint,
+            source_fingerprint,
+        ]
+        original_issue_query = MagicMock()
+        original_issue_query.exists.return_value = False
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                return_value=fingerprint_query,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssue.objects.filter",
+                return_value=original_issue_query,
+            ),
+        ):
+            result = _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+                expected_source_issue_id=str(original_issue_id),
+            )
+
+        assert result == 1
+
+    def test_merge_fingerprint_ownership_change_keeps_unmerged_outcome(self) -> None:
+        original_issue_id = uuid.uuid4()
+        reassigned_issue_id = uuid.uuid4()
+        source_fingerprint = MagicMock(issue_id=reassigned_issue_id, fingerprint="test-fingerprint")
+        target_fingerprint = MagicMock(issue_id=uuid.uuid4(), fingerprint="fingerprint-1")
+        fingerprint_query = MagicMock()
+        fingerprint_query.select_related.return_value.order_by.return_value = [
+            target_fingerprint,
+            source_fingerprint,
+        ]
+        original_issue_query = MagicMock()
+        original_issue_query.exists.return_value = True
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                return_value=fingerprint_query,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssue.objects.filter",
+                return_value=original_issue_query,
+            ),
+        ):
+            result = _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+                expected_source_issue_id=str(original_issue_id),
+            )
+
+        assert result == 0
+
     def test_merge_fingerprint_retries_when_merge_state_is_stale(self) -> None:
         source_issue_id = uuid.uuid4()
         target_issue_id = uuid.uuid4()

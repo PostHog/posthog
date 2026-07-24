@@ -1,3 +1,4 @@
+import json
 import time
 import base64
 import hashlib
@@ -540,6 +541,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "REFRESH",
             },
             timeout=10,
+            allow_redirects=False,
         )
 
         assert integration.config["expires_in"] == 1000
@@ -860,6 +862,30 @@ class TestOauthIntegrationModel(BaseTest):
             ("reddit_shape_on_other_kind", 400, {"message": "Bad Request", "error": 400}, "hubspot", "other"),
             ("reddit_5xx", 502, {"message": "Bad Gateway", "error": 502}, "reddit-ads", "http_5xx"),
             ("reddit_oauth_error_code", 400, {"error": "invalid_grant"}, "reddit-ads", "invalid_grant"),
+            (
+                "hubspot_dead_hub_shape",
+                400,
+                {"status": "BAD_HUB", "message": "missing or unknown hub id", "error": "access_denied"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            (
+                "hubspot_shape_on_other_kind",
+                400,
+                {"status": "BAD_HUB", "error": "access_denied"},
+                "salesforce",
+                "other",
+            ),
+            ("hubspot_bad_hub_5xx_is_outage", 502, {"status": "BAD_HUB"}, "hubspot", "http_5xx"),
+            (
+                "hubspot_bad_refresh_token_still_oauth_code",
+                400,
+                {"status": "BAD_REFRESH_TOKEN", "error": "invalid_grant"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
+            ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -990,6 +1016,78 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_uses_instance_url_for_sandbox(self, mock_post, mock_reload):
+        # Sandbox integrations are stored as kind="salesforce" (the sandbox is a token-exchange
+        # fallback in the OAuth callback), so the config's instance_url is the only signal that
+        # the refresh must go to test.salesforce.com or the org's own host rather than the
+        # hardcoded prod token URL. Salesforce rejects a sandbox refresh_token posted to
+        # login.salesforce.com, which shows up to users as "Authentication token could not be
+        # refreshed. Please reconnect." within a few hours of connecting.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        sandbox_instance_url = "https://ryan-co--sandbox.sandbox.my.salesforce.com"
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": sandbox_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == f"{sandbox_instance_url}/services/oauth2/token"
+
+    @parameterized.expand(
+        [
+            ("attacker_https", "https://attacker.example.com"),
+            ("attacker_lookalike_suffix", "https://salesforce.com.attacker.example"),
+            ("attacker_lookalike_prefix", "https://acmesalesforce.com"),
+            ("http_scheme_downgrade", "http://acme.my.salesforce.com"),
+            ("with_userinfo", "https://user:pass@acme.my.salesforce.com"),
+            ("with_port", "https://acme.my.salesforce.com:8443"),
+            ("invalid_port_raises_valueerror", "https://acme.my.salesforce.com:abc"),
+            ("garbage_value", "not a url"),
+            ("empty_value", ""),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_rejects_untrusted_instance_url(self, _name, bad_instance_url, mock_post, mock_reload):
+        # If a future write path (a partial_update action, an admin tool, a data migration)
+        # lets an attacker set instance_url, the refresh must not POST client_secret +
+        # refresh_token to that origin - the client_secret is fleet-wide and its leak forces
+        # rotation and reconnect for every Salesforce integration. Any instance_url that isn't
+        # an https .salesforce.com host falls back to the hardcoded prod token URL, and the
+        # refresh must not follow redirects that would move the secret to another host.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": bad_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == "https://login.salesforce.com/services/oauth2/token"
+
+        called_kwargs = mock_post.call_args.kwargs
+        assert called_kwargs["allow_redirects"] is False
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -1299,6 +1397,43 @@ class TestGitHubIntegrationModel(BaseTest):
             return mock_response
 
         return _client_request
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_marks_uninstalled_installation(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
+            {"access_token": "FULL_TOKEN"},
+        )
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        mock_response.json.return_value = {"message": "Not Found"}
+        mock_client_request.return_value = mock_response
+
+        github = GitHubIntegration(integration)
+        with pytest.raises(GitHubIntegrationError):
+            github.mint_scoped_installation_token({"contents": "read"})
+
+        # Without the permanently-gone marker, every scheduled run re-mints a dead installation
+        # forever — the marker is what lets callers skip it until the customer reconnects.
+        integration.refresh_from_db()
+        assert GitHubIntegration(integration).installation_unavailable() is True
+        assert "expires_in" not in integration.config
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
+        integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"token": "SCOPED_TOKEN", "expires_at": "2024-01-01T13:00:00Z"}
+        mock_client_request.return_value = mock_response
+
+        token = GitHubIntegration(integration).mint_scoped_installation_token({"contents": "read"})
+
+        assert token == "SCOPED_TOKEN"
+        # Without the permissions body the mint returns a FULL-permission token — a silent
+        # privilege escalation for every read-only sandbox.
+        assert mock_client_request.call_args.kwargs["json_body"] == {"permissions": {"contents": "read"}}
+        # The scoped token must never clobber the shared full-permission credential other flows read.
+        integration.refresh_from_db()
+        assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
 
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -2957,6 +3092,19 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         assert client["level"] == "1"
         assert client["parent_id"] == "6501924158"
 
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_empty_when_login_has_no_accessible_customers(self, mock_request):
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so `resourceNames`
+        # is absent rather than an empty list — this must yield no accounts, not raise KeyError.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {}
+        mock_request.return_value = accessible
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert accounts == []
+
 
 class TestPinterestAdsIntegrationDisplayName(BaseTest):
     @parameterized.expand(
@@ -3719,3 +3867,129 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+
+
+def _make_resend_jwt(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"header.{body}.signature"
+
+
+@override_settings(RESEND_APP_CLIENT_ID="resend-client-id", RESEND_APP_CLIENT_SECRET="resend-client-secret")
+class TestResendIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("resend")
+        assert config.authorize_url == "https://resend.com/oauth/authorize"
+        assert config.token_url == "https://api.resend.com/oauth/token"
+        assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
+        assert config.client_id == "resend-client-id"
+        assert config.client_secret == "resend-client-secret"
+        assert config.scope == "full_access"
+        assert config.pkce is True
+        assert config.id_path == "resend_account_id"
+
+    @override_settings(RESEND_APP_CLIENT_ID="", RESEND_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Resend app not configured"):
+            OauthIntegration.oauth_config_for_kind("resend")
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_extracts_account_from_jwt(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_123", "email": "team@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt_1",
+            "expires_in": 900,
+            "token_type": "Bearer",
+        }
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+        assert integration.kind == "resend"
+        assert integration.integration_id == "acct_123"
+        assert integration.config["resend_account_id"] == "acct_123"
+        assert integration.config["resend_account_name"] == "team@acme.com"
+        assert integration.config["expires_in"] == 900
+        assert integration.sensitive_config["access_token"] == access_token
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_name_falls_back_without_email(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_xyz"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "acct_xyz"
+        assert integration.config["resend_account_name"] == "Resend account acct_xyz"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_without_sub_raises(self, mock_post):
+        access_token = _make_resend_jwt({"email": "no-sub@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        with pytest.raises(Exception, match="failed to extract integration ID"):
+            OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_authorization_code_exchange_does_not_follow_redirects(self, mock_post):
+        # A 307/308 from the token endpoint must not forward client_secret + code to its Location.
+        access_token = _make_resend_jwt({"sub": "acct_1"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("posthog.models.integration.requests.post")
+    def test_revoke_token_authenticates_with_client_credentials(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="resend",
+            config={"resend_account_id": "acct_1"},
+            sensitive_config={"refresh_token": "rt_secret", "access_token": "at_secret"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["token"] == "rt_secret"
+        assert sent["client_id"] == "resend-client-id"
+        assert sent["client_secret"] == "resend-client-secret"
+        assert sent["token_type_hint"] == "refresh_token"

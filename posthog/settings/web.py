@@ -14,10 +14,10 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
-# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
-# still receives the field and usage is metered by access method; flipping to True (phase 2)
-# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
-# enforcement can be reverted without a code change.
+# Deprecated insight `dashboards` field: session-authenticated callers always need to opt in with
+# `include_dashboards`. While False, API-token callers still receive the field; flipping to True
+# enforces the opt-in for them too. Env-toggleable so token enforcement can be reverted without a
+# code change.
 INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
 
 ####
@@ -351,6 +351,11 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
 # US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
+# against (products/growth/backend/enrichment). Defaults to project 2, the internal project the
+# enrichment group properties are projected onto; env-overridable since that id differs across
+# cloud deployments.
+GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
@@ -563,6 +568,12 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
+        "MetricsRecalculationStatusEnum": (
+            "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
+        ),
+        "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
+        "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
@@ -575,6 +586,8 @@ SPECTACULAR_SETTINGS = {
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
+        "EmailReputationScopeEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.Scope",
+        "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
@@ -645,6 +658,9 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
+        # schedule/github/api choice set — pin them to a single named enum.
+        "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -912,7 +928,11 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 ####
 # CDP
 
+# Deprecated compatibility fallback for the image CDN. New deployments should configure the
+# API-specific credentials below so a publishable key can never be reused for authenticated API calls.
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
+LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
 # Feature flag billing analytics
@@ -956,8 +976,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 # /api/environments deprecation
 
 # Requests to /api/environments/* are served through the equivalent /api/projects/*
-# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
-# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
+# viewset via an in-process path rewrite — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
@@ -1160,20 +1179,15 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
-# Teams allowed to precompute *any* web analytics query, not just the
-# single-`$host`-exact filter shape the general gate permits. For these teams the
-# eligibility gate skips the filter-shape restriction (arbitrary property filters
-# become distinct cache keys via `property_to_expr`) and flips the per-query
-# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
-# it off). Membership here also implies precompute enrollment, so a team need not
-# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
-# default (project 2) and comma-separated env-var override as the enrollment list.
-WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
-    int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
-]
+# Upper bound on the number of distinct precompute shapes (query cache keys) a single
+# team may have live at once. Any filter combination becomes its own shape, so a
+# pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,
+# not a quota: a team builds shapes freely until it reaches this many, after which only
+# *new* shapes fall back to the live query — existing shapes keep serving and refreshing.
+# Sized well above any realistic team; 0 disables the cap.
+WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
 # when nothing in the query (property filters, conversion goal, test-account filters,

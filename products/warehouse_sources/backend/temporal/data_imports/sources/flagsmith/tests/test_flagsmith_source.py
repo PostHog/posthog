@@ -7,7 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import FlagsmithResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlagsmithSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
+    FlagsmithSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATH = (

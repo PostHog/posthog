@@ -14,6 +14,13 @@ Approval-gate ordering constraint for callers: a gated write can raise ``Approva
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
 exception propagating out of an atomic block would roll back the just-created pending
 ChangeRequest. Run gated writes before/outside any transaction wrapping your own state.
+
+System writes: callers with no acting user (beat tasks, service code reacting to
+lifecycle events) pass ``user=None``. The write still routes through the serializer
+(validation, caches, activity logging — attributed as ``is_system``), but the approval
+gate does not engage: the request shim explicitly declares ``is_system=True``, the only
+signal the gate skips on (its policies target human-driven changes, and a request-less
+caller cannot surface a 409/change request), so ``ApprovalRequired`` is never raised.
 """
 
 from typing import Any
@@ -35,11 +42,18 @@ def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
 
     Callers without a real request (internal service paths) fall back to a minimal
     request shim carrying the acting user — FeatureFlagSerializer needs request.user.
+    ``user=None`` makes this a system write (see module docstring); the shim declares
+    it explicitly via ``is_system``, the only signal the approval gate skips on.
 
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
     """
-    flag_request = request if getattr(request, "user", None) is not None else ServiceRequest(user)
+    request_has_user = getattr(request, "user", None) is not None
+    # A user-bearing request would silently override user=None (gate engages, attribution
+    # goes to request.user) — reject the contradiction instead.
+    if user is None and request_has_user:
+        raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
+    flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None)
     return {
         "request": flag_request,
         "team_id": team.id,
@@ -53,7 +67,8 @@ def create_flag(data: dict, *, team: Team, user: Any, request: Any | None = None
     """Gated create: routes through FeatureFlagSerializer so @approval_gate, validation,
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
     active, ...) and is applied as-is — nothing is silently dropped. Raises ApprovalRequired
-    when a policy requires approval."""
+    when a policy requires approval. ``user=None`` is a system write (see module docstring):
+    ``created_by`` stays null, activity is logged as system, the approval gate is skipped."""
     serializer = FeatureFlagSerializer(data=data, context=_serializer_context(team, user, request))
     serializer.is_valid(raise_exception=True)
     return serializer.save()
@@ -63,7 +78,9 @@ def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request
     """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
     validation, and activity logging apply. ``data`` is a partial flag write payload
     (fields it omits are untouched) applied as-is — nothing is silently dropped.
-    Raises ApprovalRequired when a policy requires approval; the flag is left untouched."""
+    Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
+    ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
+    cleared, activity is logged as system, the approval gate is skipped."""
     serializer = FeatureFlagSerializer(flag, data=data, partial=True, context=_serializer_context(team, user, request))
     serializer.is_valid(raise_exception=True)
     return serializer.save()

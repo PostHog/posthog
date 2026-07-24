@@ -650,6 +650,12 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,

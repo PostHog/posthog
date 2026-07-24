@@ -4,7 +4,6 @@ on:
     push:
         branches: [master, main]
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -102,7 +101,7 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
                   rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 
@@ -151,6 +150,7 @@ jobs:
                       "lifecycle": 17,
                       "limiters": 25,
                       "personhog-coordination": 24,
+                      "personhog-identity": 40,
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
@@ -293,7 +293,8 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 20
+        # stateright model checks need more headroom than the other shards
+        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
         permissions:
             contents: read
         env:
@@ -469,8 +470,8 @@ jobs:
                   done
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
             # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
             # this upload skips.
             - name: Upload test results to Trunk
@@ -559,7 +560,7 @@ jobs:
                   sqlx migrate run --source persons_migrations/
 
             - name: Build the personhog stack and harness
-              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
@@ -570,6 +571,22 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # The identity-service create path: persons are created through
+            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
+            # then initial properties through the router to the owning
+            # leader) and then updated through the router. Create acks are
+            # journaled and held to the same visibility invariant as update
+            # acks, through a leader kill and a scale-up. The identity
+            # service writes the real posthog_person table (its distinct id
+            # FKs require it), so the whole stack targets it here instead of
+            # the default personhog_person_tmp.
+            - name: Run the e2e gate creating persons via the identity service
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --create-via-identity --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 100 \
+                    --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
 
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while

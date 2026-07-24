@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -60,6 +61,8 @@ pub struct FlagRequest {
         default
     )]
     pub distinct_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<DateTime<Utc>>,
     pub geoip_disable: Option<bool>,
     // Web and mobile clients can configure this parameter to disable flags for a request.
     // It's mostly used for folks who want to save money on flag evaluations while still using
@@ -91,6 +94,14 @@ pub struct FlagRequest {
 }
 
 impl FlagRequest {
+    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<u64> {
+        self.sent_at
+            .as_ref()
+            .map(DateTime::timestamp_millis)
+            .and_then(|sent_at| u64::try_from(sent_at).ok())
+            .or_else(|| query_sent_at.and_then(|sent_at| u64::try_from(sent_at).ok()))
+    }
+
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
@@ -495,6 +506,31 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_sent_at_prefers_body_and_falls_back_to_query() {
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("2023-11-14T22:13:20Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_700_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest::default().resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("1969-12-31T23:59:59Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(FlagRequest::default().resolve_sent_at(Some(-1)), None);
     }
 
     #[test]

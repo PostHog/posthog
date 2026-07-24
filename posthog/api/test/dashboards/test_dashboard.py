@@ -34,14 +34,22 @@ from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.api.dashboard import (
+    DashboardSerializer,
+    DashboardTileErrorSerializer,
+    serialize_tile_with_context,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.api.insight import InsightSerializer
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -587,7 +595,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_record_outcome.assert_not_called()
 
-    def test_cannot_update_dashboard_with_invalid_filters(self):
+    def test_cannot_update_dashboard_with_invalid_filters(self) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="private dashboard",
@@ -608,7 +616,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
@@ -1154,8 +1161,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_request.user = self.user
 
         # Create a proper user access control for the serializer
-        from posthog.rbac.user_access_control import UserAccessControl
-
         user_access_control = UserAccessControl(self.user, organization_id=str(self.user.current_organization_id))
 
         dashboard_data = DashboardSerializer(
@@ -1655,8 +1660,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
-        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
         if owner == "self":
             template_team: Team | None = self.team
         elif owner == "sibling":
@@ -2231,7 +2234,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         insight_json = self.dashboard_api.get_insight(insight_id=insight_id)
-        self.assertEqual(insight_json["dashboards"], [])
+        self.assertEqual(insight_json["dashboard_tiles"], [])
 
         self.dashboard_api.soft_delete(insight_id, "insights")
 
@@ -2286,11 +2289,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
         assert [t["dashboard_id"] for t in insight_one_json["dashboard_tiles"]] == [other_dashboard_id]
-        assert insight_one_json["dashboards"] == [other_dashboard_id]
         assert insight_one_json["deleted"] is False
         insight_two_json = self.dashboard_api.get_insight(insight_id=insight_two_id)
         assert [t["dashboard_id"] for t in insight_two_json["dashboard_tiles"]] == []
-        assert insight_two_json["dashboards"] == []
         assert insight_two_json["deleted"] is False
 
     def test_can_copy_tile_between_dashboards(self) -> None:
@@ -2612,10 +2613,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_one_id, "dashboards")
 
         insight_after_dashboard_deletion = self.dashboard_api.get_insight(insight_id)
-        assert insight_after_dashboard_deletion["dashboards"] == [dashboard_two_id]
+        assert [t["dashboard_id"] for t in insight_after_dashboard_deletion["dashboard_tiles"]] == [dashboard_two_id]
 
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
-        expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
+        expected_dashboards_on_insight = [
+            t["dashboard_id"] for t in dashboard_two_json["tiles"][0]["insight"]["dashboard_tiles"]
+        ]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
@@ -2832,7 +2835,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "id": ANY,
                         }
                     ],
-                    "dashboards": [response.json()["id"]],
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
@@ -3382,6 +3384,228 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
+    def test_streamed_tile_error_preserves_insight_metadata_without_exception_detail(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Browser usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+        )
+
+        request = MagicMock()
+        request.user = self.user
+        request.query_params = {}
+        request.data = {}
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(self.user, team=self.team),
+        }
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("select secret_customer_property")):
+            order, streamed_tile = serialize_tile_with_context(tile, 0, context)
+
+        self.assertEqual(order, 0)
+
+        self.assertEqual(streamed_tile["id"], tile.id)
+        self.assertEqual(streamed_tile["insight"]["id"], insight.id)
+        self.assertEqual(streamed_tile["insight"]["name"], "Browser usage")
+        self.assertEqual(streamed_tile["insight"]["query"], insight.query)
+        self.assertEqual(
+            streamed_tile["error"],
+            {
+                "type": "DashboardTileError",
+                "message": "There is a problem loading this dashboard tile.",
+            },
+        )
+        self.assertNotIn("secret_customer_property", json.dumps(streamed_tile))
+
+    def test_streamed_tile_error_redacts_insight_metadata_for_restricted_user(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        restricted_user = self._create_user("restricted@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Confidential usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+        )
+        AccessControl.objects.create(resource="insight", resource_id=insight.id, team=self.team, access_level="none")
+
+        request = MagicMock()
+        request.user = restricted_user
+        request.query_params = {}
+        request.data = {}
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(restricted_user, team=self.team),
+        }
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("boom")):
+            order, streamed_tile = serialize_tile_with_context(tile, 0, context)
+
+        self.assertEqual(order, 0)
+        self.assertEqual(streamed_tile["error"]["type"], "DashboardTileError")
+
+        insight_payload = streamed_tile["insight"]
+        self.assertEqual(insight_payload["id"], insight.id)
+        self.assertEqual(insight_payload["short_id"], insight.short_id)
+        self.assertEqual(insight_payload["user_access_level"], "none")
+
+        self.assertNotIn("name", insight_payload)
+        self.assertNotIn("query", insight_payload)
+        self.assertNotIn("filters", insight_payload)
+
+    def test_non_streamed_dashboard_degrades_to_error_tile_on_insight_failure(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Browser usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request = MagicMock()
+        request.user = self.user
+        request.query_params = {}
+        request.data = {}
+        user_permissions = UserPermissions(self.user, team=self.team)
+        mock_view = MagicMock()
+        mock_view.action = "retrieve"
+        mock_view.user_permissions = user_permissions
+        context = {
+            "request": request,
+            "view": mock_view,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(self.user, team=self.team),
+            "user_permissions": user_permissions,
+        }
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("boom")):
+            dashboard_data = DashboardSerializer(dashboard, context=context).data
+
+        tiles = dashboard_data["tiles"]
+        self.assertEqual(len(tiles), 1)
+        failed_tile = tiles[0]
+        self.assertEqual(failed_tile["insight"]["id"], insight.id)
+        self.assertEqual(failed_tile["insight"]["name"], "Browser usage")
+        self.assertEqual(
+            failed_tile["error"],
+            {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
+        )
+        self.assertNotIn("boom", json.dumps(dashboard_data))
+
+    def test_streamed_tile_error_falls_back_to_minimal_tile_when_fallback_serializer_fails(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Confidential usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request = MagicMock()
+        request.user = self.user
+        request.query_params = {}
+        request.data = {}
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(self.user, team=self.team),
+        }
+        with (
+            patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("primary boom")),
+            patch.object(
+                DashboardTileErrorSerializer,
+                "to_representation",
+                side_effect=RuntimeError("fallback boom"),
+            ),
+        ):
+            order, streamed_tile = serialize_tile_with_context(tile, 0, context)
+
+        self.assertEqual(order, 0)
+        self.assertEqual(streamed_tile["id"], tile.id)
+        self.assertEqual(
+            streamed_tile["error"],
+            {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
+        )
+        self.assertNotIn("insight", streamed_tile)
+        self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
+
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""
         response = self.client.post(
@@ -3911,7 +4135,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dashboards"], [dashboard1.pk])
+        self.assertEqual([t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk])
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
 
         # Append to second dashboard — must include both IDs (full replacement)
@@ -3921,7 +4145,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertCountEqual(response.json()["dashboards"], [dashboard1.pk, dashboard2.pk])
+        self.assertCountEqual(
+            [t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk, dashboard2.pk]
+        )
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard2, insight=insight).exists())
 
@@ -3939,6 +4165,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dashboards"], [dashboard1.pk])
+        self.assertEqual([t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk])
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
         self.assertFalse(DashboardTile.objects.filter(dashboard=dashboard2, insight=insight, deleted=False).exists())

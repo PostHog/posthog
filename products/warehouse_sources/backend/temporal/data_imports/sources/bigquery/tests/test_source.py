@@ -59,7 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
     BigQuerySourceConfig,

@@ -19,9 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TavusSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import ENDPOINTS, TAVUS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    TAVUS_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.tavus import (
     TavusResumeConfig,
     check_access,
@@ -93,25 +100,14 @@ You can generate an API key in the [Tavus Developer Portal](https://platform.tav
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Tavus's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # timestamp filter (INCREMENTAL_FIELDS is empty), so there is no incremental cursor to advance.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TavusSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TavusSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.
@@ -137,6 +133,8 @@ You can generate an API key in the [Tavus Developer Portal](https://platform.tav
         return tavus_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Tavus endpoint is full refresh
         )

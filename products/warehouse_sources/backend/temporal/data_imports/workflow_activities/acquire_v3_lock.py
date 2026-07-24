@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
+    get_v3_pipeline_lock_meta,
     release_v3_pipeline_lock,
+    write_v3_pipeline_lock_meta,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     is_pipeline_v3_enabled,
@@ -41,6 +43,10 @@ LOGGER = get_logger(__name__)
 # Hard cap on how long a terminal-workflow holder can block takeover on queue
 # activity alone — the backstop when the staleness heuristic is being fooled.
 TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
+
+# Must outlast the healthy startup tail (SET NX → job-row commit, minutes under
+# backlog); real no-job-row cleanups are hours old, so a generous grace delays nothing.
+NO_JOB_ROW_TAKEOVER_GRACE_SECONDS = 900
 
 
 @dataclasses.dataclass
@@ -102,6 +108,16 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     if not acquired:
         acquired = _take_over_lock_if_holder_finished(inputs, token, logger)
 
+    if acquired:
+        # Best-effort: lets a later contender describe this workflow even before
+        # the job row exists. Missing meta degrades to the age-grace fallback.
+        write_v3_pipeline_lock_meta(
+            inputs.team_id,
+            str(inputs.schema_id),
+            run_id=token,
+            workflow_id=activity.info().workflow_id or "",
+        )
+
     logger.info(
         "v3_pipeline_lock_acquire_result",
         schema_id=str(inputs.schema_id),
@@ -117,7 +133,8 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     Decision matrix (fail closed on any ambiguity):
     1. Holder workflow still RUNNING per Temporal describe -> fail closed.
-    2. Holder workflow terminal + no job row -> take over.
+    2. Holder workflow terminal + no job row -> take over; if terminal was only
+       assumed (no workflow_id anywhere), a young holder fails closed instead.
     3. Holder workflow terminal + job terminal -> take over.
     4. Holder workflow terminal + job RUNNING -> consult queue DB:
        - no batches, all-terminal, no recent loader progress, or the job has
@@ -132,8 +149,20 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     close_old_connections()
 
+    # Meta is only trustworthy if it describes the current holder — a failed
+    # cleanup can leave meta from a previous run behind.
+    meta = get_v3_pipeline_lock_meta(inputs.team_id, str(inputs.schema_id))
+    meta_found = meta is not None and meta.get("run_id") == holder
+    meta_workflow_id: str | None = None
+    if meta_found and meta is not None:
+        raw_workflow_id = meta.get("workflow_id")
+        if isinstance(raw_workflow_id, str) and raw_workflow_id:
+            meta_workflow_id = raw_workflow_id
+
+    holder_age_seconds = _holder_token_age_seconds(holder)
+
     # Step 1: check if the holder's Temporal workflow is still running
-    workflow_status, holder_job = _describe_holder_workflow(inputs, holder, logger)
+    workflow_status, holder_job, status_is_assumed = _describe_holder_workflow(inputs, holder, meta_workflow_id, logger)
     if workflow_status is None:
         # Describe failed - fail closed (ambiguous)
         logger.warning(
@@ -141,20 +170,52 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
             schema_id=str(inputs.schema_id),
             holder_token=holder,
             reason="temporal_describe_failed",
+            holder_age_seconds=holder_age_seconds,
+            meta_found=meta_found,
         )
         return False
 
     if workflow_status == WorkflowExecutionStatus.RUNNING:
+        if holder_job is None:
+            # Near-miss race: a healthy holder still pre-job-row — log so these
+            # show up in prod.
+            logger.info(
+                "v3_pipeline_lock_takeover_skipped",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="holder_running_no_job_row",
+                holder_age_seconds=holder_age_seconds,
+                meta_found=meta_found,
+            )
         return False
 
     # Step 2/3: workflow is terminal, check the job row
     if holder_job is None:
+        if (
+            status_is_assumed
+            and holder_age_seconds is not None
+            and holder_age_seconds < NO_JOB_ROW_TAKEOVER_GRACE_SECONDS
+        ):
+            logger.warning(
+                "v3_pipeline_lock_takeover_ambiguous",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="no_job_row_holder_too_young",
+                holder_age_seconds=holder_age_seconds,
+                meta_found=meta_found,
+            )
+            return False
+
         # Worker crashed before creating the job row - safe to take over
+        # (holder_age_seconds=None: token wasn't UUIDv7, grace not applicable).
         logger.warning(
             "v3_pipeline_lock_taking_over",
             schema_id=str(inputs.schema_id),
             holder_token=holder,
             reason="no_job_row",
+            holder_age_seconds=holder_age_seconds,
+            meta_found=meta_found,
+            holder_status_assumed=status_is_assumed,
         )
         return _release_and_acquire(inputs, holder, token)
 
@@ -165,6 +226,8 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
             holder_token=holder,
             reason="job_terminal",
             holder_job_status=holder_job.status,
+            holder_age_seconds=holder_age_seconds,
+            meta_found=meta_found,
         )
         return _release_and_acquire(inputs, holder, token)
 
@@ -172,12 +235,28 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
     return _take_over_stale_running_job(inputs, holder, token, holder_job, logger)
 
 
+def _holder_token_age_seconds(token: str) -> float | None:
+    """Age of the holder token derived from its UUIDv7 timestamp, or None if not a UUIDv7."""
+    try:
+        holder_uuid = uuid.UUID(token)
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if holder_uuid.version != 7:
+        return None
+    # UUIDv7: top 48 bits are unix milliseconds
+    created_at_ms = holder_uuid.int >> 80
+    age = (datetime.now(UTC) - datetime.fromtimestamp(created_at_ms / 1000, tz=UTC)).total_seconds()
+    return round(age, 1)
+
+
 def _describe_holder_workflow(
     inputs: AcquireV3LockActivityInputs,
     holder_run_id: str,
+    meta_workflow_id: str | None,
     logger: Any,
-) -> tuple[WorkflowExecutionStatus | None, ExternalDataJob | None]:
-    """Describe the holder's Temporal workflow and return (status, job), or (None, None) on error."""
+) -> tuple[WorkflowExecutionStatus | None, ExternalDataJob | None, bool]:
+    """Return (status, job, status_is_assumed): assumed=True when no workflow_id
+    exists anywhere so TERMINATED is a guess; (None, None, False) on describe error."""
     try:
         holder_job = (
             ExternalDataJob.objects.filter(
@@ -189,13 +268,14 @@ def _describe_holder_workflow(
             .only("id", "status", "workflow_id", "created_at")
             .first()
         )
-        if holder_job is None or not holder_job.workflow_id:
-            return WorkflowExecutionStatus.TERMINATED, holder_job
+        workflow_id = (holder_job.workflow_id if holder_job is not None else None) or meta_workflow_id
+        if not workflow_id:
+            return WorkflowExecutionStatus.TERMINATED, holder_job, True
 
         temporal: Client = sync_connect()
-        handle = temporal.get_workflow_handle(holder_job.workflow_id, run_id=holder_run_id)
+        handle = temporal.get_workflow_handle(workflow_id, run_id=holder_run_id)
         desc = async_to_sync(handle.describe)()
-        return desc.status, holder_job
+        return desc.status, holder_job, False
     except Exception as e:
         logger.warning(
             "v3_pipeline_lock_describe_failed",
@@ -204,7 +284,7 @@ def _describe_holder_workflow(
             error=str(e),
         )
         capture_exception(e)
-        return None, None
+        return None, None, False
 
 
 def _take_over_stale_running_job(

@@ -1,3 +1,4 @@
+import time
 import uuid
 import datetime as dt
 from typing import Any
@@ -25,11 +26,17 @@ from temporalio.exceptions import (
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import (
+    _RELEASE_GRACE_SECONDS,
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+    try_claim_enqueue_slot,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -145,7 +152,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -172,7 +179,7 @@ class TestCountInFlightAppliesActivity:
             name="sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         other_team_scanner = _make_scanner()  # fresh org+team
         _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
@@ -188,6 +195,24 @@ class TestCountInFlightAppliesActivity:
         )
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
+
+    def test_counts_include_enqueued_claims(self) -> None:
+        # Missing claims here lets the sweep dispatch on top of an on-demand burst.
+        scanner = _make_scanner()
+        _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-enqueued",
+            team_in_flight_rows=1,
+            scanner_in_flight_rows=1,
+        )
+
+        result = count_in_flight_by_team_activity(
+            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+
+        assert result == InFlightApplyCounts(scanner=2, team=2)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -221,6 +246,37 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
+
+    def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
+        # A claim that never decays holds a phantom cap slot for the full TTL.
+        scanner = _make_scanner()
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-claimed",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+
+        create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-claimed",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-claimed",
+            )
+        )
+
+        # The claim decays: it overlaps its new row for the grace, then expires.
+        assert pending_enqueue_claims_for_team(scanner.team_id) == 1
+        with patch(
+            "products.replay_vision.backend.enqueue_claims.time.time",
+            return_value=time.time() + _RELEASE_GRACE_SECONDS + 1,
+        ):
+            assert pending_enqueue_claims_for_team(scanner.team_id) == 0
+            assert pending_enqueue_claims_for_scanner(scanner.id) == 0
 
     def test_snapshot_is_frozen_against_later_scanner_edits(self) -> None:
         scanner = _make_scanner()
@@ -555,6 +611,32 @@ class TestObservationStateActivities:
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
 
+    def test_mark_succeeded_captures_scan_completed_telemetry_once(self) -> None:
+        # Cross-customer dashboards count this event; a retry after the sticky transition must not double-count.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        inputs = MarkObservationSucceededInputs(
+            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            mark_observation_succeeded_activity(inputs)
+            mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second event
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert kwargs["event"] == "replay_vision_scan_completed"
+        assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
+        properties = kwargs["properties"]
+        assert properties["scanner_id"] == str(scanner.id)
+        assert properties["scanner_type"] == "monitor"
+        assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+        assert properties["organization_id"] == str(observation.team.organization_id)
+        assert kwargs["groups"]["organization"] == str(observation.team.organization_id)
+
     def test_mark_failed_writes_no_usage_receipt(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
@@ -806,7 +888,10 @@ class TestFetchSessionEventsActivity:
         pages: list[tuple],
     ) -> MagicMock:
         """Pages may be 2-tuples (columns, rows) or 3-tuples (columns, rows, has_more); has_more defaults to False."""
-        normalized = [page if len(page) == 3 else (*page, False) for page in pages]
+        normalized = [
+            SessionEventsPage(columns=page[0], rows=page[1], has_more=page[2] if len(page) == 3 else False)
+            for page in pages
+        ]
         mock_obj = MagicMock(spec=SessionReplayEvents)
         mock_obj.get_metadata.return_value = metadata
         mock_obj.get_events.side_effect = normalized

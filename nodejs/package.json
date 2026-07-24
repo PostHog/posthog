@@ -103,6 +103,7 @@
         "@temporalio/common": "1.15.0",
         "@temporalio/proto": "1.15.0",
         "@temporalio/worker": "1.15.0",
+        "@temporalio/workflow": "1.15.0",
         "@types/node": "catalog:",
         "@types/tail": "^2.2.1",
         "avsc": "^5.7.9",

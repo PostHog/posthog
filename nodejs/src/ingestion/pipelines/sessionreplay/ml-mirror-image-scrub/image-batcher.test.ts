@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
@@ -6,9 +6,10 @@ import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ScrubClient } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
+const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
 function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
-    const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(bytes))
+    const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(CONTENT_KEY, bytes))
     return {
         topic: 'session_replay_image_scrub',
         partition,
@@ -33,8 +34,10 @@ class FakeStore {
 
 class FakeOffsets implements OffsetStore {
     public stored = 0
-    offsetsStore(): void {
+    public received: TopicPartitionOffset[][] = []
+    offsetsStore(offsets: TopicPartitionOffset[]): void {
         this.stored += 1
+        this.received.push(offsets)
     }
 }
 
@@ -62,7 +65,9 @@ describe('ImageBatcher', () => {
         expect(offsets.stored).toBe(1)
     })
 
-    it('drops a key/content mismatch without buffering it', async () => {
+    it('trusts the producer ref: the bytes are indexed under the key hash without recomputing it', async () => {
+        // The hash is a producer-side per-team HMAC; this consumer has no key and must not try to
+        // validate — it indexes the scrubbed bytes under whatever hash the ref carries.
         const store = new FakeStore()
         const batcher = new ImageBatcher(
             store as unknown as ImageShardStore,
@@ -72,10 +77,11 @@ describe('ImageBatcher', () => {
             0
         )
 
-        const forged = imageRef(pt(1), hashImageBytes(Buffer.from('other')))
-        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), forged)], 1)
+        const ref = imageRef(pt(1), hashImageBytes('some-opaque-producer-key', Buffer.from('a')))
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), ref)], 1)
 
-        expect(store.writes).toHaveLength(0)
+        expect(store.writes).toHaveLength(1)
+        expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
     })
 
     it('does not store offsets when the shard write fails (at-least-once replay)', async () => {
@@ -86,6 +92,98 @@ describe('ImageBatcher', () => {
 
         await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
         expect(offsets.stored).toBe(0)
+    })
+
+    it('stores offsets with each mid-batch flush, so a later failure replays only from the flush', async () => {
+        // A flush persists a randomly named shard; if the batch then fails (e.g. the scrub deadline)
+        // without having stored the flushed messages' offsets, Kafka replays them and every replay
+        // writes another duplicate shard — unbounded write amplification an attacker can induce.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const failsAfterFirstChunk = {
+            scrub: () => {
+                scrubs += 1
+                return scrubs <= 2 ? Promise.resolve(Buffer.alloc(16)) : Promise.reject(new Error('sidecar down'))
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            failsAfterFirstChunk,
+            { ...options, maxBytes: 32, scrubConcurrency: 2 },
+            0
+        )
+
+        const messages = Array.from({ length: 4 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await expect(batcher.handleBatch(messages, 1)).rejects.toThrow('sidecar down')
+
+        expect(store.writes).toHaveLength(1)
+        // The flushed chunk's messages (offsets 0-1) are recorded, so only 2-3 replay.
+        expect(offsets.received).toEqual([[{ topic: 'session_replay_image_scrub', partition: 0, offset: 2 }]])
+    })
+
+    it('flushes mid-batch when scrubbed bytes cross the byte bound instead of holding the whole batch', async () => {
+        // Scrubbed outputs can be far larger than their inputs (full-resolution PNG re-encode), so
+        // the byte bound must apply while a poll batch is still scrubbing — a reverted batcher that
+        // accumulates all outputs first can hold gigabytes before its first flush.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const bigOutputClient = { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            bigOutputClient,
+            { ...options, maxBytes: 32, scrubConcurrency: 2 },
+            0
+        )
+
+        const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await batcher.handleBatch(messages, 1)
+
+        expect(store.writes.length).toBeGreaterThan(1)
+        expect(store.writes.flat()).toHaveLength(6)
+        expect(offsets.stored).toBe(store.writes.length)
+    })
+
+    it('does not count mid-batch flush time against the scrub deadline', async () => {
+        // Slow-but-succeeding S3 writes must not exhaust the scrub budget: a reverted deadline that
+        // spans flushes turns degraded storage into an abort/replay loop blamed on the sidecar.
+        const slowStore = new FakeStore()
+        const writeShard = slowStore.writeShard.bind(slowStore)
+        slowStore.writeShard = async (images) => {
+            await new Promise((resolve) => setTimeout(resolve, 80))
+            return writeShard(images)
+        }
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(
+            slowStore as unknown as ImageShardStore,
+            offsets,
+            { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient,
+            { ...options, maxBytes: 32, scrubConcurrency: 2, maxBatchScrubMs: 60 },
+            0
+        )
+
+        const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await batcher.handleBatch(messages, 1)
+
+        expect(slowStore.writes.flat()).toHaveLength(6)
+        expect(offsets.stored).toBe(slowStore.writes.length)
+    })
+
+    test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {
+        // 0 spins the chunk loop forever; NaN skips it entirely yet still commits offsets,
+        // silently dropping the whole batch — both must fail loudly at boot instead.
+        expect(
+            () =>
+                new ImageBatcher(
+                    new FakeStore() as unknown as ImageShardStore,
+                    new FakeOffsets(),
+                    scrubClient,
+                    { ...options, scrubConcurrency },
+                    0
+                )
+        ).toThrow('scrubConcurrency')
     })
 
     it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {

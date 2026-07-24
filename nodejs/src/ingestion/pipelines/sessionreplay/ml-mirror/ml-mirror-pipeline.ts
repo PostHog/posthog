@@ -1,5 +1,6 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
 import { OverflowOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
@@ -12,6 +13,7 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
@@ -19,10 +21,27 @@ import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
 import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
+import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
-export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
+export interface MlMirrorPipelineOptions {
+    /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
+    anonymizeMaxConcurrency: number
+}
+
+/** Enables the image-collection lane: inlined images become refs, originals go to the scrub topic. */
+export interface MlMirrorImageScrubProducer {
+    outputs: IngestionOutputs<MlImageScrubOutput>
+    /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
+    pseudonymSecret: string | Buffer
+}
+
+export function createMlMirrorReplayPipeline(
+    config: SessionReplayPipelineConfig,
+    mlOptions: MlMirrorPipelineOptions,
+    imageScrub?: MlMirrorImageScrubProducer
+): SessionReplayPipeline {
     const {
         outputs,
         eventIngestionRestrictionManager,
@@ -112,38 +131,55 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                 b
                                     .teamAware((b) =>
                                         b
-                                            .sequentially((b) => {
-                                                // The native Rust addon fuses parse+anonymize in one step.
-                                                const parsed = b.pipe(
-                                                    topHogWrapper(createParseAndAnonymizeMessageStep(), [
-                                                        timer('parse_time_ms_by_session_id', (input) => ({
-                                                            token: input.headers.token ?? 'unknown',
-                                                            session_id: input.headers.session_id ?? 'unknown',
-                                                        })),
-                                                    ])
-                                                )
-                                                return parsed.pipe(
-                                                    topHogWrapper(
-                                                        createRecordSessionEventStep({
-                                                            isDebugLoggingEnabled,
-                                                        }),
-                                                        [
-                                                            sum(
-                                                                'message_size_by_session_id',
-                                                                (input) => ({
+                                            // Downstream consumers don't require event order within a
+                                            // session's block, so scrubbing is free to complete out of order.
+                                            .concurrently(
+                                                (b) => {
+                                                    // The native Rust addon fuses parse+anonymize in one step.
+                                                    const parsed = b.pipe(
+                                                        topHogWrapper(
+                                                            createParseAndAnonymizeMessageStep(
+                                                                imageScrub && {
+                                                                    pseudonymSecret: imageScrub.pseudonymSecret,
+                                                                }
+                                                            ),
+                                                            [
+                                                                timer('parse_time_ms_by_session_id', (input) => ({
+                                                                    token: input.headers.token ?? 'unknown',
+                                                                    session_id: input.headers.session_id ?? 'unknown',
+                                                                })),
+                                                            ]
+                                                        )
+                                                    )
+                                                    const withImagesProduced = imageScrub
+                                                        ? parsed.pipe(
+                                                              createProduceCollectedImagesStep(imageScrub.outputs)
+                                                          )
+                                                        : parsed
+                                                    return withImagesProduced.pipe(
+                                                        topHogWrapper(
+                                                            createRecordSessionEventStep({
+                                                                isDebugLoggingEnabled,
+                                                            }),
+                                                            [
+                                                                sum(
+                                                                    'message_size_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    }),
+                                                                    (input) => input.parsedMessage.metadata.rawSize
+                                                                ),
+                                                                timer('consume_time_ms_by_session_id', (input) => ({
                                                                     token: input.parsedMessage.token ?? 'unknown',
                                                                     session_id: input.parsedMessage.session_id,
-                                                                }),
-                                                                (input) => input.parsedMessage.metadata.rawSize
-                                                            ),
-                                                            timer('consume_time_ms_by_session_id', (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            })),
-                                                        ]
+                                                                })),
+                                                            ]
+                                                        )
                                                     )
-                                                )
-                                            })
+                                                },
+                                                { maxConcurrency: mlOptions.anonymizeMaxConcurrency }
+                                            )
                                             .gather()
                                     )
                                     .handleIngestionWarnings(outputs)

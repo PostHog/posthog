@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in
+// products/feature_flags/backend/api/feature_flag.py (mirrored by the filters serializer in
+// products/feature_flags/backend/api/filters_schema.py — issue #50084)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -99,6 +101,8 @@ where
     })
 }
 
+// Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates flag
+// filter properties against this shape at write time — keep field shapes in sync (issue #50084).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
     #[serde(deserialize_with = "deserialize_key")]
