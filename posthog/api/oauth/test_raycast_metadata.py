@@ -42,7 +42,16 @@ class TestRaycastClientMetadataView(SimpleTestCase):
         assert data["grant_types"] == ["authorization_code"]
         assert data["response_types"] == ["code"]
         assert data["token_endpoint_auth_method"] == "none"
-        assert data["com.posthog"]["scopes"] == RAYCAST_SCOPES
+        assert data["com.posthog"]["scopes"] == [
+            "project:read",
+            "feature_flag:read",
+            "cohort:read",
+            "dashboard:read",
+            "person:read",
+            "insight:read",
+            "query:read",
+            "user:read",
+        ]
 
     @parameterized.expand(
         [
