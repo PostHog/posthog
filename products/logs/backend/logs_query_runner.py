@@ -378,6 +378,12 @@ class LogsFilterBuilder:
                         if self.exclude_facet_field != "severity_text":
                             exprs.append(_severity_level_to_expr(log_filter))
                         continue
+                    if log_filter.key == "service_name":
+                        # Same own-facet strip as severity: the rail's service exclusions must not
+                        # zero out their own value's count when faceting on service_name.
+                        if self.exclude_facet_field != "service_name":
+                            exprs.append(property_to_expr(log_filter, team=self.team))
+                        continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
                         _normalise_trace_id_filter(log_filter)

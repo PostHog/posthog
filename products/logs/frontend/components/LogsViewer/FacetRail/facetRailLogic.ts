@@ -109,19 +109,22 @@ export const facetRailLogic = kea<facetRailLogicType>([
                 // Selection lives as log_resource_attribute filters inside the group; a click
                 // cycles the value included → excluded → cleared.
                 actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
-            } else if (source.filterKey === 'severityLevels') {
-                // Split representation: includes live in the dedicated severityLevels field,
-                // exclusions in an is_not log filter inside the group. A click cycles
-                // included → excluded → cleared across the two stores.
+                return
+            }
+
+            // Column facets have a split representation: includes live in the facet's dedicated
+            // field, exclusions in an is_not log filter inside the group (under exclusionKey).
+            // A click cycles included → excluded → cleared across the two stores; without an
+            // exclusionKey the facet stays two-state.
+            const cycleColumnValue = (included: string[], setIncluded: (next: string[]) => void): void => {
                 const { exclusionKey } = source
                 if (!exclusionKey) {
-                    actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                    setIncluded(toggleMembership(included, value))
                     return
                 }
-                const included = severityLevels ?? []
                 const excluded = logFilterExclusions(filterGroup, exclusionKey)
-                if (included.includes(value as LogSeverityLevel)) {
-                    actions.setSeverityLevels(included.filter((v) => v !== value))
+                if (included.includes(value)) {
+                    setIncluded(included.filter((v) => v !== value))
                     actions.setFilterGroup(
                         setLogFilterExclusions(
                             filterGroup,
@@ -140,10 +143,14 @@ export const facetRailLogic = kea<facetRailLogicType>([
                         false
                     )
                 } else {
-                    actions.setSeverityLevels([...included, value as LogSeverityLevel])
+                    setIncluded([...included, value])
                 }
+            }
+
+            if (source.filterKey === 'severityLevels') {
+                cycleColumnValue(severityLevels ?? [], (next) => actions.setSeverityLevels(next as LogSeverityLevel[]))
             } else if (source.filterKey === 'serviceNames') {
-                actions.setServiceNames(toggleMembership(serviceNames, value))
+                cycleColumnValue(serviceNames ?? [], (next) => actions.setServiceNames(next))
             } else {
                 // Adding a new column filterKey without wiring its setter here is a compile error.
                 source.filterKey satisfies never
