@@ -610,6 +610,13 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
+            # The multi-pass re-visit below re-collects lazy joins on the same table, so a join
+            # already inserted on an earlier pass can reappear here. Its alias is already in
+            # `select_type.tables` and its JoinExpr is already in the chain — re-adding it would
+            # emit a duplicate alias and make `resolve_types` raise "Already have joined a table".
+            # Skip it; the field reassignment loop below still points fields at the existing table.
+            if to_table in select_type.tables:
+                continue
             join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,
                 self.context,
