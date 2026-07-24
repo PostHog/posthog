@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING, Any
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import ENDPOINTS
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
+        GithubSourceConfig,
+    )
 
 SCHEMA_METADATA_REPOSITORY_KEY = "source_repository"
 SCHEMA_METADATA_ENDPOINT_KEY = "source_endpoint"

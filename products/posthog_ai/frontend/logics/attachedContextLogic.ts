@@ -8,6 +8,7 @@ export interface attachedContextLogicValues {
     dismissedKeys: Record<string, true>
     hasContext: boolean
     providers: Record<string, AttachedContextItem[]>
+    seenContextLinesByTask: Record<string, string[]>
     sentContextKeysByTask: Record<string, string[]>
 }
 
@@ -18,6 +19,13 @@ export interface attachedContextLogicActions {
     }
     dismissContext: (key: string) => {
         key: string
+    }
+    markContextLinesSeen: (
+        taskId: string,
+        lines: string[]
+    ) => {
+        lines: string[]
+        taskId: string
     }
     markContextSent: (
         taskId: string,
@@ -66,11 +74,18 @@ export type attachedContextLogicType = MakeLogicType<
  * trusted/untrusted context blocks (`utils/posthogContextBlock`). Nothing here is keyed by conversation —
  * the on-screen context is global to the app at any instant.
  *
- * This store also keeps the sent-context bookkeeping (`sentContextKeysByTask`): which non-text refs
- * were already wrapped into a sent message, keyed by task id. The send paths mark keys after a
- * successful send and prune already-sent refs from the next wrap. It is task-scoped (not run-scoped)
- * so the dedupe survives a terminal-run send re-pointing the consumer to a fresh run, mirroring the
- * backend's `prune_repeated_entity_refs`, which dedupes across a task's whole resume chain.
+ * This store also keeps the sent-context bookkeeping, two layers keyed by task id (task-scoped, not
+ * run-scoped, so the dedupe survives a terminal-run send re-pointing the consumer to a fresh run):
+ *
+ * - `sentContextKeysByTask` — which non-text refs the send paths already wrapped into a message this
+ *   session, marked right after a successful send. Covers the send→echo in-flight window, but is
+ *   in-memory only: a reload, another tab, or a teammate's browser starts empty.
+ * - `seenContextLinesByTask` — the durable layer: rendered block lines reconstructed from the run
+ *   log itself. `runStreamLogic` records the lines of every context block found in a persisted or
+ *   echoed user message (the `logs/` snapshot replays the task's full resume chain), and the send
+ *   paths prune any item whose `contextItemLine` is already recorded. This mirrors the backend's
+ *   `_collect_seen_entity_refs`/`prune_repeated_entity_refs`, which dedupe from persisted logs
+ *   across a task's whole resume chain.
  */
 export const attachedContextLogic = kea<attachedContextLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'attachedContextLogic']),
@@ -81,6 +96,8 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
         deregisterContext: (providerId: string) => ({ providerId }),
         /** Record context item keys already wrapped into a message sent for `taskId`. */
         markContextSent: (taskId: string, keys: string[]) => ({ taskId, keys }),
+        /** Record rendered context-block lines observed in `taskId`'s run log (see `seenContextLinesByTask`). */
+        markContextLinesSeen: (taskId: string, lines: string[]) => ({ taskId, lines }),
         /**
          * Hide one item (by `attachedContextItemKey`) regardless of which provider contributed it —
          * the user closing a chip must stick even when the provider re-registers the same item
@@ -115,6 +132,25 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
                     }
                     const existing = state[taskId] ?? []
                     const added = keys.filter((key) => !existing.includes(key))
+                    if (added.length === 0) {
+                        return state
+                    }
+                    return { ...state, [taskId]: [...existing, ...added] }
+                },
+            },
+        ],
+        // Per-task set of rendered context-block lines observed in the task's run log (replay or live
+        // echo). The durable dedupe layer: unlike `sentContextKeysByTask` it is reconstructed from the
+        // persisted resume-chain history on every open, so it survives reloads and other sessions.
+        seenContextLinesByTask: [
+            {} as Record<string, string[]>,
+            {
+                markContextLinesSeen: (state, { taskId, lines }) => {
+                    if (lines.length === 0) {
+                        return state
+                    }
+                    const existing = state[taskId] ?? []
+                    const added = lines.filter((line) => !existing.includes(line))
                     if (added.length === 0) {
                         return state
                     }

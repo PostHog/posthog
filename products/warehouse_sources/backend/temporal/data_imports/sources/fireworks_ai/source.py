@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
     ENDPOINTS,
     FIREWORKS_AI_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FireworksAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
+    FireworksAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -110,6 +112,7 @@ You can find or create an API key in your [Fireworks AI account settings](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The API documents an AIP-160 `filter` param but not its filterable fields, and we could
         # not verify server-side timestamp filtering, so every table is full refresh only
@@ -130,7 +133,11 @@ You can find or create an API key in your [Fireworks AI account settings](https:
         return schemas
 
     def validate_credentials(
-        self, config: FireworksAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FireworksAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         account_id = normalize_account_id(config.account_id)
         if not is_valid_account_id(account_id):
@@ -171,6 +178,8 @@ You can find or create an API key in your [Fireworks AI account settings](https:
             api_key=config.api_key,
             account_id=config.account_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Fireworks AI endpoint is full refresh
         )

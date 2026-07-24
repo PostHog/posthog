@@ -9,6 +9,10 @@ type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_p
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
+// Why the send was skipped, so callers can render a user-facing log/metric that names the actual
+// reason instead of collapsing suppression and opt-out into a single "opted out" message.
+export type RecipientSkipReason = 'suppressed' | 'opted_out'
+
 // Split a comma-separated address list and, for each entry, extract the bare email from an RFC-822
 // `"Name" <email@x>` form so it can be matched against normalized suppression identifiers.
 const extractEmailsFromAddressList = (value: unknown): string[] => {
@@ -34,25 +38,25 @@ export class RecipientPreferencesService {
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
-    ): Promise<boolean> {
+    ): Promise<RecipientSkipReason | null> {
         if (!this.isSubjectToRecipientPreferences(action)) {
-            return false
+            return null
         }
 
         // Suppression is a deliverability signal, not a messaging preference: an address that can't
         // receive mail can't receive it regardless of category. So we check it even for
         // transactional messages, and before the transactional opt-out bypass below.
         if (await this.isRecipientSuppressed(invocation, action)) {
-            return true
+            return 'suppressed'
         }
 
         // Transactional messages are not eligible for opt-outs, so they send regardless of
         // whether the recipient has opted out of this category or of all marketing messaging.
         if (action.config.message_category_type === 'transactional') {
-            return false
+            return null
         }
 
-        return await this.isRecipientOptedOutOfAction(invocation, action)
+        return (await this.isRecipientOptedOutOfAction(invocation, action)) ? 'opted_out' : null
     }
 
     private async isRecipientSuppressed(

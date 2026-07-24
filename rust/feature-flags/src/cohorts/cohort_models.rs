@@ -1,6 +1,7 @@
-use crate::properties::property_models::PropertyFilter;
+use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::utils::json_size::estimate_json_size;
 use chrono::{DateTime, Utc};
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -143,19 +144,19 @@ pub enum CohortPropertyType {
     OR,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortProperty {
     pub properties: InnerCohortProperty,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InnerCohortProperty {
     #[serde(rename = "type")]
     pub prop_type: CohortPropertyType,
     pub values: Vec<CohortValuesItem>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
@@ -171,11 +172,43 @@ pub struct CohortValues {
 /// `PropertyFilter` requires `key`, so a group (no `key`) falls through to `Group`,
 /// while an ambiguous object carrying both `key` and `values` is kept as the filter
 /// it most likely is rather than silently dropping its `key`/`value`/`operator`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// `MalformedKnownType` catches a leaf whose `type` names one of the supported
+/// `PropertyType`s (so it isn't genuinely unsupported) but is otherwise malformed for
+/// that type, e.g. a `cohort` filter missing the required `key` — a shape that could
+/// exist in storage from before cohort filters were validated on write. It's tried
+/// after `Filter`/`Group` (a well-formed leaf of a known type already matched one of
+/// those) and before `Unsupported`, so a malformed-but-known-type leaf still surfaces
+/// as a parsing error instead of silently degrading like a genuinely unrecognized type
+/// does.
+///
+/// `Unsupported` is the catch-all last variant: a leaf whose `type` this evaluator
+/// can't resolve from person/group properties — most commonly a `behavioral` filter,
+/// which needs event history over time. An unsupported leaf contributes no cohort
+/// dependency and is a non-match during evaluation, so the cohort's evaluable leaves
+/// still decide membership. The payload is discarded via `IgnoredAny` rather than kept
+/// as `serde_json::Value` since nothing reads it, avoiding materializing every
+/// unsupported leaf on each cohort parse. Because it deserializes any JSON, it must
+/// stay last so real filters and groups are tried first; this also means the whole
+/// type tree can no longer derive `Serialize` (`IgnoredAny` doesn't implement it) —
+/// nothing in the codebase serializes cohort filters back out, only the raw JSON on
+/// `Cohort::filters`.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum CohortValuesItem {
     Filter(PropertyFilter),
     Group(CohortValues),
+    MalformedKnownType(KnownTypeMarker),
+    Unsupported(IgnoredAny),
+}
+
+/// Matches only the `type` field of a leaf, so it succeeds whenever `type` names a
+/// supported `PropertyType` even if the rest of the leaf is malformed for that type.
+/// See `CohortValuesItem::MalformedKnownType`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnownTypeMarker {
+    #[serde(rename = "type")]
+    pub prop_type: PropertyType,
 }
 
 #[cfg(test)]
@@ -601,6 +634,30 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+
+    #[test]
+    fn test_cohort_values_item_untagged_variant_ordering() {
+        // The untagged variant order must keep real filters and groups ahead of the
+        // catch-all: a leaf property filter stays a `Filter`, a group stays a `Group`,
+        // and only a leaf whose `type` we can't parse (e.g. `behavioral`) falls through
+        // to `Unsupported` instead of aborting the whole cohort parse.
+        let filter: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+        ))
+        .unwrap();
+        assert!(matches!(filter, CohortValuesItem::Filter(_)));
+
+        let group: CohortValuesItem =
+            serde_json::from_value(serde_json::json!({"type": "AND", "values": []})).unwrap();
+        assert!(matches!(group, CohortValuesItem::Group(_)));
+
+        let behavioral: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"}
+        ))
+        .unwrap();
+        assert!(matches!(behavioral, CohortValuesItem::Unsupported(_)));
     }
 }
 

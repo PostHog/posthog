@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,18 +11,33 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_prope
 from posthog.sync import database_sync_to_async
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
+    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    TRACE_EVAL_MAX_WINDOW_SECONDS,
+    TRACE_EVAL_MIN_WINDOW_SECONDS,
+)
 
 from ee.hogai.tool import MaxTool
 
-TOOL_DESCRIPTION = """Test Hog evaluation code against sample events from the last 7 days.
+TOOL_DESCRIPTION = f"""Test Hog evaluation code against sample data from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.
 
-Returns compilation errors if the code is invalid, or pass/fail/error results for each sample event.
+Returns compilation errors if the code is invalid, or pass/fail/error results for each sample.
 
-The Hog code receives these globals:
-- `input` (string): the LLM input (prompt/messages)
-- `output` (string): the LLM output (completion/response)
-- `properties` (object): all event properties
-- `event` (object): event metadata with `uuid`, `event`, `distinct_id`
+Set `target` to match how the evaluation will run: `generation` samples individual generations,
+`trace` samples whole traces and exposes trace-level globals. For traces, set `window_seconds`
+to the evaluation's aggregation window so the preview matches online behavior.
+
+Write new evaluations using these globals:
+- `evaluation_events` (array): the events under evaluation — one generation for a generation
+  target, all events of the trace for a trace target. Each item has `uuid`, `event`, `timestamp`,
+  serialized `input` and `output`, readable `input_text` and `output_text`, and `properties`
+  without large input, output, and tool payloads.
+- `target` (object): the sampled unit's `type` ('generation' or 'trace'), `id`, `total_cost_usd`,
+  and `total_latency_seconds`.
+
+Saved evaluations can still use the generation-only compatibility globals `input`, `output`,
+`properties`, and `event`, but do not use them in new source that should also work for traces.
 
 The code must return a boolean: `true` for pass, `false` for fail.
 Use `print()` statements to output reasoning.
@@ -35,7 +50,17 @@ class RunHogEvalTestArgs(BaseModel):
         default=3,
         ge=1,
         le=5,
-        description="Number of recent events to test against (1-5)",
+        description="Number of recent samples to test against (1-5)",
+    )
+    target: Literal["generation", "trace"] = Field(
+        default="generation",
+        description="What to sample: 'generation' (individual generations) or 'trace' (whole traces)",
+    )
+    window_seconds: int = Field(
+        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+        ge=TRACE_EVAL_MIN_WINDOW_SECONDS,
+        le=TRACE_EVAL_MAX_WINDOW_SECONDS,
+        description="Aggregation window for trace samples, in seconds",
     )
 
 
@@ -47,7 +72,13 @@ class RunHogEvalTestTool(MaxTool):
     def get_required_resource_access(self):
         return [("llm_analytics", "viewer")]
 
-    async def _arun_impl(self, source: str, sample_count: int = 3) -> tuple[str, Any]:
+    async def _arun_impl(
+        self,
+        source: str,
+        sample_count: int = 3,
+        target: Literal["generation", "trace"] = "generation",
+        window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    ) -> tuple[str, Any]:
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
@@ -58,6 +89,9 @@ class RunHogEvalTestTool(MaxTool):
 
         team = self._team
 
+        if target == "trace":
+            return await self._run_over_traces(bytecode, sample_count, window_seconds)
+
         # Read from ai_events with native heavy columns so the Hog body still
         # sees `event.properties.$ai_input` etc. Falls back to the events table
         # when ai_events returns nothing (data beyond the retention window).
@@ -67,6 +101,7 @@ class RunHogEvalTestTool(MaxTool):
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["timestamp"]),
                 *[ast.Field(chain=[col]) for col in HEAVY_COLUMN_NAMES],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
@@ -83,7 +118,10 @@ class RunHogEvalTestTool(MaxTool):
                         right=ast.ArithmeticOperation(
                             op=ast.ArithmeticOperationOp.Sub,
                             left=ast.Call(name="now", args=[]),
-                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                            right=ast.Call(
+                                name="toIntervalDay",
+                                args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
+                            ),
                         ),
                     ),
                 ]
@@ -101,12 +139,13 @@ class RunHogEvalTestTool(MaxTool):
         )
         if not response.results:
             return (
-                "No recent AI events found in the last 7 days. Ingest some $ai_generation or $ai_metric events first.",
+                f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days. "
+                "Ingest some $ai_generation or $ai_metric events first.",
                 None,
             )
 
         # Parse all events first to collect property keys and build event data.
-        # Heavy columns trail the four base columns in row order — re-merge them
+        # Heavy columns trail the five base columns in row order — re-merge them
         # into `properties` so the Hog body can read `properties.$ai_input` etc.
         # `merge_heavy_properties` skips NULL heavy slots, so on the events
         # fallback (heavy columns absent) it re-merges nothing, and on ai_events
@@ -114,7 +153,7 @@ class RunHogEvalTestTool(MaxTool):
         parsed_events: list[dict[str, Any]] = []
         all_property_keys: set[str] = set()
         for row in response.results:
-            heavy_values = row[4 : 4 + len(HEAVY_COLUMN_NAMES)]
+            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
             heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values))
             properties = merge_heavy_properties(row[2], heavy_columns)
             all_property_keys.update(properties.keys())
@@ -124,6 +163,7 @@ class RunHogEvalTestTool(MaxTool):
                     "event": row[1],
                     "properties": properties,
                     "distinct_id": row[3] or "",
+                    "timestamp": row[4],
                 }
             )
 
@@ -183,6 +223,47 @@ class RunHogEvalTestTool(MaxTool):
                 lines.append(f"  Reasoning: {result['reasoning']}")
             if result["error"]:
                 lines.append(f"  Error: {result['error']}")
+            lines.append("")
+
+        return ("\n".join(lines), None)
+
+    async def _run_over_traces(self, bytecode: list[Any], sample_count: int, window_seconds: int) -> tuple[str, Any]:
+        from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
+
+        trace_results = await database_sync_to_async(run_hog_eval_over_recent_traces)(
+            team=self._team,
+            bytecode=bytecode,
+            condition_filter=None,
+            sample_count=sample_count,
+            allows_na=True,
+            window_seconds=window_seconds,
+        )
+        if not trace_results:
+            return (
+                f"No recent AI traces found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days. "
+                "Ingest some $ai_generation events first.",
+                None,
+            )
+
+        lines: list[str] = [f"Sampled {len(trace_results)} trace(s). Ran against trace-level globals.", ""]
+        for r in trace_results:
+            if r.error:
+                verdict_str = "ERROR"
+            elif r.verdict is True:
+                verdict_str = "PASS"
+            elif r.verdict is False:
+                verdict_str = "FAIL"
+            else:
+                verdict_str = "N/A"
+
+            lines.append(f"Trace {r.trace_id}:")
+            lines.append(f"  Input:  {r.input_preview}")
+            lines.append(f"  Output: {r.output_preview}")
+            lines.append(f"  Result: {verdict_str}")
+            if r.reasoning:
+                lines.append(f"  Reasoning: {r.reasoning}")
+            if r.error:
+                lines.append(f"  Error: {r.error}")
             lines.append("")
 
         return ("\n".join(lines), None)

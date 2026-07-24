@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SonarqubeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarqube import (
+    SonarqubeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import (
     ENDPOINTS,
     SONARQUBE_ENDPOINTS,

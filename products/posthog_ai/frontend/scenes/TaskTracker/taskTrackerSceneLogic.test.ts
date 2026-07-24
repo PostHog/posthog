@@ -96,7 +96,7 @@ describe('taskTrackerSceneLogic', () => {
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
         expect(runBody).toMatchObject({
             mode: 'interactive',
-            initial_permission_mode: 'bypassPermissions',
+            initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
         const streamKey = logic.values.activeCreation?.streamKey

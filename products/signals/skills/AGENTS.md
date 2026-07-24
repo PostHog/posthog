@@ -282,6 +282,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   has problem tools; falls back to one report per tool where category coverage is absent
   (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
   against real telemetry.
+- `signals-scout-conversations/` — support-delivery health watcher for the
+  Conversations (support inbox) product. Reads the `$conversation_*` ticket-lifecycle
+  events for operational regressions: SLA breach-rate steps on team replies
+  (`sla_active` / `sla_breached`), first-response latency blowouts (ticket-created →
+  first team reply), backlog inflow-vs-resolution imbalance, and channel / assignment /
+  priority concentration. Its discriminator is a _rate against a volume-stable
+  denominator, per operational dimension, stepping away from its own trailing baseline
+  while ticket volume holds_ — a breach share / response latency / inflow-minus-resolution
+  delta moving on steady volume is signal, a raw count that tracks inbound volume is
+  baseline — always gated by a minimum-volume guard. On the **report channel**
+  (`emit_report` / `edit_report`): files each dated, dimension-named regression as a 1:1
+  inbox report, editing the live report while the regression persists. It is the
+  operational complement to the per-ticket emission path: the emission pipeline
+  (`source_product="conversations"`) already reads each ticket thread and fires a
+  per-ticket _product-feedback_ signal (bugs / feature requests / usability), so this
+  scout never re-surfaces individual ticket content — it owns the aggregate throughput /
+  SLA / backlog / routing shape the one-ticket-at-a-time emitter can't see, and (reading
+  analytics events) it works whether or not that emission source is enabled.
 
 ### How the coordinator decides what runs
 
@@ -295,8 +313,10 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
    (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
-   authoring a skill is enough to get a scout. To register (and tune) one immediately
-   instead, use the `scout-config-create` endpoint.
+   authoring a skill is enough to get a scout. For custom scouts, `scout-create-prepare`
+   validates and signs the skill and config, then `scout-create-execute` creates them
+   after the user confirms; `scout-config-create` remains the lower-level way to register
+   a config for an existing skill.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -304,8 +324,8 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP
-tool, and settable at creation time via `scout-config-create` (an upsert that
-registers the config immediately instead of waiting for the tick). See
+tool, and settable for a new custom scout via the nested `config` object on
+`scout-create-prepare`. See
 `scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout

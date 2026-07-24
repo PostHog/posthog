@@ -15,8 +15,10 @@ from temporalio import activity, common, workflow
 from posthog.models.user import User
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, dispatch_sql_v2_run
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 
 
 @dataclass
@@ -53,19 +55,30 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
             inputs=input.inputs,
         )
     except SQLV2KernelNotRunning:
-        # Terminal — retrying won't start the kernel. Mark failed; the SSE stream surfaces it.
-        run.status = NotebookNodeRun.Status.FAILED
-        run.error = "Kernel is not running. Start the instance first."
-        run.save(update_fields=["status", "error", "updated_at"])
+        # No running kernel: provision one and dispatch again — a kernel-lane run is the
+        # user's explicit ask for compute, so it must not dead-end on "press Start first".
+        # A provisioning failure raises out of the activity; Temporal retries, and
+        # exhaustion marks the run failed via the workflow's catch.
+        get_kernel_runtime(notebook, user).ensure()
+        dispatch_sql_v2_run(
+            notebook,
+            user,
+            run,
+            input.code,
+            node_type=input.node_type,
+            output_name=input.output_name,
+            inputs=input.inputs,
+        )
 
 
 @activity.defn(name="notebook-sandbox-cmd-mark-failed")
 def mark_sql_v2_run_failed_activity(input: SQLV2RunInput) -> None:
+    # Status-guarded so a callback that completed the run between dispatch exhaustion and
+    # this activity keeps its real outcome — a stale FAILED must neither overwrite it nor
+    # report a second terminal transition.
     run = NotebookNodeRun.objects.for_team(input.team_id).filter(id=input.run_id).first()
-    if run is not None and run.status == NotebookNodeRun.Status.RUNNING:
-        run.status = NotebookNodeRun.Status.FAILED
-        run.error = "Run failed to dispatch to the kernel."
-        run.save(update_fields=["status", "error", "updated_at"])
+    if run is not None:
+        finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Run failed to dispatch to the kernel.")
 
 
 @workflow.defn(name="notebook-sandbox-cmd-run")
@@ -78,7 +91,9 @@ class NotebookSQLV2RunWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 dispatch_sql_v2_run_activity,
                 input,
-                start_to_close_timeout=timedelta(seconds=60),
+                # Long enough for a cold sandbox provision (Modal pull + kernel boot),
+                # which dispatch now performs itself when no kernel is running.
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=2)),
             )
         except Exception:

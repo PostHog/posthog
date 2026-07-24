@@ -80,6 +80,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: stri
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
     customer_analytics: null,
+    ticket: (id) => urls.supportTicketDetail(id),
 }
 
 export interface NotificationGroup {
@@ -90,7 +91,6 @@ export interface NotificationGroup {
     last_seen: string
     children: InAppNotification[]
     has_unread: boolean
-    has_archivable: boolean
     full_children_loaded: boolean
 }
 
@@ -119,9 +119,6 @@ export function buildGroups(notifications: InAppNotification[], loadedGroupKeys:
             if (!n.read) {
                 existing.has_unread = true
             }
-            if (n.archivable) {
-                existing.has_archivable = true
-            }
             continue
         }
         byKey.set(key, {
@@ -132,7 +129,6 @@ export function buildGroups(notifications: InAppNotification[], loadedGroupKeys:
             last_seen: n.created_at,
             children: [n],
             has_unread: !n.read,
-            has_archivable: n.archivable,
             full_children_loaded: loadedGroupKeys.has(key),
         })
         groups.push(byKey.get(key)!)
@@ -1016,7 +1012,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             archiveNotification: async ({ id }) => {
                 const notification = values.inAppNotifications.find((n) => n.id === id)
-                if (!notification || !notification.archivable) {
+                if (!notification) {
                     return
                 }
                 actions.removeNotifications([id])
@@ -1040,12 +1036,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 if (!refreshed) {
                     return
                 }
-                const archivable = refreshed.children.filter((c) => c.archivable)
-                const ids = archivable.map((c) => c.id)
+                const ids = refreshed.children.map((c) => c.id)
                 if (ids.length === 0) {
                     return
                 }
-                const unreadArchived = archivable.filter((c) => !c.read).length
+                const unreadArchived = refreshed.children.filter((c) => !c.read).length
                 actions.removeNotifications(ids)
                 if (unreadArchived > 0) {
                     actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadArchived))
@@ -1060,12 +1055,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 await actions.refreshInAppUnreadCount()
             },
             archiveAll: async () => {
-                const archivable = values.inAppNotifications.filter((n) => n.archivable)
-                const ids = archivable.map((n) => n.id)
+                const ids = values.inAppNotifications.map((n) => n.id)
                 if (ids.length === 0) {
                     return
                 }
-                const unreadArchived = archivable.filter((n) => !n.read).length
+                const unreadArchived = values.inAppNotifications.filter((n) => !n.read).length
                 actions.removeNotifications(ids)
                 if (unreadArchived > 0) {
                     actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadArchived))
@@ -1247,7 +1241,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         ],
         hasArchivableNotifications: [
             (s) => [s.inAppNotifications],
-            (inAppNotifications: InAppNotification[]): boolean => inAppNotifications.some((n) => n.archivable),
+            (inAppNotifications: InAppNotification[]): boolean => inAppNotifications.length > 0,
         ],
         unreadCount: [
             (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],

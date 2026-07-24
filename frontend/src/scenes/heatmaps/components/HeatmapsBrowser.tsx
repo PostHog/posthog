@@ -102,6 +102,11 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
+
     return (
         <>
             <div className="flex-none md:flex justify-between items-end gap-2 w-full">
@@ -168,7 +173,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             disabledReason={
                                                 !displayUrl && !dataUrl && !hasValidReplayIframeData
                                                     ? 'Select a URL first'
-                                                    : undefined
+                                                    : toolbarAccessDisabledReason
                                             }
                                             size="small"
                                             data-attr="heatmaps-open-in-toolbar"

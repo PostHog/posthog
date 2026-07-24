@@ -126,7 +126,13 @@ class TestMetricRunPreparation(APIBaseTest):
         assert linked["source"] == executed
 
     def test_hogql_values_round_trip_through_deep_link(self) -> None:
-        definition = {"kind": "HogQLQuery", "query": "select count() from events", "values": {"threshold": 10}}
+        # Multi-line SQL: json.dumps escapes the newline with a backslash, which quote() encodes as
+        # %5C — a byte absolute_uri rejects. The deep link must survive real, multi-line queries.
+        definition = {
+            "kind": "HogQLQuery",
+            "query": "select count()\nfrom events\nwhere event = 'purchase'",
+            "values": {"threshold": 10},
+        }
         _, envelope = self._run(definition)
         linked = _decoded_sql_editor_link(envelope["posthog_url"])
         assert linked["kind"] == "DataVisualizationNode"

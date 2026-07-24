@@ -28,6 +28,31 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
 
 
+def _decode_field_metadata(metadata: dict | None) -> dict[str, str] | None:
+    # PyArrow stores field metadata as bytes keys/values; JSON keys can't be bytes.
+    if not metadata:
+        return None
+    return {
+        (key.decode() if isinstance(key, bytes) else key): (value.decode() if isinstance(value, bytes) else value)
+        for key, value in metadata.items()
+    }
+
+
+def build_schema_dict(schema: pa.Schema) -> dict:
+    return {
+        "fields": [
+            {
+                "name": field.name,
+                "type": str(field.type),
+                "nullable": field.nullable,
+                "metadata": _decode_field_metadata(field.metadata),
+            }
+            for field in schema
+        ],
+        "pandas_metadata": schema.pandas_metadata,
+    }
+
+
 class S3BatchWriter:
     _job: ExternalDataJob
     _schema_id: str
@@ -120,18 +145,7 @@ class S3BatchWriter:
         schema_path = f"{self._base_folder}/schema.json"
         s3_path_without_protocol = strip_s3_protocol(schema_path)
 
-        schema_dict = {
-            "fields": [
-                {
-                    "name": field.name,
-                    "type": str(field.type),
-                    "nullable": field.nullable,
-                    "metadata": dict(field.metadata) if field.metadata else None,
-                }
-                for field in self._schema
-            ],
-            "pandas_metadata": self._schema.pandas_metadata,
-        }
+        schema_dict = build_schema_dict(self._schema)
 
         self._logger.debug(f"Writing schema to {schema_path}")
 

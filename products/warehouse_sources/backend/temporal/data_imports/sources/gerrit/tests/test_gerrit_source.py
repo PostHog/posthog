@@ -5,7 +5,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GerritSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gerrit import GerritSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.gerrit import GerritResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.source import GerritSource

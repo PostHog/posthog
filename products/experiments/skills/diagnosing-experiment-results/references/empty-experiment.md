@@ -304,8 +304,11 @@ Ask explicitly. The "empty experiment" shape often resolves to a feature flag st
 branch that hasn't merged, or a page that calls the flag not being live yet.
 
 **Exposures were healthy then stopped** (the experiment ran for weeks/months, then the daily
-exposure count plateaued and never moved again). A different shape — capture and config are
-both fine; the application stopped calling the flag.
+exposure count plateaued and never moved again). Before investigating, check the experiment's
+status from Step 1: `exposure_frozen` means someone deliberately froze exposure — the plateau is
+the intended behavior (enrollment closed, metrics still flowing), not a bug. Likewise `paused`
+explains a hard stop. Otherwise, this is a different shape — capture and config are both fine;
+the application stopped calling the flag.
 
 _Verify directly:_
 

@@ -6,7 +6,9 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.codec import EncryptionCodec
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
+    TemporalIOSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.source import TemporalIOSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio import (
     FakeSettings,
@@ -117,6 +119,9 @@ class TestTransientRPCRetry:
             # tonic cancels a call that outruns the client's RPC deadline with status CANCELLED and
             # message "Timeout expired" — a client-side timeout that must be ridden out, not raised.
             ("Timeout expired", RPCStatusCode.CANCELLED),
+            # A DNS resolution blip surfaces as UNAVAILABLE — a connection-level failure that must
+            # be ridden out rather than failing the whole import activity.
+            ("dns error", RPCStatusCode.UNAVAILABLE),
         ],
     )
     @patch(
@@ -144,6 +149,7 @@ class TestTransientRPCRetry:
         [
             ("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED),
             ("downstream duration timeout", RPCStatusCode.DEADLINE_EXCEEDED),
+            ("dns error", RPCStatusCode.UNAVAILABLE),
         ],
     )
     @patch(

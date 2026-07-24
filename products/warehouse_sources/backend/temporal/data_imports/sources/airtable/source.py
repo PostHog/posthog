@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AirtableSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airtable import (
+    AirtableSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -83,11 +85,16 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: AirtableSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AirtableSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_airtable_credentials(config.personal_access_token):
             return True, None
@@ -98,7 +105,8 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         return airtable_source(
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

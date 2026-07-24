@@ -451,6 +451,38 @@ class TestProcessTaskFollowupDispatch:
         assert deliveries == ["keep working"]
         assert workflow._pending_followups == []
 
+    async def test_cancellation_stops_active_followup_and_discards_queue(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        followup_cancelled = asyncio.Event()
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                followup_cancelled.set()
+                raise
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+        await workflow.send_followup_message("queued work")
+
+        await workflow.complete_task("cancelled", "Stopped by user")
+        await workflow._finish_active_followup()
+
+        assert followup_cancelled.is_set()
+        assert workflow._active_followup_task is None
+        assert workflow._pending_followup is None
+        assert workflow._pending_followups == []
+
     async def test_completion_waits_for_declined_steer_fallback(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)

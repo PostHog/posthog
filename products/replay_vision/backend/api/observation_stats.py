@@ -4,6 +4,7 @@ All aggregations run in Postgres — status/coverage/verdict via ORM, classifier
 summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 """
 
+import json
 import math
 from datetime import timedelta
 from typing import Any, Literal, get_args
@@ -111,7 +112,7 @@ def _label_day_counts(
 
 
 def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, Any]]:
-    """Every prompt version that produced observations, with its first day, prompt text (from the run
+    """Every prompt version that produced observations, with its first day, full config (from the run
     snapshot), and rating counts. All-time: charts window it client-side; the configuration overview
     shows the full history."""
     rows = (
@@ -120,12 +121,16 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
         .annotate(
             day=TruncDate("created_at"),
             snapshot_prompt=KeyTextTransform("prompt", KeyTextTransform("scanner_config", "scanner_snapshot")),
+            # Whole config object as JSON text, not just the prompt key, so tags/scale/etc. version too.
+            snapshot_config=KeyTextTransform("scanner_config", "scanner_snapshot"),
         )
         .order_by()
         .values("snapshot_version")
         .annotate(
             first_day=Min("day"),
             prompt=Max("snapshot_prompt"),
+            # Every observation of a given version shares the same snapshot config, so Max just picks it out.
+            config_json=Max("snapshot_config"),
             up=Count("id", filter=Q(label__is_correct=True)),
             down=Count("id", filter=Q(label__is_correct=False)),
             # Only succeeded observations can be rated, so they are the ratable "scanned" total.
@@ -138,11 +143,16 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
             version = int(row["snapshot_version"])
         except (TypeError, ValueError):
             continue
+        try:
+            config = json.loads(row["config_json"]) if row["config_json"] else {}
+        except ValueError:
+            config = {}
         markers.append(
             {
                 "date": row["first_day"],
                 "version": version,
                 "prompt": row["prompt"] or "",
+                "scanner_config": config,
                 "up": row["up"],
                 "down": row["down"],
                 "total": row["total"],

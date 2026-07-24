@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RollbarSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rollbar import (
+    RollbarSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
     RollbarResumeConfig,
     rollbar_source,
@@ -94,11 +96,16 @@ You can find or create a project access token in your Rollbar project under Sett
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RollbarSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RollbarSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_rollbar_credentials(config.access_token):
             return True, None

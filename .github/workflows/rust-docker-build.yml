@@ -150,6 +150,9 @@ jobs:
                     - release: cohort-event-shuffler
                       digest_key: cohort-event-shuffler
                       values_key: image
+                    - release: cohort-seeder
+                      digest_key: cohort-seeder
+                      values_key: image
                     - release: cohort-stream-processor
                       digest_key: cohort-stream-processor
                       values_key: image
@@ -177,6 +180,9 @@ jobs:
                     - release: sqlx-migrate
                       digest_key: sqlx-migrate
                       values_key: image
+                    - release: personhog-identity
+                      digest_key: personhog-identity
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image
@@ -188,6 +194,9 @@ jobs:
                       values_key: image
                     - release: personhog-writer
                       digest_key: personhog-writer
+                      values_key: image
+                    - release: personhog-test-harness
+                      digest_key: personhog-test-harness
                       values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner

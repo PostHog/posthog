@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CimisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

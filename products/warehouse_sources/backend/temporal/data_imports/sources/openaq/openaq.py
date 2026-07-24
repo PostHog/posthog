@@ -1,17 +1,28 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.settings import (
     OPENAQ_ENDPOINTS,
     OpenAQEndpointConfig,
@@ -30,69 +41,41 @@ MAX_PAGES: int = 100
 # pagination for the full-refresh reference tables.
 _LIST_SORT_PARAMS = {"order_by": "id", "sort_order": "asc"}
 
-
-class OpenAQRetryableError(Exception):
-    pass
+# Name of the internal parent resource that enumerates sensor ids for the measurement fan-out.
+_SENSOR_IDS_RESOURCE = "sensor_ids"
+# Key the framework injects a parent field under: `_{parent_resource}_{field}`.
+_PARENT_SENSOR_ID_KEY = f"_{_SENSOR_IDS_RESOURCE}_id"
 
 
 @dataclasses.dataclass
 class OpenAQResumeConfig:
-    # Next page to fetch (1-based). For list/sensors endpoints this pages the top-level resource;
-    # for measurement fan-out it's the page within `parent_sensor_id`.
+    # Next page to fetch (1-based) for the list/sensors endpoints — seeded into the page paginator.
     page: int = 1
-    # The sensor currently being fetched in a measurement fan-out. A stable sensor-id bookmark (not a
-    # positional index) so sensors added/removed between a crash and the retry can't resume us into the
-    # wrong sensor. None for list/sensors endpoints.
+    # Legacy field from the hand-rolled measurement resume (stable sensor bookmark). Kept so old saved
+    # state still deserializes; the fan-out now checkpoints under `fanout_state` instead.
     parent_sensor_id: int | None = None
+    # Framework fan-out resume state for the measurement endpoints:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
+    fanout_state: dict[str, Any] | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {"X-API-Key": api_key, "Accept": "application/json"}
+class OpenAQPageNumberPaginator(PageNumberPaginator):
+    """Page-number pagination that also stops on a short page.
 
+    OpenAQ v3 paginates with `page`/`limit` and returns rows under `results`; a page shorter than
+    `limit` is the last one. The built-in stops only on an empty page, so we add the short-page check
+    to match the API's "fewer than a full page means done" contract without paying an extra request.
+    `maximum_page` caps the walk before `page * limit` crosses the v3 offset ceiling.
+    """
 
-def _build_url(base_url: str, params: dict[str, Any]) -> str:
-    if not params:
-        return base_url
-    return f"{base_url}?{urlencode(params)}"
+    def __init__(self, page_size: int, maximum_page: int) -> None:
+        super().__init__(base_page=1, page=1, page_param="page", maximum_page=maximum_page)
+        self._page_size = page_size
 
-
-def validate_credentials(api_key: str) -> bool:
-    # /v3/parameters is a small reference list reachable by any valid key, so it's the cheapest
-    # probe that the token itself is genuine.
-    url = _build_url(f"{OPENAQ_BASE_URL}/v3/parameters", {"limit": 1})
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            OpenAQRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(6),
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=60)
-
-    # Free-tier keys are limited to 60 req/min and 2000 req/hour; a 429 carries X-RateLimit-Reset
-    # headers we could honor exactly, but exponential backoff keeps this simple and correct.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise OpenAQRetryableError(f"OpenAQ API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"OpenAQ API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and data is not None and len(data) < self._page_size:
+            self._has_next_page = False
 
 
 def _format_time_value(value: Any, prefix: str) -> str:
@@ -158,201 +141,163 @@ def _flatten_measurement(item: dict[str, Any], sensor_id: int) -> dict[str, Any]
     }
 
 
-def _iter_location_pages(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, start_page: int = 1
-) -> Iterator[tuple[int, list[dict[str, Any]], bool]]:
-    """Page through /v3/locations, yielding (page, locations, is_last_page)."""
-    page = start_page
-    while True:
-        params = {**_LIST_SORT_PARAMS, "limit": OPENAQ_PAGE_SIZE, "page": page}
-        data = _fetch_page(session, _build_url(f"{OPENAQ_BASE_URL}/v3/locations", params), headers, logger)
-        results = data.get("results", [])
-        is_last = len(results) < OPENAQ_PAGE_SIZE or page >= MAX_PAGES
-        if page >= MAX_PAGES and len(results) == OPENAQ_PAGE_SIZE:
-            logger.warning(f"OpenAQ: hit MAX_PAGES={MAX_PAGES} paging /v3/locations; stopping enumeration")
-        yield page, results, is_last
-        if is_last:
-            break
-        page += 1
+def _explode_location_sensors(location: dict[str, Any]) -> list[dict[str, Any]]:
+    """Materialize the `sensors` endpoint: one flattened row per embedded sensor of a location."""
+    return [_flatten_sensor(location, sensor) for sensor in location.get("sensors") or []]
 
 
-def _iter_sensor_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[int]:
-    """Walk /v3/locations once and yield each embedded sensor id (globally unique)."""
-    for _page, locations, _is_last in _iter_location_pages(session, headers, logger):
-        for location in locations:
-            for sensor in location.get("sensors") or []:
-                sensor_id = sensor.get("id")
-                if sensor_id is not None:
-                    yield sensor_id
+def _explode_location_sensor_ids(location: dict[str, Any]) -> list[dict[str, Any]]:
+    """Drive the measurement fan-out: yield each embedded sensor id (skipping id-less sensors)."""
+    return [
+        {"id": sensor_id} for sensor in (location.get("sensors") or []) if (sensor_id := sensor.get("id")) is not None
+    ]
 
 
-def _get_list_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
+def _reshape_measurement(item: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a fanned-out measurement, taking its sensor id from the parent-injected field."""
+    return _flatten_measurement(item, item[_PARENT_SENSOR_ID_KEY])
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": OPENAQ_BASE_URL,
+        # Auth (X-API-Key) is supplied via the framework auth config so its value is redacted from
+        # logged URLs, headers, sampled bodies, and raised error messages; only the non-secret Accept
+        # header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
+    }
+
+
+def _list_resource(endpoint: str, config: OpenAQEndpointConfig, page_size: int) -> EndpointResource:
+    resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": {**_LIST_SORT_PARAMS, "limit": page_size},
+            # A missing `results` key is treated as an empty page (the paginator then stops), matching
+            # the hand-rolled `data.get("results", [])`.
+            "data_selector": "results",
+            "paginator": OpenAQPageNumberPaginator(page_size, MAX_PAGES),
+        },
+    }
+    if config.kind == "sensors":
+        resource["data_map"] = _explode_location_sensors
+    return resource
+
+
+def _measurement_resources(
+    endpoint: str,
     config: OpenAQEndpointConfig,
-    resumable_source_manager: ResumableSourceManager[OpenAQResumeConfig],
-) -> Iterator[Any]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 1
-
-    while page <= MAX_PAGES:
-        params = {**_LIST_SORT_PARAMS, "limit": OPENAQ_PAGE_SIZE, "page": page}
-        data = _fetch_page(session, _build_url(f"{OPENAQ_BASE_URL}{config.path}", params), headers, logger)
-        results = data.get("results", [])
-        is_last = len(results) < OPENAQ_PAGE_SIZE
-
-        for item in results:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                if not is_last:
-                    resumable_source_manager.save_state(OpenAQResumeConfig(page=page + 1))
-
-        if is_last:
-            break
-        page += 1
-
-
-def _get_sensor_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[OpenAQResumeConfig],
-) -> Iterator[Any]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_page = resume.page if resume else 1
-
-    for page, locations, is_last in _iter_location_pages(session, headers, logger, start_page):
-        for location in locations:
-            for sensor in location.get("sensors") or []:
-                batcher.batch(_flatten_sensor(location, sensor))
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    if not is_last:
-                        resumable_source_manager.save_state(OpenAQResumeConfig(page=page + 1))
-
-
-def _get_measurement_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    config: OpenAQEndpointConfig,
-    resumable_source_manager: ResumableSourceManager[OpenAQResumeConfig],
+    page_size: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> Iterator[Any]:
-    sensor_ids = list(_iter_sensor_ids(session, headers, logger))
+) -> list[EndpointResource | str]:
+    parent: EndpointResource = {
+        "name": _SENSOR_IDS_RESOURCE,
+        "endpoint": {
+            "path": "/v3/locations",
+            "params": {**_LIST_SORT_PARAMS, "limit": page_size},
+            "data_selector": "results",
+            "paginator": OpenAQPageNumberPaginator(page_size, MAX_PAGES),
+        },
+        "data_map": _explode_location_sensor_ids,
+    }
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = sensor_ids
-    resume_page = 1
-    if resume is not None and resume.parent_sensor_id is not None and resume.parent_sensor_id in sensor_ids:
-        remaining = sensor_ids[sensor_ids.index(resume.parent_sensor_id) :]
-        resume_page = resume.page
-        logger.debug(f"OpenAQ: resuming {config.name} from sensor_id={resume.parent_sensor_id}, page={resume_page}")
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": {
+            "sensors_id": {"type": "resolve", "resource": _SENSOR_IDS_RESOURCE, "field": "id"},
+            "limit": page_size,
+        },
+        "data_selector": "results",
+        "paginator": OpenAQPageNumberPaginator(page_size, MAX_PAGES),
+    }
+    # Only inject the server-side time filter when incremental syncing with a real watermark — a first
+    # sync (no last value) fetches the full history, matching the hand-rolled guard.
+    if should_use_incremental_field and db_incremental_field_last_value and config.time_param_prefix:
+        prefix = config.time_param_prefix
+        child_endpoint["incremental"] = {
+            "start_param": f"{prefix}_from",
+            "cursor_path": f"{prefix}_from",
+            "convert": partial(_format_time_value, prefix=prefix),
+        }
 
-    if config.time_param_prefix is None:
-        raise ValueError(f"OpenAQ endpoint {config.name!r} has kind='measurement' but no time_param_prefix")
-    time_params: dict[str, Any] = {}
-    if should_use_incremental_field and db_incremental_field_last_value:
-        time_params[f"{config.time_param_prefix}_from"] = _format_time_value(
-            db_incremental_field_last_value, config.time_param_prefix
-        )
-
-    for index, sensor_id in enumerate(remaining):
-        page = resume_page if index == 0 else 1
-        resume_page = 1  # only the resumed-into sensor uses the saved page; the rest start fresh
-
-        while page <= MAX_PAGES:
-            params = {**time_params, "limit": OPENAQ_PAGE_SIZE, "page": page}
-            path = config.path.format(sensors_id=sensor_id)
-            data = _fetch_page(session, _build_url(f"{OPENAQ_BASE_URL}{path}", params), headers, logger)
-            results = data.get("results", [])
-            is_last = len(results) < OPENAQ_PAGE_SIZE or page >= MAX_PAGES
-            if page >= MAX_PAGES and len(results) == OPENAQ_PAGE_SIZE:
-                logger.warning(
-                    f"OpenAQ: hit MAX_PAGES={MAX_PAGES} for {config.name} sensor_id={sensor_id}; "
-                    "remaining rows sync on the next incremental run"
-                )
-
-            for item in results:
-                batcher.batch(_flatten_measurement(item, sensor_id))
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    if not is_last:
-                        resumable_source_manager.save_state(
-                            OpenAQResumeConfig(page=page + 1, parent_sensor_id=sensor_id)
-                        )
-
-            if is_last:
-                break
-            page += 1
-
-        # Advance the bookmark to the next sensor so a crash between sensors resumes correctly.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(OpenAQResumeConfig(page=1, parent_sensor_id=remaining[index + 1]))
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OpenAQResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = OPENAQ_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page (and every sensor, for fan-out) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request. Redact the key so it never lands in
-    # logged URLs or captured samples.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    if config.kind == "list":
-        yield from _get_list_rows(session, headers, logger, batcher, config, resumable_source_manager)
-    elif config.kind == "sensors":
-        yield from _get_sensor_rows(session, headers, logger, batcher, resumable_source_manager)
-    else:
-        yield from _get_measurement_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            config,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    child: EndpointResource = {
+        "name": endpoint,
+        "endpoint": child_endpoint,
+        "include_from_parent": ["id"],
+        "data_map": _reshape_measurement,
+    }
+    return [parent, child]
 
 
 def openaq_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[OpenAQResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = OPENAQ_ENDPOINTS[endpoint]
+    page_size = OPENAQ_PAGE_SIZE
+    client_config = _client_config(api_key)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.kind == "measurement":
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": _measurement_resources(
+                endpoint, config, page_size, should_use_incremental_field, db_incremental_field_last_value
+            ),
+        }
+
+        initial_fanout_state = resume.fanout_state if resume is not None else None
+
+        def save_fanout(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(OpenAQResumeConfig(fanout_state=state))
+
+        resources = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_fanout,
+            initial_paginator_state=initial_fanout_state,
+        )
+        resource: Resource = next(r for r in resources if r.name == endpoint)
+    else:
+        rest_config = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_list_resource(endpoint, config, page_size)],
+        }
+
+        initial_page_state = {"page": resume.page} if (resume is not None and resume.page) else None
+
+        def save_page(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page yields so a crash re-yields the
+            # last page (merge dedupes) rather than skipping it.
+            if state and state.get("page") is not None:
+                resumable_source_manager.save_state(OpenAQResumeConfig(page=int(state["page"])))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_page,
+            initial_paginator_state=initial_page_state,
+        )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -364,4 +309,16 @@ def openaq_source(
         # in the PR. If this proves wrong, the datetime_from server filter still bounds each fetch, so
         # completeness holds — only mid-sync watermark checkpointing would need sort_mode="desc".
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    # /v3/parameters is a small reference list reachable by any valid key, so it's the cheapest
+    # probe that the token itself is genuine.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{OPENAQ_BASE_URL}/v3/parameters?limit=1",
+        headers={"X-API-Key": api_key, "Accept": "application/json"},
+    )
+    return ok

@@ -5,11 +5,6 @@ on:
         branches:
             - master
     pull_request:
-    # Required so `Dagster Tests Pass` (a required status check) reports on merge
-    # queue entries — without it the queue would wait for the check until timeout.
-    # The jobs themselves skip on merge_group (the suite already runs in full on
-    # every PR) and the aggregator treats skipped as success.
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -48,7 +43,6 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Validate dagster path filter coverage
-        if: github.event_name != 'merge_group'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -64,7 +58,6 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run dagster checks
-        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
@@ -120,6 +113,7 @@ jobs:
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
+                        - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
@@ -256,7 +250,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -435,8 +429,8 @@ jobs:
                   path: junit-*.xml
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
             # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
             # this upload skips.
             - name: Upload test results to Trunk

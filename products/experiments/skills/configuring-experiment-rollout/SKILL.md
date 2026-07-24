@@ -194,6 +194,9 @@ Present the warning covering both perspectives:
 
 **Exception**: Increasing rollout (without changing the split) is generally safe — no users switch variants, more users are added cleanly.
 
+**If the goal is "stop new users from entering" rather than a percentage change**: reducing the rollout is the wrong tool — it drops already-enrolled users out of the experiment too.
+Freezing exposure (`experiment-freeze-exposure`) closes enrollment while enrolled users keep their variant and metrics keep flowing; see `managing-experiment-lifecycle` for its preconditions and limitations.
+
 **Mid-experiment fix for uneven-split bias**: switching multivariate handling from "Exclude" to "First
 seen variant" is the recommended mitigation for already-launched experiments — no users switch variants
 and all collected data stays in the analysis. Changing the split to be even is an anti-pattern mid-run
