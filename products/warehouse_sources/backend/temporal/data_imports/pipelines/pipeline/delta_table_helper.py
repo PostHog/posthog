@@ -51,6 +51,37 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
+# Partitioned incremental merges run per chunk of partition values: a static `IN (...)`
+# prunes like the per-partition `= literal` it replaced, paying planning/commit overhead
+# once per chunk. The byte cap is the memory bound and counts at-rest (compressed) bytes;
+# the decompressed Arrow working set runs ~20x that (see DATA_WAREHOUSE_TARGET_PARTITION_BYTES),
+# so 128 MiB ≈ ~2.5 GiB peak per merge — sized for several concurrent merges per pod, since
+# packing makes hitting the cap the common case. An oversized partition merges alone (the
+# old behavior); the count cap only bounds predicate size and writer fan-out.
+MERGE_PARTITION_CHUNK_SIZE = 100
+MERGE_CHUNK_MAX_TARGET_BYTES = 128 * 1024 * 1024
+
+
+def _pack_partition_chunks(partition_values: list[Any], sizes_on_disk: dict[str, int]) -> list[list[Any]]:
+    """Greedy pack by cumulative on-disk bytes and count; fileless partitions cost 0."""
+    chunks: list[list[Any]] = []
+    current: list[Any] = []
+    current_bytes = 0
+    for value in partition_values:
+        size = sizes_on_disk.get(str(value), 0)
+        if current and (
+            len(current) >= MERGE_PARTITION_CHUNK_SIZE or current_bytes + size > MERGE_CHUNK_MAX_TARGET_BYTES
+        ):
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(value)
+        current_bytes += size
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 # Substrings of the `OSError`s delta-rs's Rust `object_store` crate raises from
 # `DeltaTable.is_deltatable()` when it can't reach or authenticate against our own S3-backed
 # data-warehouse bucket (IMDS/STS blips, dispatch timeouts) — not a customer credential problem.
@@ -382,6 +413,30 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    async def _partition_sizes_on_disk(self, delta_table: deltalake.DeltaTable) -> dict[str, int]:
+        """Parquet bytes per partition value, from the delta log. Fails open to {} so a
+        bad size read degrades packing to the count cap instead of blocking the merge."""
+
+        def _sizes() -> dict[str, int]:
+            adds = pa.table(delta_table.get_add_actions(flatten=True))
+            partition_column = f"partition.{PARTITION_KEY}"
+            if partition_column not in adds.column_names:
+                return {}
+            grouped = adds.group_by(partition_column).aggregate([("size_bytes", "sum")])
+            return {
+                str(value): size
+                for value, size in zip(grouped[partition_column].to_pylist(), grouped["size_bytes_sum"].to_pylist())
+                if value is not None and size is not None
+            }
+
+        try:
+            return await asyncio.to_thread(_sizes)
+        except Exception:
+            await self._logger.awarning(
+                "write_to_deltalake: failed to read per-partition sizes; chunking by count only"
+            )
+            return {}
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
@@ -476,26 +531,41 @@ class DeltaTableHelper:
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
-                # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = list(pc.unique(data[PARTITION_KEY]))
+                unique_partitions = pc.unique(data[PARTITION_KEY])
+                partition_sizes = await self._partition_sizes_on_disk(existing_delta_table)
+                partition_chunks = _pack_partition_chunks(unique_partitions.to_pylist(), partition_sizes)
 
-                await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
+                await self._logger.adebug(
+                    f"Running {len(partition_chunks)} optimised merges over {len(unique_partitions)} partitions"
+                )
 
-                # Only tag the FINAL partition merge with `commit_properties`. Intermediate
-                # merges must remain untagged so a crash mid-loop doesn't leave behind a
-                # tagged commit that would cause `has_batch_been_committed` to skip the
-                # remaining partitions on Kafka redelivery (which would lose data).
-                last_partition_index = len(unique_partitions) - 1
-                for i, partition in enumerate(unique_partitions):
-                    partition_predicate_ops = predicate_ops.copy()
-                    partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                    predicate = " AND ".join(partition_predicate_ops)
+                # Tag only the FINAL chunk merge: a tagged intermediate commit would make
+                # `has_batch_been_committed` skip the remaining chunks on redelivery
+                # after a mid-loop crash, losing data.
+                last_chunk_index = len(partition_chunks) - 1
+                for i, partition_values in enumerate(partition_chunks):
+                    chunk_predicate_ops = predicate_ops.copy()
+                    if len(partition_values) == 1:
+                        # e2e pins assert this exact legacy `=` shape — not just style.
+                        chunk_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition_values[0]}'")
+                    else:
+                        in_list = ", ".join(f"'{value}'" for value in partition_values)
+                        chunk_predicate_ops.append(f"target.{PARTITION_KEY} IN ({in_list})")
+                    predicate = " AND ".join(chunk_predicate_ops)
 
-                    filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+                    filtered_table = data.filter(
+                        pc.is_in(
+                            data[PARTITION_KEY],
+                            value_set=pa.array(partition_values, type=unique_partitions.type),
+                        )
+                    )
 
-                    await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
+                    await self._logger.adebug(
+                        f"Merging partition chunk {i + 1}/{len(partition_chunks)} "
+                        f"({len(partition_values)} partitions) with predicate={predicate}"
+                    )
 
-                    merge_commit_properties = commit_properties if i == last_partition_index else None
+                    merge_commit_properties = commit_properties if i == last_chunk_index else None
 
                     def _do_merge(
                         filtered_table: pa.Table,
