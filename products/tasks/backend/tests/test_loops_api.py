@@ -435,6 +435,30 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
     @patch("posthog.storage.object_storage.delete_objects")
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
+    def test_replace_racing_an_ownership_takeover_is_denied(self, mock_write, mock_tag, mock_delete):
+        # Ownership moves to a teammate while the former owner's replace is mid-upload;
+        # the swap must re-authorize under the lock, discard its uploads and 403 rather
+        # than landing the former owner's skill on the taken-over loop.
+        loop = self._create_loop(self.owner_client, visibility="team")
+
+        def take_ownership_mid_request(*args, **kwargs):
+            Loop.objects.unscoped().filter(id=loop["id"]).update(created_by=self.peer)
+
+        mock_write.side_effect = take_ownership_mid_request
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        mock_delete.assert_called_once()
+        discarded_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(discarded_paths), 1)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
     def test_replace_racing_a_delete_discards_its_uploads(self, mock_write, mock_tag, mock_delete):
         # The soft delete commits between this request's fetch and its manifest swap; the
         # swap must notice the deleted row and discard its own fresh uploads, not
