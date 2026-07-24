@@ -1020,7 +1020,8 @@ function AnchorTimeField({
                     </span>
                     <span className="text-xs text-muted max-w-md">
                         Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
-                        downstream jobs). Only applies to intervals longer than one hour.
+                        downstream jobs). The time is in UTC unless you switch to your project timezone. Only applies to
+                        intervals longer than one hour.
                     </span>
                 </div>
                 {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
