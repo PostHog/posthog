@@ -119,6 +119,21 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("naked_append_path", "select * from persons;"),
+            ("own_limit_wrapper_path", "select * from persons limit 5;"),
+            ("set_query_wrapper_path", "select 1 union all select 2;"),
+        ]
+    )
+    def test_trailing_semicolon_is_stripped_so_the_bound_stays_valid(self, _name: str, query: str) -> None:
+        # A trailing ';' parses fine but breaks once a LIMIT is appended or the query is wrapped
+        # as a subquery. The top-level strip normalizes it for both lanes, so the bounded result
+        # re-parses cleanly instead of failing downstream as `...;\nlimit 301`.
+        parsed = parse_select(apply_page_bounds(query, limit=301, offset=0))
+        assert isinstance(parsed, ast.SelectQuery)
+        assert isinstance(parsed.limit, ast.Constant) and parsed.limit.value == 301
+
+    @parameterized.expand(
+        [
             ("own_limit_already_pushes_down_via_wrapper", "select * from persons limit 5", 301, 0),
             ("own_offset_must_not_be_clobbered", "select * from persons offset 10", 301, 0),
             ("paged_offset_needs_result_set_pagination", "select * from persons", 301, 50),

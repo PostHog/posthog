@@ -86,13 +86,21 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
     A query with no LIMIT of its own gets one appended to its own outermost SELECT, so
     ClickHouse can push it into an aggregated view like `persons`: an unbounded
     `select * from persons` then reads ~limit rows' worth instead of deduplicating the whole
-    table (prod: 6.8M rows / 0.35s vs 226M / 73s). We append to the exact source text rather
-    than re-print a parsed AST, which drops table-function arguments (`numbers(50001)`).
+    table (prod: 6.8M rows / 0.35s vs 226M / 73s). We append to the source text rather than
+    re-print a parsed AST, which drops table-function arguments (`numbers(50001)`); a trailing
+    `;` is stripped first, since it parses but breaks once a LIMIT is appended or wrapped.
 
     Everything else falls back to `_wrap_hogql_page_query`: a query with its own LIMIT already
     pushes down through the wrapper's inner subquery, and a paged offset, a query with its own
     OFFSET, a set query, or an unparseable query all need the wrapper's outer bound.
     """
+    # A trailing `;` parses cleanly but breaks once we append LIMIT (or wrap the query as a
+    # subquery), so normalize it away for both lanes. HogQL is single-statement, so this only
+    # ever drops the terminator, never a second statement.
+    query = query.rstrip()
+    if query.endswith(";"):
+        query = query[:-1].rstrip()
+
     try:
         parsed = parse_select(query)
     except ExposedHogQLError:
@@ -105,9 +113,9 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
         and parsed.offset is None
         and parsed.settings is None
     ):
-        # LIMIT is HogQL's last clause (SETTINGS is unsupported), so appending is always valid
-        # and keeps the query and its table functions byte-for-byte. `query` parsed cleanly above
-        # and `limit` is int()-cast, so there is nothing to inject.
+        # With the terminator stripped, LIMIT is the query's last clause (SETTINGS does not
+        # parse), so appending is valid and keeps its table functions intact (re-printing the
+        # AST would drop them). `query` parsed cleanly above and `limit` is int()-cast.
         # nosemgrep: semgrep.rules.security.hogql-fstring-audit
         return f"{query}\nlimit {int(limit)}"
 
