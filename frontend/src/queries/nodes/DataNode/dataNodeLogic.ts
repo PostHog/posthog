@@ -77,7 +77,7 @@ import {
     isGroupsQuery,
     isDataVisualizationNode,
     isHogQLQuery,
-    isInsightActorsQuery,
+    isInsightActorsQueryLike,
     isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
@@ -1647,8 +1647,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.query],
             (query: DataNode<Record<string, any>>): InsightVizNode | null => {
                 const insightSource =
-                    (isActorsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null) ??
-                    (isEventsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null)
+                    (isActorsQuery(query) && isInsightActorsQueryLike(query.source) ? query.source.source : null) ??
+                    (isEventsQuery(query) && isInsightActorsQueryLike(query.source) ? query.source.source : null)
                 if (insightSource) {
                     const insightVizNode: InsightVizNode = {
                         kind: NodeKind.InsightVizNode,
