@@ -766,7 +766,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     def _is_iam_role_enabled_for_team(self) -> bool:
-        user = self.request.user
+        user = cast(User, self.request.user)
         team = self.team
         return bool(
             posthoganalytics.feature_enabled(
