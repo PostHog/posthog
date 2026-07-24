@@ -5,8 +5,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { urls } from 'scenes/urls'
 
-import api from '~/lib/api'
+import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+
+import { llmPromptsNameDuplicateCreate } from '../generated/api'
 
 export const PROMPT_NAME_MAX_LENGTH = 255
 
@@ -172,7 +174,7 @@ export function openArchivePromptDialog(onArchive: () => void): void {
 
 export async function requestPromptDuplicate(sourceName: string, newName: string): Promise<void> {
     try {
-        await api.llmPrompts.duplicateByName(sourceName, newName)
+        await llmPromptsNameDuplicateCreate(String(ApiConfig.getCurrentTeamId()), sourceName, { new_name: newName })
         lemonToast.success(`Prompt duplicated as "${newName}".`)
         router.actions.push(urls.aiObservabilityPrompt(newName))
     } catch (error) {

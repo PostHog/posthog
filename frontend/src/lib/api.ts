@@ -158,9 +158,6 @@ import {
     InsightModel,
     IntegrationType,
     JiraProjectType,
-    LLMPrompt,
-    LLMPromptPublic,
-    LLMPromptResolveResponse,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -1986,26 +1983,6 @@ export class ApiRequest {
 
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
-    }
-
-    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
-    }
-
-    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
-    }
-
-    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('archive')
-    }
-
-    public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
-    }
-
-    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -7123,53 +7100,6 @@ const api = {
             data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
         ): Promise<void> {
             await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
-        },
-    },
-
-    llmPrompts: {
-        list(params?: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
-            return new ApiRequest().llmPrompts().withQueryString(params).get()
-        },
-
-        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
-            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
-        },
-
-        resolveByName(
-            promptName: string,
-            params?: {
-                version?: number
-                version_id?: string
-                offset?: number
-                before_version?: number
-                limit?: number
-            }
-        ): Promise<LLMPromptResolveResponse> {
-            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
-        },
-
-        async update(
-            promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
-        ): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptByName(promptName).update({ data })
-        },
-
-        async archiveByName(promptName: string): Promise<void> {
-            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
-        },
-
-        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
         },
     },
 
