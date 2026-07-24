@@ -19,6 +19,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_select
+
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
@@ -59,17 +63,55 @@ def notebook_direct_query_id(run_id: str) -> str:
     ).hexdigest()
 
 
-def wrap_hogql_page_query(query: str, limit: int, offset: int) -> str:
-    """Cap a HogQL query with an outer LIMIT/OFFSET, without mutating it.
+def _wrap_hogql_page_query(query: str, limit: int, offset: int) -> str:
+    """Cap a page by wrapping the query in an outer ``select * from (...) limit/offset``.
 
-    Wrapping caps the page regardless of the query's own shape (set queries, its own
-    LIMIT, etc.). The inner query is validated HogQL and the wrapper is re-parsed as
-    HogQL downstream, so there is no raw-SQL injection; limit/offset are int()-cast.
-    The newline before the closing paren keeps a trailing line comment (`-- …`) in the
-    user's query from swallowing the wrapper.
+    The fallback for shapes where setting the bound on the query itself would change its
+    meaning: a paged offset or a query with its own OFFSET (both need result-set pagination
+    over the query's output), a set query (no single outer LIMIT), or a non-constant LIMIT.
+    The outer LIMIT does not push into an aggregated view, so prefer `apply_page_bounds`,
+    which does.
+
+    The inner query is validated HogQL and the wrapper is re-parsed as HogQL downstream, so
+    there is no raw-SQL injection; limit/offset are int()-cast. The newline before the closing
+    paren keeps a trailing line comment (`-- …`) in the user's query from swallowing the wrapper.
     """
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
     return f"select * from ({query}\n) limit {int(limit)} offset {int(offset)}"
+
+
+def apply_page_bounds(query: str, limit: int, offset: int) -> str:
+    """Bound a HogQL query to `limit` rows at `offset`, preserving ClickHouse limit pushdown.
+
+    A query with no LIMIT of its own gets one appended to its own outermost SELECT, so
+    ClickHouse can push it into an aggregated view like `persons`: an unbounded
+    `select * from persons` then reads ~limit rows' worth instead of deduplicating the whole
+    table (prod: 6.8M rows / 0.35s vs 226M / 73s). We append to the exact source text rather
+    than re-print a parsed AST, which drops table-function arguments (`numbers(50001)`).
+
+    Everything else falls back to `_wrap_hogql_page_query`: a query with its own LIMIT already
+    pushes down through the wrapper's inner subquery, and a paged offset, a query with its own
+    OFFSET, a set query, or an unparseable query all need the wrapper's outer bound.
+    """
+    try:
+        parsed = parse_select(query)
+    except ExposedHogQLError:
+        return _wrap_hogql_page_query(query, limit, offset)
+
+    if (
+        offset == 0
+        and isinstance(parsed, ast.SelectQuery)
+        and parsed.limit is None
+        and parsed.offset is None
+        and parsed.settings is None
+    ):
+        # LIMIT is HogQL's last clause (SETTINGS is unsupported), so appending is always valid
+        # and keeps the query and its table functions byte-for-byte. `query` parsed cleanly above
+        # and `limit` is int()-cast, so there is nothing to inject.
+        # nosemgrep: semgrep.rules.security.hogql-fstring-audit
+        return f"{query}\nlimit {int(limit)}"
+
+    return _wrap_hogql_page_query(query, limit, offset)
 
 
 def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) -> None:
@@ -80,12 +122,12 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
     store all come with it. Fetches one extra row past the cache ceiling so
     `sync_direct_run` can detect has_more, mirroring the kernel's capped fetch.
     """
-    wrapped = wrap_hogql_page_query(run.code, limit=RESULT_CACHE_ROWS + 1, offset=0)
+    bounded = apply_page_bounds(run.code, limit=RESULT_CACHE_ROWS + 1, offset=0)
     with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
         enqueue_process_query_task(
             team=team,
             user_id=user.id if user else None,
-            query_json={"kind": "HogQLQuery", "query": wrapped},
+            query_json={"kind": "HogQLQuery", "query": bounded},
             query_id=notebook_direct_query_id(str(run.id)),
             # A Run click always executes; never serve a stale cached result.
             refresh_requested=True,

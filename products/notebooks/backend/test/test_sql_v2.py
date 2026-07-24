@@ -20,6 +20,9 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +42,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
     decode_arrow_stream,
 )
 from products.notebooks.backend.sql_v2 import (
+    RESULT_CACHE_ROWS,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -54,7 +58,7 @@ from products.notebooks.backend.sql_v2 import (
 )
 from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
-from products.notebooks.backend.sql_v2_direct import notebook_direct_query_id, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import apply_page_bounds, notebook_direct_query_id, sync_direct_run
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -94,6 +98,42 @@ class TestSQLV2BackendBaseURL(SimpleTestCase):
     def test_callback_url_base(self, _name: str, sandbox_api_url: str | None, debug: bool, expected_base: str) -> None:
         with override_settings(SANDBOX_API_URL=sandbox_api_url, DEBUG=debug, SITE_URL="https://us.posthog.com"):
             assert build_callback_url("run-1") == f"{expected_base}/internal/notebooks/runs/run-1/result/"
+
+
+class TestSQLV2ApplyPageBounds(SimpleTestCase):
+    def test_naked_scan_is_bounded_in_place_not_wrapped(self) -> None:
+        # The fix: a query with no LIMIT of its own gets the window on its own SELECT so
+        # ClickHouse pushes it into an aggregated view instead of scanning the whole table.
+        parsed = parse_select(apply_page_bounds("select * from persons", limit=301, offset=0))
+        assert isinstance(parsed, ast.SelectQuery)
+        assert isinstance(parsed.limit, ast.Constant) and parsed.limit.value == 301
+        assert parsed.select_from is not None and isinstance(parsed.select_from.table, ast.Field)
+
+    def test_bounding_keeps_the_exact_query_text(self) -> None:
+        # Bounding appends to the source, never re-prints the AST, because re-printing drops
+        # table-function args (numbers(50001) -> numbers), which then fails on ClickHouse.
+        out = apply_page_bounds("select number from numbers(50001)", limit=301, offset=0)
+        assert "numbers(50001)" in out
+        bounded_limit = parse_select(out).limit
+        assert isinstance(bounded_limit, ast.Constant) and bounded_limit.value == 301
+
+    @parameterized.expand(
+        [
+            ("own_limit_already_pushes_down_via_wrapper", "select * from persons limit 5", 301, 0),
+            ("own_offset_must_not_be_clobbered", "select * from persons offset 10", 301, 0),
+            ("paged_offset_needs_result_set_pagination", "select * from persons", 301, 50),
+            ("set_query_has_no_single_outer_limit", "select 1 union all select 2", 301, 0),
+        ]
+    )
+    def test_other_shapes_fall_back_to_a_valid_wrapped_bound(
+        self, _name: str, query: str, limit: int, offset: int
+    ) -> None:
+        parsed = parse_select(apply_page_bounds(query, limit=limit, offset=offset))
+        assert isinstance(parsed, ast.SelectQuery)
+        # Wrapped: the original query becomes a subquery under the outer window bound.
+        assert parsed.select_from is not None
+        assert isinstance(parsed.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
+        assert isinstance(parsed.limit, ast.Constant) and parsed.limit.value == limit
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -345,7 +385,11 @@ class TestSQLV2Run(APIBaseTest):
         self.assertNotEqual(kwargs["query_id"], run_id)
         self.assertEqual(kwargs["query_id"], notebook_direct_query_id(run_id))
         self.assertTrue(kwargs["refresh_requested"])
-        self.assertIn("select 1", kwargs["query_json"]["query"])
+        # The run's code is enqueued bounded to the prefetch window, so an unbounded scan
+        # never ships without a LIMIT (the direct lane's only cap before the FE pages).
+        enqueued_limit = parse_select(kwargs["query_json"]["query"]).limit
+        assert isinstance(enqueued_limit, ast.Constant)
+        self.assertEqual(enqueued_limit.value, RESULT_CACHE_ROWS + 1)
 
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
     def test_a_query_status_under_the_run_id_cannot_poison_the_run(self, mock_status):
