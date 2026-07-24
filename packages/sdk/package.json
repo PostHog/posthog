@@ -1,0 +1,48 @@
+{
+    "name": "@posthog/sdk",
+    "version": "0.0.1",
+    "description": "TypeScript SDK for the PostHog management API — generated from the same OpenAPI → MCP codegen pipeline that powers the PostHog MCP server.",
+    "keywords": [
+        "analytics",
+        "api",
+        "feature-flags",
+        "posthog",
+        "sdk"
+    ],
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "files": [
+        "dist"
+    ],
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "scripts": {
+        "generate": "tsx scripts/generate.ts",
+        "build": "tsup",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "format": "oxlint --fix --quiet && oxfmt \"./{src,scripts,tests}/**/*.ts\""
+    },
+    "devDependencies": {
+        "@types/node": "^22.13.14",
+        "msw": "^2.14.6",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.8.0",
+        "tsup": "^8.5.0",
+        "tsx": "^4.20.5",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0",
+        "zod": "^4.3.6"
+    }
+}
