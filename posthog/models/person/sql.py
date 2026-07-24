@@ -685,6 +685,12 @@ COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
 # The following query will make an attempt to hide values that come from deleted users, however it will only hide the
 # values that are set at the time of deletion (or after). This is to avoid needing to GROUP BY id on the persons table,
 # which would make this query take ~20x as long and be unacceptable in the UI.
+#
+# Values are ordered by how many people have them (`c`), which is a useful signal for low-cardinality
+# properties. For high-cardinality properties (e.g. UUID-like ids) every value occurs about once, so `c`
+# is always 1 and can't rank the list; ties are broken by recency (most recently created person's value
+# first) so the suggestions lean towards the people a user is most likely working with rather than an
+# arbitrary sample.
 SELECT_PERSON_PROP_VALUES_SQL = """
 SELECT
     value,
@@ -693,7 +699,8 @@ FROM (
     SELECT
         {property_field} as value,
         is_deleted,
-        id
+        id,
+        created_at
     FROM
         person
     WHERE
@@ -705,7 +712,7 @@ FROM (
 )
 GROUP BY value
 HAVING c > 0
-ORDER BY c DESC
+ORDER BY c DESC, max(created_at) DESC
 LIMIT 20
 """
 
@@ -717,7 +724,8 @@ FROM (
     SELECT
         {property_field} as value,
         is_deleted,
-        id
+        id,
+        created_at
     FROM
         person
     WHERE
@@ -728,7 +736,7 @@ FROM (
 )
 GROUP BY value
 HAVING c > 0
-ORDER BY c DESC
+ORDER BY c DESC, max(created_at) DESC
 LIMIT 20
 """
 

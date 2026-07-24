@@ -219,7 +219,8 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
             is_deleted,
-            id
+            id,
+            created_at
      FROM person
      WHERE team_id = 99999
        AND value IS NOT NULL
@@ -228,7 +229,8 @@
      LIMIT 100000)
   GROUP BY value
   HAVING c > 0
-  ORDER BY c DESC
+  ORDER BY c DESC,
+           max(created_at) DESC
   LIMIT 20
   '''
 # ---
@@ -240,7 +242,8 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
             is_deleted,
-            id
+            id,
+            created_at
      FROM person
      WHERE team_id = 99999
        AND value ILIKE '%qw%'
@@ -248,7 +251,8 @@
      LIMIT 100000)
   GROUP BY value
   HAVING c > 0
-  ORDER BY c DESC
+  ORDER BY c DESC,
+           max(created_at) DESC
   LIMIT 20
   '''
 # ---
@@ -698,7 +702,8 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
             is_deleted,
-            id
+            id,
+            created_at
      FROM person
      WHERE team_id = 99999
        AND value IS NOT NULL
@@ -707,7 +712,8 @@
      LIMIT 100000)
   GROUP BY value
   HAVING c > 0
-  ORDER BY c DESC
+  ORDER BY c DESC,
+           max(created_at) DESC
   LIMIT 20
   '''
 # ---
@@ -719,7 +725,8 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
             is_deleted,
-            id
+            id,
+            created_at
      FROM person
      WHERE team_id = 99999
        AND value ILIKE '%qw%'
@@ -727,7 +734,8 @@
      LIMIT 100000)
   GROUP BY value
   HAVING c > 0
-  ORDER BY c DESC
+  ORDER BY c DESC,
+           max(created_at) DESC
   LIMIT 20
   '''
 # ---
