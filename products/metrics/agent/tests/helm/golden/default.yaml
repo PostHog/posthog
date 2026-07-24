@@ -8,7 +8,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 ---
 # Source: posthog-metrics-agent/templates/secret.yaml
@@ -20,7 +20,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
@@ -35,7 +35,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 data:
     config.yaml: |
@@ -105,7 +105,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 rules:
     # Prometheus kubernetes_sd needs to watch scrape targets across the cluster.
@@ -125,7 +125,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 roleRef:
     apiGroup: rbac.authorization.k8s.io
@@ -145,7 +145,7 @@ metadata:
         helm.sh/chart: posthog-metrics-agent-0.1.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "latest"
+        app.kubernetes.io/version: "0.1.0"
         app.kubernetes.io/managed-by: Helm
 spec:
     # A single replica by design: multiple replicas would scrape every target
@@ -162,12 +162,23 @@ spec:
                 app.kubernetes.io/instance: test-release
             annotations:
                 checksum/config: 1411c19dbd295f3baa0b938200623d437042a8fbba649ea037b24def467025bb
+                # Covers the chart-managed Secret so an API key rotation rolls the pod.
+                checksum/secret: e89605c80663cb97ad49cb086ea1470e13424ba9ac0f44429337d2f4e2eff7fe
         spec:
             serviceAccountName: test-release-posthog-metrics-agent
+            securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                    type: RuntimeDefault
             containers:
                 - name: agent
-                  image: 'posthog/metrics-agent:latest'
+                  image: 'posthog/metrics-agent:0.1.0'
                   imagePullPolicy: IfNotPresent
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
                   env:
                       - name: POSTHOG_API_KEY
                         valueFrom:

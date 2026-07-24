@@ -23,7 +23,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "posthog-metrics-agent.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- /* Never fall back to the namespace's shared `default` account: the chart's
+      ClusterRole would leak to every workload already using it. */}}
+{{- required "serviceAccount.name is required when serviceAccount.create is false" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
