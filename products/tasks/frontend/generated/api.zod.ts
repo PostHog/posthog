@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Code invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreateBodyCodeMax = 50
@@ -1502,7 +1502,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .nullish()
                 .describe(
-                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                    'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
                 ),
             relayed_mcp_servers: zod
                 .array(
@@ -1516,7 +1516,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .nullish()
                 .describe(
-                    'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                    'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1594,7 +1594,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .optional()
                 .describe(
-                    'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                    'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
                 ),
             initial_permission_mode: zod
                 .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
@@ -1639,7 +1639,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .nullish()
                 .describe(
-                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                    'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
                 ),
             relayed_mcp_servers: zod
                 .array(
@@ -1653,7 +1653,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .nullish()
                 .describe(
-                    'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                    'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1731,7 +1731,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .optional()
                 .describe(
-                    'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                    'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
                 ),
             initial_permission_mode: zod
                 .enum(['plan', 'auto', 'read-only', 'full-access'])
@@ -1803,7 +1803,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
             .string()
             .optional()
             .describe(
-                'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
             ),
     }),
 ])
@@ -2040,7 +2040,7 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
             ),
         relayed_mcp_servers: zod
             .array(
@@ -2052,7 +2052,7 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
             ),
         environment: zod
             .enum(['local', 'cloud'])
@@ -2125,7 +2125,7 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
         github_user_token: zod
             .string()
             .optional()
-            .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+            .describe('Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests.'),
         initial_permission_mode: zod
             .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
             .describe(

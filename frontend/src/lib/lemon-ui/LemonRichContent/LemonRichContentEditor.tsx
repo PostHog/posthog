@@ -15,6 +15,7 @@ import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
+import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentEditorType, RichContentNodeType, TTEditor } from 'lib/components/RichContentEditor/types'
@@ -51,6 +52,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
 
 export const DEFAULT_EXTENSIONS = [
     MentionsExtension,
+    EmojiSuggestionExtension,
     RichContentNodeMention,
     ExtensionDocument,
     StarterKit.configure({

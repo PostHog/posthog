@@ -2951,6 +2951,7 @@ class MarketingAnalyticsConstants(StrEnum):
 
 class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
+    CHANNEL_SOURCE = "channel_source"
     SOURCE = "source"
     CAMPAIGN = "campaign"
     AD_GROUP = "ad_group"

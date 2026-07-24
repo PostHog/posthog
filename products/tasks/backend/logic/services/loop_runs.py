@@ -75,6 +75,21 @@ LOOP_FRAMING_BLOCK = (
 )
 
 
+def render_loop_run_message(loop_instructions: str, execution_context: str) -> str:
+    # PostHog Code strips this established wrapper from user-message bubbles while still sending
+    # its contents to the agent, keeping run-only guidance out of the user's saved prompt.
+    escaped_execution_context = execution_context.replace(
+        "</user_custom_instructions>", "&lt;/user_custom_instructions&gt;"
+    )
+    hidden_context = (
+        "<user_custom_instructions>\n"
+        "The following system-generated instructions apply to this unattended loop run. Follow them.\n\n"
+        f"{escaped_execution_context}\n"
+        "</user_custom_instructions>"
+    )
+    return f"{hidden_context}\n\n{loop_instructions}"
+
+
 # Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
 # file_system scopes only, added on top of whatever posthog_mcp_scopes the loop already carries,
 # rather than escalating the run to the broad `full` write surface. resolve_scopes() re-adds the
@@ -506,9 +521,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
-    description = "\n\n".join(
-        part for part in [LOOP_FRAMING_BLOCK, loop.instructions, context_block, trigger_context] if part
-    )
+    execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
+    pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
     feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
 
@@ -516,7 +530,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         team_id=loop.team_id,
         created_by_id=loop.created_by_id,
         title=title,
-        description=description,
+        description=loop.instructions,
         origin_product=Task.OriginProduct.LOOP,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -548,6 +562,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "model": effective_model,
         "reasoning_effort": reasoning_effort,
         "config_snapshot": config_snapshot,
+        "pending_user_message": pending_user_message,
     }
     # Carries the loop's sandbox secrets/network policy into the run the same way a
     # regular task's sandbox_environment_id flows through Task._build_task.

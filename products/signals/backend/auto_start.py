@@ -148,7 +148,7 @@ def _build_autostart_task_description(
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
         "When opening the PR, include this report link in the description footer, "
-        "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
+        "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
         f"from [this inbox report]({report_link}).' - "
         "so the human reviewer can jump straight to it."
     )

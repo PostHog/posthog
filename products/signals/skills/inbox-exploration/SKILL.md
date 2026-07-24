@@ -17,7 +17,7 @@ The **Inbox** is where PostHog surfaces signal reports — clusters of related o
 /checkout"). Reports come from multiple source products: error tracking, session replay, web
 analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
-Inbox is part of [PostHog Code](https://posthog.com/code), PostHog's agentic surface for
+Inbox is part of [PostHog Desktop](https://posthog.com/code), PostHog's agentic surface for
 engineering teams.
 
 Don't assume the user's project has reports, or that any signal sources are configured — plenty
@@ -147,12 +147,12 @@ Three meaningful cases:
 
 The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
 plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
-this is to install **PostHog Code** at <https://posthog.com/code>. Example response:
+this is to install **PostHog Desktop** at <https://posthog.com/code>. Example response:
 
 > Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
 > issues and trends that PostHog automatically clusters from sources like error tracking, session
 > replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
-> [PostHog Code](https://posthog.com/code) — once it's connected, signals will start flowing in
+> [PostHog Desktop](https://posthog.com/code) — once it's connected, signals will start flowing in
 > and reports will appear in your inbox over the next day or so.
 
 Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
@@ -458,7 +458,7 @@ inbox-source-configs-partial-update
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
   call `inbox-source-configs-list` first — no sources means the user needs to install
-  [PostHog Code](https://posthog.com/code) to start receiving signals; sources-but-no-reports
+  [PostHog Desktop](https://posthog.com/code) to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless

@@ -164,9 +164,10 @@ def _enrich_cdc_rows(
                             for j in range(existing_rows.num_rows)
                             if tuple(arr[j] for arr in ex_pk_arrays) in enrich_key_set
                         ]
-                        existing_rows = existing_rows.take(match_indices)
+                        # Explicit int64 so an empty result doesn't infer a null-typed index array.
+                        existing_rows = existing_rows.take(pa.array(match_indices, type=pa.int64()))
                     else:
-                        existing_rows = existing_rows.take([])
+                        existing_rows = existing_rows.take(pa.array([], type=pa.int64()))
 
                 # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
                 # enrich with the most recent state rather than a historical one.
