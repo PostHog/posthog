@@ -142,7 +142,7 @@ pub async fn process_events(
 
     metrics::histogram!(PROCESS_REQUEST_DURATION_SECONDS).record(duration_s);
 
-    match &output {
+    match output {
         Ok(batch) => {
             let suppressed_event_count = batch
                 .inner_ref()
@@ -179,6 +179,30 @@ pub async fn process_events(
                     "Completed /process request"
                 );
             }
+
+            Ok(batch)
+        }
+        // A Postgres pool-acquire timeout is transient backpressure, not a real failure: reject
+        // with 429 (like the in-flight limiter above) so callers retry, rather than 500-ing and
+        // paging as an unhandled exception. This closes the gap between the request concurrency
+        // ceiling and the smaller connection pool during a burst.
+        Err(err) if err.is_pool_timeout() => {
+            metrics::counter!(ERRORS, "cause" => "process_pool_timeout").increment(1);
+            metrics::counter!(
+                PROCESS_REQUESTS_TOTAL,
+                "outcome" => "error",
+                "status_class" => "4xx"
+            )
+            .increment(1);
+            warn!(
+                request_id = %request_id,
+                error = %err,
+                duration_ms,
+                batch_event_count,
+                team_count,
+                "Rejected /process request due to Postgres pool timeout (backpressure)"
+            );
+            Err(ProcessEventsError::Backpressure)
         }
         Err(err) => {
             metrics::counter!(
@@ -196,12 +220,7 @@ pub async fn process_events(
                 team_count,
                 "Failed /process request"
             );
-        }
-    }
 
-    match output {
-        Ok(batch) => Ok(batch),
-        Err(err) => {
             let err = Arc::new(err);
             common_posthog::capture_exception(
                 err.clone(),
