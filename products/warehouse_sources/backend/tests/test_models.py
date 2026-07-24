@@ -209,7 +209,9 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
         )
         schema_id = schema.pk
-        self.source.delete()
+        # A queryset delete (unlike self.source.delete()) doesn't null out this process's cached
+        # `schema.source`, matching production where the delete happens on another connection.
+        ExternalDataSource.objects.filter(pk=self.source.pk).delete()
 
         with self.assertRaises(DatabaseError):
             schema.update_incremental_field_value(42)
