@@ -612,6 +612,139 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "Unknown" not in str(cm.exception)
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestWarehouseSourceAccessControl(BaseTest):
+    """
+    Object rules on an external data source cascade to querying its tables.
+    Table-level rules take precedence; resource-level external_data_source rules stay out of querying.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import uuid
+
+        from posthog.constants import AvailableFeature
+
+        from products.warehouse_sources.backend.facade.models import (
+            DataWarehouseCredential,
+            DataWarehouseTable,
+            ExternalDataSource,
+        )
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            prefix="locked",
+        )
+        self.other_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            prefix="other",
+        )
+        self.locked_source_table = DataWarehouseTable.objects.create(
+            name="locked_source_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/locked/*",
+            columns={"id": "String"},
+            external_data_source=self.source,
+        )
+        self.other_source_table = DataWarehouseTable.objects.create(
+            name="other_source_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/other/*",
+            columns={"id": "String"},
+            external_data_source=self.other_source,
+        )
+
+    def _create_ac(self, *, resource, access_level, resource_id=None, member=None):
+        from ee.models.rbac.access_control import AccessControl
+
+        return AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=member,
+        )
+
+    def _membership(self):
+        return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+
+    def test_source_object_none_denies_only_its_tables(self):
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "locked_source_table" in database._denied_tables
+        assert "other_source_table" not in database._denied_tables
+        # Cache correctness: the source deny must partition the query cache key too.
+        assert database.user_access_control is not None
+        assert str(self.source.id) in database.user_access_control.blocked_resource_ids_by_scope.get(
+            "external_data_source", set()
+        )
+
+    def test_source_object_viewer_keeps_tables_queryable(self):
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="viewer",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "locked_source_table" not in database._denied_tables
+
+    def test_table_rule_overrides_restricted_source(self):
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        self._create_ac(
+            resource="warehouse_table",
+            resource_id=str(self.locked_source_table.id),
+            access_level="viewer",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "locked_source_table" not in database._denied_tables
+
+    def test_source_resource_level_rules_do_not_gate_querying(self):
+        self._create_ac(resource="external_data_source", access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "locked_source_table" not in database._denied_tables
+        assert "other_source_table" not in database._denied_tables
+
+
 class TestWarehouseTableAccessControlFlagOff(BaseTest):
     """Regression guard: with hogql-warehouse-access-control off, nothing is filtered."""
 
