@@ -1,9 +1,15 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from django.test import SimpleTestCase
 
-from products.cohorts.backend.management.commands.compare_cohort_membership import _collect_warnings
+from products.cohorts.backend.management.commands.compare_cohort_membership import (
+    RecomputeCohortState,
+    _collect_recompute_warnings,
+    _collect_warnings,
+)
 from products.cohorts.backend.parity.kafka_io import DrainStats
+from products.cohorts.backend.parity.recompute import RunContext
 
 NOW = datetime(2026, 7, 8, 12, 0, tzinfo=UTC)
 SINCE = NOW - timedelta(days=1)
@@ -47,3 +53,48 @@ class TestCollectWarnings(SimpleTestCase):
     def test_unknown_cohorts_warn(self) -> None:
         warnings, _infos = _collect_warnings(_complete_drain(), {42, 7}, SINCE, NOW)
         self.assertTrue(any("absent from the realtime universe" in w and "[7, 42]" in w for w in warnings))
+
+
+def _ctx(**overrides: Any) -> RunContext:
+    defaults: dict[str, Any] = {
+        "run_id": "r",
+        "status": "seeding",
+        "boundary_at": NOW - timedelta(hours=6),
+        "run_timezone": "US/Pacific",
+        "boundary_day": date(2026, 7, 8),
+        "confirmed_days": frozenset(),
+        "non_confirmed_chunks": 0,
+        "shape_hash_drift": False,
+    }
+    defaults.update(overrides)
+    return RunContext(**defaults)
+
+
+class TestCollectRecomputeWarnings(SimpleTestCase):
+    def test_clean_state_yields_no_warnings(self) -> None:
+        state = RecomputeCohortState(cohort_id=1, ctx=_ctx(run_timezone="US/Pacific"), has_complete_reconcile=True)
+        warnings = _collect_recompute_warnings(at=NOW, now=NOW, team_timezone="US/Pacific", states=[state])
+        self.assertEqual(warnings, [])
+
+    def test_stale_at_warns(self) -> None:
+        warnings = _collect_recompute_warnings(
+            at=NOW - timedelta(minutes=30), now=NOW, team_timezone="US/Pacific", states=[]
+        )
+        self.assertTrue(any("before now" in w for w in warnings))
+
+    def test_missing_run_context_warns(self) -> None:
+        state = RecomputeCohortState(cohort_id=5, ctx=None, has_complete_reconcile=True)
+        warnings = _collect_recompute_warnings(at=NOW, now=NOW, team_timezone="US/Pacific", states=[state])
+        self.assertTrue(any("no backfill run" in w and "cohort 5" in w for w in warnings))
+
+    def test_per_cohort_context_warnings(self) -> None:
+        state = RecomputeCohortState(
+            cohort_id=9,
+            ctx=_ctx(run_timezone="UTC", shape_hash_drift=True, non_confirmed_chunks=3),
+            has_complete_reconcile=False,
+        )
+        warnings = _collect_recompute_warnings(at=NOW, now=NOW, team_timezone="US/Pacific", states=[state])
+        self.assertTrue(any("run tz UTC != team tz US/Pacific" in w for w in warnings))
+        self.assertTrue(any("shape-hash" in w for w in warnings))
+        self.assertTrue(any("3 seed chunk(s) not confirmed" in w for w in warnings))
+        self.assertTrue(any("no complete 64/64 reconcile" in w for w in warnings))

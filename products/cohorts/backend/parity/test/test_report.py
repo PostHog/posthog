@@ -9,7 +9,8 @@ from products.cohorts.backend.parity.classifier import (
     CohortComparison,
 )
 from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
-from products.cohorts.backend.parity.report import format_notes, format_reconcile_notes, to_json
+from products.cohorts.backend.parity.recompute import RecomputeComparison, RecomputeSummary
+from products.cohorts.backend.parity.report import format_notes, format_reconcile_notes, to_json, to_recompute_json
 
 
 def _row(
@@ -60,3 +61,59 @@ class TestReport(SimpleTestCase):
         )
         document = to_json([row], AggregateSummary(), {"team_id": 2})
         self.assertEqual(document["cohorts"][0]["notes"], notes)
+
+
+class TestRecomputeReport(SimpleTestCase):
+    def test_recompute_json_carries_every_decay_watch_field(self) -> None:
+        row = RecomputeComparison(
+            cohort_id=433564,
+            name="canary",
+            supported=True,
+            verdict=VERDICT_PASS,
+            fold_count=5303,
+            oracle_count=5933,
+            both=5303,
+            missing=630,
+            missing_boundary_day=630,
+            expires_by_day={"2026-07-31": 630},
+            run_id="run-1",
+            run_status="seeding",
+            boundary_at="2026-07-24T02:23:00+00:00",
+            boundary_day="2026-07-23",
+            run_timezone="US/Pacific",
+            chunk_days_confirmed=21,
+            shape_hash_drift=False,
+            reconcile_runs=(ReconcileRunCompleteness(run_id="run-1", cohort_id=433564, partitions_seen=64),),
+        )
+        meta = {"oracle": "recompute", "at": "2026-07-24T18:00:00+00:00", "grace_minutes": 10, "run_id": "run-1"}
+        document = to_recompute_json([row], RecomputeSummary(passed=1), meta)
+
+        self.assertEqual({"oracle", "at", "grace_minutes", "run_id"}, set(document["meta"]))
+        cohort = document["cohorts"][0]
+        # The decay-watch contract: every field a daily watch needs must survive serialization.
+        for field in (
+            "run_id",
+            "run_status",
+            "boundary_at",
+            "boundary_day",
+            "run_timezone",
+            "chunk_days_confirmed",
+            "shape_hash_drift",
+            "reconcile_runs",
+            "expires_by_day",
+            "false_hard",
+            "eviction_pending",
+            "missing_boundary_day",
+        ):
+            self.assertIn(field, cohort)
+        self.assertEqual(cohort["expires_by_day"], {"2026-07-31": 630})
+        self.assertEqual(cohort["reconcile_runs"][0]["partitions_seen"], 64)
+
+    def test_recompute_json_orders_failures_first(self) -> None:
+        rows = [
+            RecomputeComparison(cohort_id=1, name="a", supported=True, verdict=VERDICT_PASS),
+            RecomputeComparison(cohort_id=2, name="b", supported=False, verdict=VERDICT_SKIP),
+            RecomputeComparison(cohort_id=3, name="c", supported=True, verdict=VERDICT_FAIL, false_hard=2),
+        ]
+        document = to_recompute_json(rows, RecomputeSummary(), {})
+        self.assertEqual([c["cohort_id"] for c in document["cohorts"]], [3, 1, 2])

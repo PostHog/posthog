@@ -15,8 +15,10 @@ from products.cohorts.backend.parity.classifier import (
     CohortComparison,
 )
 from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
+from products.cohorts.backend.parity.recompute import RecomputeComparison, RecomputeSummary
 
 _VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_WARMUP: 1, VERDICT_PASS: 2, VERDICT_SKIP: 3}
+_RECOMPUTE_VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_PASS: 1, VERDICT_SKIP: 2}
 
 
 def _sorted_rows(rows: Sequence[CohortComparison]) -> list[CohortComparison]:
@@ -83,4 +85,71 @@ def to_json(
         "meta": dict(meta),
         "summary": asdict(summary),
         "cohorts": [asdict(r) for r in _sorted_rows(rows)],
+    }
+
+
+def _sorted_recompute_rows(rows: Sequence[RecomputeComparison]) -> list[RecomputeComparison]:
+    return sorted(rows, key=lambda r: (_RECOMPUTE_VERDICT_ORDER.get(r.verdict, 9), -r.false_hard, r.cohort_id))
+
+
+def format_recompute_table(rows: Sequence[RecomputeComparison]) -> str:
+    header = (
+        f"{'cohort':<32} {'fold':>8} {'oracle':>8} {'both':>8} {'false':>7} {'hard':>6} {'evict':>6} "
+        f"{'miss':>7} {'grace':>6} {'seed':>6} {'bdry':>6} {'unseed':>6} {'post':>6} {'verdict':>7}"
+    )
+    lines = [header, "-" * len(header)]
+    for r in _sorted_recompute_rows(rows):
+        label = f"{r.cohort_id} {r.name}"
+        if len(label) > 31:
+            label = label[:28] + "..."
+        if not r.supported:
+            lines.append(f"{label:<32} {('SKIP: ' + r.skip_reason):<95} {r.verdict:>7}")
+            continue
+        lines.append(
+            f"{label:<32} {r.fold_count:>8} {r.oracle_count:>8} {r.both:>8} {r.false_members:>7} {r.false_hard:>6} "
+            f"{r.eviction_pending:>6} {r.missing:>7} {r.missing_grace:>6} {r.missing_seed_domain:>6} "
+            f"{r.missing_boundary_day:>6} {r.missing_unseeded_day:>6} {r.missing_post_boundary:>6} {r.verdict:>7}"
+        )
+    return "\n".join(lines)
+
+
+def format_recompute_notes(rows: Sequence[RecomputeComparison]) -> str:
+    lines = []
+    for r in _sorted_recompute_rows(rows):
+        for run in sorted(r.reconcile_runs, key=lambda item: item.run_id):
+            state = (
+                f"{run.partitions_seen}/{run.expected_partitions}"
+                if run.complete
+                else (f"partial {run.partitions_seen}/{run.expected_partitions}")
+            )
+            lines.append(f"  cohort {r.cohort_id}: reconcile run {run.run_id}: {state}")
+        for note in r.notes:
+            lines.append(f"  cohort {r.cohort_id}: {note}")
+        if r.expires_by_day:
+            summary = ", ".join(f"{day}: {count}" for day, count in r.expires_by_day.items())
+            lines.append(f"  cohort {r.cohort_id}: boundary-day gap expires — {summary}")
+    return "\n".join(lines)
+
+
+def format_recompute_summary(summary: RecomputeSummary) -> str:
+    lines = [
+        f"verdicts: {summary.passed} PASS, {summary.failed} FAIL, {summary.skipped} SKIP",
+        f"over-count: false_hard={summary.false_hard_total} (eviction_pending={summary.eviction_pending_total}); "
+        f"under-count: missing={summary.missing_total} "
+        f"(seed_domain={summary.seed_domain_total}, unseeded={summary.unseeded_total}, boundary={summary.boundary_total})",
+    ]
+    for warning in summary.warnings:
+        lines.append(f"WARNING: {warning}")
+    return "\n".join(lines)
+
+
+def to_recompute_json(
+    rows: Sequence[RecomputeComparison],
+    summary: RecomputeSummary,
+    meta: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "meta": dict(meta),
+        "summary": asdict(summary),
+        "cohorts": [asdict(r) for r in _sorted_recompute_rows(rows)],
     }
