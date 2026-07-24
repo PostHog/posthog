@@ -46,7 +46,7 @@ from products.exports.backend.tasks.csv_exporter import (
     add_query_params,
     sanitize_value_for_excel,
 )
-from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
+from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded, InvalidExportContext
 
 TEST_PREFIX = "Test-Exports"
 
@@ -151,6 +151,20 @@ class TestCSVExporter(APIBaseTest):
                 == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
             assert exported_asset.content_location is None
+
+    def test_csv_exporter_raises_clear_error_for_malformed_export_context(self) -> None:
+        # An export_context with neither "source" nor "path" used to index resource["path"]
+        # unconditionally and blow up with an opaque KeyError. It should now fail with a clear,
+        # user-classified InvalidExportContext instead.
+        asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "broken"},
+        )
+        asset.save()
+
+        with self.assertRaises(InvalidExportContext):
+            csv_exporter.export_tabular(asset)
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt: Any) -> None:

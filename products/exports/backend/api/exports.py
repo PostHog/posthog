@@ -127,6 +127,19 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         export_format = data.get("export_format")
         export_context = data.get("export_context", {})
 
+        # Tabular exports (CSV/XLSX) driven purely by export_context read either a HogQL "source"
+        # query or a legacy "path" to fetch rows from. Reject a malformed context up front with an
+        # actionable message rather than letting it fail deep inside the export worker.
+        is_tabular_context_export = (
+            export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX)
+            and not data.get("dashboard")
+            and not data.get("insight")
+        )
+        if is_tabular_context_export and not export_context.get("source") and not export_context.get("path"):
+            raise ValidationError(
+                {"export_context": ["export_context must contain either a 'source' query or a 'path' to export from."]}
+            )
+
         is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
             "session_recording_id"
         )
