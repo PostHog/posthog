@@ -1594,6 +1594,8 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
     nestedFilters?: EntityFilter[] | null
+    /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
+    negation?: boolean
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
