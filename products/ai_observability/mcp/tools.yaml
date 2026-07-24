@@ -468,15 +468,14 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, input-size bucket and
-            UTC day. The `product` query param is required and scopes the tool / model / input-size / day
-            breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always
-            returns the cross-product view, and `by_day` is a day-ascending series for spend-over-time questions.
-            `by_input_size` groups spend by `$ai_input_tokens` bucket and is usually the more useful lens than
-            `by_tool`, since context size drives cost regardless of which tool a turn called; use
-            `cost_attributed_usd` / `share_attributed` on `by_tool` rows for an honest per-tool split rather than
-            `cost_usd` / `share_of_scoped`, which overstate ubiquitous tools. Pass `refresh=true` to bypass the
-            5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, input-size bucket and UTC
+            day. The `product` query param is required and scopes the tool / model / input-size / day breakdowns to a
+            single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product
+            view, and `by_day` is a day-ascending series for spend-over-time questions. `by_input_size` groups spend by
+            `$ai_input_tokens` bucket and is usually the more useful lens than `by_tool`, since context size drives cost
+            regardless of which tool a turn called; use `cost_attributed_usd` / `share_attributed` on `by_tool` rows for
+            an honest per-tool split rather than `cost_usd` / `share_of_scoped`, which overstate ubiquitous tools. Pass
+            `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
