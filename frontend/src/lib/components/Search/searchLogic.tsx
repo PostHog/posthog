@@ -1,7 +1,16 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
+import {
+    IconBell,
+    IconBook,
+    IconClock,
+    IconDownload,
+    IconLeave,
+    IconNotification,
+    IconQuestion,
+    IconSparkles,
+} from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -14,6 +23,7 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -23,7 +33,7 @@ import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/p
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
 import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
-import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse, SidePanelTab } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
@@ -182,6 +192,7 @@ export interface searchLogicValues {
     groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
     groupSearchResultsLoading: boolean
     healthItems: SearchItem[]
+    helpItems: SearchItem[]
     isSearching: boolean
     loadingStates: {
         groupSearchResultsLoading: boolean
@@ -372,6 +383,7 @@ export interface searchLogicMeta {
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
+        helpItems: () => SearchItem[]
         miscItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         settingsItems: (
             featureFlags: FeatureFlagsSet,
@@ -405,6 +417,7 @@ export interface searchLogicMeta {
             dataManagementItems: SearchItem[],
             peopleItems: SearchItem[],
             healthItems: SearchItem[],
+            helpItems: SearchItem[],
             miscItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
@@ -1013,6 +1026,46 @@ export const searchLogic = kea<searchLogicType>([
                 },
             ],
         ],
+        // Mirrors the "more" menu's Help section (Ask PostHog AI / Support / Docs). Every item
+        // carries both 'help' and 'support' keywords so typing either term surfaces the whole group.
+        helpItems: [
+            () => [],
+            (): SearchItem[] => [
+                {
+                    id: 'help-ask-ai',
+                    name: 'Ask PostHog AI',
+                    displayName: 'Ask PostHog AI',
+                    category: 'help',
+                    href: urls.ai(),
+                    icon: <IconSparkles className="text-ai" />,
+                    itemType: null,
+                    searchKeywords: ['help', 'support', 'ai', 'max', 'ask', 'more'],
+                    record: { type: 'help_ask_ai' },
+                },
+                {
+                    id: 'help-support',
+                    name: 'Support',
+                    displayName: 'Support',
+                    category: 'help',
+                    icon: <IconQuestion />,
+                    itemType: null,
+                    searchKeywords: ['help', 'support', 'contact', 'more'],
+                    onSelect: () => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support),
+                    record: { type: 'help_support' },
+                },
+                {
+                    id: 'help-docs',
+                    name: 'Docs',
+                    displayName: 'Docs',
+                    category: 'help',
+                    icon: <IconBook />,
+                    itemType: null,
+                    searchKeywords: ['help', 'support', 'docs', 'documentation', 'more'],
+                    onSelect: () => window.open('https://posthog.com/docs', '_blank', 'noopener,noreferrer'),
+                    record: { type: 'help_docs' },
+                },
+            ],
+        ],
         settingsItems: [
             (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections],
             (
@@ -1225,6 +1278,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
+                s.helpItems,
                 s.miscItems,
                 s.settingsItems,
                 s.newItems,
@@ -1242,6 +1296,7 @@ export const searchLogic = kea<searchLogicType>([
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
+                helpItems: SearchItem[],
                 miscItems: SearchItem[],
                 settingsItems: SearchItem[],
                 newItems: SearchItem[],
@@ -1338,6 +1393,16 @@ export const searchLogic = kea<searchLogicType>([
                     categories.push({
                         key: 'health',
                         items: filteredHealth,
+                        isLoading: false,
+                    })
+                }
+
+                // Show help items (Ask PostHog AI / Support / Docs) if searching with matching results
+                const filteredHelp = filterBySearch(helpItems)
+                if (hasSearch && filteredHelp.length > 0) {
+                    categories.push({
+                        key: 'help',
+                        items: filteredHelp,
                         isLoading: false,
                     })
                 }
