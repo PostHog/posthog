@@ -914,6 +914,7 @@ class TestBillingLimitsActivityLog(APILicensedTest):
         assert log.team_id is None
         assert log.user == self.user
         assert log.activity == "updated"
+        assert log.detail is not None
         assert log.detail["name"] == "Billing spend limits"
         assert log.detail["changes"] == [
             {
@@ -939,6 +940,7 @@ class TestBillingLimitsActivityLog(APILicensedTest):
 
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user == self.user
+        assert log.detail is not None
         assert log.detail["name"] == "Billing next-period limit reset"
         assert log.detail["changes"][0]["field"] == "reset_limit_next_period"
         assert log.detail["changes"][0]["after"] == "product_analytics"
