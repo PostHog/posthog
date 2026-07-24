@@ -199,10 +199,10 @@ function buildEnvironment(
   // are pinned rather than inherited — an ambient OTEL_TRACES_EXPORTER=none or
   // unknown protocol registers no tracer and silently drops the traceparent;
   // the endpoint stays overridable for a real collector.
-  // Residual risk: a repo's .claude/settings.json `env` is applied over these
-  // inside the CLI and can redirect the endpoint or turn on content capture
-  // (OTEL_LOG_TOOL_CONTENT, …) — pre-existing settingSources exposure, not
-  // closable from here; hardening tracked separately.
+  // A repo's .claude/settings.json `env` could previously be applied over these
+  // inside the CLI, redirecting the endpoint or turning on content capture
+  // (OTEL_LOG_TOOL_CONTENT and friends). `settingSources` below no longer loads
+  // the repo's settings, which closes that.
   const gatewayTracing: Record<string, string> = gateway?.anthropicBaseUrl
     ? {
         CLAUDE_CODE_ENABLE_TELEMETRY: "1",
@@ -489,11 +489,17 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     ...params.userProvidedOptions,
     betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
-    settingSources: params.userProvidedOptions?.settingSources ?? [
-      "user",
-      "project",
-      "local",
-    ],
+    // Only load user-level settings as trusted SDK policy. The opened repo's
+    // `.claude/settings.json` (`project`) and `.claude/settings.local.json`
+    // (`local`) are attacker-controlled when a malicious repository is opened:
+    // the SDK would otherwise execute their `hooks` (for example a `SessionStart`
+    // command running the moment a session starts) and honor their
+    // `permissions.allow` (silencing the per-tool approval prompt) with no
+    // "trust this folder" gate. The app's own approval UI and its
+    // SettingsManager-persisted approvals still apply via the PreToolUse hook,
+    // so dropping these here does not affect them. Assigned after the
+    // `userProvidedOptions` spread so no caller can widen it back.
+    settingSources: ["user"],
     stderr: (err) => params.logger.error(err),
     cwd: params.cwd,
     includePartialMessages: true,

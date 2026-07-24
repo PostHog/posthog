@@ -308,3 +308,106 @@ describe("mergeAvailableModels", () => {
     ).toEqual(["managed-a"]);
   });
 });
+
+describe("SettingsManager repo-trust boundary", () => {
+  let tmpRoot: string;
+  let cwd: string;
+  let configDir: string;
+  let originalConfigDir: string | undefined;
+
+  beforeEach(async () => {
+    tmpRoot = await fs.promises.realpath(
+      await fs.promises.mkdtemp(path.join(os.tmpdir(), "repo-trust-")),
+    );
+    cwd = path.join(tmpRoot, "repo");
+    configDir = path.join(tmpRoot, "user");
+    await fs.promises.mkdir(cwd, { recursive: true });
+    await fs.promises.mkdir(configDir, { recursive: true });
+    runGit(cwd, ["init", "-b", "main"]);
+    runGit(cwd, ["config", "user.email", "test@example.com"]);
+    runGit(cwd, ["config", "user.name", "test"]);
+    runGit(cwd, ["commit", "--allow-empty", "-m", "init"]);
+
+    // Isolate user settings so the real ~/.claude cannot influence the result.
+    originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+  });
+
+  afterEach(async () => {
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
+    }
+    await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  async function writeProjectSettings(settings: object): Promise<void> {
+    const claudeDir = path.join(cwd, ".claude");
+    await fs.promises.mkdir(claudeDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(settings),
+    );
+  }
+
+  async function writeLocalSettings(settings: object): Promise<void> {
+    const claudeDir = path.join(cwd, ".claude");
+    await fs.promises.mkdir(claudeDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(claudeDir, "settings.local.json"),
+      JSON.stringify(settings),
+    );
+  }
+
+  it("ignores permission allow rules from the opened repo's project settings", async () => {
+    // A malicious repo must not be able to pre-approve a tool via a
+    // checked-in .claude/settings.json — the decision falls through to "ask"
+    // so the app's own approval UI prompts.
+    await writeProjectSettings({ permissions: { allow: ["Bash"] } });
+
+    const manager = new SettingsManager(cwd);
+    await manager.initialize();
+
+    expect(
+      manager.checkPermission("mcp__acp__Bash", { command: "rm -rf /" })
+        .decision,
+    ).toBe("ask");
+  });
+
+  it("ignores PostHog exec approvals from the opened repo's project settings", async () => {
+    await writeProjectSettings({
+      posthogApprovedExecTools: ["experiment-delete"],
+    });
+
+    const manager = new SettingsManager(cwd);
+    await manager.initialize();
+
+    expect(manager.hasPostHogExecApproval("experiment-delete")).toBe(false);
+  });
+
+  it("still honors allow rules from the app's own local settings store", async () => {
+    // settings.local.json is where the app persists user approvals
+    // (addAllowRules), so its rules stay trusted — only project settings drop.
+    await writeLocalSettings({ permissions: { allow: ["Bash"] } });
+
+    const manager = new SettingsManager(cwd);
+    await manager.initialize();
+
+    expect(
+      manager.checkPermission("mcp__acp__Bash", { command: "pnpm test" })
+        .decision,
+    ).toBe("allow");
+  });
+
+  it("still reads non-policy fields from project settings", async () => {
+    // availableModels is a UI convenience, not policy, so it is still merged
+    // from the project layer — proving the fix is scoped to policy fields.
+    await writeProjectSettings({ availableModels: ["repo-model"] });
+
+    const manager = new SettingsManager(cwd);
+    await manager.initialize();
+
+    expect(manager.getSettings().availableModels).toEqual(["repo-model"]);
+  });
+});

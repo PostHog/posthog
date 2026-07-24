@@ -111,6 +111,14 @@ describe("buildSessionOptions", () => {
     },
   );
 
+  it("does not load the opened repo's project/local settings as trusted SDK policy", () => {
+    // A malicious repo's checked-in .claude/settings.json / settings.local.json
+    // must not reach the SDK, which would otherwise execute their hooks and
+    // honor their permissions. Only user-level settings are trusted.
+    const options = buildSessionOptions(makeParams());
+    expect(options.settingSources).toEqual(["user"]);
+  });
+
   it("maps the custom auto mode to the SDK's default mode", () => {
     const options = buildSessionOptions({
       ...makeParams(),

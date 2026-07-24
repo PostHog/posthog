@@ -321,7 +321,17 @@ export class SettingsManager {
     const posthogApprovedExecTools = new Set<string>();
 
     for (const { layer, settings } of allSettings) {
-      if (settings.permissions) {
+      // The `project` layer is the opened repo's checked-in
+      // `.claude/settings.json`, which is attacker-controlled when a malicious
+      // repository is opened. It must never contribute trusted *policy* — tool
+      // permissions or PostHog exec approvals — or a repo could pre-approve
+      // e.g. `Bash` and silence the per-tool approval prompt. Only user-level
+      // settings, the app's own approval store (`local`, written by
+      // addAllowRules/addPostHogExecApproval), and managed `enterprise`
+      // settings are trusted for policy. Non-policy fields (model /
+      // availableModels) may still come from the project layer.
+      const trustedForPolicy = layer !== "project";
+      if (trustedForPolicy && settings.permissions) {
         if (settings.permissions.allow) {
           permissions.allow?.push(...settings.permissions.allow);
         }
@@ -352,7 +362,7 @@ export class SettingsManager {
         settings.availableModels,
         layer,
       );
-      if (settings.posthogApprovedExecTools) {
+      if (trustedForPolicy && settings.posthogApprovedExecTools) {
         for (const tool of settings.posthogApprovedExecTools) {
           posthogApprovedExecTools.add(tool);
         }
