@@ -131,6 +131,55 @@ class TestEnrichmentLabPage(BaseTest):
         assert b"already exists" in duplicate_response.content
         assert EnrichmentPromptConfig.objects.filter(name="test_label").count() == 2
 
+    def test_run_and_save_reject_models_outside_the_allowlist(self):
+        self._config()
+        self._login_staff()
+        submission = {
+            "prompt_text": "judge it. Email: {email}",
+            "model": "totally-made-up-model",
+            "input_fields": ["name"],
+        }
+
+        run_resp = self.client.post(
+            reverse("admin:growth_enrichmentpromptconfig_lab_run", args=["test_label"]),
+            {**submission, "sample": "5"},
+        )
+        save_resp = self.client.post(
+            reverse("admin:growth_enrichmentpromptconfig_lab_save", args=["test_label"]),
+            {**submission, "version": "test-v2"},
+        )
+
+        assert run_resp.status_code == 400
+        assert save_resp.status_code == 200
+        assert EnrichmentPromptConfig.objects.filter(name="test_label").count() == 1
+
+    def test_run_accepts_a_legacy_model_already_persisted_on_the_label(self):
+        self._config()
+        EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="legacy-v0",
+            prompt_text="old. Email: {email}",
+            model="legacy-model-name",
+            input_fields=["name"],
+        )
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        self._login_staff()
+
+        with patch("products.growth.backend.admin.get_llm_client", return_value=_mock_llm_client()):
+            resp = self.client.post(
+                reverse("admin:growth_enrichmentpromptconfig_lab_run", args=["test_label"]),
+                {
+                    "prompt_text": "old. Email: {email}",
+                    "model": "legacy-model-name",
+                    "input_fields": ["name"],
+                    "sample": "5",
+                },
+            )
+
+        assert resp.status_code == 200
+
     def test_changelist_shows_lab_link(self):
         self._config()
         self._login_staff()

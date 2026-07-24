@@ -127,7 +127,7 @@
                 <div class="form-row">
                     <label for="version">Save as new version:</label>
                     <input type="text" id="version" name="version" value="{{ version_input }}">
-                    <input type="submit" class="default" value="Save as new version">
+                    <input type="submit" class="default" id="lab-save-button" value="Save as new version">
                 </div>
             </fieldset>
         </form>
@@ -199,13 +199,17 @@
         }
     }
 
+    form.addEventListener("submit", function () {
+        var saveButton = document.getElementById("lab-save-button");
+        if (saveButton) { saveButton.disabled = true; }
+    });
     form.addEventListener("input", refreshStateLine);
     form.addEventListener("change", refreshStateLine);
     refreshStateLine();
 
-    function getCookie(name) {
-        var match = document.cookie.match("(^|;)\\s*" + name + "\\s*=\\s*([^;]+)");
-        return match ? decodeURIComponent(match[2]) : "";
+    function csrfToken() {
+        var input = form.querySelector('input[name="csrfmiddlewaretoken"]');
+        return input ? input.value : "";
     }
 
     function extractRows(buffer) {
@@ -229,7 +233,7 @@
 
         fetch(runUrl, {
             method: "POST",
-            headers: { "X-CSRFToken": getCookie("csrftoken") },
+            headers: { "X-CSRFToken": csrfToken() },
             body: body,
         }).then(function (response) {
             var reader = response.body.getReader();

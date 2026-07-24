@@ -8,6 +8,7 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest, HttpResponseBadRequest, HttpResponseNotAllowed
@@ -476,21 +477,22 @@ class EnrichmentLabEditorForm(forms.Form):
     """Prompt/model/input-fields triad shared by the lab run and save endpoints - the same
     trio EnrichmentPromptConfigForm validates, minus the name/version that only save needs.
 
-    Choices are extended with whatever was submitted (mirrors EnrichmentPromptConfigForm),
-    so loading a version whose model or input field predates the curated list still validates.
+    Choices extend only from a PERSISTED config's values (a version whose model predates the
+    curated list must still load), never from the submitted data - extending from self.data
+    would make every submitted value trivially valid and turn the allowlist into a no-op.
     """
 
     prompt_text = forms.CharField(widget=forms.Textarea)
     model = forms.ChoiceField(choices=[])
     input_fields = forms.MultipleChoiceField(choices=[], required=False)
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, persisted: EnrichmentPromptConfig | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        submitted_model = self.data.get("model", "") if self.is_bound else ""
-        submitted_fields = self.data.getlist("input_fields") if self.is_bound else []
-        self.fields["model"] = forms.ChoiceField(choices=_model_choices(submitted_model))
+        persisted_model = persisted.model if persisted else ""
+        persisted_fields = list(persisted.input_fields) if persisted else []
+        self.fields["model"] = forms.ChoiceField(choices=_model_choices(persisted_model))
         self.fields["input_fields"] = forms.MultipleChoiceField(
-            choices=_input_field_choices(submitted_fields), required=False
+            choices=_input_field_choices(persisted_fields), required=False
         )
 
 
@@ -624,7 +626,10 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 
-        form = EnrichmentLabRunForm(data=request.POST)
+        # A legacy model/input-field stays runnable only if some saved version of this
+        # label already uses it; otherwise the curated allowlist is the boundary.
+        persisted = EnrichmentPromptConfig.objects.filter(name=label, model=request.POST.get("model", "")).first()
+        form = EnrichmentLabRunForm(data=request.POST, persisted=persisted)
         if not form.is_valid():
             errors = "; ".join(e for field_errors in form.errors.values() for e in field_errors)
             return HttpResponseBadRequest(escape(errors), content_type="text/plain")
@@ -673,7 +678,8 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 
-        form = EnrichmentLabSaveForm(data=request.POST, label=label)
+        persisted = EnrichmentPromptConfig.objects.filter(name=label, model=request.POST.get("model", "")).first()
+        form = EnrichmentLabSaveForm(data=request.POST, label=label, persisted=persisted)
         versions = list(EnrichmentPromptConfig.objects.filter(name=label).order_by("-created_at"))
         if not form.is_valid():
             errors = [e for field_errors in form.errors.values() for e in field_errors]
@@ -691,15 +697,32 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             )
             return render(request, "admin/growth/enrichment_lab.html", context)
 
-        config = EnrichmentPromptConfig.objects.create(
-            name=label,
-            version=form.cleaned_data["version"],
-            prompt_text=form.cleaned_data["prompt_text"],
-            model=form.cleaned_data["model"],
-            input_fields=form.cleaned_data["input_fields"],
-            is_active=False,
-            created_by=request.user if request.user.is_authenticated else None,
-        )
+        try:
+            config = EnrichmentPromptConfig.objects.create(
+                name=label,
+                version=form.cleaned_data["version"],
+                prompt_text=form.cleaned_data["prompt_text"],
+                model=form.cleaned_data["model"],
+                input_fields=form.cleaned_data["input_fields"],
+                is_active=False,
+                created_by=request.user if request.user.is_authenticated else None,
+            )
+        except IntegrityError:
+            # clean_version() is check-then-act; two concurrent saves of the same version
+            # race past it and the unique constraint decides - surface the loser cleanly.
+            selected = self._select_lab_version(request, versions)
+            context = self._lab_context(
+                request,
+                label,
+                versions,
+                selected,
+                prompt_text=request.POST.get("prompt_text", ""),
+                model=request.POST.get("model", ""),
+                input_fields=request.POST.getlist("input_fields"),
+                version_input=request.POST.get("version", ""),
+                errors=[f"Version {form.cleaned_data['version']!r} already exists for {label}."],
+            )
+            return render(request, "admin/growth/enrichment_lab.html", context)
         messages.success(request, f"Saved {label} {config.version}.")
         lab_url = reverse("admin:growth_enrichmentpromptconfig_lab", args=[label])
         return redirect(f"{lab_url}?version={config.pk}")
