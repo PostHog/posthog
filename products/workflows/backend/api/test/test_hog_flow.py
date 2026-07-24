@@ -2796,12 +2796,17 @@ class TestHogFlowAPI(APIBaseTest):
         assert "active" in draft_schedule.json()["detail"].lower()
 
         # A raw API key is a headless professional surface - no agent in the loop to read a count,
-        # so the two-step would be ceremony. Dispatches in one call, no token.
+        # so the two-step would be ceremony. Dispatches in one call, no token. A fresh client keeps
+        # the request session-free so it classifies as API, not WEB.
         api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="batch dispatch", user=self.user, secure_value=hash_key_value(api_key), scopes=["hog_flow:write"]
+            label="batch dispatch",
+            user=self.user,
+            secure_value=hash_key_value(api_key),
+            scopes=["hog_flow:write", "person:read"],
         )
-        api_dispatch = self.client.post(
+        api_client = self.client_class()
+        api_dispatch = api_client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
             {},
             headers={"authorization": f"Bearer {api_key}"},
@@ -2809,6 +2814,20 @@ class TestHogFlowAPI(APIBaseTest):
         assert api_dispatch.status_code == 200, api_dispatch.json()
         assert api_dispatch.json()["filters"] == trigger_filters
         assert mock_create_invocation.call_count == 2
+
+        # Fanning out renders person properties into outbound sends, so the write scope alone
+        # isn't enough - person:read is required, same as the blast-radius preview.
+        write_only_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="write only", user=self.user, secure_value=hash_key_value(write_only_key), scopes=["hog_flow:write"]
+        )
+        write_only = api_client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {},
+            headers={"authorization": f"Bearer {write_only_key}"},
+        )
+        assert write_only.status_code == 403, write_only.json()
+        assert "person:read" in write_only.json().get("detail", "")
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.

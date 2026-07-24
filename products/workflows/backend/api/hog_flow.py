@@ -1735,7 +1735,12 @@ class HogFlowViewSet(
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action in ("batch_jobs", "schedules"):
-            return ["hog_flow:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["hog_flow:write"]
+            # Dispatching (or scheduling) fans out to persons and renders person properties into
+            # outbound messages, so it's person-data access on top of the workflow write - same
+            # rationale as user_blast_radius. Listing jobs/schedules stays workflow-read.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write", "person:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
