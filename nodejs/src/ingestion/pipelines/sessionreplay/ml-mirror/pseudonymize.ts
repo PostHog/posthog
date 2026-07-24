@@ -13,5 +13,7 @@ export function pseudonymize(secret: string | Buffer, namespace: string, value: 
 }
 
 export const PSEUDONYM_TEAM = 'team'
+/** Namespace for the per-team image content-HMAC key (see ml-mirror-image-scrub/content-ref.ts). */
+export const PSEUDONYM_IMAGE_CONTENT_KEY = 'image-content-key'
 export const PSEUDONYM_SESSION = 'session'
 export const PSEUDONYM_DISTINCT_ID = 'distinct_id'

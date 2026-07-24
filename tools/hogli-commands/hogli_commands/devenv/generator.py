@@ -411,7 +411,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     _SANDBOX_UNSANDBOXED_PREFIXES = ("bin/dev-open-when-ready",)
 
     # Procs excluded from the sandbox by default: they need the docker socket the
-    # profile denies (e.g. temporal-worker running PostHog Code tasks with
+    # profile denies (e.g. temporal-worker running PostHog Desktop tasks with
     # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
     _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker"})
 
@@ -429,7 +429,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         Some procs are excluded by default (``_SANDBOX_DEFAULT_EXCLUDES``) because
         they need the docker socket the profile denies, e.g. temporal-worker running
-        PostHog Code tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
+        PostHog Desktop tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
         (comma-separated proc names) opts additional procs back out. Excluded procs
         run fully unsandboxed, so the dependency-isolation guarantee no longer covers
         them.

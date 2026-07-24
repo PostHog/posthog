@@ -119,7 +119,7 @@ def get_posthog_code_usage(user, team_id: int) -> CodeUsageStatus | None:
 
 
 def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
-    """Structured 429 body the PostHog Code client parses into its upgrade prompt.
+    """Structured 429 body the PostHog Desktop client parses into its upgrade prompt.
 
     Omits unknown bucket/reset fields so they don't render as null in the shared
     error serializer (which other error responses reuse).
@@ -127,7 +127,7 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type": "rate_limited",
         "code": "usage_limit_exceeded",
-        "error": "You've reached your PostHog Code usage limit.",
+        "error": "You've reached your PostHog Desktop usage limit.",
         "is_pro": usage.is_pro,
     }
     if usage.limit_type is not None:
@@ -145,21 +145,25 @@ def code_access_required_response(user) -> Response | None:
             {
                 "type": "permission_denied",
                 "code": "code_access_required",
-                "error": "PostHog Code access is required to run tasks in the cloud.",
+                "error": "PostHog Desktop access is required to run tasks in the cloud.",
             }
         ).data,
         status=status.HTTP_403_FORBIDDEN,
     )
 
 
-def cloud_usage_limit_response(user, team_id: int) -> Response | None:
-    """Return a blocking response when Code access or usage limits deny a cloud run, else None.
+def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool = True) -> Response | None:
+    """Return a blocking response when Desktop access or usage limits deny a cloud run, else None.
 
     Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
     Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
     so a degraded gateway silently removing this cost backstop is visible, not just logged.
+
+    ``require_tasks_access`` lets callers whose run is entitled through another product skip the
+    PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop —
+    e.g. running a self-driving report task from the Inbox (see ``is_signal_report_task``).
     """
-    if response := code_access_required_response(user):
+    if require_tasks_access and (response := code_access_required_response(user)):
         return response
 
     usage = get_posthog_code_usage(user, team_id)

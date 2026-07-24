@@ -156,6 +156,7 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
+    "is_signal_report_task",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
@@ -504,6 +505,24 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
+
+
+def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
+    """Whether the task is a genuine Signals report task rather than a PostHog Code task.
+
+    True only when the origin is ``SIGNAL_REPORT`` and it links to a report in this team. The Inbox
+    "Create PR" / "Discuss" actions create such tasks, and acting on them is entitled through
+    self-driving (the ``product-autonomy`` Inbox, which is generally available) — not the PostHog
+    Code (``tasks``) product. So the ``run`` gate skips the Code entitlement for them, matching
+    auto-start, which runs the same tasks server-side without a Code check. The report link is
+    team-scoped by the write serializer, so a caller can't forge it onto another team's report.
+    """
+    return Task.objects.filter(
+        id=task_id,
+        team_id=team_id,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        signal_report__isnull=False,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -1126,11 +1145,11 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Code invites ---
+# --- Desktop invites ---
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Code invite for a user.
+    """Redeem a PostHog Desktop invite for a user.
 
     Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
     redemption row. A fresh redemption takes a row lock on the invite, re-checks
@@ -1728,6 +1747,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_mount_path",
         "workflow_id",
         "pending_dispatch",
+        # Written once at loop fire time; seeding copies these storage paths into the
+        # run's artifact prefix, so a PATCHable value would be an arbitrary
+        # object-storage read (and write-location) primitive.
+        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",

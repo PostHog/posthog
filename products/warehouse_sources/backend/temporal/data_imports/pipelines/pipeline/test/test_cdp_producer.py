@@ -7,6 +7,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.db.utils import OperationalError as DjangoOperationalError
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
@@ -16,6 +18,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -284,6 +288,39 @@ async def test_should_produce_table_with_both_hog_function_and_flow(team):
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
     assert await producer.should_produce_table() is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_should_produce_table_posthog_database_connection_failure_stays_retryable(team):
+    # `should_produce_table` queries PostHog's own database (HogFunction/HogFlow), not the
+    # source being synced. A transient connection failure there (e.g. a DNS blip resolving our
+    # host) surfaces the same "Name or service not known" wording a customer's misconfigured
+    # source host would, so it must be re-raised as PostHogInternalDatabaseError to avoid being
+    # misclassified as non-retryable by the source's `get_non_retryable_errors`.
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.HogFunction.objects"
+    ) as mock_hog_function_objects:
+        mock_hog_function_objects.filter.side_effect = DjangoOperationalError("[Errno -2] Name or service not known")
+        with pytest.raises(PostHogInternalDatabaseError) as exc_info:
+            await producer.should_produce_table()
+
+    non_retryable = PostgresSource().get_non_retryable_errors()
+    error_msg = str(exc_info.value)
+    is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+    assert not is_non_retryable, f"A PostHog-side DB connection failure must stay retryable: {error_msg}"
 
 
 @pytest.mark.django_db(transaction=True)

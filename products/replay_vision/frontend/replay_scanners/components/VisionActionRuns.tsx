@@ -41,6 +41,9 @@ function RunStats(): JSX.Element {
     const isAlert = action?.mode === VisionActionModeEnumApi.Alert
     // every_match rides each scanner sweep; on_breach thresholds are re-checked hourly.
     const everyMatch = action?.alert_config?.frequency === 'every_match'
+    // Show run times in the schedule's own timezone so "Next run" lines up with the "Runs daily
+    // at HH:MM" label. The TZLabel popover still converts to the viewer's device tz and UTC.
+    const scheduleTimezone = action?.trigger_config?.timezone
     return (
         <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-surface-primary">
             <StatCell
@@ -52,7 +55,12 @@ function RunStats(): JSX.Element {
                 title={isAlert ? 'Last checked' : 'Last run'}
                 value={
                     action?.last_run_at ? (
-                        <TZLabel time={action.last_run_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+                        <TZLabel
+                            time={action.last_run_at}
+                            displayTimezone={scheduleTimezone}
+                            formatDate="MMM D, YYYY"
+                            formatTime="HH:mm"
+                        />
                     ) : (
                         'Never'
                     )
@@ -71,7 +79,12 @@ function RunStats(): JSX.Element {
                         // showing it would overstate the gap between checks. on_breach follows the cursor.
                         'Within minutes'
                     ) : action?.next_run_at ? (
-                        <TZLabel time={action.next_run_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+                        <TZLabel
+                            time={action.next_run_at}
+                            displayTimezone={scheduleTimezone}
+                            formatDate="MMM D, YYYY"
+                            formatTime="HH:mm"
+                        />
                     ) : (
                         '—'
                     )
@@ -100,8 +113,9 @@ function EmptyRuns(): JSX.Element {
 }
 
 export function VisionActionRuns(): JSX.Element {
-    const { runs, runsLoading } = useValues(visionActionRunsLogic)
+    const { action, runs, runsLoading } = useValues(visionActionRunsLogic)
     const { actionId } = useValues(visionActionSceneLogic)
+    const scheduleTimezone = action?.trigger_config?.timezone
 
     const columns: LemonTableColumns<VisionActionRunListApi> = [
         {
@@ -109,7 +123,12 @@ export function VisionActionRuns(): JSX.Element {
             key: 'when',
             render: (_, run) => (
                 <Link className="font-semibold" to={urls.replayVisionActionRun(actionId, run.id)}>
-                    <TZLabel time={run.scheduled_at ?? run.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+                    <TZLabel
+                        time={run.scheduled_at ?? run.created_at}
+                        displayTimezone={scheduleTimezone}
+                        formatDate="MMM D, YYYY"
+                        formatTime="HH:mm"
+                    />
                 </Link>
             ),
         },

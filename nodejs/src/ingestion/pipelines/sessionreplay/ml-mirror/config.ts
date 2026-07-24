@@ -23,6 +23,12 @@ export type MlMirrorConfig = {
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
+    /**
+     * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
+     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * both the scrub consumer lane AND ref-aware downstream readers must be live first.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -31,12 +37,32 @@ export type MlMirrorConfig = {
     // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
+    /**
+     * Capacity of the consumer's per-pod seen-ref LRU. The topic is keyed by ref, so duplicates are
+     * partition-affine and a per-pod cache dedupes them exactly up to this many refs. Budget ~200 B
+     * per entry, of which lru-cache commits about an eighth up front by preallocating its backing
+     * arrays. Sized against the 2000M consumer container in
+     * https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-image-scrub/values.yaml,
+     * which also has to hold MAX_BYTES of scrubbed images at ~2x during a flush. Start low and raise
+     * it off ml_mirror_ref_cache_capacity_probe_total rather than guessing.
+     *
+     * 0 disables only this cross-batch cache; duplicates within a poll batch always collapse.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: number
+    /**
+     * The mirror-side twin of the knob above, bounding re-produces onto the scrub topic. Tunable for
+     * the same reason: it is a pure memory-for-throughput trade, and shedding it during a mirror
+     * memory incident should not need a code deploy of the shared replay ingester.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
-    // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
+    // Scrub-phase budget, covering scrub time only — mid-batch flush time is excluded (each flush is
+    // separately bounded at 2x the S3 write timeout). Sized so scrub plus the worst-case flushes for
+    // one poll batch stays under Kafka's max.poll.interval.ms (300s), or a hung sidecar/S3 evicts us
+    // mid-batch and livelocks.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
 
     /**
@@ -59,6 +85,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
@@ -67,6 +94,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,

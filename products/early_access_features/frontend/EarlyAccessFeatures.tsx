@@ -6,7 +6,9 @@ import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -16,6 +18,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType } from '~/types'
+
+import { AssigneeDisplay, AssigneeResolver } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -136,6 +140,23 @@ export function EarlyAccessFeatures(): JSX.Element {
                                 },
                                 sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                             },
+                            {
+                                title: 'Assignee',
+                                key: 'assignee',
+                                render(_, { assignee }) {
+                                    return (
+                                        <AssigneeResolver assignee={assignee ?? null}>
+                                            {({ assignee: resolvedAssignee }) => (
+                                                <AssigneeDisplay assignee={resolvedAssignee} size="small" />
+                                            )}
+                                        </AssigneeResolver>
+                                    )
+                                },
+                            },
+                            createdAtColumn<EarlyAccessFeatureType>() as LemonTableColumn<
+                                EarlyAccessFeatureType,
+                                keyof EarlyAccessFeatureType | undefined
+                            >,
                         ]}
                         dataSource={filteredEarlyAccessFeatures}
                         emptyState={
