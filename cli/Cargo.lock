@@ -2093,6 +2093,7 @@ dependencies = [
  "colored",
  "crossterm 0.28.1",
  "dirs",
+ "dunce",
  "globset",
  "inquire",
  "libc",
