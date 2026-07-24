@@ -68,6 +68,16 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
     path = hosted_upload_s3_path(table.url_pattern)
     if path is None:
         return
+    # The same uploaded file can back more than one table — `create_from_upload` doesn't claim
+    # exclusive ownership of an upload — so only reclaim the object once no live table still points
+    # at it. This keeps deleting one table from pulling the file out from under another, and stops a
+    # table whose file is still in use from having its object removed.
+    if (
+        DataWarehouseTable.objects.filter(team_id=table.team_id, url_pattern=table.url_pattern, deleted=False)
+        .exclude(pk=table.pk)
+        .exists()
+    ):
+        return
     try:
         get_s3_client().rm(path)
     except Exception as e:

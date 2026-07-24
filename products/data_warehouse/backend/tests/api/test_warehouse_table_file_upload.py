@@ -328,3 +328,23 @@ class TestWarehouseTableDeleteRemovesHostedFile(APIBaseTest):
 
         assert status_code == status.HTTP_204_NO_CONTENT
         assert removed == []
+
+    def test_shared_upload_is_kept_until_the_last_referencing_table_is_deleted(self) -> None:
+        # The same uploaded file can back more than one table. Deleting one table must not pull the
+        # file out from under the other — the object is only reclaimed once the last table goes.
+        upload_id = "22222222-2222-2222-2222-222222222222"
+        url_pattern = f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
+        first = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="CSVWithNames", url_pattern=url_pattern, columns={}
+        )
+        second = DataWarehouseTable.objects.create(
+            team=self.team, name="orders_copy", format="CSVWithNames", url_pattern=url_pattern, columns={}
+        )
+
+        status_code, removed = self._delete(first)
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == []
+
+        status_code, removed = self._delete(second)
+        assert status_code == status.HTTP_204_NO_CONTENT
+        assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]
