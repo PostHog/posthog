@@ -70,6 +70,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    ActivityScope,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -240,6 +241,42 @@ interface MetricLoadingSummary {
     successfulCount: number
     erroredCount: number
     cachedCount: number
+}
+
+// Mirrors FLAG_WITHOUT_VARIANTS_ERROR_CODE in
+// products/experiments/backend/hogql_queries/__init__.py — the 4xx code raised when the
+// experiment's flag was converted from multivariate to a boolean/rollout flag.
+const FLAG_VARIANTS_REMOVED_ERROR_CODE = 'feature_flag_variants_removed'
+
+function errorHasFlagVariantsRemovedCode(error: any): boolean {
+    return error?.code === FLAG_VARIANTS_REMOVED_ERROR_CODE
+}
+
+// Best-effort lookup of when the flag lost its variants, from the flag's activity log. Returns the
+// timestamp of the change where multivariate variants went from present to absent, or null if it
+// can't be found (activity unavailable, entry missing) — the error state degrades to no timestamp.
+async function findFlagVariantsRemovedAt(flagId?: number | null): Promise<string | null> {
+    if (!flagId) {
+        return null
+    }
+    try {
+        const response = await api.activity.list({ scope: ActivityScope.FEATURE_FLAG, item_id: flagId })
+        for (const item of response.results ?? []) {
+            for (const change of item.detail?.changes ?? []) {
+                if (change.field !== 'filters') {
+                    continue
+                }
+                const before = (change.before as any)?.multivariate?.variants ?? []
+                const after = (change.after as any)?.multivariate?.variants ?? []
+                if (before.length > 0 && after.length === 0) {
+                    return item.created_at ?? null
+                }
+            }
+        }
+    } catch {
+        // Best-effort — show the error without the timestamp if activity can't be read.
+    }
+    return null
 }
 
 function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
@@ -537,6 +574,9 @@ export interface experimentLogicValues {
     exposuresLoading: boolean
     featureFlagValidationError: string | null
     firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
+    flagVariantsRemoved: boolean
+    flagVariantsRemovedAt: string | null
+    flagVariantsRemovedInfo: { changedAt: string | null } | null
     formMode: FormModes
     freezeExposureLoading: boolean
     getExperimentMetricType: (metric: ExperimentMetricUnion | undefined) => ExperimentMetricType
@@ -1194,6 +1234,9 @@ export interface experimentLogicActions {
         excluded: boolean
         variantKey: string
     }
+    setFlagVariantsRemoved: (changedAt: string | null) => {
+        changedAt: string | null
+    }
     stopAutoRefreshInterval: () => {
         value: true
     }
@@ -1658,6 +1701,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setNotifyWhenResultsReady: (notify: boolean) => ({ notify }),
         toggleDebugPanel: true,
         setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
+        setFlagVariantsRemoved: (changedAt: string | null) => ({ changedAt }),
     }),
     reducers({
         showDebugPanel: [
@@ -2015,6 +2059,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadSecondaryMetricsResults: () => [],
                 loadExperiment: () => [],
                 clearMetricsResults: () => [],
+            },
+        ],
+        // Set once the exposure/metric query reports the flag no longer has variants. Holds the
+        // best-effort timestamp of the change (or null). Reset when the experiment is reloaded.
+        flagVariantsRemovedInfo: [
+            null as { changedAt: string | null } | null,
+            {
+                setFlagVariantsRemoved: (_, { changedAt }) => ({ changedAt }),
+                loadExperiment: () => null,
             },
         ],
         editingPrimaryMetricUuid: [
@@ -2448,6 +2501,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+            // The flag lost its variants — exposures and metrics can't be computed, so don't keep
+            // re-attempting (which would spin forever). The error state is shown instead.
+            if (values.flagVariantsRemovedInfo) {
+                return
+            }
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -3382,6 +3440,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 throw error
             }
         },
+        loadExposuresFailure: async ({ errorObject }) => {
+            // The flag was converted from multivariate to boolean/rollout, so exposures and metrics
+            // can't be computed. Stop the auto-refresh loop — retrying can't succeed until the flag
+            // regains variants — and surface a descriptive state with the change time when we can find it.
+            if (values.flagVariantsRemovedInfo || !errorHasFlagVariantsRemovedCode(errorObject)) {
+                return
+            }
+            actions.stopAutoRefreshInterval()
+            const changedAt = await findFlagVariantsRemovedAt(values.experiment?.feature_flag?.id)
+            actions.setFlagVariantsRemoved(changedAt)
+        },
         setAutoRefresh: ({ enabled, interval }) => {
             // Track when user toggles auto-refresh settings
             actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
@@ -3537,6 +3606,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        flagVariantsRemoved: [(s) => [s.flagVariantsRemovedInfo], (info): boolean => info !== null],
+        flagVariantsRemovedAt: [(s) => [s.flagVariantsRemovedInfo], (info): string | null => info?.changedAt ?? null],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,

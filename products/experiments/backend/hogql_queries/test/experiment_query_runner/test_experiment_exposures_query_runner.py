@@ -8,13 +8,14 @@ from django.forms.models import model_to_dict
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
 
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
-from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries import FLAG_WITHOUT_VARIANTS_ERROR_CODE, MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
@@ -1694,6 +1695,43 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         risk = _runner(None)._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
+
+    @parameterized.expand(
+        [
+            # (name, multivariate_value) — both are flags no longer backing an experiment split.
+            ("multivariate_null", None),  # flag converted to a plain boolean/rollout flag
+            ("empty_variants", {"variants": []}),  # multivariate present but no variants left
+        ]
+    )
+    def test_flag_without_variants_raises_descriptive_error(self, _name, multivariate_value):
+        # A flag whose multivariate is null (converted to boolean) used to raise AttributeError here,
+        # surfacing to the client as a 500. It must instead raise a descriptive 4xx ValidationError.
+        feature_flag = self.create_feature_flag(key="lost-variants")
+        feature_flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": multivariate_value,
+        }
+        feature_flag.save(update_fields=["filters"])
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 7),
+        )
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertEqual(cm.exception.detail[0].code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
+        self.assertIn("no longer defines any variants", str(cm.exception.detail[0]))
 
     def test_date_range_follows_query_not_model(self):
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window

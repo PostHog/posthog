@@ -3982,6 +3982,81 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is True
         assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
+    def _multivariate_flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+    @parameterized.expand(
+        [
+            # name, incoming multivariate value — both drop the flag's variants.
+            ("multivariate_removed", None),  # boolean/rollout flag: no multivariate key at all
+            ("multivariate_null", "null"),  # multivariate explicitly nulled
+        ]
+    )
+    def test_removing_variants_blocked_while_experiment_references_flag(self, _name, multivariate):
+        # Converting a multivariate flag to boolean while an experiment still points at it would break
+        # that experiment's exposure/metric queries, so the change is rejected with a descriptive error.
+        flag = self._multivariate_flag(f"{_name}-flag")
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="My experiment",
+            start_date=now(),
+        )
+
+        filters: dict = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if multivariate == "null":
+            filters["multivariate"] = None
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": filters})
+
+        assert response.status_code == 400, response.content
+        detail = response.json()["detail"]
+        assert "Cannot remove this flag's variants" in detail
+        assert f'"My experiment" (ID: {exp.id})' in detail
+        flag.refresh_from_db()
+        assert flag.variants  # unchanged
+
+    @parameterized.expand(
+        [
+            ("no_experiment", False),
+            ("deleted_experiment", True),
+        ]
+    )
+    def test_removing_variants_allowed_without_live_experiment(self, _name, with_deleted_experiment):
+        # Only non-deleted experiments block the conversion; a deleted experiment (or none) doesn't.
+        flag = self._multivariate_flag(f"{_name}-flag")
+        if with_deleted_experiment:
+            Experiment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                feature_flag=flag,
+                name="Old experiment",
+                start_date=now(),
+                deleted=True,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+        )
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.variants == []
+
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
         # Set the flag as the session recording linked flag
