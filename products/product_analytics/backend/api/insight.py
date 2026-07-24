@@ -2114,6 +2114,16 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "no_dashboard":
+                if request.GET["no_dashboard"] == "true":
+                    # insight__isnull=False excludes text/button tiles (which have no insight FK).
+                    # The DashboardTile manager's get_queryset already excludes deleted=True tiles,
+                    # so no extra deleted filter is needed here.
+                    queryset = queryset.exclude(
+                        id__in=DashboardTile.objects.filter(insight__isnull=False)
+                        .values_list("insight__id", flat=True)
+                        .all()
+                    )
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:

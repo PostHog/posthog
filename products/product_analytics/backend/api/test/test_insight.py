@@ -1253,6 +1253,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
+    def test_no_dashboard_filter_excludes_insights_on_active_tiles(self) -> None:
+        on_dashboard_id, _ = self.dashboard_api.create_insight(
+            {"name": "on dashboard", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        not_on_dashboard_id, _ = self.dashboard_api.create_insight(
+            {"name": "not on dashboard", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        # Insight whose only tile is soft-deleted — should count as "not on dashboard"
+        deleted_tile_id, _ = self.dashboard_api.create_insight(
+            {"name": "deleted tile only", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test dashboard"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], on_dashboard_id)
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], deleted_tile_id)
+        # Remove the insight from dashboard — soft-deletes the tile
+        self.dashboard_api.update_insight(deleted_tile_id, {"dashboards": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?no_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {i["id"] for i in response.json()["results"]}
+        self.assertIn(not_on_dashboard_id, result_ids)
+        self.assertIn(deleted_tile_id, result_ids)
+        self.assertNotIn(on_dashboard_id, result_ids)
+
+        # Without the filter all three are returned
+        response_all = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response_all.status_code, status.HTTP_200_OK)
+        all_ids = {i["id"] for i in response_all.json()["results"]}
+        self.assertIn(on_dashboard_id, all_ids)
+        self.assertIn(not_on_dashboard_id, all_ids)
+        self.assertIn(deleted_tile_id, all_ids)
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
         response = self.client.post(

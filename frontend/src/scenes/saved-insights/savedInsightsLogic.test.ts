@@ -166,6 +166,24 @@ describe('savedInsightsLogic', () => {
             })
     })
 
+    it('sets no_dashboard param when notOnAnyDashboard filter is active', async () => {
+        logic.actions.setSavedInsightsFilters({ notOnAnyDashboard: true })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                filters: partial({ notOnAnyDashboard: true }),
+                paramsFromFilters: partial({ no_dashboard: true }),
+            })
+
+        logic.actions.setSavedInsightsFilters({ notOnAnyDashboard: false })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                filters: partial({ notOnAnyDashboard: false }),
+                paramsFromFilters: expect.not.objectContaining({ no_dashboard: true }),
+            })
+    })
+
     it('persists the filter in the url', async () => {
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
         await expectLogic(logic)

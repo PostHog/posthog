@@ -13,8 +13,15 @@ import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags' | 'notOnAnyDashboard'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = [
+    'insightType',
+    'tags',
+    'createdBy',
+    'favorites',
+    'featureFlags',
+    'notOnAnyDashboard',
+]
 
 export function SavedInsightsFilters({
     filters,
@@ -28,7 +35,7 @@ export function SavedInsightsFilters({
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy, notOnAnyDashboard } = filters
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
 
@@ -115,6 +122,23 @@ export function SavedInsightsFilters({
                             hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                             onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
                         />
+                    )}
+                    {quickFilterSet.has('notOnAnyDashboard') && (
+                        <LemonButton
+                            type="secondary"
+                            status={borderless && !notOnAnyDashboard ? 'alt' : 'default'}
+                            active={notOnAnyDashboard || false}
+                            onClick={() => {
+                                setFilters({ notOnAnyDashboard: !notOnAnyDashboard })
+                                posthog.capture('saved insights filtered', {
+                                    filter_type: 'not_on_any_dashboard',
+                                    value: !notOnAnyDashboard,
+                                })
+                            }}
+                            size="small"
+                        >
+                            Not on any dashboard
+                        </LemonButton>
                     )}
                 </div>
             )}

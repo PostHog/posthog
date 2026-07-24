@@ -65,6 +65,7 @@ export interface SavedInsightFilters {
     lastViewedDateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
+    notOnAnyDashboard: boolean | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
     favorited: boolean | undefined | null
@@ -86,6 +87,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         lastViewedDateTo: values.lastViewedDateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
+        notOnAnyDashboard: values.notOnAnyDashboard || false,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
         favorited: values.favorited || false,
@@ -549,6 +551,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
                 }),
+                ...(filters.notOnAnyDashboard && { no_dashboard: true }),
                 ...(filters.hideFeatureFlagInsights && { hide_feature_flag_insights: true }),
             }),
         ],
