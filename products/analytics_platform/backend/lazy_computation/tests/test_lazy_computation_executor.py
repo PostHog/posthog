@@ -3037,10 +3037,10 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
 
         def slow_insert(_t, job) -> None:
             calls.append(job.id)
-            time_mod.sleep(0.02)
+            time_mod.sleep(0.1)
 
         schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
-        result = LazyComputationExecutor(wait_timeout_seconds=0.01, ttl_schedule=schedule).execute(
+        result = LazyComputationExecutor(wait_timeout_seconds=0.5, ttl_schedule=schedule).execute(
             team=self.team,
             query_info=self._query_info(),
             start=datetime(2024, 1, 1, tzinfo=UTC),
