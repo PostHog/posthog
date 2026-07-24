@@ -480,6 +480,7 @@ the row lists both.
 | rollbar                          | HTTP                        | requests                                                        | ✅                          |
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
+| rubygems                         | HTTP                        | requests                                                        | ✅                          |
 | ruddr                            | HTTP                        | requests                                                        | ✅                          |
 | runpod                           | HTTP                        | requests                                                        | ✅                          |
 | safetyculture                    | HTTP                        | requests                                                        | ✅                          |
@@ -1224,7 +1225,6 @@ doesn't conflict with concurrent PRs.
 - rocket_matter
 - rocketlane
 - rss
-- rubygems
 - rudderstack
 - safetyculture
 - sage_intacct
