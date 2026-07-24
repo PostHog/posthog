@@ -20,7 +20,9 @@ import { URL } from 'url'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { isProdEnv } from './env-utils'
+import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -82,6 +84,17 @@ export class ResolutionError extends Error {
     }
 }
 
+// One log line per URL-validation check run, before the verdict, so blocked requests are
+// recorded too. The DNS check only runs when undici opens a new connection (keep-alive
+// reuse skips it), and attribution reflects the request that opened the connection.
+function logUrlValidationCheck(hostname: string, resolvedIps: string[]): void {
+    logger.info('[SSRF] Running URL validation check', {
+        hostname,
+        resolvedIps,
+        ...fetchAttribution.getStore(),
+    })
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
@@ -120,6 +133,8 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
         // Not an IP literal (it's a regular hostname) — DNS lookup will handle validation
         return
     }
+
+    logUrlValidationCheck(hostname, [bare])
 
     let ipv4: ipaddr.IPv4 | null = null
     if (isIPv4(parsed)) {
@@ -178,6 +193,10 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     } catch {
         throw new ResolutionError('Invalid hostname')
     }
+    logUrlValidationCheck(
+        hostname,
+        addrinfo.map((a) => a.address)
+    )
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
 

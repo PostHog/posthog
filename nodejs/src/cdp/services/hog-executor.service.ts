@@ -5,6 +5,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
@@ -87,6 +88,49 @@ const cdpHttpRequestTimingRetried = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+// SSRF / URL-validation blocks. The low-level guard in common/utils/request.ts increments
+// `node_request_unsafe` but has no team/function context; this counter and the paired
+// structured log below carry the attribution needed to trace a block back to a destination.
+const cdpBlockedRequests = new Counter({
+    name: 'cdp_http_blocked_requests',
+    help: 'HTTP requests blocked by the SSRF / URL-validation guard',
+    labelNames: ['reason', 'template_id'],
+})
+
+// SecureRequestError (private/link-local IP), ResolutionError (DNS failed or every
+// resolved IP was unsafe) and InvalidRequestError (bad scheme/URL) all mean the request
+// was refused before or during connection — never a response from the destination.
+// Matched by name, not instanceof: tests that mock ~/common/utils/request leave the
+// error classes undefined, and instanceof against undefined throws.
+export function isBlockedRequestError(error: unknown): boolean {
+    const name = (error as { name?: string } | null)?.name
+    return name === 'SecureRequestError' || name === 'ResolutionError' || name === 'InvalidRequestError'
+}
+
+// Emit ops-visible attribution for a blocked request. The customer-facing `addLog`
+// entries are team-scoped and not queryable from the ops side, so without this a block
+// couldn't be traced back to a hog function or its owning team.
+function logBlockedRequest(
+    error: Error,
+    { url, templateId, teamId, hogFunctionId }: CdpFetchAttribution & { url: string; templateId: string }
+): void {
+    let hostname: string | undefined
+    try {
+        hostname = new URL(url).hostname
+    } catch {
+        // Malformed URL (InvalidRequestError) — hostname stays undefined
+    }
+    cdpBlockedRequests.inc({ reason: error.name, template_id: templateId })
+    logger.warn('[cdpTrackedFetch] Request blocked by SSRF / URL-validation guard', {
+        reason: error.name,
+        message: error.message,
+        hostname,
+        teamId,
+        hogFunctionId,
+        templateId,
+    })
+}
+
 // Stale keep-alive connections produce these errors when the server has closed its end before
 // we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
 export function isConnectionLevelError(error: any): boolean {
@@ -99,18 +143,39 @@ export function isConnectionLevelError(error: any): boolean {
     )
 }
 
+// Attribution for a tracked fetch, so a blocked/refused request can be traced back to the
+// owning hog function and team. Optional because a few callers (push notifications, hog
+// transformations) hand `cdpTrackedFetch` to the Hog VM without an invocation in scope.
+export type CdpFetchAttribution = {
+    teamId?: number
+    hogFunctionId?: string
+}
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
     templateId,
+    teamId,
+    hogFunctionId,
 }: {
     url: string
     fetchParams: FetchOptions
     templateId: string
-}): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+} & CdpFetchAttribution): Promise<{
+    fetchError: Error | null
+    fetchResponse: FetchResponse | null
+    fetchDuration: number
+}> {
     const start = performance.now()
 
-    let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+    // Attribution read by the URL-validation check logs in common/utils/request.ts, which
+    // run inside undici's connect flow where no caller context is otherwise available.
+    const doFetch = () =>
+        fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
+            tryCatch(async () => await fetch(url, fetchParams))
+        )
+
+    let [fetchError, fetchResponse] = await doFetch()
 
     const fetchDuration = performance.now() - start
     cdpHttpRequestTiming.observe(fetchDuration)
@@ -121,11 +186,18 @@ export async function cdpTrackedFetch({
             url,
             error: fetchError,
         })
-        ;[fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+        ;[fetchError, fetchResponse] = await doFetch()
         const retryDuration = performance.now() - start
         cdpHttpRequestTimingRetried.observe(retryDuration)
         cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        if (fetchError && isBlockedRequestError(fetchError)) {
+            logBlockedRequest(fetchError, { url, templateId, teamId, hogFunctionId })
+        }
         return { fetchError, fetchResponse, fetchDuration: retryDuration }
+    }
+
+    if (fetchError && isBlockedRequestError(fetchError)) {
+        logBlockedRequest(fetchError, { url, templateId, teamId, hogFunctionId })
     }
 
     return { fetchError, fetchResponse, fetchDuration }
@@ -897,6 +969,8 @@ export class HogExecutorService {
             url: params.url,
             fetchParams,
             templateId,
+            teamId: invocation.teamId,
+            hogFunctionId: invocation.hogFunction.id,
         })
 
         result.invocation.state.timings.push({
