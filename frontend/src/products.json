@@ -79,7 +79,7 @@
         },
         {
             "path": "Cookie banner",
-            "category": "Unreleased",
+            "category": "Tools",
             "iconType": "default_icon_type",
             "type": null,
             "intents": ["cookie_banner"]

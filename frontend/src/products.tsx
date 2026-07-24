@@ -1733,7 +1733,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Cookie banner',
         intents: [ProductKey.COOKIE_BANNER],
-        category: ProductItemCategory.UNRELEASED,
+        category: ProductItemCategory.TOOLS,
         href: '/cookie-banner',
         iconType: 'default_icon_type',
         flag: FEATURE_FLAGS.COOKIE_BANNER,

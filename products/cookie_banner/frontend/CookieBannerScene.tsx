@@ -90,112 +90,100 @@ export function CookieBannerScene(): JSX.Element {
                             bordered
                         />
                     </SceneSection>
-                    <SceneSection title="Content" description="The copy your visitors see." titleSize="sm">
-                        <div className="flex flex-col gap-4">
-                            {TEXT_FIELDS.map(({ key, label, maxLength, textarea }) => (
-                                <div key={key}>
-                                    <LemonLabel className="mb-1">{label}</LemonLabel>
-                                    {textarea ? (
-                                        <LemonTextArea
-                                            value={String(effectiveAppearance[key])}
-                                            onChange={(value) => setAppearanceValue(key, value)}
-                                            maxLength={maxLength}
-                                            data-attr={`cookie-banner-${key}`}
-                                        />
-                                    ) : (
-                                        <LemonInput
-                                            value={String(effectiveAppearance[key])}
-                                            onChange={(value) => setAppearanceValue(key, value)}
-                                            maxLength={maxLength}
-                                            data-attr={`cookie-banner-${key}`}
-                                        />
-                                    )}
-                                </div>
-                            ))}
+                    <div className="flex flex-col gap-4">
+                        {TEXT_FIELDS.map(({ key, label, maxLength, textarea }) => (
+                            <div key={key}>
+                                <LemonLabel className="mb-1">{label}</LemonLabel>
+                                {textarea ? (
+                                    <LemonTextArea
+                                        value={String(effectiveAppearance[key])}
+                                        onChange={(value) => setAppearanceValue(key, value)}
+                                        maxLength={maxLength}
+                                        data-attr={`cookie-banner-${key}`}
+                                    />
+                                ) : (
+                                    <LemonInput
+                                        value={String(effectiveAppearance[key])}
+                                        onChange={(value) => setAppearanceValue(key, value)}
+                                        maxLength={maxLength}
+                                        data-attr={`cookie-banner-${key}`}
+                                    />
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex flex-col gap-4">
+                        <div>
+                            <LemonLabel className="mb-1">Theme</LemonLabel>
+                            <LemonSegmentedButton
+                                value={activeTheme ?? undefined}
+                                onChange={(theme) => setAppearanceValues(THEME_PALETTES[theme as ThemePreset])}
+                                options={[
+                                    { value: 'light', label: 'Light' },
+                                    { value: 'dark', label: 'Dark' },
+                                ]}
+                                data-attr="cookie-banner-theme"
+                            />
                         </div>
-                    </SceneSection>
-                    <SceneSection
-                        title="Appearance"
-                        description="Pick a theme, art, and placement, or fine-tune the colors."
-                        titleSize="sm"
-                    >
-                        <div className="flex flex-col gap-4">
-                            <div>
-                                <LemonLabel className="mb-1">Theme</LemonLabel>
-                                <LemonSegmentedButton
-                                    value={activeTheme ?? undefined}
-                                    onChange={(theme) => setAppearanceValues(THEME_PALETTES[theme as ThemePreset])}
-                                    options={[
-                                        { value: 'light', label: 'Light' },
-                                        { value: 'dark', label: 'Dark' },
-                                    ]}
-                                    data-attr="cookie-banner-theme"
-                                />
-                            </div>
-                            <div>
-                                <LemonLabel className="mb-1">Art</LemonLabel>
-                                <div className="flex gap-2 flex-wrap">
-                                    {(Object.keys(ART_STYLE_LABELS) as (keyof typeof ART_STYLE_LABELS)[]).map(
-                                        (style) => (
-                                            <LemonButton
-                                                key={style}
-                                                type="secondary"
-                                                active={effectiveAppearance.artStyle === style}
-                                                onClick={() => setAppearanceValue('artStyle', style)}
-                                                data-attr={`cookie-banner-art-${style}`}
-                                            >
-                                                <span className="flex flex-col items-center gap-1 py-1">
-                                                    {COOKIE_BANNER_ART[style] ? (
-                                                        <span
-                                                            className="flex h-8 items-center"
-                                                            // Static app-owned SVG markup, never user input
-                                                            dangerouslySetInnerHTML={{
-                                                                __html: COOKIE_BANNER_ART[style],
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <span className="flex h-8 items-center text-muted">None</span>
-                                                    )}
-                                                    <span className="text-xs font-normal">
-                                                        {ART_STYLE_LABELS[style]}
-                                                    </span>
-                                                </span>
-                                            </LemonButton>
-                                        )
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <LemonLabel className="mb-1">Position</LemonLabel>
-                                <LemonSegmentedButton
-                                    value={effectiveAppearance.position}
-                                    onChange={(value) => setAppearanceValue('position', value)}
-                                    options={(Object.keys(POSITION_LABELS) as (keyof typeof POSITION_LABELS)[]).map(
-                                        (position) => ({ value: position, label: POSITION_LABELS[position] })
-                                    )}
-                                    data-attr="cookie-banner-position"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                {COLOR_FIELDS.map(({ key, label }) => (
-                                    <div key={key}>
-                                        <LemonLabel className="mb-1">{label}</LemonLabel>
-                                        <LemonInput
-                                            value={String(effectiveAppearance[key])}
-                                            onChange={(value) => setAppearanceValue(key, value)}
-                                            prefix={
+                        <div>
+                            <LemonLabel className="mb-1">Art</LemonLabel>
+                            <div className="flex gap-2 flex-wrap">
+                                {(Object.keys(ART_STYLE_LABELS) as (keyof typeof ART_STYLE_LABELS)[]).map((style) => (
+                                    <LemonButton
+                                        key={style}
+                                        type="secondary"
+                                        active={effectiveAppearance.artStyle === style}
+                                        onClick={() => setAppearanceValue('artStyle', style)}
+                                        data-attr={`cookie-banner-art-${style}`}
+                                    >
+                                        <span className="flex flex-col items-center gap-1 py-1">
+                                            {COOKIE_BANNER_ART[style] ? (
                                                 <span
-                                                    className="inline-block w-4 h-4 rounded border"
-                                                    style={{ backgroundColor: String(effectiveAppearance[key]) }}
+                                                    className="flex h-12 items-center"
+                                                    // Static app-owned SVG markup, never user input
+                                                    dangerouslySetInnerHTML={{
+                                                        __html: COOKIE_BANNER_ART[style],
+                                                    }}
                                                 />
-                                            }
-                                            data-attr={`cookie-banner-${key}`}
-                                        />
-                                    </div>
+                                            ) : (
+                                                <span className="flex h-12 items-center text-muted">None</span>
+                                            )}
+                                            <span className="text-xs font-normal">{ART_STYLE_LABELS[style]}</span>
+                                        </span>
+                                    </LemonButton>
                                 ))}
                             </div>
                         </div>
-                    </SceneSection>
+                        <div>
+                            <LemonLabel className="mb-1">Position</LemonLabel>
+                            <LemonSegmentedButton
+                                value={effectiveAppearance.position}
+                                onChange={(value) => setAppearanceValue('position', value)}
+                                options={(Object.keys(POSITION_LABELS) as (keyof typeof POSITION_LABELS)[]).map(
+                                    (position) => ({ value: position, label: POSITION_LABELS[position] })
+                                )}
+                                data-attr="cookie-banner-position"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            {COLOR_FIELDS.map(({ key, label }) => (
+                                <div key={key}>
+                                    <LemonLabel className="mb-1">{label}</LemonLabel>
+                                    <LemonInput
+                                        value={String(effectiveAppearance[key])}
+                                        onChange={(value) => setAppearanceValue(key, value)}
+                                        prefix={
+                                            <span
+                                                className="inline-block w-4 h-4 rounded border"
+                                                style={{ backgroundColor: String(effectiveAppearance[key]) }}
+                                            />
+                                        }
+                                        data-attr={`cookie-banner-${key}`}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                     <SceneSection
                         title="Branding"
                         description="Removing the notice requires the white labelling entitlement on your plan."

@@ -29,7 +29,9 @@ _HEDGEHOG_ROBOT_WEBP = "UklGRsYXAABXRUJQVlA4WAoAAAAQAAAAawAAdwAAQUxQSHoGAAABoHZb
 
 
 def _art_img(webp_b64: str) -> str:
-    return f'<img src="data:image/webp;base64,{webp_b64}" height="60" alt="" style="display: block">'
+    # Size via inline style, not the height attribute: Tailwind preflight on host
+    # sites sets `img { height: auto }`, which overrides presentation attributes
+    return f'<img src="data:image/webp;base64,{webp_b64}" alt="" style="height: 48px; width: auto; display: block">'
 
 
 COOKIE_BANNER_ART: dict[str, str] = {
