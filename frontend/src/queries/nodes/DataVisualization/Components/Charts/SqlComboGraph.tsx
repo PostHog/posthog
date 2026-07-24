@@ -5,6 +5,7 @@ import { TimeSeriesComboChart } from '@posthog/quill-charts'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
+import { SqlChartAnnotations } from './SqlChartAnnotations'
 import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -34,7 +35,9 @@ export const SqlComboGraph = (props: LineGraphProps): JSX.Element => {
                     theme={model.theme}
                     config={model.config}
                     onError={handleChartError}
-                />
+                >
+                    <SqlChartAnnotations {...props} />
+                </TimeSeriesComboChart>
             )}
         </div>
     )
