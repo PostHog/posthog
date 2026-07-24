@@ -49,6 +49,11 @@ const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 // in `ee/api/session_summaries.py`. If you change one, check the other.
 const SSE_READ_TIMEOUT_MS = 30_000
 
+/** Match frontend getExperimentRefreshMode (sync path): force_blocking bypasses the query cache. */
+export function experimentQueryRefresh(refresh: boolean): 'force_blocking' | undefined {
+    return refresh ? 'force_blocking' : undefined
+}
+
 export interface GroupType {
     group_type: string
     group_type_index: number
@@ -863,9 +868,10 @@ export class ApiClient {
                 const validated = ExperimentExposureQuerySchema.parse(exposureQuery)
 
                 // The API expects a QueryRequest object with the query wrapped
+                const refreshMode = experimentQueryRefresh(refresh)
                 const queryRequest: any = {
                     query: validated,
-                    ...(refresh ? { refresh: 'blocking' } : {}),
+                    ...(refreshMode ? { refresh: refreshMode } : {}),
                 }
 
                 const result = await this.fetchJson<ExperimentExposureQueryResponse>(
@@ -960,9 +966,10 @@ export class ApiClient {
                                 experiment_id: experimentId,
                             }
 
+                            const refreshMode = experimentQueryRefresh(refresh)
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refreshMode ? { refresh: refreshMode } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
@@ -990,9 +997,10 @@ export class ApiClient {
                                 experiment_id: experimentId,
                             }
 
+                            const refreshMode = experimentQueryRefresh(refresh)
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refreshMode ? { refresh: refreshMode } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
