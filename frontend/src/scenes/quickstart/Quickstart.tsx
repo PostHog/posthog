@@ -1612,7 +1612,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
     const cards = INSTALL_MODE_CARDS.filter((card) => card.value !== 'cloud' || offerCloud)
 
     return (
-        <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6 items-start">
+        <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6">
             <div className="flex flex-col gap-4">
                 {intro}
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-2" role="radiogroup">
@@ -1650,7 +1650,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                     })}
                 </div>
             </div>
-            <div className="rounded border bg-surface-primary p-4 flex flex-col gap-4">
+            <div className="rounded border bg-surface-primary p-4 flex flex-col gap-4 h-full">
                 {effectiveMode !== 'manual' && (
                     <InstallPathTimeline
                         steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
@@ -1727,7 +1727,7 @@ function QuickstartFocusedInstall(): JSX.Element {
         )
     }
     return (
-        <section className="max-w-5xl">
+        <section>
             <QuickstartInstallSwitcher intro={intro} />
         </section>
     )
