@@ -158,6 +158,13 @@ export const scenarioMocks = (
             // reads the first column, so keep totalEvents as a plausible recordings number
             '/api/environments/:team_id/query': { results: [signalsRow(signals)] },
         },
+        patch: {
+            // Every route whose response body is a team must agree with the story's installation
+            // state — the default handlers answer with an installed MOCK_DEFAULT_TEAM, and a single
+            // stray team payload (e.g. the scene's team PATCH) flips useInstallationComplete
+            '/api/environments/:team_id/': mockTeam,
+            '/api/environments/:team_id/add_product_intent/': mockTeam,
+        },
     }
 }
 
