@@ -17,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     NULL_NUMERICAL_PARTITION,
@@ -90,6 +91,9 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "revenue" in message
     assert "N/A" in message
     assert "<blank>" in message
+    # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
+    # guidance instead of retrying the same non-numeric cells forever, on every source.
+    assert [key for key in Any_Source_Errors if key in message]
 
 
 def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
