@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class GitBookEndpointConfig:
@@ -72,4 +74,4 @@ GITBOOK_ENDPOINTS: dict[str, GitBookEndpointConfig] = {
 
 ENDPOINTS = tuple(GITBOOK_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

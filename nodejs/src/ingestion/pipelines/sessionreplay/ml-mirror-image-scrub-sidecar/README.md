@@ -60,7 +60,7 @@ src/  (production — ships)
   main.ts         entrypoint: load models -> start servers
   server.ts       the /scrub + /metrics listeners; scrub implementation injected
   config.ts       env-driven runtime config
-  blur.ts         baseline blur (kept in sync with rust/replay-anonymizer-node/src/blur.rs)
+  blur.ts         baseline blur (kept in sync with rust/replay-anonymizer/src/blur.rs)
   scrub.ts        the ML scrub pipeline: decode-once, NSFW gate, solid-fill of faces/text/codes
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)

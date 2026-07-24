@@ -24,16 +24,15 @@ from posthog.kafka_client.routing import get_profile_settings, resolve_profile_n
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC
 from posthog.temporal.common.client import async_connect
 
-from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
-    FingerprintEmbeddingResultInputs,
-    select_model_name,
-)
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingResultInputs
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
 )
 from products.warehouse_sources.backend.facade.pipelines import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
+
+PREFERRED_EMBEDDING_MODEL = "text-embedding-3-large-3072"
 
 DEFAULT_CONSUMER_GROUP = "error-tracking-fingerprint-embedding-results"
 T = TypeVar("T")
@@ -93,11 +92,11 @@ def _int_option(options: Mapping[str, object], key: str) -> int:
     raise TypeError(f"{key} must be an integer")
 
 
-def _success_model_names(results: object) -> list[str]:
+def _selected_model_name(results: object) -> str | None:
     if not isinstance(results, list):
-        return []
+        return None
 
-    model_names: list[str] = []
+    selected_model_name: str | None = None
     for result in results:
         if not isinstance(result, dict):
             continue
@@ -105,8 +104,10 @@ def _success_model_names(results: object) -> list[str]:
             continue
         model = result.get("model")
         if isinstance(model, str):
-            model_names.append(model)
-    return model_names
+            if model == PREFERRED_EMBEDDING_MODEL:
+                return model
+            selected_model_name = selected_model_name or model
+    return selected_model_name
 
 
 def _float_list(value: object) -> list[float] | None:
@@ -144,9 +145,8 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
     rendering = _string_value(data, "rendering")
     timestamp = _string_value(data, "timestamp")
     results = data.get("results")
-    model_names = _success_model_names(results)
-    model_name = select_model_name(model_names)
-    embedding = _success_embedding(results, model_name)
+    model_name = _selected_model_name(results)
+    embedding = _success_embedding(results, model_name) if model_name is not None else None
 
     invalid_fields: list[str] = []
     if not isinstance(team_id, int):
@@ -157,12 +157,21 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
         invalid_fields.append("rendering")
     if timestamp is None:
         invalid_fields.append("timestamp")
-    if not model_names:
+    if model_name is None:
         invalid_fields.append("results")
+    if embedding is None:
+        invalid_fields.append("embedding")
     if invalid_fields:
         raise ValueError(f"Invalid error tracking fingerprint embedding result message: {', '.join(invalid_fields)}")
 
-    if not isinstance(team_id, int) or fingerprint is None or rendering is None or timestamp is None:
+    if (
+        not isinstance(team_id, int)
+        or fingerprint is None
+        or rendering is None
+        or timestamp is None
+        or model_name is None
+        or embedding is None
+    ):
         raise AssertionError("validated embedding result fields were unexpectedly invalid")
 
     return FingerprintEmbeddingResultInputs(
@@ -171,7 +180,6 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
         rendering=rendering,
         timestamp=timestamp,
         model_name=model_name,
-        model_names=model_names,
         embedding=embedding,
     )
 

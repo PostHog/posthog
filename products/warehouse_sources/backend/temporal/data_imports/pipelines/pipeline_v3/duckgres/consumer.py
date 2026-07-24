@@ -5,12 +5,17 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from django.db import close_old_connections
+from django.utils import timezone
+
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models import DuckgresSinkSchemaState
+from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -51,6 +56,18 @@ from products.warehouse_sources_queue.backend.models import SourceBatchDuckgresS
 logger = structlog.get_logger(__name__)
 
 DuckgresConsumerConfig = BatchConsumerConfig
+
+
+def _record_live_batch_applied(schema_id: str) -> None:
+    """Stamp the main-DB sink-state row with the time of this live apply.
+
+    This is what the Data ops Overview tab reports as "last applied to warehouse" —
+    an event stamped at the moment the work happens, so the web tier never has to
+    query the warehouse-sources queue DB (which it has no credentials for).
+    """
+    close_old_connections()
+    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).update(queue_last_applied_at=timezone.now())
+
 
 # How often the fetch path refreshes the enabled-team set and runs the
 # supersede sweep + backlog gauges (the poll loop itself runs every ~2s).
@@ -108,6 +125,9 @@ class DuckgresBatchConsumerAdapter:
     # Lease ownership is token-based, so groups get their own connections and
     # the poll loop keeps claiming while groups run (no per-cycle barrier).
     per_group_connections: bool = True
+    # A skip means "already applied": the engine's succeeded record is what
+    # retires the batch (terminal retirement raises OwnershipLostError instead).
+    record_skip_as_success: bool = True
 
     def __init__(self, lease_ttl_seconds: int = LEASE_TTL_SECONDS) -> None:
         # TTL for verify_advisory_lock's boundary renewals (the consumer's
@@ -140,7 +160,10 @@ class DuckgresBatchConsumerAdapter:
         try:
             first_resolution = self._team_ids_fetched_at is None
             previous = self._team_ids
-            enablement = await sync_to_async(duckgres_sink_enablement, thread_sensitive=False)()
+            # database_sync_to_async_pool (not a bare sync_to_async) so a connection killed by
+            # the DB/proxy since the last refresh gets closed and reopened before this query,
+            # instead of surfacing as "the connection is closed" OperationalErrors.
+            enablement = await database_sync_to_async_pool(duckgres_sink_enablement)()
             self._team_ids = None if enablement is None else enablement.team_ids
             self._team_org_budgets = [] if enablement is None else enablement.team_org_budgets
             self._team_ids_fetched_at = now
@@ -309,6 +332,7 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,  # delta-sink denormalization only; unused here
+        expected_state_changed_at: datetime | None = None,  # delta-sink recovery CAS only; unused here
     ) -> None:
         # Invariant: never write ANY status over a terminal 'failed' — statuses
         # are latest-row-wins, so an unconditional write would un-retire a batch
@@ -379,6 +403,17 @@ class DuckgresBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
         )
 
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        # Protocol conformance only: its sole caller is the base engine's recovery
+        # sweep, which never runs here — DuckgresBatchConsumer overrides _recovery_sweep.
+        return None
+
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -428,11 +463,26 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
     ) -> None:
-        if not batch.is_final_batch:
-            await DuckgresBatchQueue.mark_applied(conn, batch=batch)
+        if batch.is_final_batch:
+            return
+        await DuckgresBatchQueue.mark_applied(conn, batch=batch)
+        if is_backfill_metadata(batch.metadata):
+            return
+        try:
+            await sync_to_async(_record_live_batch_applied, thread_sensitive=False)(batch.schema_id)
+        except Exception as e:
+            # The batch is already applied and marked; a failed stamp only leaves the
+            # Data ops display timestamp behind until the next live apply.
+            logger.exception("duckgres_live_apply_stamp_failed", schema_id=batch.schema_id)
+            capture_exception(e)
 
     def is_retryable_error(self, err: Exception) -> bool:
         return not isinstance(err, PermanentBatchApplyError)
+
+    def is_expected_user_error(self, err: Exception) -> bool:
+        # The duckgres sink applies already-validated Delta batches; it has no expected
+        # customer-actionable failures of its own to keep out of error tracking.
+        return False
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):

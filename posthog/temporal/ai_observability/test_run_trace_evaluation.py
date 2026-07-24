@@ -1,30 +1,38 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import LLMTrace, LLMTraceEvent
+
+from posthog.hogql import ast
 
 from posthog.cdp.validation import compile_hog
 from posthog.models import Organization, Team
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
 from .run_trace_evaluation import (
     JUDGE_TRACE_MAX_CHARS,
     MAX_TRACE_EVAL_EVENTS,
+    TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
     RunTraceEvaluationInputs,
     RunTraceEvaluationWorkflow,
     TraceFetchOutcome,
+    TraceHogTestSample,
     _build_trace_skip_result,
+    _sample_recent_traces,
     build_trace_hog_globals,
     build_trace_system_prompt,
     emit_trace_evaluation_event_activity,
@@ -32,6 +40,7 @@ from .run_trace_evaluation import (
     execute_trace_llm_judge_activity,
     fetch_trace_for_evaluation,
     format_trace_for_judge,
+    run_hog_eval_over_recent_traces,
 )
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -74,10 +83,17 @@ def setup_data():
 
 
 @pytest.fixture
-def grandfathered(setup_data, settings):
-    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
-    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
-    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
+def active_key_config(setup_data):
+    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
+    team = setup_data["team"]
+    key = LLMProviderKey.objects.create(
+        team=team,
+        provider="openai",
+        name="openai key",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "sk-test"},
+    )
+    EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
 
 def evaluation_dict(setup_data: dict, **overrides: Any) -> dict[str, Any]:
@@ -172,17 +188,40 @@ class TestBuildTraceHogGlobals:
             create_trace_event("$ai_generation", **{"$ai_input": "first question", "$ai_output": "first answer"}),
             create_trace_event("$ai_generation", **{"$ai_input": "second question", "$ai_output": "final answer"}),
         ]
-        trace = create_trace(events)
+        trace = create_trace(events, totalCost=0.03, totalLatency=2.5)
 
         globals_dict = build_trace_hog_globals(trace, "trace-123")
 
         assert "input" not in globals_dict
         assert "output" not in globals_dict
         assert globals_dict["trace"] == {"id": "trace-123", "event_count": 3}
+        assert globals_dict["target"] == {
+            "type": "trace",
+            "id": "trace-123",
+            "total_cost_usd": 0.03,
+            "total_latency_seconds": 2.5,
+        }
         assert len(globals_dict["events"]) == 3
         assert globals_dict["events"][1]["event"] == "$ai_generation"
         assert globals_dict["events"][1]["input"] == "first question"
         assert globals_dict["events"][2]["output"] == "final answer"
+        assert "input_text" not in globals_dict["events"][1]
+        assert "output_text" not in globals_dict["events"][2]
+        assert globals_dict["evaluation_events"][1]["input_text"] == "first question"
+        assert globals_dict["evaluation_events"][2]["output_text"] == "final answer"
+
+    def test_saved_events_source_only_builds_compatibility_events(self):
+        bytecode = compile_hog("return length(events) == 1 and events.1.output == 'answer'", "destination")
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": "question", "$ai_output": "answer"})]
+        )
+
+        globals_dict = build_trace_hog_globals(trace, "trace-123", bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=False)
+
+        assert set(globals_dict) == {"events", "trace"}
+        assert set(globals_dict["events"][0]) == {"uuid", "event", "timestamp", "input", "output", "properties"}
+        assert result == {"verdict": True, "reasoning": "", "error": None}
 
     def test_strips_heavy_keys_from_event_properties(self):
         events = [
@@ -256,9 +295,103 @@ class TestFetchTraceForEvaluation:
         assert outcome.trace is trace
 
 
+class TestRunHogEvalOverRecentTraces:
+    @patch("posthog.temporal.ai_observability.run_trace_evaluation.query_ai_events")
+    def test_samples_the_first_matching_generation_timestamp(self, mock_query):
+        mock_query.return_value = MagicMock(results=[["trace-123", "2024-01-01T10:00:00Z", FROZEN_NOW]])
+
+        samples = _sample_recent_traces(
+            MagicMock(spec=Team),
+            condition_filter=None,
+            sample_count=1,
+            date_from=FROZEN_NOW - timedelta(days=7),
+            date_to=FROZEN_NOW,
+        )
+
+        trigger_timestamp_select = mock_query.call_args.kwargs["query"].select[1]
+        assert trigger_timestamp_select.alias == "trigger_timestamp"
+        assert trigger_timestamp_select.expr.name == "min"
+        assert samples == [
+            TraceHogTestSample(
+                trace_id="trace-123",
+                trigger_timestamp=datetime(2024, 1, 1, 10, 0, tzinfo=UTC),
+            )
+        ]
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_rewrites_promoted_ai_property_conditions(self, mock_execute_query):
+        mock_execute_query.return_value = MagicMock(results=[["trace-123", FROZEN_NOW, FROZEN_NOW]])
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["properties", "$ai_input"]),
+            right=ast.Constant(value="hello"),
+        )
+
+        _sample_recent_traces(
+            MagicMock(spec=Team),
+            condition_filter=condition_filter,
+            sample_count=1,
+            date_from=FROZEN_NOW - timedelta(days=7),
+            date_to=FROZEN_NOW,
+        )
+
+        where_clause = mock_execute_query.call_args.kwargs["placeholders"]["where_clause"]
+        rewritten_condition = where_clause.exprs[-1]
+        assert rewritten_condition.left.chain == ["input"]
+
+    @freeze_time(FROZEN_NOW)
+    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
+        team = MagicMock(spec=Team)
+        trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
+        trace = create_trace(
+            [
+                create_trace_event("$ai_generation", **{"$ai_input": "first", "$ai_output": "one"}),
+                create_trace_event("$ai_generation", **{"$ai_input": "second", "$ai_output": "two"}),
+            ]
+        )
+        bytecode = compile_hog(
+            "return target.type == 'trace' and length(evaluation_events) == 2",
+            "destination",
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation._sample_recent_traces",
+            return_value=[TraceHogTestSample(trace_id="trace-123", trigger_timestamp=trigger_timestamp)],
+        ) as mock_sample:
+            with patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation._fetch_trace",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=2),
+            ) as mock_fetch:
+                results = run_hog_eval_over_recent_traces(
+                    team=team,
+                    bytecode=bytecode,
+                    condition_filter=None,
+                    sample_count=1,
+                    allows_na=False,
+                    window_seconds=120,
+                )
+
+        mock_sample.assert_called_once_with(
+            team,
+            None,
+            1,
+            FROZEN_NOW - timedelta(seconds=120, days=7),
+            FROZEN_NOW - timedelta(seconds=120),
+        )
+        mock_fetch.assert_called_once_with(
+            team,
+            "trace-123",
+            trigger_timestamp - TRACE_EVENTS_LOOKBACK,
+            trigger_timestamp + timedelta(seconds=120),
+        )
+        assert results[0].verdict is True
+        assert results[0].input_preview == "first"
+        assert results[0].output_preview == "two"
+
+
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data, grandfathered):
+    def test_judges_full_trace_transcript(self, setup_data, active_key_config):
         trace = create_trace(
             [
                 create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),

@@ -155,17 +155,17 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
     ),
     "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
-    # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
+    # PostHog Desktop clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
     # Dots are escaped because keys are evaluated as re2 regex by the REGEXP_TREE dictionary.
     r"desktop\.hog\.dev": BotDefinition(
-        "PostHog Code Desktop",
+        "PostHog Desktop",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
     r"mobile\.hog\.dev": BotDefinition(
-        "PostHog Code Mobile",
+        "PostHog Mobile",
         "ai_assistant",
         "AI Agent",
         "PostHog",
@@ -184,6 +184,22 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
+    ),
+    # Agent desktop app embedded browsers (Electron leaks the app name into the UA).
+    # Anchored on the Electron token so the Claude/ChatGPT mobile in-app browsers stay Regular.
+    "Claude/.*Electron": BotDefinition(
+        "Claude Desktop",
+        "ai_assistant",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://claude.ai/download",
+    ),
+    "ChatGPT/.*Electron": BotDefinition(
+        "ChatGPT Desktop",
+        "ai_assistant",
+        "AI Agent",
+        "OpenAI",
+        documentation_url="https://openai.com/chatgpt/desktop/",
     ),
     # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
     "Applebot/": BotDefinition(
@@ -642,6 +658,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "OzDocsCrawler": BotDefinition("OzDocs", "ai_crawler", "AI Agent", "Unknown"),
     "polygazer": BotDefinition("polygazer", "ai_crawler", "AI Agent", "Unknown"),
     "BIC-Probe": BotDefinition("BIC Probe", "ai_crawler", "AI Agent", "pracharvedam.ai"),
+    "AIWebIndex": BotDefinition(
+        "AIWebIndex", "ai_crawler", "AI Agent", "Lyrenth", documentation_url="https://lyrenth.com/bot"
+    ),
     # SEO / marketing crawlers
     "MBCrawler": BotDefinition(
         "Monitor Backlinks",

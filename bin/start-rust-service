@@ -93,6 +93,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_TOPIC=ai_events_ingestion
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export CAPTURE_MODE=events
@@ -282,6 +283,16 @@ case "$RS_SVC" in
     export REPLICA_URL=http://127.0.0.1:50051
     export BACKEND_TIMEOUT_MS=5000
     export METRICS_PORT=9101
+    ;;
+
+  personhog-identity)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-trace}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50055
+    export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
+    export ROUTER_URL=http://127.0.0.1:50054
+    export METRICS_PORT=9108
     ;;
 
   flags-consumer)

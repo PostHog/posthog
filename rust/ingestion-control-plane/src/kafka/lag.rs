@@ -8,8 +8,128 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::{Offset, TopicPartitionList};
 use serde::Serialize;
 
-use crate::config::{Config, ConsumerTarget};
+use crate::config::Config;
 use crate::kafka::client;
+
+/// A consumer group and one topic it consumes, discovered from the cluster
+/// by prefix: topics and groups matching the configured prefixes, associated
+/// wherever the group has committed offsets on the topic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConsumerTarget {
+    pub group: String,
+    pub topic: String,
+}
+
+/// Discover consumer targets from the cluster. Runs one metadata request,
+/// one group-list request, and one OffsetFetch per matching group (bounded
+/// concurrency), all on the blocking pool.
+pub async fn discover_targets(config: &Config) -> anyhow::Result<Vec<ConsumerTarget>> {
+    let timeout = Duration::from_millis(config.kafka_metadata_timeout_ms);
+
+    let (topics, groups) = {
+        let config = config.clone();
+        tokio::task::spawn_blocking(move || fetch_prefixed_topics_and_groups(&config, timeout))
+            .await
+            .context("discovery task panicked")??
+    };
+
+    let topics = Arc::new(topics);
+    let mut targets: Vec<ConsumerTarget> = stream::iter(groups)
+        .map(|group| {
+            let config = config.clone();
+            let topics = Arc::clone(&topics);
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    fetch_group_topics(&config, &group, &topics, timeout)
+                })
+                .await
+                .context("group association task panicked")?
+            }
+        })
+        .buffer_unordered(8)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    targets.sort_by(|a, b| a.group.cmp(&b.group).then(a.topic.cmp(&b.topic)));
+    Ok(targets)
+}
+
+type TopicsWithPartitions = Vec<(String, Vec<i32>)>;
+
+fn fetch_prefixed_topics_and_groups(
+    config: &Config,
+    timeout: Duration,
+) -> anyhow::Result<(TopicsWithPartitions, Vec<String>)> {
+    let consumer = client::metadata_consumer(config).context("create metadata client")?;
+    let metadata = consumer
+        .fetch_metadata(None, timeout)
+        .context("fetch cluster metadata")?;
+    let topics: TopicsWithPartitions = metadata
+        .topics()
+        .iter()
+        .filter(|t| t.name().starts_with(&config.topic_prefix))
+        .map(|t| {
+            (
+                t.name().to_string(),
+                t.partitions().iter().map(|p| p.id()).collect(),
+            )
+        })
+        .collect();
+
+    let group_list = consumer
+        .fetch_group_list(None, timeout)
+        .context("fetch consumer group list")?;
+    let groups: Vec<String> = group_list
+        .groups()
+        .iter()
+        .map(|g| g.name().to_string())
+        .filter(|name| name.starts_with(&config.group_prefix) && name != client::INSPECTOR_GROUP_ID)
+        .collect();
+
+    Ok((topics, groups))
+}
+
+/// A group's topics are those it has committed offsets on, read with a
+/// single OffsetFetch spanning every candidate partition.
+fn fetch_group_topics(
+    config: &Config,
+    group: &str,
+    topics: &TopicsWithPartitions,
+    timeout: Duration,
+) -> anyhow::Result<Vec<ConsumerTarget>> {
+    let consumer = client::group_offsets_consumer(config, group).context("create group client")?;
+    let mut tpl = TopicPartitionList::new();
+    for (topic, partitions) in topics {
+        for partition in partitions {
+            tpl.add_partition(topic, *partition);
+        }
+    }
+    let committed = consumer
+        .committed_offsets(tpl, timeout)
+        .with_context(|| format!("fetch committed offsets for group '{group}'"))?;
+
+    let mut group_topics: Vec<String> = committed
+        .elements()
+        .iter()
+        .filter(|elem| matches!(elem.offset(), Offset::Offset(_)))
+        .map(|elem| elem.topic().to_string())
+        .collect();
+    group_topics.sort();
+    group_topics.dedup();
+
+    Ok(group_topics
+        .into_iter()
+        .map(|topic| ConsumerTarget {
+            group: group.to_string(),
+            topic,
+        })
+        .collect())
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PartitionLag {
@@ -107,7 +227,7 @@ pub async fn scan_group_lag(config: &Config, target: &ConsumerTarget) -> anyhow:
 /// One row of the all-groups overview: total outstanding messages per
 /// configured consumer target. Scan failures are reported inline so one
 /// broken topic doesn't blank the whole overview.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GroupLagSummary {
     pub group: String,
     pub topic: String,
@@ -119,8 +239,17 @@ pub struct GroupLagSummary {
 }
 
 /// Scan every configured target concurrently, sorted by total lag desc.
-pub async fn scan_all_groups(config: &Config) -> Vec<GroupLagSummary> {
-    let summaries = futures::future::join_all(config.targets().into_iter().map(|target| async {
+/// The full overview, cached by the API layer; `fetched_at` tells the UI how
+/// stale the cached scan is.
+#[derive(Debug, Clone, Serialize)]
+pub struct LagOverview {
+    pub fetched_at: String,
+    pub groups: Vec<GroupLagSummary>,
+}
+
+pub async fn scan_targets(config: &Config, targets: Vec<ConsumerTarget>) -> LagOverview {
+    let fetched_at = chrono::Utc::now().to_rfc3339();
+    let summaries = futures::future::join_all(targets.into_iter().map(|target| async {
         match scan_group_lag(config, &target).await {
             Ok(group_lag) => GroupLagSummary {
                 group: target.group,
@@ -144,7 +273,10 @@ pub async fn scan_all_groups(config: &Config) -> Vec<GroupLagSummary> {
 
     let mut summaries = summaries;
     summaries.sort_by(|a, b| b.total_lag.cmp(&a.total_lag).then(a.group.cmp(&b.group)));
-    summaries
+    LagOverview {
+        fetched_at,
+        groups: summaries,
+    }
 }
 
 /// Watermarks and committed offset for a single partition, read at analysis

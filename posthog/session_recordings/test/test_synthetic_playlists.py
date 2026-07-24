@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils.timezone import now
 
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -333,6 +335,8 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         from posthog.clickhouse.client import sync_execute
 
         sync_execute("TRUNCATE TABLE sharded_events")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _get_playlists_response(self, query_params: str = "") -> dict:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"

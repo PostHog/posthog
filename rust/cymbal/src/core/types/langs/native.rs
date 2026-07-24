@@ -244,7 +244,25 @@ impl RawNativeFrame {
 
         let symbol_infos = symbols.lookup(lookup_addr)?;
         if symbol_infos.is_empty() {
-            return Err(NativeError::SymbolNotFound(lookup_addr).into());
+            // The symbol set exists but doesn't cover this address (e.g. a
+            // section outside the symcache). The frame falls back to its
+            // client-side fields — but the set's source bundle can still
+            // supply context for the client-reported file/line. Exact-match
+            // only: the path comes from event input here, so the fuzzy
+            // basename fallback could attach lines from the wrong file.
+            let mut frame = self.handle_resolution_error(NativeError::SymbolNotFound(lookup_addr));
+            if let (Some(filename), Some(lineno)) =
+                (self.filename.as_deref(), self.lineno.filter(|l| *l > 0))
+            {
+                if let Some(source_text) = symbols.get_source_exact(filename) {
+                    frame.context = get_context_lines(
+                        source_text.lines(),
+                        (lineno - 1) as usize,
+                        context_lines,
+                    );
+                }
+            }
+            return Ok(vec![frame]);
         }
 
         // Build one resolved Frame per logical layer. The symcache returns
@@ -288,6 +306,32 @@ impl RawNativeFrame {
         self.meta.in_app && !source_path.is_some_and(is_library_source_path)
     }
 
+    /// Go's toolchain suffixes dual-ABI wrapper symbols in the debug info
+    /// (`runtime.goexit.abi0`), while the Go runtime — and therefore the
+    /// client's own frames — reports the plain name. Strip the suffix so kept
+    /// and replaced groups agree on the name vocabulary: resolved names feed
+    /// fingerprints, so a mismatch splits the same crash across issues when
+    /// symbols get uploaded.
+    ///
+    /// `abi0`/`abiinternal` are also valid Go identifiers (`pkg.abi0` can be
+    /// a real function), so the suffix is only dropped when the client
+    /// reported exactly the un-suffixed name for this frame — evidence it is
+    /// toolchain metadata rather than part of the name. Wrappers are physical
+    /// assembly functions, so the client name is present for them.
+    fn display_name_for(&self, symbol_info: &SymbolInfo) -> String {
+        let name = &symbol_info.display_name;
+        if self.lang.as_deref() == Some("go") {
+            for suffix in [".abi0", ".abiinternal"] {
+                if let Some(stripped) = name.strip_suffix(suffix) {
+                    if self.function.as_deref() == Some(stripped) {
+                        return stripped.to_string();
+                    }
+                }
+            }
+        }
+        name.clone()
+    }
+
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo) -> Frame {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -300,7 +344,7 @@ impl RawNativeFrame {
             column: None,
             source: symbol_info.filename.clone(),
             in_app: self.in_app_for(symbol_info.full_path.as_deref()),
-            resolved_name: Some(symbol_info.display_name.clone()),
+            resolved_name: Some(self.display_name_for(symbol_info)),
             lang: self.lang_for(symbol_info.filename.as_deref()),
             resolved: true,
             resolve_failure: None,
@@ -753,6 +797,84 @@ mod test {
     fn test_calculate_relative_addr_below_image_base() {
         let result = calculate_relative_addr(0x100, &image_at("test-uuid", 0x100000000));
         assert!(matches!(result, Err(NativeError::InvalidAddress(_))));
+    }
+
+    // Go frames drop the toolchain's ABI-wrapper suffix so server-resolved
+    // names match what the Go runtime (and so the client's kept frames)
+    // reports — but only when the client's own name confirms the suffix is
+    // toolchain metadata; `pkg.abi0` can be a real function. Other languages
+    // keep the symbol verbatim.
+    #[test]
+    fn go_resolved_names_drop_abi_wrapper_suffixes() {
+        let cases = [
+            (
+                Some("go"),
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit",
+            ),
+            (
+                Some("go"),
+                Some("runtime.main"),
+                "runtime.main.abiinternal",
+                "runtime.main",
+            ),
+            (Some("go"), Some("main.main"), "main.main", "main.main"),
+            // A genuine function named abi0: client and debug info agree, so
+            // nothing is stripped.
+            (Some("go"), Some("pkg.abi0"), "pkg.abi0", "pkg.abi0"),
+            // No client name means no evidence the suffix is a wrapper.
+            (
+                Some("go"),
+                None,
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+            (
+                Some("rust"),
+                Some("alloc::alloc"),
+                "alloc::alloc.abi0",
+                "alloc::alloc.abi0",
+            ),
+            (
+                None,
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+        ];
+
+        for (lang, client_function, symbol, expected) in cases {
+            let frame = RawNativeFrame {
+                instruction_addr: Some("0x1000".to_string()),
+                symbol_addr: None,
+                image_addr: Some("0x1000".to_string()),
+                lang: lang.map(String::from),
+                module: None,
+                function: client_function.map(String::from),
+                filename: None,
+                lineno: None,
+                colno: None,
+                client_resolved: true,
+                inline: false,
+                meta: CommonFrameMetadata::default(),
+            };
+            let symbol_info = SymbolInfo {
+                display_name: symbol.to_string(),
+                full_name: symbol.to_string(),
+                filename: None,
+                full_path: None,
+                line: 42,
+            };
+
+            let resolved = frame.build_resolved_frame(&symbol_info);
+            assert_eq!(
+                resolved.resolved_name.as_deref(),
+                Some(expected),
+                "lang={lang:?} symbol={symbol}"
+            );
+            assert_eq!(resolved.mangled_name, symbol, "full name stays verbatim");
+        }
     }
 
     #[test]
@@ -1381,5 +1503,72 @@ mod test {
                 "crate disambiguator leaked into resolved name: {name}"
             );
         }
+    }
+
+    /// When the uploaded set doesn't cover an address (symbol not found), the
+    /// frame keeps its client-side fields — and the set's source bundle still
+    /// supplies context for the client-reported file/line.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_symbol_not_found_salvages_context_from_source_bundle(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] = include_bytes!("../../../../tests/static/native/test_binary_inline");
+        const SOURCE: &str = include_str!("../../../../tests/static/native/test_binary_inline.c");
+        let chunk_id = "140ab543-c098-09dc-22b6-11f72e46d6fe";
+        let zip = zip_fixture(
+            ELF,
+            Some(("/cymbal_tests/native/test_binary_inline.c", SOURCE)),
+        );
+        let catalog = catalog_for_chunk(&db, chunk_id, zip).await;
+
+        let slide_base = 0x7f0000000000u64;
+        // 0x10 is inside the image range but outside any symcache-covered
+        // function (ELF header area), so the lookup finds no symbol.
+        let mut raw = native_frame_at(slide_base + 0x10, slide_base);
+        raw.client_resolved = true;
+        raw.function = Some("inlined_leaf".to_string());
+        raw.filename = Some("/cymbal_tests/native/test_binary_inline.c".to_string());
+        raw.lineno = Some(6);
+        let frame = RawFrame::Native(raw);
+        let debug_images = vec![debug_image_at(chunk_id, slide_base)];
+
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(!resolved.resolved);
+        assert!(resolved
+            .resolve_failure
+            .as_deref()
+            .is_some_and(|f| f.contains("Symbol not found")));
+        assert_eq!(resolved.resolved_name.as_deref(), Some("inlined_leaf"));
+
+        let context = resolved.context.expect("salvaged context from bundle");
+        assert_eq!(context.line.number, 6);
+        assert!(
+            context.line.line.contains("volatile int x = 99"),
+            "expected fixture line 6, got: {:?}",
+            context.line.line
+        );
+
+        // The salvage path is exact-match only: a bare basename (or any other
+        // fuzzy spelling) of a bundled path attaches nothing, since the
+        // filename here is event input rather than symcache output.
+        let mut fuzzy = native_frame_at(slide_base + 0x10, slide_base);
+        fuzzy.client_resolved = true;
+        fuzzy.function = Some("inlined_leaf".to_string());
+        fuzzy.filename = Some("test_binary_inline.c".to_string());
+        fuzzy.lineno = Some(6);
+        let resolved = RawFrame::Native(fuzzy)
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(!resolved.resolved);
+        assert!(resolved.context.is_none());
     }
 }

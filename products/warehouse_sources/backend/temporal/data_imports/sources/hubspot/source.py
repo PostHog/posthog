@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
+    HubspotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     hubspot_access_token_is_valid,
     hubspot_refresh_access_token,
@@ -35,6 +37,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -48,6 +52,13 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
+    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
+    # 2026-03 is available for opt-in, but new sources stay on v3 until the date-versioned
+    # objects/search/association-batch-read paths are confirmed against the live HubSpot API.
+    # Flip the default once a real 2026-03 sync has been verified end to end.
+    default_version = HUBSPOT_API_VERSION_V3
+    api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -122,6 +133,22 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `hubspot.py`/`helpers.py` already retry these in-process via tenacity (5 attempts,
+        # exponential backoff) before re-raising `HubspotRetryableError`. A 429/5xx/malformed-body
+        # that survives all 5 attempts is a transient HubSpot/edge blip (e.g. Cloudflare 522), not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix HubSpot's own status/url are
+        # appended to, not the volatile status code or URL.
+        return {
+            "Hubspot API error (retryable): status=",
+            "Hubspot API malformed JSON response (retryable)",
+            "Hubspot search error (retryable): status=",
+            "Hubspot search malformed JSON response (retryable)",
+            "Hubspot v4 associations error (retryable): status=",
+            "Hubspot v4 associations malformed JSON response (retryable)",
+        }
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():
@@ -136,6 +163,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
@@ -206,6 +234,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             source_id=inputs.source_id,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             use_search_path=use_search_path,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     def _should_use_search_path(self, inputs: SourceInputs) -> bool:

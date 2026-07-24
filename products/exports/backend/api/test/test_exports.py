@@ -19,7 +19,7 @@ from rest_framework import status
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -561,6 +561,8 @@ class TestExports(APIBaseTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
@@ -901,6 +903,50 @@ class TestExports(APIBaseTest):
         self.client.force_login(teammate)
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_creator_can_access_own_session_recording_export_when_row_missing_and_resource_denied(
+        self, _name, url_template
+    ) -> None:
+        """
+        The user who created a session recording export must always be able to retrieve it — retrieval
+        cannot be stricter than creation. Otherwise the create call succeeds (firing an "Export complete!"
+        toast) and the immediate content fetch 404s, rendering as a blank page. This is the mirror of the
+        teammate case above: same denied resource default, but the creator is allowed through.
+        """
+        from posthog.models.organization import OrganizationMembership
+
+        owner = self.user
+        membership = OrganizationMembership.objects.get(user=owner, organization=self.organization)
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            export_context={"session_recording_id": "no-session-recording-row"},
+            created_by=owner,
+            content=b"png-bytes",
+        )
+
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=None,
+            team=self.team,
+            access_level="none",
+            organization_member=membership,
+        )
+
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if "/content" in url_template:
+            self.assertEqual(response.content, b"png-bytes")
 
     def test_list_exports_with_session_recording_only_shows_own_matching_exports(self) -> None:
         from posthog.session_recordings.models.session_recording import SessionRecording
@@ -1499,7 +1545,7 @@ class TestExportAssetCounters(APIBaseTest):
             # User error: recorded but not raised
             (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
             # System error: retried by tenacity, then recorded (not raised, swallowed by export_asset)
-            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
+            (ClickHouseAtCapacity(), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
         ],
         name_func=lambda func, num, params: f"{func.__name__}_{['success', 'user_error', 'system_error'][int(num)]}",
     )

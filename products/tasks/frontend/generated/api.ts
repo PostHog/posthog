@@ -15,8 +15,21 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    LoopDTOApi,
+    LoopFireResultApi,
+    LoopPreviewDTOApi,
+    LoopPreviewRequestApi,
+    LoopRunPageApi,
+    LoopSkillBundlesWriteApi,
+    LoopWriteApi,
+    LoopsListParams,
+    LoopsRunsRetrieveParams,
+    LoopsTriggerCreateBodyOne,
+    LoopsTriggerCreateBodyThree,
+    LoopsTriggerCreateBodyTwo,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
+    PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
@@ -26,6 +39,8 @@ import type {
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
     PatchedChannelWriteApi,
+    PatchedLoopWriteApi,
+    PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
@@ -46,6 +61,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
     TaskPresenceBeaconRequestApi,
@@ -91,6 +107,7 @@ import type {
     TasksThreadMessagesListParams,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
+    WizardCloudRunDTOApi,
 } from './api.schemas'
 
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
@@ -98,7 +115,7 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Code.
+ * Check whether the authenticated user has access to PostHog Desktop and to Loops.
  * @summary Check access
  */
 export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
@@ -113,7 +130,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Code invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
@@ -125,6 +142,228 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+export const getLoopsListUrl = (projectId: string, params?: LoopsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/loops/?${stringifiedParams}`
+        : `/api/projects/${projectId}/loops/`
+}
+
+/**
+ * List loops visible to the caller: personal loops they own, plus every team loop. The response also carries `max_loops_per_team` and `total_loop_count` so a client can show remaining capacity and disable creation at the cap without hardcoding the limit.
+ * @summary List loops
+ */
+export const loopsList = async (
+    projectId: string,
+    params?: LoopsListParams,
+    options?: RequestInit
+): Promise<PaginatedLoopDTOListApi> => {
+    return apiMutator<PaginatedLoopDTOListApi>(getLoopsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/loops/`
+}
+
+/**
+ * API for managing loops — named, cloud-executed agent automations triggered by
+ * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * @summary Create a loop
+ */
+export const loopsCreate = async (
+    projectId: string,
+    loopWriteApi: LoopWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopWriteApi),
+    })
+}
+
+export const getLoopsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * API for managing loops — named, cloud-executed agent automations triggered by
+ * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * @summary Get a loop
+ */
+export const loopsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * Partial update. Identity-bearing fields (instructions, repositories, connectors, behaviors, model config, triggers) are owner-only on team loops; name, description, notifications and enable/pause are editable by any team member.
+ * @summary Update a loop
+ */
+export const loopsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLoopWriteApi?: PatchedLoopWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLoopWriteApi),
+    })
+}
+
+export const getLoopsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * Soft delete. Pauses every trigger's schedule. Owner or a project admin only.
+ * @summary Delete a loop
+ */
+export const loopsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLoopsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLoopsPreviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/preview/`
+}
+
+/**
+ * Dry run: renders the assembled instructions and trigger context for a supplied sample payload (or a synthetic schedule fire when omitted), without creating a task, run, or any other side effect.
+ * @summary Preview a loop fire
+ */
+export const loopsPreviewCreate = async (
+    projectId: string,
+    id: string,
+    loopPreviewRequestApi?: LoopPreviewRequestApi,
+    options?: RequestInit
+): Promise<LoopPreviewDTOApi> => {
+    return apiMutator<LoopPreviewDTOApi>(getLoopsPreviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopPreviewRequestApi),
+    })
+}
+
+export const getLoopsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/run/`
+}
+
+/**
+ * Manual fire from the UI. Owner-only for personal loops; any team member for team loops.
+ * @summary Run a loop manually
+ */
+export const loopsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LoopFireResultApi> => {
+    return apiMutator<LoopFireResultApi>(getLoopsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLoopsRunsRetrieveUrl = (projectId: string, id: string, params?: LoopsRunsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/loops/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/loops/${id}/runs/`
+}
+
+/**
+ * Run history for a loop, newest first, cursor-paginated.
+ * @summary List loop runs
+ */
+export const loopsRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: LoopsRunsRetrieveParams,
+    options?: RequestInit
+): Promise<LoopRunPageApi> => {
+    return apiMutator<LoopRunPageApi>(getLoopsRunsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsSkillBundlesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/skill_bundles/`
+}
+
+/**
+ * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
+ * @summary Replace a loop's skill bundles
+ */
+export const loopsSkillBundlesUpdate = async (
+    projectId: string,
+    id: string,
+    loopSkillBundlesWriteApi: LoopSkillBundlesWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsSkillBundlesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopSkillBundlesWriteApi),
+    })
+}
+
+export const getLoopsTriggerCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/trigger/`
+}
+
+/**
+ * Authenticated POST trigger for `type=api` triggers. Project secret API key auth (`loop:write` scope), project-wide. Request body (JSON, capped at 64 KB) becomes run context. Send an `Idempotency-Key` header to dedupe retries.
+ * @summary Fire a loop externally
+ */
+export const loopsTriggerCreate = async (
+    projectId: string,
+    id: string,
+    loopsTriggerCreateBody?: LoopsTriggerCreateBodyOne | LoopsTriggerCreateBodyTwo | LoopsTriggerCreateBodyThree,
+    options?: RequestInit
+): Promise<LoopFireResultApi> => {
+    return apiMutator<LoopFireResultApi>(getLoopsTriggerCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(loopsTriggerCreateBody),
     })
 }
 
@@ -199,6 +438,27 @@ export const sandboxCustomImagesRetrieve = async (
     return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * Rename or update the description of a custom image. Only mutable metadata (name, description) is editable; the build spec and status are managed by the build flow.
+ */
+export const sandboxCustomImagesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxCustomImageUpdateApi?: PatchedSandboxCustomImageUpdateApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxCustomImageUpdateApi),
     })
 }
 
@@ -710,14 +970,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskWriteApi?: TaskWriteApi,
+    taskCreateApi?: TaskCreateApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskWriteApi),
+        body: JSON.stringify(taskCreateApi),
     })
 }
 
@@ -1174,7 +1434,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1602,6 +1862,24 @@ export const tasksThreadMessagesSendToAgentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskThreadMessageDTOApi),
+    })
+}
+
+export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/active_wizard_run/`
+}
+
+/**
+ * Returns the most recent onboarding wizard cloud run for the current project when it is still running (or completed within the last day), so the setup-progress FAB can rehydrate after a drop-flow signup that started the run server-side. Returns 204 when there is none.
+ * @summary Get the team's active onboarding wizard cloud run
+ */
+export const tasksActiveWizardRunRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WizardCloudRunDTOApi | void> => {
+    return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

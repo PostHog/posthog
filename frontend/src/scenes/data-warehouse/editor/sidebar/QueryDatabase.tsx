@@ -2,7 +2,7 @@ import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -40,13 +40,12 @@ import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -73,10 +72,35 @@ export function getSidebarAddJoinSourceTableName(
     }
 }
 
+/**
+ * Keep a section whose folder, or any of its children, matches the search term — the same
+ * name-and-field matching the database tree does for its own tables.
+ */
+const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
+    const needle = searchTerm.trim().toLowerCase()
+    if (!needle) {
+        return sections
+    }
+    const matches = (item: TreeDataItem): boolean =>
+        item.name.toLowerCase().includes(needle) || (item.children ?? []).some(matches)
+    return sections.flatMap((section) => {
+        const children = (section.children ?? []).filter(matches)
+        return children.length ? [{ ...section, children }] : []
+    })
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
+    extraTreeSections,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+    /**
+     * Extra top-level sections to render above the database tree, owned by the embedding surface
+     * (notebooks lists the dataframes its kernel holds). Rendered as-is: whatever builds them owns
+     * their icons, children, and search filtering. Default empty, so surfaces that pass nothing are
+     * unaffected.
+     */
+    extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
         searchTerm,
@@ -114,10 +138,17 @@ export const QueryDatabase = ({
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { openMaterializationModal, openAccessControlModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
-        useActions(sqlEditorLogic)
+    const {
+        openMaterializationModal,
+        openAccessControlModal,
+        runQuery,
+        setActiveTab,
+        setQueryInput,
+        setSourceQuery,
+        insertTextAtCursor,
+    } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
-    const builtTabLogic = useMountedLogic(sqlEditorLogic)
+    useMountedLogic(sqlEditorLogic)
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.
@@ -308,10 +339,21 @@ export const QueryDatabase = ({
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
+    const treeData = useMemo(() => {
+        if (!extraTreeSections?.length) {
+            return displayedTreeData
+        }
+        // Filtered here rather than by the caller: the tree swaps in its own filtered data while
+        // searching, so an unfiltered section would sit above the results still listing
+        // everything — and keeping the search term on this side means an embedder doesn't have to
+        // mount this logic just to read it.
+        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
+    }, [extraTreeSections, displayedTreeData, searchTerm])
+
     return (
         <LemonTree
             ref={treeRef}
-            data={displayedTreeData}
+            data={treeData}
             enableDragAndDrop={!searchTerm}
             isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>
@@ -356,14 +398,9 @@ export const QueryDatabase = ({
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Copy column name when clicking on a column
+                // Insert the column at the cursor, preserving the rest of the query the user has typed
                 if (item && item.record?.type === 'column') {
-                    const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
-                        .then(setQueryInput)
-                        .catch(() => {
-                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
-                        })
+                    insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {

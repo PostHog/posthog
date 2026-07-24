@@ -60,6 +60,20 @@ CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://l
 # empty = emission disabled (the activity skips/raises rather than shipping to the wrong place); set
 # per-region via charts in prod, and to the local capture proxy when testing locally.
 OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
+# Project token used as the OTLP Bearer for first-party log emission to a fixed internal project
+# (dogfooding a product's own backend logs), not a per-team token. Pairs with
+# OTLP_LOGS_INGEST_ENDPOINT. Both empty means emission is disabled. Mirrors OTEL_METRICS_EXPORT_TOKEN.
+OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
+
+# Internal OTLP/HTTP endpoint for first-party metric emission into the Metrics product (the
+# `capture-logs` service, path `/i/v1/metrics`), with a project token as the OTLP Bearer.
+# Names match the Node twins (nodejs/src/common/metrics/otel-metrics.ts) so one env pair
+# configures both runtimes. Defaults to empty = emission disabled (posthog/otel_metrics.py
+# records into a no-op meter).
+OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
+OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
+OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
+
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 

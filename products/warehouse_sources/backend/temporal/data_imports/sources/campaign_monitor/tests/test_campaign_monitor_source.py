@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_m
     CampaignMonitorSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campaignmonitor import (
     CampaignMonitorSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -125,6 +125,7 @@ class TestCampaignMonitorSource:
             api_key="test-key",
             client_id="client-abc",
             endpoint="campaigns",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )

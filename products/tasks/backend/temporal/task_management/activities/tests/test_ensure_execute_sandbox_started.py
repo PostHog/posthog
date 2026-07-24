@@ -1,10 +1,15 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
 
 from temporalio.common import WorkflowIDReusePolicy
 
+from products.tasks.backend.temporal.constants import (
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+    STEERING_PROTOCOL_VERSION,
+)
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ExecuteSandboxInput
 from products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started import (
     EnsureExecuteSandboxStartedInput,
@@ -22,6 +27,9 @@ class TestEnsureExecuteSandboxStarted:
         # re-use the deterministic workflow id once the prior execution closed.
         client = AsyncMock()
         client.start_workflow = AsyncMock()
+        handle = AsyncMock()
+        handle.query.return_value = STEERING_PROTOCOL_VERSION
+        client.start_workflow.return_value = handle
 
         input_data = EnsureExecuteSandboxStartedInput(
             workflow_id="sandbox-wf-id",
@@ -35,11 +43,17 @@ class TestEnsureExecuteSandboxStarted:
             bootstrap_ack_id="ack-bootstrap",
         )
 
-        with patch(
-            "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
-            AsyncMock(return_value=client),
+        with (
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.is_native_steering_signals_enabled",
+                Mock(return_value=True),
+            ),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
         ):
-            await activity_environment.run(ensure_execute_sandbox_started, input_data)
+            protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
 
         client.start_workflow.assert_awaited_once()
         args, kwargs = client.start_workflow.call_args
@@ -52,3 +66,66 @@ class TestEnsureExecuteSandboxStarted:
         # The bootstrap signal is what the orchestrator ACKs on to confirm the
         # child is alive — args are (ack_id, parent_workflow_id) in that order.
         assert kwargs["start_signal_args"] == ["ack-bootstrap", "parent-wf-id"]
+        handle.query.assert_awaited_once_with(
+            STEERING_PROTOCOL_QUERY,
+            rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+        )
+        assert protocol_version == STEERING_PROTOCOL_VERSION
+
+    @pytest.mark.parametrize(
+        "query_error",
+        [RuntimeError("query not registered"), TimeoutError("query timed out")],
+    )
+    async def test_returns_legacy_protocol_when_query_is_unavailable(self, activity_environment, query_error):
+        client = AsyncMock()
+        handle = AsyncMock()
+        handle.query.side_effect = query_error
+        client.start_workflow.return_value = handle
+        input_data = EnsureExecuteSandboxStartedInput(
+            workflow_id="sandbox-wf-id",
+            workflow_input=ExecuteSandboxInput(run_id="run-1", parent_workflow_id="parent-wf-id"),
+            bootstrap_ack_id="ack-bootstrap",
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.is_native_steering_signals_enabled",
+                Mock(return_value=True),
+            ),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
+        ):
+            protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
+
+        assert protocol_version == 0
+        handle.query.assert_awaited_once_with(
+            STEERING_PROTOCOL_QUERY,
+            rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+        )
+
+    async def test_disabled_feature_flag_skips_capability_query(self, activity_environment):
+        client = AsyncMock()
+        handle = AsyncMock()
+        client.start_workflow.return_value = handle
+        input_data = EnsureExecuteSandboxStartedInput(
+            workflow_id="sandbox-wf-id",
+            workflow_input=ExecuteSandboxInput(run_id="run-1", parent_workflow_id="parent-wf-id"),
+            bootstrap_ack_id="ack-bootstrap",
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.is_native_steering_signals_enabled",
+                Mock(return_value=False),
+            ),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
+        ):
+            protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
+
+        assert protocol_version == 0
+        handle.query.assert_not_awaited()

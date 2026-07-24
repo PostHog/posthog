@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio im
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import FleetioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.source import FleetioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FleetioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
+    FleetioSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

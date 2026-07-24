@@ -139,6 +139,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Schedule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
         "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
+        # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
+        # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
+        "StamphogRepoConfig",
+        "PullRequest",
+        "ReviewRun",
+        "DigestChannel",
+        "DigestRun",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -295,6 +302,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Infra / no tenant data ---
         "EventBuffer",
         "EventIngestionRestrictionConfig",
+        "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
     }
 

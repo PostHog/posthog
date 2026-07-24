@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
     OpenExchangeRatesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, OpenExchangeRatesResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.openexchangerates.org/reference/api-introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -114,6 +115,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +136,11 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
         return schemas
 
     def validate_credentials(
-        self, config: OpenExchangeRatesSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenExchangeRatesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_open_exchange_rates_credentials(config.app_id):
             return True, None

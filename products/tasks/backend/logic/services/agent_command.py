@@ -39,6 +39,18 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
+CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
+CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+
+
+def is_retryable_agent_rpc_error(error: str) -> bool:
+    return CONTENT_BLOCK_STREAM_ERROR in error
+
+
+def user_facing_agent_error(error: str | None) -> str:
+    if error and is_retryable_agent_rpc_error(error):
+        return CONTENT_BLOCK_STREAM_USER_ERROR
+    return error or "Failed to send message to sandbox"
 
 
 @dataclass
@@ -247,13 +259,14 @@ def send_agent_command(
 
     if isinstance(data, dict) and "error" in data and "result" not in data:
         rpc_error = data["error"]
-        error_msg = rpc_error.get("message", "Unknown agent error") if isinstance(rpc_error, dict) else str(rpc_error)
+        raw_error_msg = rpc_error.get("message") if isinstance(rpc_error, dict) else rpc_error
+        error_msg = raw_error_msg if isinstance(raw_error_msg, str) and raw_error_msg else "Unknown agent error"
         return CommandResult(
             success=False,
             status_code=resp.status_code,
             data=data,
             error=error_msg,
-            retryable=False,
+            retryable=is_retryable_agent_rpc_error(error_msg),
         )
 
     return CommandResult(
@@ -271,6 +284,7 @@ def send_user_message(
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     message_id: str | None = None,
+    steer: bool = False,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent.
 
@@ -285,6 +299,8 @@ def send_user_message(
         params["artifacts"] = artifacts
     if message_id:
         params["messageId"] = message_id
+    if steer:
+        params["steer"] = True
     return send_agent_command(
         task_run,
         method="user_message",

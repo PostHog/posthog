@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     ExperimentApiExposureCriteria,
@@ -34,6 +34,7 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -43,7 +44,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -76,8 +77,8 @@ def _normalized_flag_variants(variants: list) -> list:
     """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
     variants = deepcopy(variants)
     # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-    # to lowercase 'control'. The downstream validator and runtime treat 'control'
-    # as a special key, so a typo in casing was the leading cause of the
+    # to lowercase 'control'. 'control' is the conventional baseline key (the default
+    # baseline when present), and a typo in casing was the leading cause of the
     # "Feature flag variants must contain a control variant" error in MCP traces —
     # most often from LLM-generated payloads. Only rewrite when no exact 'control'
     # match already exists, so we never collapse two distinct keys into a duplicate.
@@ -361,7 +362,36 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "without this flag is rejected."
         ),
     )
+    can_freeze_exposure = serializers.SerializerMethodField(
+        help_text=(
+            "Whether enrollment can be frozen right now: the experiment must be running (not draft, "
+            "paused, stopped, or already frozen) and its feature flag must have release conditions "
+            "that a person cohort can narrow (no group aggregation, no holdout, no early access "
+            "conditions)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository holding this experiment's feature-flag code, in `organization/repository` "
+            "format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on "
+            "end/ship_variant. When not set, cleanup targets the team's only connected repository and is "
+            "skipped if the team has several."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -398,12 +428,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
+            "repository",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
             "is_legacy",
+            "can_freeze_exposure",
             "user_access_level",
         ]
         read_only_fields = [
@@ -416,6 +449,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout",
             "saved_metrics",
             "status",
+            "can_freeze_exposure",
             "user_access_level",
         ]
 
@@ -427,6 +461,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
+        return obj.can_freeze_exposure
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -483,6 +521,24 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_saved_metrics_ids(self, value):
         ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
+        return value
+
+    def validate_repository(self, value: str | None) -> str | None:
+        # Keeps the tasks product's access module off the experiments import path.
+        from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        value = value.lower()
+        # The field steers where the cleanup PR is opened, so pointing it somewhere new
+        # needs the same PostHog Desktop access as opening one (mirrors open_cleanup_pr).
+        if self.instance is None or value != self.instance.repository:
+            request = self.context.get("request")
+            if request is None or not has_tasks_access(request.user):
+                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Desktop.")
         return value
 
     def validate(self, data):
@@ -556,28 +612,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @staticmethod
     def _assert_flag_variants_valid(config: dict) -> None:
-        """Experiment-specific variant rules on the validated (already normalized) config. Raised as
-        plain top-level errors so the messages surface directly to LLM/API callers."""
+        """Variant rules on the validated (already normalized) config, raised as plain top-level
+        errors so the messages surface directly to LLM/API callers. Absent or empty variants are
+        allowed here — the service fills in the default control/test pair."""
         variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
-        if variants is None:
+        if not variants:
             return
-        if len(variants) >= 21:
-            raise serializers.ValidationError("Feature flag variants must be less than 21")
-        if len(variants) > 0:
-            if len(variants) < 2:
-                raise serializers.ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            keys = [variant["key"] for variant in variants]
-            if "control" not in keys:
-                # Capitalized 'Control' is auto-normalized (ExperimentFlagMultivariateSerializer), so
-                # anything reaching this branch genuinely lacks a baseline variant. Surface the keys
-                # we did receive so LLM callers can self-correct without a second roundtrip.
-                raise serializers.ValidationError(
-                    "Feature flag variants must contain a variant with key 'control' "
-                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
-                    "'key' to 'control'."
-                )
+        error = experiment_eligibility_error(variants)
+        if error:
+            raise serializers.ValidationError(error)
 
     @staticmethod
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
@@ -694,6 +737,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             deleted=self.validated_data.get("deleted", False),
             conclusion=self.validated_data.get("conclusion"),
             conclusion_comment=self.validated_data.get("conclusion_comment"),
+            repository=self.validated_data.get("repository"),
             holdout_id=holdout_id,
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
@@ -734,6 +778,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "deleted",
             "conclusion",
             "conclusion_comment",
+            "repository",
             "holdout",
             "filters",
             "scheduling_config",
@@ -795,7 +840,7 @@ class ExperimentFlagVariantSerializer(serializers.Serializer):
     """A single multivariate variant. Extra per-variant keys are dropped."""
 
     key = serializers.CharField(
-        help_text="Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+        help_text="Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
     )
     name = serializers.CharField(
         required=False,
@@ -814,7 +859,7 @@ class ExperimentFlagMultivariateSerializer(_StrictFieldsMixin, serializers.Seria
 
     variants = ExperimentFlagVariantSerializer(
         many=True,
-        help_text="Variant definitions. Exactly one variant key must be the literal string 'control'.",
+        help_text="Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -887,8 +932,9 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
     filters = ExperimentFeatureFlagFiltersSerializer(
         required=False,
         help_text=(
-            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
-            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to "
+            "the variant keyed 'control' when present, else the first variant), "
+            "`groups` (a single group with `rollout_percentage` only; release "
             "conditions are not supported here, edit the feature flag directly), "
             "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
             "On update, config this object omits is preserved from the linked flag's current state."
@@ -1004,8 +1050,29 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    )
+
+
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
+    )
+    can_view_task = serializers.BooleanField(
+        help_text=(
+            "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
+            "visible to their creator only, so other viewers should not be shown a task link."
         ),
     )
 
@@ -1171,6 +1238,17 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     )
 
 
+class ActiveRecalculationRunSerializer(serializers.Serializer):
+    """Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Status of the executing run (pending or in_progress)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -1195,6 +1273,16 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_retries = serializers.JSONField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
+        ),
+    )
     trigger = serializers.ChoiceField(
         choices=ExperimentMetricsRecalculation.Trigger.choices,
         read_only=True,
@@ -1214,8 +1302,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
-    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
-    # the metric_errors-vs-errors rename above.
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+
     result_source = serializers.ChoiceField(
         choices=["recalculation", "timeseries_fallback"],
         required=False,
@@ -1384,6 +1478,77 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSessionMetricSourceHitSerializer(serializers.Serializer):
+    """One event/action source of a metric with at least one matching event in a session recording."""
+
+    source_role = serializers.ChoiceField(
+        source="role",
+        choices=[role.value for role in MetricSourceRole],
+        help_text=(
+            "What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel "
+            "step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or "
+            "'retention_start'/'retention_completion' (a retention metric's start event and return visit). "
+            "A hit on one source is not a hit on the metric as the analysis counts it."
+        ),
+    )
+    source_name = serializers.CharField(source="name", help_text="Display name of the source event or action.")
+    source_index = serializers.IntegerField(
+        source="index",
+        help_text=(
+            "0-based position of this source among all the metric's sources, data-warehouse ones included — so a "
+            "funnel step keeps its real step number even when an earlier step has no session events."
+        ),
+    )
+    source_total = serializers.IntegerField(
+        source="total", help_text="Total number of sources the metric is defined over."
+    )
+    event_count = serializers.IntegerField(help_text="Number of events in the session matching this source.")
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching this source."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of this source's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+
+
+class ExperimentSessionMetricHitSerializer(serializers.Serializer):
+    """One experiment metric with at least one matching event in a session recording."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
+    )
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Total number of events in the session matching any of the metric's event/action sources."
+    )
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching the metric."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+    sources = ExperimentSessionMetricSourceHitSerializer(
+        many=True,
+        help_text=(
+            "Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a "
+            "retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event "
+            "are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention "
+            "metric whose start and completion are the same event contributes only the start source: the "
+            "completion would match the identical events and render a duplicate."
+        ),
+    )
+
+
 class ExperimentSessionContextItemSerializer(serializers.Serializer):
     """One experiment whose feature flag a session recording saw."""
 
@@ -1392,8 +1557,9 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
     variant = serializers.CharField(
         help_text=(
-            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
-            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+            "Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria "
+            "when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the "
+            "$feature/<key> property stamped on the session's events."
         )
     )
     variants_seen = serializers.ListField(
@@ -1407,18 +1573,27 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     multiple_variants = serializers.BooleanField(
         help_text="True when the session saw more than one variant of this flag."
     )
-    first_flag_evaluation_timestamp = serializers.DateTimeField(
+    first_exposure_timestamp = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
-            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
-            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
-            "exposure criteria this is not the experiment's exposure moment."
+            "Timestamp of the first event in the session matching the experiment's exposure criteria — "
+            "the default exposure event ($feature_flag_called), or the configured custom event/action. Null when "
+            "no event in the session matched the criteria; the variant is then known from flag evaluations or "
+            "stamped $feature/<key> properties. "
+            "Session-scoped: the experiment analysis counts exposure per person across the whole run window, "
+            "so the person's counted first exposure may lie in an earlier session."
         ),
     )
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
     experiment_end_date = serializers.DateTimeField(
         allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+    metrics_in_session = ExperimentSessionMetricHitSerializer(
+        many=True,
+        help_text=(
+            "This experiment's metrics with at least one matching event in the session, sorted by first "
+            "occurrence. Empty when none of the experiment's metric events fired during the session."
+        ),
     )
 
 
@@ -1433,3 +1608,8 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
             "experiment's run window overlaps the recording or no flag data was observed in the session."
         ),
     )
+
+
+class ExperimentActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")

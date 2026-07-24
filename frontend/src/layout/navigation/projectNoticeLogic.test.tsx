@@ -9,12 +9,13 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { projectNoticeLogic } from './projectNoticeLogic'
+import { projectNoticeLogic, shouldShowNoEventsProjectNotice } from './projectNoticeLogic'
 
 const DISMISS_KEY = 'project-notice-dismissed.missing_reverse_proxy'
 
@@ -24,6 +25,16 @@ window.POSTHOG_APP_CONTEXT = {
 } as unknown as AppContext
 
 describe('projectNoticeLogic', () => {
+    describe('no-events notice visibility', () => {
+        test.each([
+            { scene: Scene.Quickstart, liveEventCount: 0, expected: false },
+            { scene: Scene.LiveEvents, liveEventCount: 1, expected: false },
+            { scene: Scene.Dashboard, liveEventCount: 0, expected: true },
+        ])('returns $expected for $scene with $liveEventCount live events', ({ scene, liveEventCount, expected }) => {
+            expect(shouldShowNoEventsProjectNotice(scene, liveEventCount)).toBe(expected)
+        })
+    })
+
     describe('proxy records conditional loading', () => {
         let getItemSpy: jest.SpyInstance
 

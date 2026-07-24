@@ -4,6 +4,11 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress import wordpress as wordpress_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import WORDPRESS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
@@ -11,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.
     HTTP_NOT_ALLOWED_ERROR,
     WordpressHostNotAllowedError,
     WordpressResumeConfig,
+    WordpressRetryableError,
     _build_initial_params,
     _build_initial_url,
     _format_incremental_value,
@@ -25,7 +31,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.
 
 
 def _response(
-    *, status_code: int = 200, json_data: Any = None, link: Optional[str] = None, text: str = ""
+    *,
+    status_code: int = 200,
+    json_data: Any = None,
+    link: Optional[str] = None,
+    text: str = "",
+    content: Optional[bytes] = None,
+    json_raises: Optional[Exception] = None,
 ) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
@@ -33,9 +45,18 @@ def _response(
     response.is_redirect = status_code in (301, 302, 303, 307, 308)
     response.is_permanent_redirect = status_code in (301, 308)
     response.text = text
-    response.json.return_value = json_data
+    if json_raises is not None:
+        response.json.side_effect = json_raises
+    else:
+        response.json.return_value = json_data
+    if content is not None:
+        response.content = content
     response.headers = {"Link": link} if link else {}
     return response
+
+
+def _json_decode_error() -> requests.exceptions.JSONDecodeError:
+    return requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0)
 
 
 class _FakeBatcher:
@@ -274,18 +295,44 @@ class TestValidateCredentials:
             else:
                 assert expected_msg_substr in (msg or "")
 
+    @pytest.mark.parametrize(
+        "json_data, text, expects_substr, forbidden_substr",
+        [
+            # A bare proxy/WAF status line must not leak; the user gets an actionable message instead.
+            (None, "Bad Request", "unexpected response (HTTP 400)", "Bad Request"),
+            # A genuine WordPress REST error message is still surfaced.
+            ({"message": "rest_invalid_param"}, "", "rest_invalid_param", None),
+        ],
+    )
+    def test_unrecognized_status_does_not_leak_raw_body(self, json_data, text, expects_substr, forbidden_substr):
+        with self._patch_session(_response(status_code=400, json_data=json_data, text=text)):
+            valid, msg = validate_credentials("https://example.com", None, None)
+            assert valid is False
+            assert expects_substr in (msg or "")
+            if forbidden_substr is not None:
+                assert forbidden_substr not in (msg or "")
+
     def test_invalid_site_url(self):
         valid, msg = validate_credentials("", None, None)
         assert valid is False
         assert msg == "Invalid WordPress site URL"
 
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+    @pytest.mark.parametrize(
+        "exc_factory, expected_msg_substr",
+        [
+            (lambda: requests.exceptions.SSLError("certificate verify failed"), "secure connection"),
+            (lambda: requests.exceptions.ConnectionError("boom"), "Couldn't connect"),
+            (lambda: requests.exceptions.Timeout("slow"), "took too long"),
+            (lambda: requests.exceptions.RequestException("weird"), "Couldn't reach"),
+        ],
+    )
+    def test_request_exception_returns_actionable_message(self, exc_factory, expected_msg_substr):
+        # The raw exception string (e.g. an SSL traceback) must never surface to the user.
+        with self._patch_session(raises=exc_factory()):
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is False
-            assert "boom" in (msg or "")
+            assert expected_msg_substr in (msg or "")
+            assert "certificate verify failed" not in (msg or "")
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)) as patched:
@@ -422,6 +469,40 @@ class TestGetRows:
 
         assert rows == []
         assert session.get.call_count == 1
+
+    def test_empty_body_terminates_without_crashing(self):
+        # A 2xx with an empty body used to crash get_rows with a raw JSONDecodeError; it must now
+        # stop pagination cleanly.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        empty_body = _response(json_raises=_json_decode_error(), content=b"")
+        rows, session = self._run(manager, [empty_body])
+
+        assert rows == []
+        assert session.get.call_count == 1
+
+    def test_non_json_body_is_non_retryable(self):
+        # A 2xx serving an HTML error/login page can't become data by retrying — fail fast and
+        # non-retryably, without leaking the query string into the surfaced message.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        html = _response(json_raises=_json_decode_error(), content=b"<!DOCTYPE html><html><body>Login</body></html>")
+        with pytest.raises(RESTClientNonRetryableError) as exc:
+            self._run(manager, [html])
+        assert str(exc.value).startswith("Non-JSON response from")
+        assert "per_page" not in str(exc.value)
+
+    def test_truncated_json_body_stays_retryable(self):
+        # A body that begins as JSON but fails to parse is a truncated read, not a non-JSON error
+        # page, so it must stay retryable rather than being classified non-retryable.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        truncated = _response(json_raises=_json_decode_error(), content=b'[{"id": 1}')
+        with (
+            mock.patch.object(wordpress_module, "_retry_wait", return_value=0),
+            pytest.raises(WordpressRetryableError),
+        ):
+            self._run(manager, [truncated] * 5)
 
     def test_does_not_follow_next_url_on_foreign_host(self):
         manager = mock.MagicMock()

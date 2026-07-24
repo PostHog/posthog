@@ -80,3 +80,7 @@ CHARTHOP_ENDPOINTS: dict[str, ChartHopEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(CHARTHOP_ENDPOINTS.keys())
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in CHARTHOP_ENDPOINTS.items()
+}

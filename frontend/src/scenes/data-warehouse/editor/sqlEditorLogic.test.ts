@@ -25,6 +25,7 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -204,6 +205,7 @@ describe('sqlEditorLogic', () => {
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
                 '/api/environments/:team_id/data_modeling_jobs/running/': [],
                 '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/projects/:team_id/external_data_sources/connections/': [],
                 '/api/user_home_settings/@me/': {},
             },
             post: {
@@ -1392,6 +1394,44 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
+        it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'raw-conn-1',
+                                prefix: 'mssql',
+                                engine: null,
+                                source_type: 'MSSQL',
+                                access_method: 'direct',
+                                supports_hogql: false,
+                            },
+                        ],
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // No connection selector mounted here — selecting a connection must load the
+            // capability data by itself (embedded editors, URL restores).
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'raw-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(false)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
         it('strips legacy top-level connection ids when source query changes', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -1824,6 +1864,87 @@ describe('sqlEditorLogic', () => {
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
+        })
+    })
+
+    describe('query history', () => {
+        it('tags SQL editor runs with the sql_editor product key', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            performQuerySpy.mockClear()
+            logic.actions.runQuery()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(performQuerySpy).toHaveBeenCalled()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+                tags: { productKey: 'sql_editor' },
+            })
+
+            performQuerySpy.mockRestore()
+        })
+
+        it.each([
+            ['query_history' as const, 'Restore', 'Cancel'],
+            ['max_ai' as const, 'Accept', 'Reject'],
+        ])('suggestions from %s use the %s/%s handlers', async (source, acceptText, rejectText) => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSuggestedQueryInput('SELECT 2', source)
+            await expectLogic(logic).toDispatchActions(['setSuggestedQueryInput'])
+
+            expect(logic.values.suggestionPayload).toMatchObject({
+                suggestedValue: 'SELECT 2',
+                acceptText,
+                rejectText,
+                source,
+            })
+        })
+    })
+
+    describe('stuck database load recovery', () => {
+        it('forces a fresh load on mount when the shared schema loader is stuck loading', async () => {
+            // databaseTableListLogic is a shared singleton, so a prior visit can leave
+            // `databaseLoading` stuck true (a load that never settled). Reproduce that by making the
+            // schema query hang, then mount the editor: it must force a fresh load rather than skip
+            // it, otherwise the sources sidebar sits on "Loading..." forever.
+            // Non-forced so the only `{ force: true }` load in the action history is the editor's —
+            // the schema query hangs, so `databaseLoading` stays true regardless.
+            useMocks({ post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) } })
+            databaseLogic.actions.loadDatabase()
+            await expectLogic(databaseLogic).toMatchValues({ databaseLoading: true })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
         })
     })
 })

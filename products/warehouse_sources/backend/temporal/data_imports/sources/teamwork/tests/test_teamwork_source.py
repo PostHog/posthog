@@ -14,7 +14,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TeamworkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
+    TeamworkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -149,6 +151,7 @@ class TestSourceForPipeline:
         inputs = SimpleNamespace(
             schema_name=endpoint,
             team_id=1,
+            job_id="job-1",
             logger=MagicMock(),
             should_use_incremental_field=input_overrides.get("should_use_incremental_field", False),
             db_incremental_field_last_value=input_overrides.get("db_incremental_field_last_value", None),

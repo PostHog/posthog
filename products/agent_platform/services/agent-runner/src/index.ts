@@ -317,13 +317,13 @@ async function main(): Promise<void> {
         broker: new SecretBroker(),
         credentialBroker,
         approvals,
-        // Clickable deep link that opens the approval in PostHog Code (the agent
+        // Clickable deep link that opens the approval in PostHog Desktop (the agent
         // console now lives in the desktop/web app). Surfaced to the model on a
         // gated tool call and whatever it posts to chat / Slack. Carries the
         // agent slug (`?agent=<slug>`) so the approval modal can address the
         // slug-routed ingress directly and decide under the user's own auth — no
         // project-scoped lookup. Handled by the `approval` deep-link key in
-        // PostHog Code (posthog-code://approval/<id>?agent=<slug>).
+        // PostHog Desktop (posthog-code://approval/<id>?agent=<slug>).
         buildApprovalUrl: (requestId, slug) =>
             `${config.approvalLinkScheme}://approval/${requestId}${slug ? `?agent=${encodeURIComponent(slug)}` : ''}`,
         bus,
@@ -379,6 +379,8 @@ async function main(): Promise<void> {
         identityCredentials,
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
+        routingMode: config.routingMode,
+        domainSuffix: config.domainSuffix,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         mcpConnections,
         devMcpBearerToken: config.devMcpBearerToken,

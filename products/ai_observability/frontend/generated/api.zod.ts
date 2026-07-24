@@ -580,6 +580,10 @@ export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
 export const evaluationsTestHogCreateBodyAllowsNaDefault = false
+export const evaluationsTestHogCreateBodyTargetDefault = `generation`
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 7200
 
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
@@ -600,6 +604,24 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace')
+        .default(evaluationsTestHogCreateBodyTargetDefault)
+        .describe(
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin)
+                .max(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax)
+                .default(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault)
+                .describe('Aggregation window for trace samples, in seconds.'),
+        })
+        .optional()
+        .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
 })
 
 /**
@@ -1208,42 +1230,6 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
-/**
- * Assign this key to evaluations and optionally re-enable them.
- */
-export const llmAnalyticsProviderKeysAssignCreateBodyNameMax = 255
-
-export const llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
-
-export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
-    provider: zod
-        .enum([
-            'openai',
-            'anthropic',
-            'gemini',
-            'openrouter',
-            'fireworks',
-            'azure_openai',
-            'together_ai',
-            'minimax',
-            'zeabur',
-        ])
-        .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
-        ),
-    name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
-    api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
-    api_version: zod
-        .string()
-        .max(llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax)
-        .optional()
-        .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault),
-})
-
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
@@ -1827,6 +1813,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
+        ),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
 })
 

@@ -60,7 +60,7 @@ export function VisionMetrics(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col lg:flex-row gap-4 h-72">
+        <div className="flex flex-col lg:flex-row gap-4 h-80">
             <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
                 <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Observations over time</h3>
@@ -108,12 +108,18 @@ export function VisionMetrics(): JSX.Element {
                         {hasCap && (
                             <span className={`text-xs tabular-nums ${styles.text}`}>
                                 {percentLabel}%{' '}
-                                <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
+                                <span className="text-muted font-normal">
+                                    by period end{resetsOn ? ` (${resetsOn})` : ''}
+                                </span>
                             </span>
                         )}
                     </div>
                     {quota ? (
                         <>
+                            {/* TODO(replay-vision): remove when Vision billing goes live with open beta. */}
+                            <div className="text-xs text-accent mb-1">
+                                Estimated spend. You won't be billed during the closed beta.
+                            </div>
                             <div className="text-3xl font-semibold tabular-nums">
                                 {formatCredits(quota.credits_used)}
                                 {hasCap && (

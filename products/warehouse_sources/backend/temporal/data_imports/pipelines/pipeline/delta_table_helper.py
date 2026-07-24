@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
     normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
@@ -79,6 +80,40 @@ def _pack_partition_chunks(partition_values: list[Any], sizes_on_disk: dict[str,
     if current:
         chunks.append(current)
     return chunks
+
+
+# Substrings of the `OSError`s delta-rs's Rust `object_store` crate raises from
+# `DeltaTable.is_deltatable()` when it can't reach or authenticate against our own S3-backed
+# data-warehouse bucket (IMDS/STS blips, dispatch timeouts) — not a customer credential problem.
+# Transient and self-recovering: the next maintenance pass re-lists from scratch, so these
+# shouldn't be treated the same as a bug in our maintenance logic.
+TRANSIENT_OBJECT_STORE_ERRORS = (
+    "an error occurred while loading credentials",
+    "the credential provider was not enabled",
+    "Generic S3 error",
+)
+
+
+def is_transient_object_store_error(error: BaseException) -> bool:
+    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+
+
+def _delta_merge_spill_kwargs() -> dict[str, int]:
+    """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
+
+    A merge decompresses the target partition into an Arrow working set that can exceed the pod's
+    memory limit and take down every co-tenant activity. When the byte budgets are configured (and the
+    worker mounts a scratch disk at its TMPDIR), delta-rs bounds DataFusion's memory pool: bytes past
+    `max_spill_size` spill to disk, capped at `max_temp_directory_size`. Unset → omit the kwargs so
+    DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
+    deltalake versions predating the parameters.
+    """
+    kwargs: dict[str, int] = {}
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
+        kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:
+        kwargs["max_temp_directory_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES
+    return kwargs
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
@@ -197,6 +232,46 @@ def _first_per_pk_table(
     return pa_table.take(kept_indices)
 
 
+def delta_storage_options() -> dict[str, str]:
+    """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
+    read path (e.g. the person-property backfill) can open a Delta table without constructing a full
+    ``DeltaTableHelper`` (which carries caching, first-sync mutation, and corruption-repair)."""
+    if settings.USE_LOCAL_SETUP:
+        if (
+            not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
+            or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
+            or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
+        ):
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
+            )
+
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        options = {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+        }
+    else:
+        options = {}
+
+    # Conditional puts make a clashing concurrent commit fail loudly instead of
+    # clobbering _delta_log; set explicitly so a library default change can't undo it.
+    options["conditional_put"] = "etag"
+    if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+        options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+    return options
+
+
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
@@ -216,40 +291,7 @@ class DeltaTableHelper:
         return self._is_first_sync
 
     def _get_credentials(self):
-        if settings.USE_LOCAL_SETUP:
-            if (
-                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
-                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
-                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
-            ):
-                raise KeyError(
-                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
-                )
-
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-            options = {
-                "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-            }
-        else:
-            options = {}
-
-        # Conditional puts make a clashing concurrent commit fail loudly instead of
-        # clobbering _delta_log; set explicitly so a library default change can't undo it.
-        options["conditional_put"] = "etag"
-        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
-            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
-        return options
+        return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -286,9 +328,18 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
-        )
+        try:
+            is_delta = await asyncio.to_thread(
+                deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+            )
+        except Exception as e:
+            # Mirrors the DeltaTable() open below: capture before propagating. Callers range from
+            # best-effort maintenance to the main write path, so this can't safely swallow the
+            # error and report "no table" here — that would trip should_overwrite_table for a
+            # table that actually exists, risking data loss.
+            capture_exception(e)
+            raise
+
         if is_delta:
             try:
                 return await asyncio.to_thread(
@@ -459,6 +510,11 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
+            # The merge casts every source column to its stored column type; a scale-heavy decimal
+            # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
+            # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
+            data = align_incoming_decimals_to_delta(data, delta_table.schema())
+
             existing_delta_table = delta_table
 
             await self._logger.adebug(f"write_to_deltalake: merging...")
@@ -524,6 +580,7 @@ class DeltaTableHelper:
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
+                                **_delta_merge_spill_kwargs(),
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
@@ -547,6 +604,7 @@ class DeltaTableHelper:
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -693,6 +751,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
                         .execute()

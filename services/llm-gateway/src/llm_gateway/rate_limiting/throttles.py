@@ -47,6 +47,8 @@ class ThrottleContext:
     end_user_id: str | None = None
     plan_key: str | None = None
     seat_created_at: str | None = None
+    seat_missing: bool = False
+    code_usage_billed: bool = False
     billing_period_start: str | None = None
     credits_exhausted: bool = False
 

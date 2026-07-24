@@ -3,11 +3,9 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
@@ -16,18 +14,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.sett
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # Shared so the source-layer 403 acceptance check can't drift from the message produced here.
 BRAZE_FORBIDDEN_MSG = "Your Braze API key does not have permission for this endpoint"
 HOST_NOT_ALLOWED_ERROR = "Braze REST endpoint URL is not allowed"
-
-
-class BrazeRetryableError(Exception):
-    pass
 
 
 class BrazeHostNotAllowedError(Exception):
@@ -36,8 +36,9 @@ class BrazeHostNotAllowedError(Exception):
 
 @dataclasses.dataclass
 class BrazeResumeConfig:
-    # Page index (page pagination) or row offset (offset pagination) of the
-    # last-yielded page, so a resume re-fetches it and merge dedupes on primary key.
+    # Page index (page pagination) or row offset (offset pagination) to resume from.
+    # Old checkpoints stored the last-yielded cursor, so re-loading one re-fetches that
+    # page and merge dedupes on primary key.
     cursor: int
 
 
@@ -55,13 +56,6 @@ def _host_from_url(base_url: str) -> str:
     return (urlparse(normalize_base_url(base_url)).hostname or "").lower()
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
-
-
 def _format_modified_after(value: Any) -> str:
     """Format an incremental cursor value as an ISO-8601 string for Braze filters."""
     if isinstance(value, datetime):
@@ -72,31 +66,58 @@ def _format_modified_after(value: Any) -> str:
     return str(value)
 
 
-def _build_params(config: BrazeEndpointConfig, cursor: int, modified_after: str | None) -> dict[str, Any]:
-    params: dict[str, Any]
-    if config.pagination == "page":
-        params = {"page": cursor}
-    else:
-        # Braze's offset endpoints reject offset=0 (offset must be a positive integer),
-        # so omit it on the first page — equivalent to skipping nothing.
-        params = {"limit": config.page_size}
-        if cursor:
-            params["offset"] = cursor
-
-    if modified_after and config.modified_after_param:
-        params[config.modified_after_param] = modified_after
-
-    return params
-
-
-def _next_cursor(config: BrazeEndpointConfig, cursor: int) -> int:
-    return cursor + 1 if config.pagination == "page" else cursor + config.page_size
-
-
 def _normalize_items(config: BrazeEndpointConfig, items: list[Any]) -> list[dict[str, Any]]:
     if config.wrap_scalar_as:
         return [{config.wrap_scalar_as: item} for item in items]
     return [item for item in items if isinstance(item, dict)]
+
+
+class BrazeOffsetPaginator(BasePaginator):
+    """Braze's limit/offset pagination (templates/content blocks).
+
+    Diverges from the generic ``OffsetPaginator`` in two Braze-specific ways: the
+    ``offset`` param must be omitted when 0 (Braze rejects ``offset=0`` as not a
+    positive integer), and only an empty page terminates — a short page is not
+    treated as the last one.
+    """
+
+    def __init__(self, limit: int, offset: int = 0) -> None:
+        super().__init__()
+        self.limit = limit
+        self.offset = offset
+
+    def _inject_params(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["limit"] = self.limit
+        if self.offset:
+            request.params["offset"] = self.offset
+
+    def init_request(self, request: Request) -> None:
+        self._inject_params(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        self.offset += self.limit
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._inject_params(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.offset already points at the next page to fetch (update_state incremented it).
+        return {"offset": self.offset} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"BrazeOffsetPaginator(offset={self.offset}, limit={self.limit})"
 
 
 def validate_credentials(
@@ -114,120 +135,110 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    url = f"{normalize_base_url(base_url)}{path}?{urlencode({'page': 0})}"
-    try:
-        response = make_tracked_session(allow_redirects=False).get(url, headers=_get_headers(api_key), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
-        return True, None
-    if response.status_code == 401:
-        return False, "Invalid Braze API key"
-    if response.status_code == 403:
-        return False, BRAZE_FORBIDDEN_MSG
-
-    try:
-        message = response.json().get("message", response.text)
-    except Exception:
-        message = response.text
-    return False, message
-
-
-def get_rows(
-    api_key: str,
-    base_url: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BrazeResumeConfig],
-    team_id: int,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = BRAZE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    root = normalize_base_url(base_url)
-
-    # Re-check at run time (not just at source-create) in case the URL was edited or now
-    # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(_host_from_url(base_url), team_id)
-    if not host_ok:
-        raise BrazeHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-
-    modified_after: str | None = None
-    if config.modified_after_param and should_use_incremental_field and db_incremental_field_last_value:
-        modified_after = _format_modified_after(db_incremental_field_last_value)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume_config.cursor if resume_config is not None else 0
-    if resume_config is not None:
-        logger.debug(f"Braze: resuming {endpoint} from cursor={cursor}")
-
-    @retry(
-        retry=retry_if_exception_type((BrazeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    url = f"{normalize_base_url(base_url)}{path}?page=0"
+    ok, status = validate_via_probe(
+        # No redirects: keep the probe pinned to the validated host (SSRF hardening).
+        lambda: make_tracked_session(allow_redirects=False, redact_values=(api_key,)),
+        url,
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
-    def fetch_page(page_cursor: int) -> dict[str, Any]:
-        params = _build_params(config, page_cursor, modified_after)
-        page_url = f"{root}{config.path}?{urlencode(params)}"
-        response = make_tracked_session(allow_redirects=False).get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise BrazeRetryableError(f"Braze API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Braze API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(cursor)
-
-        raw_items = data.get(config.data_key, [])
-        if not raw_items:
-            break
-
-        yield _normalize_items(config, raw_items)
-
-        # Save the cursor of the page we just yielded (not the next one) so a
-        # resume re-fetches it; merge semantics on the primary key dedupe.
-        resumable_source_manager.save_state(BrazeResumeConfig(cursor=cursor))
-
-        cursor = _next_cursor(config, cursor)
+    if ok:
+        return True, None
+    if status == 401:
+        return False, "Invalid Braze API key"
+    if status == 403:
+        return False, BRAZE_FORBIDDEN_MSG
+    if status is None:
+        return False, "Could not reach the Braze API"
+    return False, f"Braze API returned status {status}"
 
 
 def braze_source(
     api_key: str,
     base_url: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BrazeResumeConfig],
     team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BrazeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = BRAZE_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    if config.modified_after_param and should_use_incremental_field and db_incremental_field_last_value:
+        params[config.modified_after_param] = _format_modified_after(db_incremental_field_last_value)
+
+    paginator: BasePaginator
+    if config.pagination == "page":
+        paginator = PageNumberPaginator(base_page=0)
+        state_key = "page"
+    else:
+        paginator = BrazeOffsetPaginator(limit=config.page_size)
+        state_key = "offset"
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": normalize_base_url(base_url),
+            "headers": {"Accept": "application/json"},
+            # Framework Bearer auth so the key is redacted from logs.
+            "auth": {"type": "bearer", "token": api_key},
+            # No redirects: the base URL is customer-supplied, so keep traffic pinned
+            # to the validated host (SSRF hardening).
+            "session": make_tracked_session(allow_redirects=False, redact_values=(api_key,)),
+            "paginator": paginator,
+        },
+        "resource_defaults": None,
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Braze omits the data key when there is nothing to return, so a missing
+                    # key is a normal end-of-data page — don't set data_selector_required.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {state_key: resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; saved AFTER a page is yielded so a crash
+        # never skips an undelivered page.
+        if state and state.get(state_key) is not None:
+            resumable_source_manager.save_state(BrazeResumeConfig(cursor=int(state[state_key])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    def get_rows() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the URL was edited or now
+        # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(_host_from_url(base_url), team_id)
+        if not host_ok:
+            raise BrazeHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+        for page in resource:
+            # events/list returns bare event-name strings; other endpoints may carry
+            # stray non-dict rows — reshape/drop them exactly as before the migration.
+            yield _normalize_items(config, page)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            base_url=base_url,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=get_rows,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

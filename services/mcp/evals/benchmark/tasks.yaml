@@ -1,9 +1,9 @@
-# MCP agent-experience benchmark v0.
+# MCP agent-experience benchmark v1.
 #
 # Task intents are paraphrased from real agent usage (top tool families by
 # production volume) — never verbatim copies of customer text. Keep probes
 # read-only; the runner refuses non-read-only probe tools.
-version: 0
+version: 1
 tasks:
     # --- sql ---------------------------------------------------------------
     - id: sql-daily-event-volume
@@ -107,6 +107,32 @@ tasks:
       acceptable_tools: [execute-sql, query-error-tracking-issues-list]
       success_criteria: 'Identifies the people behind the spike data point rather than just re-plotting the trend.'
 
+    - id: funnel-dropoff-actors
+      category: product-analytics
+      intent: 'Which users dropped off between the first and second step of our signup funnel this month?'
+      expected_tools: [query-funnel-actors]
+      acceptable_tools: [query-funnel, execute-sql]
+      success_criteria: 'Lists the actual people who dropped off entering the second step (drop-off step semantics, not a converted-through step), rather than just re-plotting the funnel conversion rate.'
+      probe:
+          # Repeated-pageview steps keep the probe runnable in any seeded demo
+          # project; funnelStep -2 = dropped off entering step 2. Probe mode
+          # only guards arg acceptance, tool errors, and latency — an empty
+          # actor list still passes. Step SEMANTICS (returning the right
+          # people) are judged in agent mode via success_criteria.
+          tool: query-funnel-actors
+          args:
+              funnelStep: -2
+              includeRecordings: false
+              source:
+                  kind: FunnelsQuery
+                  dateRange:
+                      date_from: '-30d'
+                  series:
+                      - kind: EventsNode
+                        event: '$pageview'
+                      - kind: EventsNode
+                        event: '$pageview'
+
     # --- insights -------------------------------------------------------------
     - id: insight-create-daily-signups
       category: insights
@@ -128,6 +154,31 @@ tasks:
       expected_tools: [insight-query]
       acceptable_tools: [insight-get, execute-sql]
       success_criteria: 'Locates the saved insight, executes it, and reports the most recent data point.'
+
+    # Multi-step chains below target the observed pain in this family: losing
+    # the created insight's identifiers between calls, over-long descriptions,
+    # and saving without ever verifying the query runs. Create/update are
+    # mutating tools, so these tasks are agent-mode only (no probes).
+    - id: insight-id-roundtrip
+      category: insights
+      intent: 'Create an insight tracking daily pageviews, then rename it, then run it and tell me the latest value.'
+      expected_tools: [insight-create, insight-update, insight-query]
+      acceptable_tools: [query-trends, read-data-schema, insight-get]
+      success_criteria: 'Completes the whole chain reusing the identifiers returned by insight-create for the update and query calls — no schema-rejection retries from passing the wrong identifier field — and reports the latest data point.'
+
+    - id: insight-create-with-description
+      category: insights
+      intent: "Save a trends insight for weekly signups, with a description explaining how it's calculated and any caveats, so teammates can trust it."
+      expected_tools: [insight-create]
+      acceptable_tools: [query-trends, read-data-schema]
+      success_criteria: 'Creates the insight with a substantive non-empty description on the first attempt — no rejected-then-truncated retry loop on the description field.'
+
+    - id: insight-create-verified
+      category: insights
+      intent: "Save a funnel from homepage visit to signup, and confirm it actually computes results before telling me it's done."
+      expected_tools: [insight-create, insight-query]
+      acceptable_tools: [query-funnel, read-data-schema]
+      success_criteria: 'Verifies the saved funnel actually runs — via insight-query after saving or by pre-testing the query before saving — and reports computed results instead of claiming success without ever executing it.'
 
     # --- error-tracking --------------------------------------------------------
     - id: errors-top-issues
@@ -157,9 +208,9 @@ tasks:
     - id: flag-rollout-conditions
       category: feature-flags
       intent: 'What are the rollout conditions for our mcp-analytics feature flag?'
-      expected_tools: [feature-flag-get-definition]
-      acceptable_tools: [feature-flag-get-all]
-      success_criteria: "Resolves the flag's numeric id first, then reports its release conditions — does not guess the id."
+      expected_tools: [feature-flag-get-definition-by-key]
+      acceptable_tools: [feature-flag-get-all, feature-flag-get-definition]
+      success_criteria: "Resolves the flag by its key ('mcp-analytics') directly — does not guess a numeric id."
 
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks
@@ -226,3 +277,57 @@ tasks:
       expected_tools: [metric-names-list, query-metrics]
       acceptable_tools: [execute-sql]
       success_criteria: 'Resolves the exact metric name first (names match exactly), then queries a rate over the last 24h — does not guess the metric name.'
+
+    # --- data-catalog -----------------------------------------------------------------------
+    # MCP-surface probe/agent tasks over the catalog. The end-to-end "does the agent trust the
+    # catalog" behavioral suite (seeded approved/proposed/drifted/empty arms, scorers + LLM judge)
+    # lives in products/data_catalog/evals/ (eval_governed_metrics, eval_semantic_discovery).
+    - id: data-catalog-use-canonical-mrr
+      category: data-catalog
+      intent: 'What was our MRR last month?'
+      expected_tools: [execute-sql]
+      acceptable_tools: [data-catalog-metric-run]
+      success_criteria: >
+          Checks system.information_schema.metrics for an approved, non-drifted MRR metric before
+          deriving the number. If one exists, runs it and cites it as the canonical definition; never
+          presents a proposed or drifted metric as canonical.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted, definition_kind FROM system.information_schema.metrics WHERE name ILIKE '%mrr%' OR description ILIKE '%recurring revenue%'"
+
+    - id: data-catalog-check-before-deriving
+      category: data-catalog
+      intent: "What's our activation rate?"
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Looks in the catalog (system.information_schema.metrics) for a canonical activation metric
+          before deriving one from scratch, and reports whether an approved one exists.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%activation%' OR description ILIKE '%activation%'"
+
+    - id: data-catalog-prefer-certified-source
+      category: data-catalog
+      intent: 'Which table should I use to report revenue?'
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Uses the certification column on system.information_schema.tables to prefer a certified
+          revenue source and avoid deprecated ones, rather than picking an arbitrary similar table.
+      probe:
+          tool: execute-sql
+          args:
+              query: 'SELECT table_name, certification, description FROM system.information_schema.tables WHERE certification IS NOT NULL'
+
+    - id: data-catalog-never-cite-proposed
+      category: data-catalog
+      intent: 'Is there an official definition of churn I should use?'
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Reports whether an approved (not proposed or drifted) churn metric exists in the catalog, and
+          does not present a proposed metric as if it were official.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%churn%' OR description ILIKE '%churn%'"

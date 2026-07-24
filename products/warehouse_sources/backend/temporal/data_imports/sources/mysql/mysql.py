@@ -71,7 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
@@ -328,6 +328,13 @@ _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 # phrase, not the volatile `_ssl.c:<line>` suffix that shifts across Python builds.
 _SSL_CONNECTION_CLOSED_EOF_TOKEN = "TLS/SSL connection has been closed (EOF)"
 
+# CPython's ssl module raises this when the peer closes the raw socket (a TCP RST or FIN) after
+# sending some bytes that never got consumed by the still-in-progress TLS handshake — a third
+# rendering of the same peer-closed-mid-handshake condition as the two tokens above (an overloaded
+# server, a proxy/load-balancer idle cull, a failover, or a momentary network blip). pymysql wraps
+# it as the same 2003 connect failure, so it's equally transient and must be retried too.
+_SSL_CLOSED_WITH_BUFFERED_DATA_TOKEN = "Closed before TLS handshake with data in recv buffer"
+
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it
@@ -351,9 +358,10 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
       A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
       mismatch (a deterministic config error, already non-retryable): it arrives with an
       `[SSL: ...` suffix, so exclude that and let it surface.
-    - `2003` (can't connect) carrying an SSL peer-close cause — either
-      `[SSL: UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF) or "TLS/SSL connection
-      has been closed (EOF)" (`SSLZeroReturnError`, a clean close): the peer dropped the
+    - `2003` (can't connect) carrying an SSL peer-close cause — `[SSL:
+      UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF), "TLS/SSL connection has been
+      closed (EOF)" (`SSLZeroReturnError`, a clean close), or "Closed before TLS handshake
+      with data in recv buffer" (a raw socket close mid-handshake): the peer dropped the
       TLS connection mid-handshake — the SSL-flavoured sibling of the 2013 drop, equally
       transient. The generic 2003 (wrong host/port, firewall) stays non-retryable, so
       match only the SSL peer-close tokens.
@@ -365,8 +373,29 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     if code == _LOST_CONNECTION_DURING_QUERY_CODE:
         return "[SSL:" not in args_text
     if code == _CANT_CONNECT_TO_SERVER_CODE:
-        return _SSL_UNEXPECTED_EOF_TOKEN in args_text or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
+        return (
+            _SSL_UNEXPECTED_EOF_TOKEN in args_text
+            or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
+            or _SSL_CLOSED_WITH_BUFFERED_DATA_TOKEN in args_text
+        )
     return False
+
+
+# pymysql error code 2006 (CR_SERVER_GONE_ERROR): the server closed the socket while pymysql was
+# writing to it — `_write_bytes` wraps the underlying `ConnectionResetError` / `BrokenPipeError`
+# as "MySQL server has gone away (<os error>)". Mid-handshake (sending the auth packet) this is the
+# write-side sibling of the 2013 read-side drop above: an overloaded server, a proxy/load-balancer
+# idle cull, or a failover reset the connection, all of which a fresh attempt recovers from. Unlike
+# 2013 there's no deterministic-config subcase to exclude, so match the bare code.
+_SERVER_GONE_AWAY_CODE = 2006
+
+
+def _is_transient_connect_gone_away(e: BaseException) -> bool:
+    """Return True if the server went away while establishing the connection — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _SERVER_GONE_AWAY_CODE
 
 
 def _is_transient_connect_timeout(e: BaseException) -> bool:
@@ -409,6 +438,48 @@ def _is_transient_connect_dns_failure(e: BaseException) -> bool:
     if code != _CANT_CONNECT_CODE:
         return False
     return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# ECONNRESET at connect time: the peer sent a RST while the connection was being established, so
+# pymysql wraps the underlying `ConnectionResetError` as the 2003 "Can't connect to MySQL server
+# on '<host>' ([Errno 104] Connection reset by peer)" failure. Unlike a refused connection
+# (ECONNREFUSED, "Connection refused") or a failed DNS lookup — deterministic host/port misconfig
+# that stay non-retryable via the "Can't connect to MySQL server on" classifier — a reset means
+# something *was* reachable (an overloaded server, or a TCP proxy/load balancer in front of the DB
+# that accepts then resets while its backend is cycling or briefly down) and dropped us mid-connect,
+# so a fresh attempt usually recovers. Match the stable strerror phrase, not the volatile host or
+# the platform-specific [Errno NNN] prefix.
+_CONNECTION_RESET_TOKEN = "Connection reset by peer"
+
+
+def _is_transient_connect_reset(e: BaseException) -> bool:
+    """Return True if the peer reset the connection during connect — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _CONNECTION_RESET_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# EPIPE at connect time: pymysql wraps a write to an already-closed socket — e.g. sending the
+# auth packet or the TLS handshake — as the 2003 "Can't connect to MySQL server on '<host>'
+# ([Errno 32] Broken pipe)" failure. It is the write-side sibling of the `Connection reset by
+# peer` case above (which fires on the read side): the peer, often a TCP proxy or load balancer
+# in front of the DB, accepted the connection then closed it while pymysql was still writing —
+# an overloaded server, a proxy idle cull, or a backend cycling. A fresh attempt usually reaches
+# a healthy backend. Match the stable strerror phrase, not the volatile host.
+_BROKEN_PIPE_TOKEN = "Broken pipe"
+
+
+def _is_transient_connect_broken_pipe(e: BaseException) -> bool:
+    """Return True if writing to the peer failed with a broken pipe during connect — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _BROKEN_PIPE_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
@@ -468,8 +539,11 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
+                or _is_transient_connect_gone_away(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_connect_dns_failure(e)
+                or _is_transient_connect_reset(e)
+                or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):
@@ -523,21 +597,43 @@ def _is_transient_vitess_reparent(e: BaseException) -> bool:
     return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+def _is_transient_metadata_query_reset(e: BaseException) -> bool:
+    """Return True if a metadata query's connection was reset mid-query — a transient blip.
+
+    `_is_transient_connect_drop` already retries this same 2013 code when it fires inside
+    `connect()` (a socket close while reading the server greeting); this predicate covers the
+    sibling case where the connection was already established and the reset landed once a real
+    query was in flight — e.g. `get_table_metadata`'s small `information_schema.columns` lookup.
+    A bare `ConnectionResetError` payload means the socket itself was reset (an overloaded
+    server, a proxy/load-balancer cycling its backend, a momentary network blip), not the
+    bad-plan filesort-timeout symptom `_is_bad_plan_error` also keys on this code for — that one
+    only applies to the streaming data query, which has its own FORCE INDEX fallback. Match the
+    stable strerror phrase, not the volatile host.
+    """
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _LOST_CONNECTION_DURING_QUERY_CODE:
+        return False
+    return _CONNECTION_RESET_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _retry_on_transient_tablet_unavailable(
     operation: Callable[[], _T],
     logger: FilteringBoundLogger,
     *,
     max_attempts: int = _MAX_CONNECT_ATTEMPTS,
 ) -> _T:
-    """Run `operation`, retrying a transient Vitess tablet-unavailable error.
+    """Run `operation`, retrying a transient error hit during metadata discovery.
 
     Mirrors `_connect_with_transient_retry`, but covers the metadata queries that run on
     a freshly opened connection: reconnecting alone doesn't help when the vtgate
     handshake succeeds and only the first query hits an unavailable tablet, so retry the
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
-    noise. Non-transient errors re-raise immediately because the predicates only match
-    the gRPC `Unavailable` status or a mid-reparent primary — both self-healing.
+    noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
+    `Unavailable` status, a mid-reparent primary, or a plain peer-reset connection drop,
+    all self-healing.
     """
     attempt = 0
     while True:
@@ -545,10 +641,14 @@ def _retry_on_transient_tablet_unavailable(
             return operation()
         except pymysql.err.OperationalError as e:
             attempt += 1
-            if attempt >= max_attempts or not (_is_transient_tablet_unavailable(e) or _is_transient_vitess_reparent(e)):
+            if attempt >= max_attempts or not (
+                _is_transient_tablet_unavailable(e)
+                or _is_transient_vitess_reparent(e)
+                or _is_transient_metadata_query_reset(e)
+            ):
                 raise
             logger.warning(
-                "Transient MySQL tablet-unavailable error during metadata discovery; retrying",
+                "Transient MySQL error during metadata discovery; retrying",
                 attempt=attempt,
                 max_attempts=max_attempts,
                 exc_info=e,
@@ -1328,6 +1428,23 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # fetchall(), leaving the cursor in a clean
                     # state for the streaming execute() below.
                     self.explain_query(ss_cursor, query, args, logger)
+
+                    # The best-effort preamble above (the session-timeout SET and the diagnostic
+                    # EXPLAIN) runs on this streaming connection. A transient drop during either
+                    # force-closes the socket silently, which would leave the streaming execute
+                    # below raising an opaque `InterfaceError(0, '')` — pymysql's signal that the
+                    # socket is already gone — that masks the recoverable lost connection. Reopen
+                    # once so the real query runs on a live socket instead of failing the attempt
+                    # on a blip a fresh connection recovers from.
+                    if not streaming_connection.open:
+                        logger.warning(
+                            "MySQL connection dropped during pre-stream setup; reopening before streaming query"
+                        )
+                        # Detach the cursor bound to the dead socket first so its later teardown
+                        # can't drain the freshly reopened connection (see _release_streaming_cursor).
+                        _release_streaming_cursor(ss_cursor)
+                        streaming_connection.connect()
+                        ss_cursor = streaming_connection.cursor(SSCursor)
 
                     ss_cursor.execute(query, args)
 

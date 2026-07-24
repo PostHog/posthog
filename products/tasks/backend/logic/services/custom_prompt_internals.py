@@ -32,7 +32,7 @@ OutputFn = Callable[[str], object] | None
 
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
-MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
+MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
 # (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
@@ -114,6 +114,12 @@ class CustomPromptSandboxContext:
     SandboxConfig defaults (4 cores / 16 GB)."""
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
+    github_read_access: bool = False
+    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
+    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
+    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
+    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
+    mint fails, the sandbox starts without a token."""
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -165,6 +171,7 @@ async def create_task_and_trigger(
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
+        github_read_access=context.github_read_access,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

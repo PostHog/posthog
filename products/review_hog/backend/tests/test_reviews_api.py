@@ -5,7 +5,9 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
-from posthog.models import User
+from social_django.models import UserSocialAuth
+
+from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
@@ -66,9 +68,18 @@ class TestRecentReviewsAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
-    def _report(self, *, pr_number: int, acting_user: User | None, completed: bool = True, **kwargs) -> ReviewReport:
-        return ReviewReport.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
+    def _report(
+        self,
+        *,
+        pr_number: int,
+        acting_user: User | None,
+        completed: bool = True,
+        team_id: int | None = None,
+        **kwargs,
+    ) -> ReviewReport:
+        team_id = team_id if team_id is not None else self.team.id
+        return ReviewReport.objects.for_team(team_id).create(
+            team_id=team_id,
             repository="PostHog/posthog",
             pr_number=pr_number,
             pr_url=kwargs.pop("pr_url", f"https://github.com/PostHog/posthog/pull/{pr_number}"),
@@ -120,9 +131,9 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
 
     def test_lists_only_my_completed_reviews(self) -> None:
-        # The block is "your recent reviews": a teammate's report and an abandoned (stale, never
-        # completed) run must not appear — a filter regression would leak other users' review
-        # activity or show a dead run as forever in progress.
+        # The default (mine) scope is "your recent reviews": a teammate's report and an abandoned
+        # (stale, never completed) run must not appear — a filter regression would leak other users'
+        # review activity or show a dead run as forever in progress.
         mine = self._report(pr_number=1, acting_user=self.user)
         with freeze_time(timezone.now() - timedelta(hours=2)):
             self._report(pr_number=2, acting_user=self.user, completed=False)
@@ -132,11 +143,65 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        rows = res.json()
+        assert res.json()["has_more"] is False
+        rows = res.json()["results"]
         assert [r["pr_number"] for r in rows] == [1]
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
+
+    def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
+        # The incident this guards: a review a teammate triggers on your PR lands under THEIR
+        # acting_user, so without the author_login match it never reaches your "For you" tab — the
+        # findings are effectively invisible to you. The match rides the viewer's linked GitHub
+        # login (case-insensitively); without a linked login the old acting-user-only behavior holds.
+        other = User.objects.create_and_join(self.organization, "other-author-scope@posthog.com", None)
+        self._report(pr_number=1, acting_user=other, author_login="OctoCat")
+        self._report(pr_number=2, acting_user=other, author_login="someone-else")
+        self._report(pr_number=3, acting_user=self.user)
+
+        # No linked GitHub identity: only reviews where I'm the acting user.
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {3}
+
+        # Linked identity (stored casing differs from the stamped login): authored PRs join the
+        # scope — for the list AND the perspective_stats aggregation, which share the filter.
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {1, 3}
+        assert self.client.get(f"{self.url}perspective_stats/").json()["report_count"] == 2
+
+    def test_list_scope_everyone_covers_the_whole_project(self) -> None:
+        # The "Entire project" switch: everyone-scope must include teammates' reviews but never
+        # another team's (tenant isolation), and a bad scope value must 400 — proving the params
+        # serializer is actually wired into the view.
+        self._report(pr_number=1, acting_user=self.user)
+        other = User.objects.create_and_join(self.organization, "other-everyone@posthog.com", None)
+        self._report(pr_number=2, acting_user=other)
+        cold_team = Team.objects.create(organization=self.organization, name="cold")
+        self._report(pr_number=3, acting_user=other, team_id=cold_team.id)
+
+        res = self.client.get(self.url, {"scope": "everyone"})
+
+        assert res.status_code == 200
+        assert {r["pr_number"] for r in res.json()["results"]} == {1, 2}
+        assert self.client.get(self.url, {"scope": "nonsense"}).status_code == 400
+
+    def test_list_limit_grows_the_page_and_has_more_flags_the_rest(self) -> None:
+        # "Show more" grows `limit` instead of offset-paging. has_more must flip false exactly when
+        # the page covers everything (off-by-one here strands or dead-ends the button), and
+        # out-of-range limits must 400 — proving the field is wired into the params serializer.
+        for pr_number in range(1, 8):
+            self._report(pr_number=pr_number, acting_user=self.user)
+
+        default_page = self.client.get(self.url).json()
+        assert len(default_page["results"]) == 5
+        assert default_page["has_more"] is True
+
+        full_page = self.client.get(self.url, {"limit": 7}).json()
+        assert len(full_page["results"]) == 7
+        assert full_page["has_more"] is False
+
+        assert self.client.get(self.url, {"limit": 0}).status_code == 400
+        assert self.client.get(self.url, {"limit": 101}).status_code == 400
 
     def test_counts_scope_to_the_latest_run_and_fall_back_to_the_branch_url(self) -> None:
         # Counts must reflect only the latest turn's VALID findings at their EFFECTIVE priority —
@@ -150,7 +215,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        row = res.json()[0]
+        row = res.json()["results"][0]
         assert row["github_url"] == "https://github.com/PostHog/posthog/tree/feat-branch"
         assert (row["must_fix_count"], row["should_fix_count"], row["consider_count"]) == (1, 1, 0)
 
@@ -240,7 +305,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        row = res.json()[0]
+        row = res.json()["results"][0]
         assert row["pr_title"] == "feat: current title"
         assert row["pr_author"] == "skoob13"
         assert (row["additions"], row["deletions"], row["changed_files"]) == (120, 8, 7)
@@ -277,8 +342,12 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     def test_retrieve_splits_findings_and_returns_the_published_body(self) -> None:
         # The drawer's contract: valid findings (most urgent first, validator override applied),
-        # dismissed ones separately, unjudged ones in neither, and the published body verbatim.
-        report = self._report(pr_number=7, acting_user=self.user, report_markdown="## Review body")
+        # dismissed ones separately, unjudged ones in neither, the published body verbatim, and the
+        # run's stored threshold (what the drawer buckets by — the viewer's setting is only a
+        # fallback for pre-column rows).
+        report = self._report(
+            pr_number=7, acting_user=self.user, report_markdown="## Review body", run_urgency_threshold="should_fix"
+        )
         self._finding(report, "1-low", priority=IssuePriority.CONSIDER)
         self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
         self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
@@ -289,6 +358,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert res.status_code == 200
         detail = res.json()
         assert detail["report_markdown"] == "## Review body"
+        assert detail["run_urgency_threshold"] == "should_fix"
         assert [f["title"] for f in detail["findings"]] == ["title 1-high", "title 1-low"]
         high = detail["findings"][0]
         assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")
@@ -305,7 +375,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
         running_id = str(running.id)
 
-        rows = self.client.get(self.url).json()
+        rows = self.client.get(self.url).json()["results"]
         assert [r["pr_number"] for r in rows] == [2, 1]
         assert rows[0]["in_progress"] is True
         assert rows[0]["progress"] == {"review_stage": "fetching", "done": None, "total": None}
@@ -320,7 +390,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             pr_comments=[],
             pr_files=[],
         )
-        assert self.client.get(self.url).json()[0]["progress"]["review_stage"] == "chunking"
+        assert self.client.get(self.url).json()["results"][0]["progress"]["review_stage"] == "chunking"
 
         persist_chunk_set(
             team_id=self.team.id,
@@ -329,7 +399,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(2)]),
         )
         # A chunked turn with no reads and no plan yet is the selector's window.
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "selecting",
             "done": None,
             "total": None,
@@ -343,7 +413,11 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
         # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
         # perspectives + the blind-spot sweep) = 8 expected reads.
-        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 8}
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
+            "review_stage": "reviewing",
+            "done": 2,
+            "total": 8,
+        }
 
         # Once the selector's plan lands, the total is exact: planned wave units + one blind spot per
         # chunk — without this, a pruned run's bar stalls below 100% against the dense estimate.
@@ -359,7 +433,11 @@ class TestRecentReviewsAPI(APIBaseTest):
                 ]
             ),
         )
-        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 3}
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
+            "review_stage": "reviewing",
+            "done": 2,
+            "total": 3,
+        }
 
         # All planned reads in (1 selected wave unit + 2 blind spots = 3) → the dedup window.
         persist_perspective_results(
@@ -368,7 +446,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             results={(1000, 0): _issues_review(0)},
         )
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "deduplicating",
             "done": 3,
             "total": 3,
@@ -376,7 +454,7 @@ class TestRecentReviewsAPI(APIBaseTest):
 
         self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, judged=False)
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "validating",
             "done": 1,
             "total": 2,
@@ -384,7 +462,7 @@ class TestRecentReviewsAPI(APIBaseTest):
 
         # Every finding judged → the turn is building + publishing, the moments before it completes.
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, is_valid=False)
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "finalizing",
             "done": 2,
             "total": 2,
@@ -428,7 +506,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             pr_files=[],
         )
 
-        row = self.client.get(self.url).json()[0]
+        row = self.client.get(self.url).json()["results"][0]
         assert (row["pr_title"], row["chunk_count"], row["must_fix_count"]) == ("completed title", 3, 1)
         assert row["in_progress"] is True
         assert row["progress"]["review_stage"] == "chunking"  # live head: snapshot yes, chunks not yet
@@ -449,16 +527,17 @@ class TestRecentReviewsAPI(APIBaseTest):
             last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
         )
 
-        rows = self.client.get(self.url).json()
+        rows = self.client.get(self.url).json()["results"]
 
         assert len(rows) == 5
         assert rows[0]["pr_number"] == 99
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
 
-    def test_perspective_stats_aggregate_latest_turns_of_my_reviews(self) -> None:
-        # Effectiveness must aggregate each report's LATEST turn only and never mix in a teammate's
-        # reviews — stale turns or foreign reports would inflate a perspective's record.
+    def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
+        # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,
+        # never mix in a teammate's reviews — stale turns or foreign reports would inflate a
+        # perspective's record.
         logic = "review-hog-perspective-logic-correctness"
         blind = "review-hog-blind-spots-general"
         first = self._report(pr_number=1, acting_user=self.user, run_count=2)
@@ -481,10 +560,27 @@ class TestRecentReviewsAPI(APIBaseTest):
             {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
         ]
 
-    def test_retrieve_scopes_to_the_acting_user(self) -> None:
-        # A teammate's report id must 404, not leak their PR's findings; garbage ids must not 500.
+        # scope=everyone folds the teammate's reviews in — the page-level "Entire project" switch;
+        # a filter regression here would keep project-wide stats silently personal.
+        res = self.client.get(f"{self.url}perspective_stats/?scope=everyone")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 3
+        assert data["perspectives"] == [
+            {"skill_name": blind, "raised": 2, "kept": 2, "dismissed": 0},
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+        ]
+        assert self.client.get(f"{self.url}perspective_stats/?scope=everything").status_code == 400
+
+    def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
+        # Opening a teammate's review from the everyone-scope list must work, but another team's
+        # report id must still 404 (tenant isolation), and garbage ids must not 500.
         other = User.objects.create_and_join(self.organization, "other-reviews-detail@posthog.com", None)
         theirs = self._report(pr_number=9, acting_user=other)
+        cold_team = Team.objects.create(organization=self.organization, name="cold")
+        foreign = self._report(pr_number=10, acting_user=other, team_id=cold_team.id)
 
-        assert self.client.get(f"{self.url}{theirs.id}/").status_code == 404
+        assert self.client.get(f"{self.url}{theirs.id}/").status_code == 200
+        assert self.client.get(f"{self.url}{foreign.id}/").status_code == 404
         assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404

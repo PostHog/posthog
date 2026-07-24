@@ -7,7 +7,9 @@ members = [
   "capture",
   "capture-load-gen",
   "capture-logs",
+  "cohort-core",
   "cohort-event-shuffler",
+  "cohort-seeder",
   "cohort-stream-processor",
   "common/alloc",
   "common/assignment-coordination",
@@ -29,6 +31,7 @@ members = [
   "common/s3",
   "common/serve_metrics",
   "common/symbol_data",
+  "common/temporal",
   "common/types",
   "common/compression",
   "common/hypercache",
@@ -38,12 +41,14 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
+  "common/ingestion_warnings",
   "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
@@ -52,12 +57,14 @@ members = [
   "kafka-deduplicator",
   "personhog-common",
   "personhog-coordination",
+  "personhog-identity",
   "personhog-leader",
   "personhog-writer",
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
   "personhog-stateright",
+  "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
 ]
@@ -108,6 +115,16 @@ opt-level = 3
 [profile.dev.package.stateright]
 opt-level = 3
 
+# The model's rebalance action runs the production placement computation
+# (plan_partial_rebalance, the sticky strategy, the handoff diff) in every
+# explored state, so the crates that host it need the same treatment or
+# the checker's hot loop drops back to opt-level 0.
+[profile.dev.package.personhog-coordination]
+opt-level = 3
+
+[profile.dev.package.assignment-coordination]
+opt-level = 3
+
 [workspace.dependencies]
 aho-corasick = "1.1"
 anyhow = "1.0"
@@ -146,6 +163,10 @@ http-body-util = "0.1"
 httpmock = "0.7.0"
 mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
+# default-features off on purpose: the defaults drag in native-tokio (rustls-native-certs), and the
+# `clickhouse` crate already pins this dependency with defaults off. Enabling them here would flip
+# the feature set for every consumer of the shared dependency.
+hyper-rustls = { version = "0.27.7", default-features = false, features = ["aws-lc-rs", "http1", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 libdeflater = "1"
@@ -161,6 +182,9 @@ prost = "0.13"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
+# Matches the provider `clickhouse`'s `rustls-tls` feature selects, so a direct `rustls::ClientConfig`
+# is built against the same crypto backend the crate would have used itself.
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
@@ -201,7 +225,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.19.1", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.21.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

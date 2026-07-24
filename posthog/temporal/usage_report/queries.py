@@ -56,6 +56,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
@@ -66,6 +67,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
+    get_teams_with_heatmap_count_in_period,
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
@@ -82,6 +84,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
+    get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
@@ -192,6 +195,15 @@ def _sdk_logs_records(begin: datetime, end: datetime) -> dict[str, list[tuple[in
     return get_teams_with_sdk_logs_records_in_period(begin, end, team_ids_with_logs=team_ids_with_logs)
 
 
+def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    usage = get_teams_with_task_sandbox_usage_in_period(begin, end)
+    return {
+        "seconds": usage.seconds,
+        "cpu_core_seconds": usage.cpu_core_seconds,
+        "memory_gib_seconds": usage.memory_gib_seconds,
+    }
+
+
 # ---- Registry ---------------------------------------------------------------
 
 
@@ -244,6 +256,7 @@ QUERIES: list[QuerySpec] = [
             "web_events": "teams_with_web_events_count_in_period",
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
+            "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "openclaw_events": "teams_with_openclaw_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
@@ -264,6 +277,11 @@ QUERIES: list[QuerySpec] = [
             "rust_events": "teams_with_rust_events_count_in_period",
         },
         timeout_minutes=30,
+    ),
+    # ---- ClickHouse: heatmaps ------------------------------------------------
+    QuerySpec(
+        name="teams_with_heatmap_count_in_period",
+        fn=get_teams_with_heatmap_count_in_period,
     ),
     # ---- ClickHouse: recordings ----------------------------------------------
     QuerySpec(
@@ -443,6 +461,17 @@ QUERIES: list[QuerySpec] = [
         name="teams_with_posthog_code_credits_used_in_period",
         fn=get_teams_with_posthog_code_credits_used_in_period,
     ),
+    # ---- Postgres: task sandbox compute -------------------------------------
+    QuerySpec(
+        name="task_sandbox_usage",
+        fn=_task_sandbox_usage,
+        output="multi",
+        multi_keys_mapping={
+            "seconds": "teams_with_task_sandbox_seconds_in_period",
+            "cpu_core_seconds": "teams_with_task_sandbox_cpu_core_seconds_in_period",
+            "memory_gib_seconds": "teams_with_task_sandbox_memory_gib_seconds_in_period",
+        },
+    ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
@@ -490,6 +519,16 @@ QUERIES: list[QuerySpec] = [
             "14d": "teams_with_logs_retention_14d_bytes_in_period",
             "30d": "teams_with_logs_retention_30d_bytes_in_period",
             "90d": "teams_with_logs_retention_90d_bytes_in_period",
+        },
+    ),
+    # ---- ClickHouse: APM tracing ---------------------------------------------
+    QuerySpec(
+        name="apm_tracing_usage",
+        fn=get_teams_with_apm_tracing_usage_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "bytes": "teams_with_apm_tracing_bytes_in_period",
+            "spans": "teams_with_apm_tracing_spans_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------

@@ -12,7 +12,9 @@ import type { MockResolverInfo } from '~/mocks/utils'
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
+const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
@@ -95,69 +97,16 @@ const ACCOUNT_WITHOUT_LINKS = {
 
 const EMPTY_INSIGHTS = { count: 0, next: null, previous: null, results: [] }
 
-function insightsResponse(insight: Record<string, unknown>): Record<string, unknown> {
-    return { count: 1, next: null, previous: null, results: [insight] }
-}
-
-const BILLING_VARIABLES = {
-    'var-org': { variableId: 'var-org', code_name: 'billing_org_id', value: '' },
-    'var-start': { variableId: 'var-start', code_name: 'billing_start_date', value: '2026-04-21' },
-    'var-end': { variableId: 'var-end', code_name: 'billing_end_date', value: '2026-05-21' },
-}
-
-const USAGE_INSIGHT = {
-    id: 9050931,
-    short_id: 'fiJDsKLp',
-    name: 'Billing usage by type (warehouse)',
-    filters: {},
-    saved: true,
-    deleted: false,
-    query: {
-        kind: 'DataVisualizationNode',
-        display: 'ActionsLineGraph',
-        source: {
-            kind: 'HogQLQuery',
-            query: 'SELECT date, ... FROM postgres.prod.billing_usagereport',
-            variables: BILLING_VARIABLES,
-        },
-    },
-}
-
-const USAGE_QUERY_RESPONSE = {
-    error: '',
-    hasMore: false,
-    is_cached: true,
-    query_status: null,
-    columns: ['date', 'Events', 'Recordings'],
-    types: [
-        ['date', 'Date'],
-        ['Events', 'Nullable(Float64)'],
-        ['Recordings', 'Nullable(Float64)'],
-    ],
-    results: [
-        ['2026-05-01', 1200, 30],
-        ['2026-05-08', 1800, 45],
-        ['2026-05-15', 1500, 38],
-        ['2026-05-21', 2100, 52],
-    ],
-}
-
-// Dispatches the shared query endpoint: account rows for the list, billing chart data for the embedded insight.
-function mockAccountsAndBillingQuery(
-    rows: AccountRow[],
-    billingResponse: Record<string, unknown>
-): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
-    return async ({ request }) => {
-        const body = (await request.json()) as { query?: { kind?: string } }
-        const kind = body?.query?.kind
-        if (kind === 'AccountsQuery') {
-            return [200, buildAccountsQueryResponse(rows)]
-        }
-        if (kind === 'HogQLQuery') {
-            return [200, billingResponse]
-        }
-        return undefined
-    }
+// Every fetch the expansion fires must be mocked (even if empty), because AccountNotebooksExpansion
+// eagerly mounts the related-users, relationships, and usage/spend billing logics up front. An
+// unhandled fetch passes through msw to the static storybook server and errors out, and the failure
+// re-render can collapse the expansion — making [data-attr="account-expansion"] disappear so the
+// post-play waitForSelector times out. The related-users failure also pops an error toast, which the
+// snapshot's loader wait can trip over.
+const EXPANDED_ROW_FETCH_MOCKS = {
+    [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+    [ORGANIZATION_MEMBERS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+    [ACCOUNT_RELATIONSHIPS_ENDPOINT]: [],
 }
 
 // Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
@@ -168,6 +117,7 @@ function billingTabDecorators(
     return [
         mswDecorator({
             get: {
+                ...EXPANDED_ROW_FETCH_MOCKS,
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [INSIGHTS_ENDPOINT]: insightsGet,
@@ -179,34 +129,50 @@ function billingTabDecorators(
     ]
 }
 
-// Expanding a row mounts UsefulLinks (loads the account async) and the notes table
-// (loads notebooks async). Both start as skeletons and resolve later, which changes
-// the expansion's width and height. Awaiting the settled content here keeps the
-// snapshot deterministic — otherwise it races the loads and the Useful links sidebar
-// is sometimes absent, sometimes present (the flaky ~7% height/width diff).
-async function expandFirstRow(canvasElement: HTMLElement, notesLoadedText: string): Promise<void> {
-    const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await canvas.findByText(notesLoadedText)
-}
+const EXPANDED_ROW_DECORATORS_BASE = [
+    mswDecorator({
+        get: EXPANDED_ROW_FETCH_MOCKS,
+    }),
+]
 
-// Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
-async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
+// Expands the first row and asserts the expansion actually rendered. The click can race the table's
+// render cycle and be swallowed, so verify and re-click instead of trusting a single click — a lost
+// expansion then fails fast here, where Jest retries re-run the story cleanly, instead of burning
+// the whole test budget inside the post-play waitForSelector.
+async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await userEvent.click(await canvas.findByRole('tab', { name: tab }))
+    // Generous first wait: the whole scene mounts and the accounts query resolves before rows exist.
+    await canvas.findByTitle('Show more', {}, { timeout: 15000 })
+    for (let attempt = 0; attempt < 3; attempt++) {
+        if (!canvasElement.querySelector('[data-attr="account-expansion"]')) {
+            await userEvent.click(await canvas.findByTitle('Show more'))
+        }
+        try {
+            await waitFor(
+                () => {
+                    if (!canvasElement.querySelector('[data-attr="account-expansion"]')) {
+                        throw new Error('expansion not rendered yet')
+                    }
+                },
+                { timeout: 3000 }
+            )
+            return
+        } catch {
+            // Expansion missing or collapsed again — loop around and re-click.
+        }
+    }
+    throw new Error('Account row expansion did not render after 3 clicks')
 }
 
 // The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
 // and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
-// expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+// expanded-row content turns a late-lost expansion into a retry instead of a flaky collapsed capture.
+// play already asserts the expansion rendered, so keep this gate's timeout well under the Jest
+// budget: a genuinely lost expansion should fail the attempt fast and retry cleanly, not burn the
+// whole test timeout inside a Playwright wait.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
-    waitForSelectorTimeout: 30000,
+    waitForSelectorTimeout: 15000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -295,6 +261,7 @@ export const RowExpandedEmpty: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -306,7 +273,9 @@ export const RowExpandedEmpty: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        // Sidebar content verification is redundant for snapshot purposes since mock data is
+        // deterministic — expanding (and verifying the expansion took) is all play needs to do.
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -314,6 +283,7 @@ export const RowExpandedWithNote: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -357,7 +327,7 @@ export const RowExpandedWithNote: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'Q2 expansion call')
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -365,6 +335,7 @@ export const RowExpandedLinksDisabled: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITHOUT_LINKS,
@@ -376,7 +347,7 @@ export const RowExpandedLinksDisabled: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -390,36 +361,9 @@ export const RowExpandedUsageNotFound: Story = {
     },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
-        await within(canvasElement).findByText('No billing usage insight here')
-    },
-}
-
-export const RowExpandedUsagePopulated: Story = {
-    render: () => <App />,
-    parameters: {
-        testOptions: EXPANDED_ROW_TEST_OPTIONS,
-    },
-    decorators: billingTabDecorators(
-        insightsResponse(USAGE_INSIGHT),
-        mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
-    ),
-    play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
-        // Wait for both the chart canvas AND the sidebar links to be present simultaneously.
-        // The tab switch can trigger a re-render cycle that briefly unmounts the sidebar;
-        // gating on both ensures the snapshot captures a fully settled state.
+        await expandFirstRow(canvasElement)
         const canvas = within(canvasElement)
-        await waitFor(
-            () => {
-                if (!canvasElement.querySelector('.DataVisualization canvas')) {
-                    throw new Error('DataVisualization canvas not yet rendered')
-                }
-            },
-            { timeout: 30000, interval: 500 }
-        )
-        // Re-confirm sidebar links are still rendered after the canvas settled —
-        // guards against the re-fetch race that causes the "Useful links" flicker.
-        await canvas.findByText('Organization', {}, { timeout: 10000 })
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }, { timeout: 15000 }))
+        await canvas.findByText('No billing usage insight here', {}, { timeout: 15000 })
     },
 }

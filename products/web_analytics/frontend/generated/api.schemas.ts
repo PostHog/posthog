@@ -96,6 +96,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HeatmapScreenshotResponseApi {
     readonly id: string
     /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
@@ -147,6 +150,11 @@ export interface HeatmapScreenshotResponseApi {
      * @nullable
      */
     readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface HeatmapResponseItemApi {
@@ -272,6 +280,13 @@ export interface PatchedSavedHeatmapRequestApi {
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
+}
+
+export interface HeatmapPrewarmRequestApi {
+    /** Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed. */
+    url: string
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
     block_consent_modals?: boolean
 }
 

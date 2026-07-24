@@ -12,17 +12,22 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from '../sidebar/playerSidebarLogic'
 import { sessionRecordingExperimentContextLogic } from './sessionRecordingExperimentContextLogic'
 
-const MAX_VISIBLE_EXPERIMENT_TAGS = 2
+function truncateName(name: string, max = 24): string {
+    return name.length > max ? `${name.slice(0, max - 1)}…` : name
+}
 
 export function PlayerMetaExperimentTags(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { experimentItems, hasExperimentContext } = useValues(
+    const { seenItems, seenCount, enrolledCount, hasMultipleVariantWarning } = useValues(
         sessionRecordingExperimentContextLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     )
     const { setTab } = useActions(playerSidebarLogic)
     const { setSidebarOpen } = useActions(playerSettingsLogic)
 
-    if (!hasExperimentContext) {
+    // Only surface the chip when something experiment-related happened *in this recording*.
+    // Enrollments without an in-session exposure event have nothing visible to watch, so they
+    // live in the overview sidebar rather than cluttering the player header.
+    if (seenCount === 0) {
         return null
     }
 
@@ -31,34 +36,38 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
         setTab(SessionRecordingSidebarTab.OVERVIEW)
     }
 
-    const visibleItems = experimentItems.slice(0, MAX_VISIBLE_EXPERIMENT_TAGS)
-    const overflowCount = experimentItems.length - visibleItems.length
+    const singleSeen = seenCount === 1 ? seenItems[0] : null
+    const seenLabel = singleSeen
+        ? `Exposed to experiment ${truncateName(singleSeen.experiment_name)}`
+        : `Exposed to ${seenCount} experiments`
+    const seenTooltip = singleSeen
+        ? `Exposed to experiment "${singleSeen.experiment_name}" during this recording. Click to view.`
+        : `Exposed to ${seenCount} experiments during this recording${
+              hasMultipleVariantWarning ? ' (one saw multiple variants)' : ''
+          }. Click to view.`
 
     return (
         <span className="flex flex-row items-center gap-x-1 shrink-0" data-attr="replay-experiment-context-chip">
-            {visibleItems.map((item) => (
-                <Tooltip
-                    key={item.experiment_id}
-                    title={
-                        item.multiple_variants
-                            ? `This session saw multiple variants (${item.variants_seen.join(', ')}) of ${item.experiment_name}. Flag evaluation may differ from the experiment's exposure criteria.`
-                            : `This session saw variant "${item.variant}" of ${item.experiment_name}. Flag evaluation may differ from the experiment's exposure criteria.`
-                    }
+            <Tooltip title={seenTooltip}>
+                <LemonTag
+                    type={hasMultipleVariantWarning ? 'warning' : 'default'}
+                    icon={<IconFlask />}
+                    onClick={openOverview}
+                    forceClickable
                 >
-                    <LemonTag
-                        type={item.multiple_variants ? 'warning' : 'default'}
-                        icon={<IconFlask />}
-                        onClick={openOverview}
-                        forceClickable
-                    >
-                        {item.experiment_name}: {item.multiple_variants ? 'saw multiple variants' : item.variant}
+                    {seenLabel}
+                </LemonTag>
+            </Tooltip>
+            {enrolledCount > 0 ? (
+                <Tooltip
+                    title={`Enrolled in ${enrolledCount} experiment${
+                        enrolledCount === 1 ? '' : 's'
+                    } without an exposure event in this recording. Click to view.`}
+                >
+                    <LemonTag type="muted" onClick={openOverview} forceClickable>
+                        Enrolled in {enrolledCount} experiment{enrolledCount === 1 ? '' : 's'}
                     </LemonTag>
                 </Tooltip>
-            ))}
-            {overflowCount > 0 ? (
-                <LemonTag type="default" onClick={openOverview}>
-                    +{overflowCount}
-                </LemonTag>
             ) : null}
         </span>
     )

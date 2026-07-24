@@ -1,0 +1,33 @@
+[package]
+name = "personhog-test-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-common = { path = "../personhog-common" }
+personhog-proto = { path = "../personhog-proto" }
+common-metrics = { path = "../common/metrics" }
+personhog-coordination = { path = "../personhog-coordination" }
+assignment-coordination = { path = "../common/assignment-coordination" }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+metrics = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+futures = { workspace = true }
+hdrhistogram = { workspace = true }
+humantime = { workspace = true }
+rand = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

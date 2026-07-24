@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PingdomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pingdom import (
+    PingdomSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.pingdom import PingdomResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import (
     ENDPOINTS,

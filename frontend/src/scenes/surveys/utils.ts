@@ -5,7 +5,13 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
+import {
+    MAX_ITERATION_COUNT,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_CREATED_SOURCE,
+    SURVEY_RATING_SCALE,
+} from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -509,6 +515,17 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Auto-submit only makes sense for questions where a single selection is a complete
+// answer: any rating, or a single-choice question without a free-text "open" option.
+export function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
 // Some fields can only be edited in the full editor — opening such a survey
 // in the wizard would hide those values from the user, so we route them to
 // the full editor regardless of their general editor preference. Keep this
@@ -538,6 +555,46 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
 
 export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>): boolean {
     return !!(survey.conditions?.events?.repeatedActivation && (survey.conditions?.events?.values?.length ?? 0) > 0)
+}
+
+export interface RecurringSurveyScheduleInfo {
+    /** Total number of days the survey runs from its launch date before auto-closing. */
+    totalDurationDays: number
+    /** The date the survey will automatically close, or null if it hasn't been launched yet. */
+    autoCloseDate: dayjs.Dayjs | null
+}
+
+/**
+ * A recurring survey ("Repeat on a schedule") auto-closes once its final iteration window has passed.
+ * The last iteration starts on `start_date + (count - 1) * frequency` days and lasts `frequency` more days,
+ * so the survey runs for `count * frequency` days total and closes at the end of that span.
+ * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py, which computes iteration windows
+ * on the UTC calendar day — so we do the arithmetic in UTC too.
+ *
+ * Returns null once the survey has already ended: it then shows its real end date, so a projected one would
+ * only contradict it.
+ */
+export function getRecurringSurveyScheduleInfo(
+    survey: Pick<Survey, 'schedule' | 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
+): RecurringSurveyScheduleInfo | null {
+    const count = survey.iteration_count
+    const frequency = survey.iteration_frequency_days
+    if (
+        survey.schedule !== SurveySchedule.Recurring ||
+        survey.end_date ||
+        !count ||
+        !frequency ||
+        count < 1 ||
+        frequency < 1
+    ) {
+        return null
+    }
+    // The backend caps the generated iteration windows at MAX_ITERATION_COUNT, so anything above that never
+    // extends the schedule — mirror the cap here to match the real close date.
+    const effectiveCount = Math.min(count, MAX_ITERATION_COUNT)
+    const totalDurationDays = effectiveCount * frequency
+    const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
+    return { totalDurationDays, autoCloseDate }
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
@@ -787,6 +844,11 @@ export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurvey
                 sanitized.choices
             ) {
                 sanitized.choices = sanitized.choices.map((choice) => choice.trim())
+            }
+            // Drop a stale auto-submit flag if the question is no longer eligible for it
+            // (e.g. an open-ended choice was added, or the type was switched).
+            if ('skipSubmitButton' in sanitized && !canQuestionSkipSubmitButton(sanitized)) {
+                delete (sanitized as { skipSubmitButton?: boolean }).skipSubmitButton
             }
             return sanitized
         }) || []

@@ -1,0 +1,844 @@
+import json
+from collections.abc import Callable
+
+import pytest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.db import DatabaseError, connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import AvailableFeature
+from posthog.models.team import Team
+
+from products.data_catalog.backend.logic import relationships
+from products.data_catalog.backend.logic.certifications import certify, deprecate, propose_certification
+from products.data_catalog.backend.logic.metrics import upsert_metric
+from products.data_catalog.backend.logic.relationships import accept_proposal, propose_relationship, reject_proposal
+from products.data_catalog.backend.models import RelationshipProposal, TableCertification
+from products.data_catalog.backend.models.metric import Metric
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.product_analytics.backend.models.insight import Insight
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+from ee.models.rbac.access_control import AccessControl
+
+_HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
+_COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}
+
+
+def _fail_queries_for_table(table_name: str) -> Callable[..., object]:
+    def wrapper(execute: Callable[..., object], sql: str, params: object, many: bool, context: object) -> object:
+        if table_name in sql:
+            raise DatabaseError(f"Failed to load {table_name}")
+        return execute(sql, params, many, context)
+
+    return wrapper
+
+
+class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
+    def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
+        database = Database.create_for(team=self.team, user=self.user)
+        if denied_tables:
+            database._denied_tables |= denied_tables
+        return HogQLContext(team=self.team, team_id=self.team.pk, database=database)
+
+    def _rows(self, where: str = "", context: HogQLContext | None = None) -> dict:
+        response = execute_hogql_query(
+            f"SELECT name, description, status, is_drifted, definition_kind FROM system.information_schema.metrics {where}",
+            team=self.team,
+            context=context or self._context(),
+        )
+        return {row[0]: row for row in response.results}
+
+    def test_metric_is_discoverable_via_ilike(self) -> None:
+        upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="Monthly recurring revenue", definition=_HOGQL
+        )
+        rows = self._rows("WHERE name ILIKE '%mrr%'")
+        assert "mrr" in rows
+        assert rows["mrr"][1] == "Monthly recurring revenue"
+        assert rows["mrr"][2] == "proposed"
+        assert rows["mrr"][4] == "HogQLQuery"
+
+        listing = execute_hogql_query(
+            "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'system.information_schema.metrics'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert listing.results == [("system.information_schema.metrics",)]
+
+    def test_metrics_table_description_routes_implicit_analysis_through_runner(self) -> None:
+        listing = execute_hogql_query(
+            "SELECT description FROM system.information_schema.tables "
+            "WHERE table_name = 'system.information_schema.metrics'",
+            team=self.team,
+            context=self._context(),
+        )
+
+        assert listing.results
+        description = listing.results[0][0]
+        assert "rankings" in description
+        assert "data-catalog-metric-run" in description
+        assert "instead of copying" in description
+
+    def test_metrics_table_absent_when_flag_off(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
+            listing = execute_hogql_query(
+                "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'system.information_schema.metrics'",
+                team=self.team,
+                context=self._context(),
+            )
+            assert listing.results == []
+
+            with pytest.raises(QueryError, match="Unknown table"):
+                execute_hogql_query(
+                    "SELECT name FROM system.information_schema.metrics", team=self.team, context=self._context()
+                )
+
+    def test_is_drifted_reflects_source_insight(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL)
+        upsert_metric(
+            team=self.team, user=self.user, name="active", description="d", source_insight_short_id=insight.short_id
+        )
+        assert self._rows("WHERE name = 'active'")["active"][3] in (False, 0)
+
+        Insight.objects.filter(pk=insight.pk).update(
+            query={"kind": "HogQLQuery", "query": "select count() from persons"}
+        )
+        assert self._rows("WHERE name = 'active'")["active"][3] in (True, 1)
+
+    def test_team_isolation(self) -> None:
+        other = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Other")
+        upsert_metric(team=other, user=self.user, name="theirs", description="d", definition=_HOGQL)
+        assert "theirs" not in self._rows()
+
+    @parameterized.expand(
+        [
+            ("exact_bare", ["denied_source"], {"denied_source"}),
+            ("qualified_reference_bare_denied", ["schema.denied_source"], {"denied_source"}),
+            ("bare_reference_qualified_denied", ["charges"], {"stripe.charges"}),
+            ("case_insensitive", ["Schema.Denied_Source"], {"denied_source"}),
+        ]
+    )
+    def test_metric_hidden_when_referenced_table_denied(
+        self, _name: str, referenced: list[str], denied: set[str]
+    ) -> None:
+        allowed = upsert_metric(
+            team=self.team, user=self.user, name="allowed_metric", description="d", definition=_HOGQL
+        )
+        hidden = upsert_metric(team=self.team, user=self.user, name="hidden_metric", description="d", definition=_HOGQL)
+        Metric.objects.for_team(self.team.pk).filter(pk=allowed.pk).update(referenced_table_names=["safe_source"])
+        Metric.objects.for_team(self.team.pk).filter(pk=hidden.pk).update(referenced_table_names=referenced)
+
+        names = set(self._rows(context=self._context(denied_tables=denied)))
+        assert "allowed_metric" in names
+        assert "hidden_metric" not in names
+
+    def test_metrics_hidden_without_data_catalog_access(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+
+        assert self._rows() == {}
+
+    def test_metrics_hidden_without_access_control_context(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        # No user / access-control context (service token, shared link) must fail closed.
+        response = execute_hogql_query("SELECT name FROM system.information_schema.metrics", team=self.team)
+        assert response.results == []
+
+
+class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
+    def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
+        database = Database.create_for(team=self.team, user=self.user)
+        if denied_tables:
+            database._denied_tables |= denied_tables
+        return HogQLContext(team=self.team, team_id=self.team.pk, database=database)
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+
+    def _create_warehouse_table(self, name: str) -> DataWarehouseTable:
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            url_pattern=f"s3://bucket/{name}",
+            columns=_COLUMNS,
+        )
+
+    def _accept_relationship(self, proposal: RelationshipProposal) -> RelationshipProposal:
+        with patch.object(relationships, "execute_hogql_query"):
+            return accept_proposal(proposal, self.user)
+
+    def test_catalog_trust_metadata_is_absent_when_flag_off(self) -> None:
+        table = self._create_warehouse_table("revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+        source = self._create_warehouse_table("catalog_orders")
+        target = self._create_warehouse_table("catalog_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Reviewed join",
+        )
+        self._accept_relationship(proposal)
+
+        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
+            context = self._context()
+
+        columns = execute_hogql_query(
+            "SELECT table_name, column_name FROM system.information_schema.columns "
+            "WHERE table_name IN ('system.information_schema.tables', 'system.information_schema.relationships')",
+            team=self.team,
+            context=context,
+        )
+        assert ("system.information_schema.tables", "certification") not in columns.results
+        assert ("system.information_schema.relationships", "confidence") not in columns.results
+        assert ("system.information_schema.relationships", "reasoning") not in columns.results
+
+        catalog_tables_listing = execute_hogql_query(
+            "SELECT table_name FROM system.information_schema.tables WHERE table_name IN "
+            "('system.information_schema.certifications', 'system.information_schema.relationship_proposals')",
+            team=self.team,
+            context=context,
+        )
+        assert catalog_tables_listing.results == []
+
+        relationships_response = execute_hogql_query(
+            "SELECT source_column, target_table, target_column, relationship_kind "
+            "FROM system.information_schema.relationships WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=context,
+        )
+        assert relationships_response.results == [("id", "catalog_customers", "id", "lazy_join")]
+
+        with pytest.raises(QueryError, match="certification"):
+            execute_hogql_query(
+                "SELECT certification FROM system.information_schema.tables", team=self.team, context=context
+            )
+        with pytest.raises(QueryError, match="confidence"):
+            execute_hogql_query(
+                "SELECT confidence FROM system.information_schema.relationships", team=self.team, context=context
+            )
+        with pytest.raises(QueryError, match="Unknown table"):
+            execute_hogql_query(
+                "SELECT id FROM system.information_schema.relationship_proposals", team=self.team, context=context
+            )
+
+    def test_certification_column_on_tables(self) -> None:
+        table = self._create_warehouse_table("revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT table_name, certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert {row[0]: row[1] for row in response.results}.get("revenue") == "certified"
+
+    def test_proposed_certification_is_not_a_trust_mark(self) -> None:
+        table = self._create_warehouse_table("revenue")
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [(None,)]
+
+    def test_deleted_source_certification_does_not_attach_to_same_name_table(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        deleted_table = DataWarehouseTable.objects.create(
+            name="revenue",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="s3://deleted-source/revenue",
+            columns=_COLUMNS,
+        )
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(deleted_table.id)), self.user)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+        self._create_warehouse_table("revenue")
+
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [(None,)]
+
+    def test_certification_matches_resolved_table_when_names_collide(self) -> None:
+        # (team, name) is not unique on DataWarehouseTable, so two live tables can share a name and each
+        # carry its own mark. The catalog row must show the certification of the table HogQL actually
+        # resolves for that name — keying certifications by name alone would let a same-name sibling's
+        # mark win instead.
+        first = self._create_warehouse_table("revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(first.id)), self.user)
+        second = self._create_warehouse_table("revenue")
+        deprecate(propose_certification(team=self.team, user=self.user, table_id=str(second.id)), self.user)
+
+        context = self._context()
+        assert context.database is not None
+        resolved_id = str(getattr(context.database.get_table("revenue"), "table_id", None))
+        expected = "certified" if resolved_id == str(first.id) else "deprecated"
+
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=context,
+        )
+        assert response.results == [(expected,)]
+
+    def test_materialized_view_keeps_its_certification(self) -> None:
+        backing_table = self._create_warehouse_table("materialized_revenue_backing")
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="materialized_revenue",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            columns=_COLUMNS,
+            table=backing_table,
+            is_materialized=True,
+        )
+        certify(propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT table_type, certification FROM system.information_schema.tables "
+            "WHERE table_name = 'materialized_revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [("view", "certified")]
+
+    def test_view_certification_does_not_bleed_onto_same_name_table(self) -> None:
+        # A warehouse table and a view can share a name; each certification belongs to exactly one of
+        # them. The warehouse table wins the catalog name collision, so its row must not inherit the
+        # view's mark (would happen if certifications were keyed by name alone).
+        self._create_warehouse_table("orders")
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "select 1"}, columns=_COLUMNS
+        )
+        certify(propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT table_type, certification FROM system.information_schema.tables WHERE table_name = 'orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [("data_warehouse", None)]
+
+    def test_columns_query_does_not_load_unrelated_catalog_models(self) -> None:
+        with CaptureQueriesContext(connection) as queries:
+            execute_hogql_query(
+                "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'events'",
+                team=self.team,
+                context=self._context(),
+            )
+
+        executed_sql = "\n".join(query["sql"] for query in queries.captured_queries)
+        assert RelationshipProposal._meta.db_table not in executed_sql
+        assert TableCertification._meta.db_table not in executed_sql
+
+    @parameterized.expand(
+        [
+            (
+                "tables",
+                "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'events'",
+            ),
+            (
+                "relationships",
+                "SELECT source_table, target_table FROM system.information_schema.relationships "
+                "WHERE source_table = 'events'",
+            ),
+        ]
+    )
+    def test_base_projection_does_not_load_catalog_metadata(self, _name: str, query: str) -> None:
+        context = self._context()
+        with CaptureQueriesContext(connection) as queries:
+            execute_hogql_query(query, team=self.team, context=context)
+
+        catalog_tables = {RelationshipProposal._meta.db_table, TableCertification._meta.db_table}
+        catalog_queries = [
+            captured_query["sql"]
+            for captured_query in queries.captured_queries
+            if any(table_name in captured_query["sql"] for table_name in catalog_tables)
+        ]
+        assert catalog_queries == []
+
+    def test_certification_loader_failure_keeps_base_table_row(self) -> None:
+        self._create_warehouse_table("fail_soft_revenue")
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(TableCertification._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT table_name, certification FROM system.information_schema.tables "
+                "WHERE table_name = 'fail_soft_revenue'",
+                team=self.team,
+                context=context,
+            )
+
+        assert response.results == [("fail_soft_revenue", None)]
+
+    def test_relationship_loader_failure_keeps_base_relationship_row(self) -> None:
+        source = self._create_warehouse_table("fail_soft_orders")
+        target = self._create_warehouse_table("fail_soft_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Reviewed join",
+        )
+        self._accept_relationship(proposal)
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(RelationshipProposal._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT source_column, target_table, target_column, confidence, reasoning "
+                "FROM system.information_schema.relationships "
+                "WHERE source_table = 'fail_soft_orders' AND target_table = 'fail_soft_customers'",
+                team=self.team,
+                context=context,
+            )
+
+        assert response.results == [("id", "fail_soft_customers", "id", None, None)]
+
+    @parameterized.expand(
+        [
+            ("field_name", {"field_name": "buyer"}),
+            ("source_key", {"source_table_key": "buyer_id"}),
+            ("joining_key", {"joining_table_key": "buyer_id"}),
+            ("configuration", {"configuration": {"experiments_optimized": True}}),
+        ]
+    )
+    def test_editing_accepted_join_drops_stale_provenance(self, _name: str, edit: dict) -> None:
+        # The created join is editable with warehouse_view:write alone; approval rights are not
+        # required. If it diverges from the reviewed snapshot, its confidence/reasoning must drop so
+        # an unreviewed join can't masquerade as reviewed.
+        source = self._create_warehouse_table("prov_orders")
+        self._create_warehouse_table("prov_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name="prov_customers",
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Reviewed join",
+        )
+        self._accept_relationship(proposal)
+        proposal.refresh_from_db()
+
+        query = (
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'prov_orders'"
+        )
+        before = execute_hogql_query(query, team=self.team, context=self._context())
+        assert (0.9, "Reviewed join") in before.results
+
+        assert proposal.created_join_id is not None
+        DataWarehouseJoin.objects.filter(pk=proposal.created_join_id).update(**edit)
+
+        after = execute_hogql_query(query, team=self.team, context=self._context())
+        assert after.results, "the active join should still be discoverable after an edit"
+        assert all(row == (None, None) for row in after.results)
+
+    def _propose_catalog_relationship(self, source_name: str, target_name: str) -> RelationshipProposal:
+        source = self._create_warehouse_table(source_name)
+        target = self._create_warehouse_table(target_name)
+        return propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.8,
+            reasoning="Keys overlap",
+        )
+
+    def test_pending_proposal_is_in_review_queue_but_not_in_relationships(self) -> None:
+        proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
+
+        queue = execute_hogql_query(
+            "SELECT id, source_table, source_column, target_table, target_column, confidence, reasoning "
+            "FROM system.information_schema.relationship_proposals WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert queue.results == [
+            (str(proposal.id), "catalog_orders", "id", "catalog_customers", "id", 0.8, "Keys overlap")
+        ]
+
+        # A pending proposal is not a usable join, so it must never appear in the joins table.
+        joins = execute_hogql_query(
+            "SELECT source_table FROM system.information_schema.relationships WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert joins.results == []
+
+    def test_review_queue_exposes_full_join_payload(self) -> None:
+        # A human confirms an accept by id, so the queue must show what will be created (field_name,
+        # configuration copied verbatim into the join) and the evidence backing the proposal.
+        source = self._create_warehouse_table("payload_orders")
+        target = self._create_warehouse_table("payload_customers")
+        propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="customer_id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            configuration={"experiments_optimized": True},
+            evidence={"match_rate": 0.97, "sample": ["c_1", "c_2"]},
+            confidence=0.9,
+            reasoning="97% match",
+        )
+
+        response = execute_hogql_query(
+            "SELECT field_name, configuration, evidence FROM system.information_schema.relationship_proposals "
+            "WHERE source_table = 'payload_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        field_name, configuration, evidence = response.results[0]
+        assert field_name == "customer"
+        assert json.loads(configuration) == {"experiments_optimized": True}
+        assert json.loads(evidence) == {"match_rate": 0.97, "sample": ["c_1", "c_2"]}
+
+    def test_rejected_proposal_is_not_in_review_queue(self) -> None:
+        proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
+        reject_proposal(proposal, self.user)
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'catalog_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    def test_review_queue_hidden_without_data_catalog_access(self) -> None:
+        self._propose_catalog_relationship("gated_orders", "gated_customers")
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self._enable_access_control()
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'gated_orders'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    @parameterized.expand([("source", "denied_prop_orders"), ("target", "denied_prop_customers")])
+    def test_review_queue_hides_proposal_when_endpoint_denied(self, _name: str, denied_table_name: str) -> None:
+        self._propose_catalog_relationship("denied_prop_orders", "denied_prop_customers")
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.information_schema.relationship_proposals WHERE source_table = 'denied_prop_orders'",
+            team=self.team,
+            context=self._context(denied_tables={denied_table_name}),
+        )
+        assert response.results == []
+
+    def test_review_queue_loader_failure_returns_empty(self) -> None:
+        self._propose_catalog_relationship("failsoft_orders", "failsoft_customers")
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(RelationshipProposal._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT id FROM system.information_schema.relationship_proposals "
+                "WHERE source_table = 'failsoft_orders'",
+                team=self.team,
+                context=context,
+            )
+        assert response.results == []
+
+    def test_catalog_metadata_hidden_without_data_catalog_access(self) -> None:
+        table = self._create_warehouse_table("revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+        source = self._create_warehouse_table("catalog_access_orders")
+        target = self._create_warehouse_table("catalog_access_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Sensitive review context",
+        )
+        self._accept_relationship(proposal)
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self._enable_access_control()
+
+        context = self._context()
+        certifications = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=context,
+        )
+        relationship_context = execute_hogql_query(
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'catalog_access_orders' AND target_table = 'catalog_access_customers'",
+            team=self.team,
+            context=context,
+        )
+        assert certifications.results == [(None,)]
+        assert relationship_context.results == [(None, None)]
+
+    @parameterized.expand([("source", "orders"), ("target", "customers")])
+    def test_accepted_context_hidden_when_endpoint_table_is_denied(self, _name: str, denied_table_name: str) -> None:
+        source = self._create_warehouse_table("orders")
+        target = self._create_warehouse_table("customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.7,
+            reasoning="Must not leak",
+        )
+        self._accept_relationship(proposal)
+        response = execute_hogql_query(
+            "SELECT reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'orders' AND target_table = 'customers' AND reasoning IS NOT NULL",
+            team=self.team,
+            context=self._context(denied_tables={denied_table_name}),
+        )
+        assert response.results == []
+
+    def test_accepted_join_is_enriched_with_reviewed_provenance(self) -> None:
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="reviewed_person",
+            confidence=0.9,
+            reasoning="97% key match",
+        )
+        self._accept_relationship(proposal)
+
+        response = execute_hogql_query(
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'events' AND relationship_kind = 'lazy_join' AND reasoning IS NOT NULL",
+            team=self.team,
+            context=self._context(),
+        )
+        assert [row[1] for row in response.results] == ["97% key match"]
+        assert response.results[0][0] == 0.9
+
+    def test_replacement_join_does_not_inherit_deleted_join_provenance(self) -> None:
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="reviewed_person",
+            confidence=0.9,
+            reasoning="Original review",
+        )
+        accepted = self._accept_relationship(proposal)
+
+        assert accepted.created_join_id is not None
+        DataWarehouseJoin.objects.get(pk=accepted.created_join_id).soft_delete()
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="reviewed_person",
+        )
+
+        response = execute_hogql_query(
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'events' AND source_column = 'distinct_id' AND target_table = 'persons' "
+            "AND relationship_kind = 'lazy_join' AND reasoning IS NOT NULL",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    def _create_materialized_view(self, name: str) -> DataWarehouseSavedQuery:
+        backing = self._create_warehouse_table(f"{name}_backing")
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            columns=_COLUMNS,
+            table=backing,
+            is_materialized=True,
+        )
+
+    @parameterized.expand([("proposed", None), ("certified", "certify"), ("deprecated", "deprecate")])
+    def test_certifications_table_surfaces_status(self, expected_status: str, action: str | None) -> None:
+        table = self._create_warehouse_table("cert_revenue")
+        cert = propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+        if action == "certify":
+            certify(cert, self.user)
+        elif action == "deprecate":
+            deprecate(cert, self.user)
+
+        response = execute_hogql_query(
+            "SELECT id, target_name, target_kind, status, certified_by "
+            "FROM system.information_schema.certifications WHERE target_name = 'cert_revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        expected_certified_by = self.user.email if action else None
+        assert response.results == [(str(cert.id), "cert_revenue", "table", expected_status, expected_certified_by)]
+
+    def test_certifications_table_surfaces_view_target(self) -> None:
+        view = self._create_materialized_view("cert_sales_view")
+        cert = propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id))
+
+        response = execute_hogql_query(
+            "SELECT id, target_name, target_id, target_kind, status FROM system.information_schema.certifications "
+            "WHERE target_name = 'cert_sales_view'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [(str(cert.id), "cert_sales_view", str(view.id), "view", "proposed")]
+
+    def test_certifications_table_target_id_disambiguates_same_name(self) -> None:
+        # (team, name) is not unique on DataWarehouseTable, so the queue must expose target_id — otherwise
+        # a human can't tell which physical table a certification UUID will certify or deprecate.
+        first = self._create_warehouse_table("dup_revenue")
+        deprecate(propose_certification(team=self.team, user=self.user, table_id=str(first.id)), self.user)
+        second = self._create_warehouse_table("dup_revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(second.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT target_id, target_kind, status FROM system.information_schema.certifications "
+            "WHERE target_name = 'dup_revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert {row[0]: (row[1], row[2]) for row in response.results} == {
+            str(first.id): ("table", "deprecated"),
+            str(second.id): ("table", "certified"),
+        }
+
+    def test_certifications_table_excludes_deleted_target(self) -> None:
+        table = self._create_warehouse_table("cert_deleted")
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+        DataWarehouseTable.objects.filter(pk=table.pk).update(deleted=True)
+
+        response = execute_hogql_query(
+            "SELECT target_name FROM system.information_schema.certifications WHERE target_name = 'cert_deleted'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    def test_certifications_table_target_name_pushdown_keeps_view_rows(self) -> None:
+        table = self._create_warehouse_table("cert_push_table")
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+        view = self._create_materialized_view("cert_push_view")
+        propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id))
+
+        response = execute_hogql_query(
+            "SELECT target_name FROM system.information_schema.certifications WHERE target_name = 'cert_push_view'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [("cert_push_view",)]
+
+    def test_certifications_table_team_isolation(self) -> None:
+        other = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Other")
+        table = DataWarehouseTable.objects.create(
+            name="theirs_revenue", format="Parquet", team=other, url_pattern="s3://bucket/theirs", columns=_COLUMNS
+        )
+        propose_certification(team=other, user=self.user, table_id=str(table.id))
+
+        response = execute_hogql_query(
+            "SELECT target_name FROM system.information_schema.certifications",
+            team=self.team,
+            context=self._context(),
+        )
+        assert "theirs_revenue" not in {row[0] for row in response.results}
+
+    def test_certifications_table_loader_failure_returns_empty(self) -> None:
+        table = self._create_warehouse_table("cert_failsoft")
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(TableCertification._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT target_name FROM system.information_schema.certifications WHERE target_name = 'cert_failsoft'",
+                team=self.team,
+                context=context,
+            )
+        assert response.results == []
+
+    def test_certifications_table_hidden_without_data_catalog_access(self) -> None:
+        table = self._create_warehouse_table("cert_gated")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self._enable_access_control()
+
+        response = execute_hogql_query(
+            "SELECT target_name FROM system.information_schema.certifications",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    def test_certifications_table_hidden_without_access_control_context(self) -> None:
+        table = self._create_warehouse_table("cert_no_ctx")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+        # No user / access-control context (service token, shared link) must fail closed.
+        response = execute_hogql_query(
+            "SELECT target_name FROM system.information_schema.certifications", team=self.team
+        )
+        assert response.results == []

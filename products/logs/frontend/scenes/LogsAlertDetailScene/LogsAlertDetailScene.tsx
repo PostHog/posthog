@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronDown, IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -343,28 +343,30 @@ function ConfigurationTab(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconTestTube />}
-                    onClick={openSimulationPanel}
-                    active={isSimulationPanelOpen}
-                    tooltip="Run this alert against historical data to see when it would have fired"
+        <LemonCard className="max-w-3xl p-6" hoverEffect={false}>
+            <div className="flex flex-col gap-6">
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconTestTube />}
+                        onClick={openSimulationPanel}
+                        active={isSimulationPanelOpen}
+                        tooltip="Run this alert against historical data to see when it would have fired"
+                    >
+                        Simulate
+                    </LemonButton>
+                </div>
+                <Form
+                    logic={logsAlertFormLogic}
+                    props={formLogicProps}
+                    formKey="alertForm"
+                    enableFormOnSubmit
+                    className="flex flex-col gap-6"
                 >
-                    Simulate
-                </LemonButton>
+                    <LogsAlertForm />
+                </Form>
             </div>
-            <Form
-                logic={logsAlertFormLogic}
-                props={formLogicProps}
-                formKey="alertForm"
-                enableFormOnSubmit
-                className="flex flex-col gap-6"
-            >
-                <LogsAlertForm />
-            </Form>
-        </div>
+        </LemonCard>
     )
 }
 
@@ -376,9 +378,11 @@ function NotificationsTab(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4 max-w-xl">
-            <LogsAlertNotifications alertId={alert.id} />
-        </div>
+        <LemonCard className="max-w-3xl p-6" hoverEffect={false}>
+            <div className="max-w-2xl">
+                <LogsAlertNotifications alertId={alert.id} />
+            </div>
+        </LemonCard>
     )
 }
 

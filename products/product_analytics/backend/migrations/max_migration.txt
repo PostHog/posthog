@@ -1,1 +1,1 @@
-0002_delete_insightcachingstate
+0004_delete_revenue_analytics_insights

@@ -108,8 +108,12 @@ class PRFilter:
 class PRParser:
     @staticmethod
     def parse_github_pr_url(url: str) -> dict[str, str | int]:
-        """Parse GitHub PR URL and extract owner, repo, and PR number."""
-        pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
+        """Parse GitHub PR URL and extract owner, repo, and PR number.
+
+        The number must end at a path boundary (`/pull/123abc` is rejected, not read as 123 — a typo
+        must not silently review a different PR); trailing paths like `/files` are accepted.
+        """
+        pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)(?=$|[/?#])"
         match = re.match(pattern, url)
         if not match:
             raise ValueError(

@@ -4,6 +4,11 @@ Tiktoken may download and verify encoding blobs on first use. Centralizing
 access avoids duplicate lazy-load logic and keeps import-time failures from
 transient hash mismatches out of unrelated modules.
 
+In the production images the blobs are pre-warmed into ``TIKTOKEN_CACHE_DIR``
+at build time (see ``Dockerfile`` / ``Dockerfile.llm-analytics``), so the first
+use reads from disk and never reaches OpenAI's blob host — restricted-egress or
+flaky-DNS environments can't turn token counting into a network failure.
+
 Use two proxy model names only:
 - LLM-facing token counts → ``gpt-4o`` (``o200k_base`` in tiktoken).
 - Embedding-facing token counts → ``text-embedding-3-small`` (``cl100k_base``).

@@ -11,8 +11,9 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
 import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
 import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
@@ -205,6 +206,12 @@ export function CodeEditor({
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
+    // Tracks whether the component is still mounted. Because CodeEditor is loaded
+    // through a lazy Suspense facade, Monaco's async `onMount` can fire *after*
+    // React has already torn the component down (quick tab switch / unmount).
+    // Doing DOM work or state updates then throws "can't access dead object" in
+    // Firefox, so `editorOnMount` bails out when this is false.
+    const isMountedRef = useRef(true)
     // Track every model this editor instance has been attached to, so we can
     // dispose them on unmount. Monaco models live in a global registry until
     // explicitly disposed; without this, models accumulate forever and retain
@@ -283,6 +290,14 @@ export function CodeEditor({
     const disposeEditor = (): void => {
         try {
             if (diffEditorRef.current) {
+                // Detach the models from the DiffEditorWidget before disposing it, so Monaco's
+                // internal onWillDispose listeners don't fire against models that are torn down
+                // right after ("TextModel got disposed before DiffEditorWidget model got reset").
+                try {
+                    diffEditorRef.current.setModel(null)
+                } catch {
+                    // already detached or disposed
+                }
                 diffEditorRef.current.dispose()
             } else {
                 editorRef.current?.dispose()
@@ -295,16 +310,24 @@ export function CodeEditor({
     }
 
     useOnMountEffect(() => {
+        // Re-arm on (re)mount so a prior cleanup — e.g. React Strict Mode's
+        // mount/unmount/remount in dev — doesn't leave the live component
+        // permanently flagged as unmounted.
+        isMountedRef.current = true
+
         return () => {
+            isMountedRef.current = false
             disposeMonacoDisposables()
             disconnectMutationObserver()
 
-            // Dispose the editor BEFORE @monaco-editor/react's own cleanup
-            // runs: Monaco's services (HoverService, ContextView,
-            // DomListener) keep refs to the editor's container DOM that
-            // survive the library's dispose. Disposing while we still hold
-            // a strong reference lets Monaco tear down its services in an
-            // order that releases those DOM refs.
+            // Dispose the editor while we still hold a strong reference: Monaco's
+            // services (HoverService, ContextView, DomListener) keep refs to the
+            // editor's container DOM that survive the library's dispose, so tearing
+            // it down here lets Monaco release those DOM refs in the right order.
+            // For the diff editor the library's own child cleanup has usually already
+            // disposed the widget by now, so this is mostly a no-op guarded by the
+            // try/catch in `disposeEditor`; model disposal is owned by
+            // `disposeTrackedModels` below (see the `keepCurrent*` props on the widget).
             disposeEditor()
 
             // Now that our editor is disposed, dispose every model this
@@ -412,6 +435,19 @@ export function CodeEditor({
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        // The lazy Suspense facade can resolve after the component has already
+        // unmounted (quick tab switch). Monaco still calls onMount, but touching
+        // DOM or setting state now throws "can't access dead object" in Firefox.
+        // Dispose the orphaned editor and bail before doing any of that.
+        if (!isMountedRef.current) {
+            try {
+                editor.dispose()
+            } catch {
+                // already disposed
+            }
+            return
+        }
+
         editorRef.current = editor
         trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
@@ -440,9 +476,20 @@ export function CodeEditor({
 
         // Monitor for suggestion widget creation and apply styling
         const observer = new MutationObserver(() => {
-            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
-            if (suggestWidget) {
-                overrideSuggestionWidgetStyling()
+            // If the component unmounted after the observer was installed, stop
+            // querying the (now reclaimed) DOM — this is the Firefox "can't
+            // access dead object" crash. Disconnect defensively and bail.
+            if (!isMountedRef.current) {
+                observer.disconnect()
+                return
+            }
+            try {
+                const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+                if (suggestWidget) {
+                    overrideSuggestionWidgetStyling()
+                }
+            } catch {
+                observer.disconnect()
             }
         })
 
@@ -494,6 +541,10 @@ export function CodeEditor({
                 })
             )
         }
+        // Fix Monaco's broken right-click "Paste" by overriding the command rather than adding a
+        // second menu item (see enableClipboardPaste).
+        monacoDisposables.current.push(enableClipboardPaste(editor))
+
         if (autoFocus) {
             editor.focus()
             const model = editor.getModel()
@@ -523,6 +574,16 @@ export function CodeEditor({
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
+            // Same lazy-facade race as editorOnMount: bail if we already unmounted.
+            if (!isMountedRef.current) {
+                try {
+                    diff.dispose()
+                } catch {
+                    // already disposed
+                }
+                return
+            }
+
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
@@ -561,6 +622,13 @@ export function CodeEditor({
                     }}
                     onMount={diffEditorOnMount}
                     {...editorProps}
+                    // Own model disposal ourselves via `disposeTrackedModels`. Left to the library,
+                    // its unmount disposes the models before resetting the widget's own reference to
+                    // them ("TextModel got disposed before DiffEditorWidget model got reset"), and it
+                    // fires on teardown paths that don't unmount CodeEditor (diff dismissed, `key`
+                    // change), where our `disposeEditor` cleanup never runs.
+                    keepCurrentOriginalModel
+                    keepCurrentModifiedModel
                 />
             </div>
         )

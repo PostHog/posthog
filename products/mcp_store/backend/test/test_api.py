@@ -1,14 +1,19 @@
 import hashlib
+from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.http import HttpResponse
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.mcp_store.backend.models import MCPOAuthState, MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
@@ -54,6 +59,30 @@ class TestMCPServerTemplateIconKeyNormalization(TestCase):
         template.refresh_from_db()
         assert template.icon_key == expected
 
+    @parameterized.expand(
+        [
+            ("bare_hostname", "linear.app", "linear.app"),
+            ("uppercase_with_scheme", "HTTPS://Linear.APP/", "linear.app"),
+            ("whitespace", "  notion.com ", "notion.com"),
+            ("empty", "", ""),
+            ("scheme_with_path", "https://linear.app/brand/assets", "linear.app"),
+            ("bare_with_path", "linear.app/brand", "linear.app"),
+            ("query_string", "linear.app?token=x", "linear.app"),
+            ("port_and_trailing_dot", "linear.app.:8443", "linear.app"),
+        ]
+    )
+    def test_save_normalizes_icon_domain(self, _name, raw, expected):
+        # Admin- or sync-set values must land as bare lowercase hostnames, or the
+        # logo.dev proxy URL the frontend builds from them 404s.
+        template = MCPServerTemplate.objects.create(
+            name=f"Test-domain-{_name}",
+            url=f"https://mcp.example.com/domain-{_name}",
+            auth_type="api_key",
+            icon_domain=raw,
+        )
+        template.refresh_from_db()
+        assert template.icon_domain == expected
+
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_active_template(self, **overrides) -> MCPServerTemplate:
@@ -91,7 +120,17 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        expected_keys = {"id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"}
+        expected_keys = {
+            "id",
+            "name",
+            "url",
+            "docs_url",
+            "description",
+            "auth_type",
+            "icon_key",
+            "icon_domain",
+            "category",
+        }
         results = response.json()["results"]
         assert len(results) >= 1
         for entry in results:
@@ -103,6 +142,71 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "My Server", "url": "https://mcp.example.com"},
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    @parameterized.expand(
+        [
+            ("path_traversal", "linear.app/../evil"),
+            ("full_url", "https://evil.example"),
+            ("query_injection", "linear.app?token=steal"),
+            ("empty", ""),
+            ("single_label", "localhost"),
+            ("overlong_hostname", "a." * 127 + "com"),
+        ]
+    )
+    def test_icon_rejects_non_hostname_domains(self, _name, bad_domain):
+        # The domain param becomes a path segment of img.logo.dev/{domain} — anything but a bare
+        # hostname must be rejected or the endpoint can be steered off the logo host.
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/", data={"domain": bad_domain})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("no_theme", {"domain": "linear.app"}, None),
+            ("dark_theme", {"domain": "linear.app", "theme": "dark"}, "dark"),
+            ("unknown_theme_dropped", {"domain": "linear.app", "theme": "neon"}, None),
+            ("case_and_fqdn_dot_canonicalized", {"domain": "LINEAR.APP."}, None),
+        ]
+    )
+    def test_icon_proxies_valid_domain(self, _name, params, expected_theme):
+        # Both halves of the icon cache key must stay canonical: unknown themes are dropped
+        # rather than forwarded, and the domain is lowercased with any FQDN trailing dot
+        # stripped so case variants can't mint separate cache entries.
+        with patch("products.mcp_store.backend.presentation.views.CDPIconsService") as service:
+            service.return_value.get_icon_http_response.return_value = HttpResponse(b"png", content_type="image/png")
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/", data=params)
+        assert response.status_code == status.HTTP_200_OK
+        service.return_value.get_icon_http_response.assert_called_once_with(
+            "linear.app", theme=expected_theme, fallback="404", team_id=self.team.id
+        )
+
+    def test_icon_allows_oauth_project_read_scope(self):
+        oauth_application = OAuthApplication.objects.create(
+            name="MCP icon test",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token="pha_test_mcp_icon",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="project:read",
+        )
+        client = APIClient()
+
+        with patch("products.mcp_store.backend.presentation.views.CDPIconsService") as service:
+            service.return_value.get_icon_http_response.return_value = HttpResponse(b"png", content_type="image/png")
+            response = client.get(
+                f"/api/environments/{self.team.id}/mcp_servers/icon/",
+                data={"domain": "linear.app"},
+                headers={"authorization": f"Bearer {access_token.token}"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_unauthenticated_access(self):
         client = APIClient()
@@ -134,17 +238,20 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert len(results) == 1
         assert results[0]["id"] == str(installation.id)
         assert results[0]["name"] == "Test Server"
+        assert results[0]["icon_domain"] == ""
         assert results[0]["icon_key"] == ""
 
-    def test_list_installation_icon_key_from_template(self):
-        # Pass a non-normalized icon_key to confirm the model's save() normalizes it
-        # and the value flows through the serializer unchanged.
+    def test_list_installation_icon_fields_from_template(self):
+        # Pass non-normalized icon values to confirm the model's save() normalizes them and
+        # both flow through the serializer — icon_key must stay exposed alongside icon_domain
+        # until PostHog Desktop stops reading it.
         template = MCPServerTemplate.objects.create(
             name="PostHog MCP",
             url="https://mcp.notion.example/mcp",
             description="d",
             auth_type="api_key",
             is_active=True,
+            icon_domain="HTTPS://Notion.example/",
             icon_key="PostHog MCP",
         )
         MCPServerInstallation.objects.create(
@@ -157,6 +264,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         )
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["icon_domain"] == "notion.example"
         assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
     def test_uninstall_server(self):

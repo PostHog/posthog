@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PapersignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.papersign import (
+    PapersignSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.papersign import (
     PapersignResumeConfig,
     papersign_source,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PapersignSource(ResumableSource[PapersignSourceConfig, PapersignResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://paperform.readme.io/reference/papersign"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -94,6 +100,7 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only: Papersign documents mutate over their lifetime (status transitions) and
         # its timestamp filters could not be curl-verified, while folders and spaces expose no filter
@@ -115,7 +122,11 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         return schemas
 
     def validate_credentials(
-        self, config: PapersignSourceConfig, team_id: int, schema_name: str | None = None
+        self,
+        config: PapersignSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_papersign_credentials(config.api_token)
 
@@ -131,6 +142,8 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         return papersign_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Papersign endpoint is full refresh
         )

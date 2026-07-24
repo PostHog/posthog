@@ -2,6 +2,18 @@ import { z } from 'zod'
 
 import { CyclotronInputMappingSchema, CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
+const HogFlowOutputVariableSchema = z.object({
+    key: z.string(),
+    result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+    spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+    label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
+})
+
+// Rows written before the API coerced bare key strings — normalize at read so one legacy value
+// can't make the whole flow row unparseable. The annotated return type keeps the union's output
+// type identical to the object schema's, so downstream field access still narrows.
+const legacyStringOutputVariable = z.string().transform((key): z.infer<typeof HogFlowOutputVariableSchema> => ({ key }))
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -12,20 +24,9 @@ const _commonActionFields = {
     filters: z.any(), // TODO: Correct to the right type
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .union([
-            z.object({
-                key: z.string(),
-                result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
-                spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
-                label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
-            }),
-            z.array(
-                z.object({
-                    key: z.string(),
-                    result_path: z.string().optional().nullable(),
-                    spread: z.boolean().optional().nullable(),
-                    label: z.string().optional().nullable(),
-                })
-            ),
+            HogFlowOutputVariableSchema,
+            z.array(z.union([HogFlowOutputVariableSchema, legacyStringOutputVariable])),
+            legacyStringOutputVariable,
         ])
         .optional()
         .nullable(),
@@ -65,6 +66,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('batch'),
         filters: z.object({
             properties: z.array(z.any()),
+            filter_test_accounts: z.boolean().optional(),
         }),
     }),
     z.object({
@@ -277,6 +279,12 @@ export const HogFlowSchema = z.object({
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     billable_action_types: z.array(z.string()).optional().nullable(),
+    // Skip-forward map for deleted steps ({deleted_action_id: surviving_action_id}), maintained by
+    // the API on live graph edits. Values always reference actions present in this flow's `actions`.
+    action_redirects: z.record(z.string(), z.string()).optional().nullable(),
+    // Selected by the worker (HOG_FLOW_FIELDS); pg returns timestamptz as a Date, fixtures use
+    // epoch millis. Used to distinguish live edits from malformed-from-birth graphs.
+    updated_at: z.union([z.number(), z.string(), z.date()]).optional(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

@@ -68,6 +68,15 @@ class TestSourceConfig:
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
 
+    def test_bad_request_is_non_retryable(self):
+        # A 400 is a permanent rejection. The import layer classifies an error as non-retryable when
+        # a key is a substring of str(error), so match against the real requests HTTPError message.
+        errors = PlausibleSource().get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://plausible.io/api/v2/query"
+        matched = [key for key in errors if key in raised]
+        assert matched == ["400 Client Error"]
+        assert errors["400 Client Error"] is not None
+
 
 class TestGetSchemas:
     def test_all_endpoints_present_and_incremental(self):

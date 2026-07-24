@@ -449,7 +449,7 @@ export const RecordingsPlaylist: Story = {
     parameters: {
         pageUrl: urls.notebook('recordings-playlist'),
         testOptions: {
-            waitForSelector: '.NotebookNode__content', // All stories with widget-style nodes needs this
+            waitForSelector: '.MarkdownNotebook__real-node-content', // All stories with widget-style nodes needs this
         },
     },
 }

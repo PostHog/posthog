@@ -4,10 +4,9 @@ READINESS_STATE_CHOICES = [
     "not_configured",
     "waiting",
     "backfilling",
-    "catching_up",
     "up_to_date",
     "needs_attention",
-    "unknown",
+    "sync_paused",
 ]
 
 
@@ -43,31 +42,64 @@ class ManagedWarehouseSourceTableStatusSerializer(serializers.Serializer):
         choices=READINESS_STATE_CHOICES, help_text="User-facing warehouse readiness state for this table."
     )
     detail = serializers.CharField(help_text="Human-readable explanation of the table's readiness state.")
+    backfilled = serializers.BooleanField(
+        help_text="Whether the one-time historical copy into the warehouse has completed for this table."
+    )
     completed_chunks = serializers.IntegerField(help_text="Backfill chunks already copied into the warehouse.")
     total_chunks = serializers.IntegerField(
         allow_null=True, help_text="Total backfill chunks, or null before the copy plan is ready."
     )
-    pending_batches = serializers.IntegerField(
-        allow_null=True, help_text="Imported batches waiting to be applied, or null when queue status is unavailable."
-    )
-    oldest_pending_at = serializers.DateTimeField(
-        allow_null=True, help_text="Creation time of the oldest unapplied imported batch."
-    )
     last_applied_at = serializers.DateTimeField(
-        allow_null=True, help_text="When an imported batch was most recently applied to the warehouse."
+        allow_null=True,
+        help_text="When an imported batch was most recently applied to the warehouse, or null if no apply "
+        "has been recorded for this table.",
     )
     last_synced_at = serializers.DateTimeField(
         allow_null=True, help_text="When PostHog most recently completed the upstream source import."
     )
 
 
+class ManagedWarehouseSourceSummarySerializer(serializers.Serializer):
+    source_id = serializers.UUIDField(help_text="Imported source connection identifier.")
+    source_name = serializers.CharField(help_text="Display name for the imported source connection.")
+    source_type = serializers.CharField(help_text="Type of the imported source connection.")
+    readiness_state = serializers.ChoiceField(
+        choices=READINESS_STATE_CHOICES, help_text="Rolled-up warehouse readiness state across this source's schemas."
+    )
+    detail = serializers.CharField(help_text="Human-readable explanation of this source's readiness state.")
+    total_schemas = serializers.IntegerField(help_text="Number of this source's schemas visible to the warehouse.")
+    backfilled_schemas = serializers.IntegerField(
+        help_text="Number of schemas whose one-time historical copy into the warehouse has completed."
+    )
+    last_applied_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Most recent time an imported batch was applied to the warehouse across this source's "
+        "schemas, or null if no apply has been recorded.",
+    )
+    last_synced_at = serializers.DateTimeField(
+        allow_null=True, help_text="Most recent upstream source import completion across this source's schemas."
+    )
+
+
 class ManagedWarehouseSourcesStatusSerializer(serializers.Serializer):
     readiness_state = serializers.ChoiceField(
-        choices=READINESS_STATE_CHOICES, help_text="Rolled-up readiness state for imported source tables."
+        choices=READINESS_STATE_CHOICES, help_text="Rolled-up readiness state for imported sources."
     )
     detail = serializers.CharField(help_text="Human-readable explanation of imported source readiness.")
-    tables = ManagedWarehouseSourceTableStatusSerializer(
-        many=True, help_text="Per-table source backfill and live import application statuses."
+    sources = ManagedWarehouseSourceSummarySerializer(
+        many=True,
+        help_text="Per-source rollup of schema backfill and live import application statuses. Reflects only "
+        "warehouse source imports with sync enabled — manage sources at /data-management/sources.",
+    )
+
+
+class ManagedWarehouseSourceSchemasQuerySerializer(serializers.Serializer):
+    source_id = serializers.UUIDField(help_text="Imported source connection to fetch per-schema detail for.")
+
+
+class ManagedWarehouseSourceSchemasResponseSerializer(serializers.Serializer):
+    schemas = ManagedWarehouseSourceTableStatusSerializer(
+        many=True, help_text="Per-schema backfill and live import application status for the requested source."
     )
 
 

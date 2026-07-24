@@ -2,7 +2,6 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -124,9 +123,9 @@ const getCdcSyncSupported = (
     }
 }
 
-// xmin is offered only when the source advertises it for the table and the gating flag is on.
-export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
-    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
+// xmin is offered only when the source advertises it for the table.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !schema.webhook_only && !!schema.xmin_available
 
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
@@ -188,7 +187,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
-    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -331,7 +329,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    if (shouldOfferXmin(schema, xminFlagEnabled)) {
+    if (shouldOfferXmin(schema)) {
         radioOptions.push({
             value: 'xmin',
             label: (

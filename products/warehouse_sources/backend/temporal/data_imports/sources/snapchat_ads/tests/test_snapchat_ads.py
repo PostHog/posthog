@@ -2,10 +2,14 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any, Optional
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
     SnapchatResumeConfig,
@@ -13,8 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
+    AD_ACCOUNTS_PAGE_LIMIT,
+    MAX_AD_ACCOUNT_PAGES,
     SnapchatDateRangeManager,
     format_stats_day_boundary,
+    list_ad_accounts,
 )
 
 
@@ -408,3 +415,165 @@ class TestNonRetryableErrors:
         assert not any(pattern in error_msg for pattern in self._patterns), (
             f"Snapchat error '{error_msg}' should remain retryable"
         )
+
+
+class TestListAdAccounts:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils"
+
+    def test_flattens_accounts_and_pairs_with_organization_name(self) -> None:
+        body = {
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {
+                        "name": "PostHog",
+                        "ad_accounts": [
+                            {"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"},
+                            {"id": "acc-2", "name": "PostHog", "status": "ACTIVE"},
+                        ],
+                    },
+                },
+                # A failed sub-request contributes no accounts.
+                {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": [{"id": "x"}]}},
+            ]
+        }
+        response = MagicMock()
+        response.json.return_value = body
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "PostHog"),
+        ]
+        assert session.get.call_args.kwargs["params"] == {
+            "with_ad_accounts": "true",
+            "limit": AD_ACCOUNTS_PAGE_LIMIT,
+        }
+
+    @staticmethod
+    def _organizations_page(name: str, account_id: str, next_link: str | None = None) -> dict:
+        page: dict = {
+            "request_status": "SUCCESS",
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {"name": name, "ad_accounts": [{"id": account_id, "name": account_id}]},
+                }
+            ],
+        }
+        if next_link:
+            page["paging"] = {"next_link": next_link}
+        return page
+
+    def _session_returning(self, *bodies: dict) -> MagicMock:
+        responses = []
+        for body in bodies:
+            response = MagicMock()
+            response.json.return_value = body
+            responses.append(response)
+        session = MagicMock()
+        session.get.side_effect = responses
+        return session
+
+    def test_follows_next_link_until_exhausted(self) -> None:
+        # A single page would silently truncate the picker for an org with more accounts than fit
+        # in one page — the user's account just wouldn't be there, with no error.
+        next_link = "https://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "Agency"),
+        ]
+        assert session.get.call_count == 2
+        # The second request follows next_link verbatim: it already carries the cursor and the query.
+        assert session.get.call_args_list[1].args[0] == next_link
+        assert session.get.call_args_list[1].kwargs["params"] is None
+
+    def test_in_body_failure_raises_actionable_error(self) -> None:
+        # A 200 whose body reports failure would otherwise fall through to an empty picker.
+        session = self._session_returning(
+            {"request_status": "ERROR", "debug_message": "Invalid scope", "display_message": "Something went wrong"}
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="Invalid scope"),
+        ):
+            list_ad_accounts("token")
+
+    def test_all_organizations_failing_raises_instead_of_returning_empty(self) -> None:
+        session = self._session_returning(
+            {
+                "request_status": "SUCCESS",
+                "organizations": [
+                    {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": []}}
+                ],
+            }
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+    def test_no_organizations_returns_empty_list(self) -> None:
+        session = self._session_returning({"request_status": "SUCCESS", "organizations": []})
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            assert list_ad_accounts("token") == []
+
+    def test_page_cap_raises_instead_of_returning_partial(self) -> None:
+        # A looping/oversized next_link must fail closed rather than return the accounts collected so
+        # far as if complete — that would silently present a truncated (or cursor-duplicated) picker.
+        response = MagicMock()
+        response.json.return_value = self._organizations_page(
+            "PostHog", "acc-1", next_link="https://adsapi.snapchat.com/v1/me/organizations?cursor=loop"
+        )
+        session = MagicMock()
+        session.get.return_value = response
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="too many pages"),
+        ):
+            list_ad_accounts("token")
+
+        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES
+
+    @parameterized.expand(
+        [
+            ("cross_origin_host", "https://evil.example.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"),
+            (
+                "non_https_same_host",
+                "http://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2",
+            ),
+        ]
+    )
+    def test_rejects_untrusted_pagination_link_without_following_it(self, _name: str, next_link: str) -> None:
+        # The bearer token rides on each pagination request, so a next_link off Snapchat's HTTPS API
+        # host must be rejected before we re-attach the token to it.
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+        # The token-bearing request to the untrusted host is never made.
+        assert session.get.call_count == 1

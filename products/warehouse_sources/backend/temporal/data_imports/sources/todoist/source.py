@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TodoistSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
+    TodoistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -36,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TodoistSource(ResumableSource[TodoistSourceConfig, TodoistResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.todoist.com/api/v1"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TODOIST
@@ -91,27 +100,23 @@ You can find your personal API token in [Todoist's integration settings](https:/
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = TODOIST_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                # Todoist's v1 REST endpoints expose no server-side timestamp filter, so every
-                # endpoint is full refresh — no genuine incremental/append mode to offer.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Todoist's v1 REST endpoints expose no server-side timestamp filter, so every endpoint is
+        # full refresh (empty INCREMENTAL_FIELDS) — no genuine incremental/append mode to offer.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: cfg.should_sync_default for name, cfg in TODOIST_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
-        self, config: TodoistSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TodoistSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_todoist_credentials(config.api_token):
             return True, None
@@ -130,6 +135,7 @@ You can find your personal API token in [Todoist's integration settings](https:/
         return todoist_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
