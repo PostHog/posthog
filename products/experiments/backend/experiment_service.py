@@ -590,6 +590,8 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
+        "conclusion",
+        "-conclusion",
     }
 
     @classmethod
@@ -3730,6 +3732,23 @@ class ExperimentService:
                     queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
+            elif order_value in ["conclusion", "-conclusion"]:
+                # Match the frontend Result column's sorter: won, lost, inconclusive,
+                # stopped early, invalid, then experiments without a conclusion.
+                queryset = queryset.annotate(
+                    conclusion_sort_key=Case(
+                        When(conclusion="won", then=Value(1)),
+                        When(conclusion="lost", then=Value(2)),
+                        When(conclusion="inconclusive", then=Value(3)),
+                        When(conclusion="stopped_early", then=Value(4)),
+                        When(conclusion="invalid", then=Value(5)),
+                        default=Value(6),
+                    )
+                )
+                if order_value.startswith("-"):
+                    queryset = queryset.order_by(F("conclusion_sort_key").desc())
+                else:
+                    queryset = queryset.order_by(F("conclusion_sort_key").asc())
             elif order_value in ["created_by", "-created_by"]:
                 # Match the frontend column's `first_name || email` sorter — treat an
                 # empty `first_name` as missing and fall back to `email`, so users with
