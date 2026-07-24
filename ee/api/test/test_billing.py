@@ -18,6 +18,7 @@ from requests import Response, get
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
@@ -886,6 +887,74 @@ class TestBillingAPI(APILicensedTest):
         ]
         assert len(billing_calls) == 1
         assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
+
+
+class TestBillingLimitsActivityLog(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_updating_spend_limits_writes_org_scoped_activity_with_before_and_after(
+        self, mock_get_billing, mock_update_billing
+    ):
+        mock_get_billing.return_value = {"custom_limits_usd": {"product_analytics": 100}}
+
+        response = self.client.patch(
+            "/api/billing//",
+            {"custom_limits_usd": {"product_analytics": 500}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        log = ActivityLog.objects.get(scope="Billing")
+        assert log.organization_id == self.organization.id
+        assert log.team_id is None
+        assert log.user == self.user
+        assert log.activity == "updated"
+        assert log.detail["name"] == "Billing spend limits"
+        assert log.detail["changes"] == [
+            {
+                "type": "Billing",
+                "action": "changed",
+                "field": "product_analytics",
+                "before": 100,
+                "after": 500,
+            }
+        ]
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_resetting_next_period_limit_writes_activity(self, mock_get_billing, mock_update_billing):
+        mock_get_billing.return_value = {"custom_limits_usd": {}}
+
+        response = self.client.patch(
+            "/api/billing//",
+            {"reset_limit_next_period": "product_analytics"},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        log = ActivityLog.objects.get(scope="Billing")
+        assert log.user == self.user
+        assert log.detail["name"] == "Billing next-period limit reset"
+        assert log.detail["changes"][0]["field"] == "reset_limit_next_period"
+        assert log.detail["changes"][0]["after"] == "product_analytics"
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_unchanged_spend_limits_do_not_write_activity(self, mock_get_billing, mock_update_billing):
+        mock_get_billing.return_value = {"custom_limits_usd": {"product_analytics": 100}}
+
+        response = self.client.patch(
+            "/api/billing//",
+            {"custom_limits_usd": {"product_analytics": 100}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(scope="Billing").exists()
 
 
 class TestPortalBillingAPI(APILicensedTest):
