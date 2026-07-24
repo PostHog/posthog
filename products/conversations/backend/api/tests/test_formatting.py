@@ -7,9 +7,19 @@ from products.conversations.backend.formatting import (
     _slack_unicode_to_char,
     extract_images_from_rich_content,
     extract_slack_user_ids,
+    rich_content_to_html,
+    rich_content_to_markdown,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
 )
+
+
+def _paragraph(text: str) -> dict:
+    return {"type": "paragraph", "content": [{"type": "text", "text": text}]}
+
+
+def _list_item(*content: dict) -> dict:
+    return {"type": "listItem", "content": list(content)}
 
 
 class TestSlackFormatting(SimpleTestCase):
@@ -435,3 +445,240 @@ class TestSlackFormatting(SimpleTestCase):
         content, rich_content = slack_to_content_and_rich_content("", blocks)
         assert "<@UXYZ999>" in content
         assert rich_content is not None
+
+
+class TestRichContentBlockNodes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "bullet_list",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "bulletList",
+                            "content": [_list_item(_paragraph("one")), _list_item(_paragraph("two"))],
+                        }
+                    ],
+                },
+                "- one\n- two",
+            ),
+            (
+                "ordered_list_respects_start",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "orderedList",
+                            "attrs": {"start": 3},
+                            "content": [_list_item(_paragraph("three")), _list_item(_paragraph("four"))],
+                        }
+                    ],
+                },
+                "3. three\n4. four",
+            ),
+            (
+                "nested_list_indented",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "orderedList",
+                            "content": [
+                                _list_item(
+                                    _paragraph("parent"),
+                                    {"type": "bulletList", "content": [_list_item(_paragraph("child"))]},
+                                )
+                            ],
+                        }
+                    ],
+                },
+                "1. parent\n   - child",
+            ),
+            (
+                "heading_blockquote_and_rule",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Options"}]},
+                        {"type": "blockquote", "content": [_paragraph("quoted")]},
+                        {"type": "horizontalRule"},
+                    ],
+                },
+                "## Options\n\n> quoted\n\n---",
+            ),
+            (
+                "strike_mark",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "gone", "marks": [{"type": "strike"}]}],
+                        }
+                    ],
+                },
+                "~~gone~~",
+            ),
+            (
+                "blockquote_wrapping_list",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "blockquote",
+                            "content": [
+                                _paragraph("see options:"),
+                                {
+                                    "type": "bulletList",
+                                    "content": [_list_item(_paragraph("one")), _list_item(_paragraph("two"))],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "> see options:\n> - one\n> - two",
+            ),
+        ]
+    )
+    def test_rich_content_to_markdown_block_nodes(self, _name: str, doc: dict, expected: str) -> None:
+        assert rich_content_to_markdown(doc) == expected
+
+    def test_slack_payload_falls_back_to_text_when_blocks_cannot_represent_doc(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                _paragraph("Two options:"),
+                {
+                    "type": "orderedList",
+                    "content": [_list_item(_paragraph("query time properties")), _list_item(_paragraph("a cohort"))],
+                },
+            ],
+        }
+        text, blocks = rich_content_to_slack_payload(doc, "fallback")
+        assert blocks is None
+        assert "1. query time properties" in text
+        assert "2. a cohort" in text
+
+    @parameterized.expand(
+        [
+            ("bullet", "bullet", "bulletList", "- item one"),
+            ("ordered", "ordered", "orderedList", "1. item one"),
+        ]
+    )
+    def test_inbound_slack_list_blocks_become_list_nodes(
+        self, _name: str, style: str, expected_node_type: str, expected_content_line: str
+    ) -> None:
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_list",
+                        "style": style,
+                        "elements": [
+                            {"type": "rich_text_section", "elements": [{"type": "text", "text": "item one"}]},
+                            {"type": "rich_text_section", "elements": [{"type": "text", "text": "item two"}]},
+                        ],
+                    }
+                ],
+            }
+        ]
+        content, rich_content = slack_to_content_and_rich_content("", blocks)
+        assert rich_content is not None
+        list_node = rich_content["content"][0]
+        assert list_node["type"] == expected_node_type
+        assert [item["type"] for item in list_node["content"]] == ["listItem", "listItem"]
+        assert expected_content_line in content
+
+    def test_rich_content_to_html_renders_hogdesk_block_nodes(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Options"}]},
+                {
+                    "type": "orderedList",
+                    "attrs": {"start": 2},
+                    "content": [
+                        _list_item(
+                            _paragraph("parent"),
+                            {"type": "bulletList", "content": [_list_item(_paragraph("child"))]},
+                        )
+                    ],
+                },
+                {"type": "horizontalRule"},
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "gone", "marks": [{"type": "strike"}]}],
+                },
+            ],
+        }
+        html = rich_content_to_html(doc)
+        assert "<h2>Options</h2>" in html
+        assert '<ol start="2"><li>parent<ul><li>child</li></ul></li></ol>' in html
+        assert "<hr>" in html
+        assert "<s>gone</s>" in html
+
+    def test_rich_content_to_html_renders_unknown_block_inline_content_as_paragraph(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [{"type": "callout", "content": [{"type": "text", "text": "do not lose me"}]}],
+        }
+        html = rich_content_to_html(doc)
+        assert "<p>do not lose me</p>" in html
+
+    def test_rich_content_to_markdown_keeps_non_paragraph_blocks_in_list_items(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        _list_item(
+                            _paragraph("intro"),
+                            {"type": "heading", "attrs": {"level": 3}, "content": [{"type": "text", "text": "Step"}]},
+                            {
+                                "type": "codeBlock",
+                                "attrs": {"language": "python"},
+                                "content": [{"type": "text", "text": "print(1)"}],
+                            },
+                        )
+                    ],
+                }
+            ],
+        }
+        md = rich_content_to_markdown(doc)
+        assert "### Step" in md
+        assert "```python" in md
+        assert "print(1)" in md
+
+    def test_rich_content_to_html_keeps_non_paragraph_blocks_in_list_items(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "orderedList",
+                    "content": [
+                        _list_item(
+                            _paragraph("intro"),
+                            {"type": "codeBlock", "content": [{"type": "text", "text": "print(1)"}]},
+                        )
+                    ],
+                }
+            ],
+        }
+        html = rich_content_to_html(doc)
+        assert "<li>intro<pre><code>print(1)</code></pre></li>" in html
+
+    def test_rich_content_to_html_keeps_non_paragraph_blocks_in_blockquote(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "blockquote",
+                    "content": [_paragraph("see"), {"type": "bulletList", "content": [_list_item(_paragraph("one"))]}],
+                }
+            ],
+        }
+        html = rich_content_to_html(doc)
+        assert "<blockquote>see<br><ul><li>one</li></ul></blockquote>" in html

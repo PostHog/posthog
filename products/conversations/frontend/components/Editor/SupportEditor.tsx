@@ -22,7 +22,7 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -116,6 +116,21 @@ const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
         }
     },
 })
+
+// Ordered list icon (not in @posthog/icons)
+function IconOrderedList(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M10 6h10M10 12h10M10 18h10M4 6h1v4M4 10h2M4 15.5a1.5 1.5 0 1 1 3 0c0 .7-.5 1.2-1 1.7L4 19h3"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    )
+}
 
 // Underline icon (not in @posthog/icons)
 function IconUnderline(): JSX.Element {
@@ -230,7 +245,7 @@ export const SUPPORT_EXTENSIONS = [
         heading: false,
         blockquote: false,
         // bold: enabled - Cmd+B
-        bulletList: false,
+        // bulletList: enabled - Cmd+Shift+8
         // code: enabled - inline code (Cmd+E) - just visual styling, not executable
         codeBlock: false, // We use our own SupportCodeBlockExtension
         // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
@@ -238,12 +253,27 @@ export const SUPPORT_EXTENSIONS = [
         // gapcursor: enabled - helps position cursor near images/blocks
         horizontalRule: false,
         // italic: enabled - Cmd+I
-        listItem: false,
-        listKeymap: false,
-        orderedList: false,
+        // listItem/listKeymap: enabled - required by bulletList/orderedList
+        // orderedList: enabled - Cmd+Shift+7
         strike: false,
     }),
     Underline, // Cmd+U
+    ImageExtension,
+    LinkExtension,
+    LinkOnPasteExtension,
+    SupportCodeBlockExtension,
+]
+
+export const SUPPORT_PREVIEW_EXTENSIONS = [
+    MentionsExtension,
+    RichContentNodeMention,
+    ExtensionDocument,
+    StarterKit.configure({
+        document: false,
+        link: false, // We use our own Link extension
+        codeBlock: false, // We use our own SupportCodeBlockExtension
+    }),
+    Underline,
     ImageExtension,
     LinkExtension,
     LinkOnPasteExtension,
@@ -277,7 +307,7 @@ function escapeAltText(text: string): string {
 
 /**
  * Serialize tiptap JSON to markdown string.
- * Handles: bold, italic, code, images, mentions, hard breaks
+ * Handles: bold, italic, code, images, mentions, hard breaks, bullet/ordered lists
  * Note: underline has no standard markdown syntax and is stripped
  */
 export function serializeToMarkdown(content: JSONContent): string {
@@ -346,6 +376,12 @@ function serializeNode(node: JSONContent): string {
             return content + '\n\n'
         }
 
+        case 'bulletList':
+            return serializeListNode(node, false, '') + '\n\n'
+
+        case 'orderedList':
+            return serializeListNode(node, true, '') + '\n\n'
+
         case 'hardBreak':
             // Two spaces + newline is the standard markdown hard break
             return '  \n'
@@ -376,6 +412,57 @@ function serializeNode(node: JSONContent): string {
             }
             return ''
     }
+}
+
+function serializeListNode(node: JSONContent, ordered: boolean, indent: string): string {
+    const start = ordered ? Number(node.attrs?.start ?? 1) : 1
+    const lines: string[] = []
+    let position = 0
+    for (const item of node.content || []) {
+        if (item.type !== 'listItem') {
+            continue
+        }
+        const marker = ordered ? `${start + position}. ` : '- '
+        position += 1
+        const childIndent = indent + ' '.repeat(marker.length)
+        const blocks: { text: string; isNestedList: boolean }[] = []
+        for (const child of item.content || []) {
+            if (child.type === 'bulletList' || child.type === 'orderedList') {
+                const nested = serializeListNode(child, child.type === 'orderedList', childIndent)
+                if (nested) {
+                    blocks.push({ text: nested, isNestedList: true })
+                }
+            } else {
+                const serialized = serializeNode(child).trim()
+                if (serialized) {
+                    blocks.push({ text: serialized, isNestedList: false })
+                }
+            }
+        }
+        if (blocks.length === 0) {
+            lines.push((indent + marker).trimEnd())
+            continue
+        }
+        const [first, ...rest] = blocks
+        if (first.isNestedList) {
+            lines.push((indent + marker).trimEnd(), first.text)
+        } else {
+            lines.push(indent + marker + first.text.split('\n').join(`\n${childIndent}`))
+        }
+        for (const block of rest) {
+            if (block.isNestedList) {
+                lines.push(block.text)
+            } else {
+                lines.push(
+                    block.text
+                        .split('\n')
+                        .map((line) => childIndent + line)
+                        .join('\n')
+                )
+            }
+        }
+    }
+    return lines.join('\n')
 }
 
 export function SupportEditor({
@@ -551,6 +638,20 @@ export function SupportEditor({
                         onClick={() => ttEditor?.chain().focus().toggleUnderline().run()}
                         icon={<IconUnderline />}
                         tooltip="Underline (Cmd+U)"
+                    />
+                    <LemonButton
+                        size="small"
+                        active={ttEditor?.isActive('bulletList')}
+                        onClick={() => ttEditor?.chain().focus().toggleBulletList().run()}
+                        icon={<IconList />}
+                        tooltip="Bullet list (Cmd+Shift+8)"
+                    />
+                    <LemonButton
+                        size="small"
+                        active={ttEditor?.isActive('orderedList')}
+                        onClick={() => ttEditor?.chain().focus().toggleOrderedList().run()}
+                        icon={<IconOrderedList />}
+                        tooltip="Numbered list (Cmd+Shift+7)"
                     />
                     <LemonButton
                         size="small"
