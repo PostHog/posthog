@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+spec:
+    # A single replica by design: multiple replicas would scrape every target
+    # multiple times and double-count all metrics.
+    replicas: 1
+    selector:
+        matchLabels:
+            {{- include "posthog-metrics-agent.selectorLabels" . | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "posthog-metrics-agent.selectorLabels" . | nindent 16 }}
+            annotations:
+                checksum/config: {{ include "posthog-metrics-agent.collectorConfig" . | sha256sum }}
+                # Covers the chart-managed Secret so an API key rotation rolls the pod.
+                checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        spec:
+            serviceAccountName: {{ include "posthog-metrics-agent.serviceAccountName" . }}
+            securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: agent
+                  image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                  env:
+                      - name: POSTHOG_API_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: {{ include "posthog-metrics-agent.secretName" . }}
+                                key: posthog-api-key
+                  volumeMounts:
+                      - name: config
+                        mountPath: /etc/posthog/config.yaml
+                        subPath: config.yaml
+                        readOnly: true
+                  ports:
+                      - name: health
+                        containerPort: 13133
+                  livenessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  readinessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  resources:
+                      {{- toYaml .Values.resources | nindent 22 }}
+            volumes:
+                - name: config
+                  configMap:
+                      name: {{ include "posthog-metrics-agent.fullname" . }}
+            {{- with .Values.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: posthog-metrics-agent
+description: Scrapes Prometheus /metrics endpoints in your cluster and forwards them to PostHog
+type: application
+version: 0.1.0
+# The image tag installs pin to by default. CD publishes the image under this
+# tag, so bump it together with `version` to release a new agent.
+appVersion: 0.1.0
+home: https://posthog.com/docs/metrics
+sources:
+    - https://github.com/PostHog/posthog/tree/master/products/metrics/agent

@@ -93,7 +93,7 @@
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
         ],
-        "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json)*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json|**/chart/*/templates/**|products/metrics/agent/tests/**/golden/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "frontend/src/lib/constants.tsx": [
             "bin/hogli lint:feature-flags:fix",
