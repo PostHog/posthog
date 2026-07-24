@@ -224,8 +224,9 @@ class EmailConnectView(APIView):
 
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
+            logger.error("email_connect_inbound_domain_not_configured", team_id=team.id)
             return Response(
-                {"error": "Email inbound domain not configured. Set CONVERSATIONS_EMAIL_INBOUND_DOMAIN."},
+                {"error": "Email sending isn't set up yet. Please contact support."},
                 status=400,
             )
 
@@ -244,7 +245,7 @@ class EmailConnectView(APIView):
                 dns_records = mailgun_add_domain(domain)
             except MailgunNotConfigured:
                 logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
-                return Response({"error": "Mailgun API key not configured"}, status=400)
+                return Response({"error": "Email sending isn't set up yet. Please contact support."}, status=400)
             except MailgunDomainConflict as e:
                 reclaimed = _try_reclaim_stranded_domain(team, domain)
                 if reclaimed is None:

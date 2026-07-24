@@ -8,7 +8,16 @@ import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+    },
+}))
 
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
@@ -45,6 +54,36 @@ describe('supportSettingsLogic', () => {
             ],
         ])('%s', (_label, flags, expected) => {
             expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('connectEmail', () => {
+        beforeEach(() => {
+            ;(lemonToast.error as jest.Mock).mockClear()
+        })
+
+        it('surfaces the backend reason when connecting fails', async () => {
+            useMocks({
+                get: {
+                    'api/conversations/v1/email/status': { configs: [] },
+                },
+                post: {
+                    'api/conversations/v1/email/connect': () => [
+                        400,
+                        { error: 'This domain is already in use by another organization.' },
+                    ],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewEmailFromEmail('help@albo.inc')
+            logic.actions.setNewEmailFromName('Albo Support')
+
+            logic.actions.connectEmail()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('This domain is already in use by another organization.')
         })
     })
 
