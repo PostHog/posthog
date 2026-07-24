@@ -117,8 +117,6 @@ from posthog.hogql_queries.access_controlled_resources import queried_access_con
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
-from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.validation.validation import (
@@ -129,7 +127,7 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.query_cache.metrics import count_query_cache_hit
+from posthog.query_cache import QueryCache, count_query_cache_hit
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -1412,7 +1410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def enqueue_async_calculation(
         self,
         *,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         refresh_requested: bool = False,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
@@ -1458,7 +1456,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def handle_cache_and_async_logic(
         self,
         execution_mode: ExecutionMode,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> Optional[CR | CacheMissResponse]:
@@ -1467,6 +1465,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
+        entry = cache_manager.lookup().entry
         if self.serve_raw_cached_results:
             # Serving results as raw bytes skips parsing (and later re-serializing) the results
             # payload. Only safe when the caller opted in AND validation of the parsed results
@@ -1475,7 +1474,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # the schema-drift check that triggers recomputation) AND neither the query nor
             # the cached results carry custom series names — otherwise
             # apply_series_custom_names below must be able to patch the parsed results.
-            split_candidate = cache_manager.get_cache_data_split()
+            split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
@@ -1490,7 +1489,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     else:
                         raw_results = split_candidate.results_bytes
         else:
-            cached_response_candidate = cache_manager.get_cache_data()
+            cached_response_candidate = entry.as_full_response() if entry else None
 
         if self.is_cached_response(cached_response_candidate):
             assert cached_response_candidate is not None
@@ -1523,7 +1522,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=cached_response.model_dump(),
                     target_age=cached_response.cache_target_age,
                 )
@@ -1750,8 +1749,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     trigger: str | None = get_query_tag_value("trigger")
 
                     CachedResponse: type[CR] = self.cached_response_type
-                    cache_manager = get_query_cache_manager(
-                        team=self.team,
+                    cache_manager = QueryCache(
+                        team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
@@ -1863,7 +1862,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self,
         *,
         cache_key: str,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         execution_mode: ExecutionMode,
         insight_id: Optional[int],
         dashboard_id: Optional[int],
@@ -1975,7 +1974,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
             if not has_error and self.limit_context != LimitContext.EXPORT:
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
                     # Example: Not for super quickly calculated insights
