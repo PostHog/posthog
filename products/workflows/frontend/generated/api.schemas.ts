@@ -1515,3 +1515,10 @@ export type HogFlowsMetricsGlobalRetrieveParams = {
      */
     before?: string
 }
+
+export type HogFlowsReputationRetrieveParams = {
+    /**
+     * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
+     */
+    search?: string
+}

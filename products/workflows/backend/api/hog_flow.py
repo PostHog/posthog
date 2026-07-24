@@ -2689,7 +2689,20 @@ class HogFlowViewSet(
     # this fans out the payload for every workflow listed.
     WORKFLOW_REPUTATION_HISTORY_DAYS = 7
 
-    @extend_schema(responses={200: TeamEmailReputationResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                str,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it "
+                    "finds workflows the unfiltered response cuts off."
+                ),
+            )
+        ],
+        responses={200: TeamEmailReputationResponseSerializer},
+    )
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
@@ -2725,6 +2738,11 @@ class HogFlowViewSet(
             .order_by("hog_flow_id", "evaluated_at")
             .select_related("hog_flow")
         )
+        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
+        # client-side could never find a healthy workflow beyond the cap.
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            workflow_rows = workflow_rows.filter(hog_flow__name__icontains=search)
         history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
         for row in workflow_rows:
             if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy

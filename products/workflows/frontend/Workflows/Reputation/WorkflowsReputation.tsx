@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -131,7 +131,8 @@ function WorkflowHistoryTable({ history }: { history: readonly EmailReputationSn
 }
 
 export function WorkflowsReputation(): JSX.Element {
-    const { teamReputation, workflowSnapshots, reputationResponseLoading } = useValues(workflowsReputationLogic)
+    const { teamReputation, workflowSnapshots, reputationResponseLoading, search } = useValues(workflowsReputationLogic)
+    const { setSearch } = useActions(workflowsReputationLogic)
 
     return (
         <div className="space-y-4" data-attr="workflows-reputation">
@@ -145,11 +146,23 @@ export function WorkflowsReputation(): JSX.Element {
                     </div>
                 )
             )}
+            <LemonInput
+                type="search"
+                placeholder="Search workflows"
+                value={search}
+                onChange={setSearch}
+                className="max-w-80"
+                data-attr="workflows-reputation-search"
+            />
             <LemonTable
                 dataSource={[...workflowSnapshots]}
                 loading={reputationResponseLoading}
                 rowKey={(snapshot) => snapshot.hog_flow_id}
-                emptyState="No workflows have sent enough email to be evaluated yet."
+                emptyState={
+                    search.trim()
+                        ? 'No evaluated workflows match your search.'
+                        : 'No workflows have sent enough email to be evaluated yet.'
+                }
                 columns={[
                     {
                         title: 'Workflow',

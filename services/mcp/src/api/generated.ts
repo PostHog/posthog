@@ -75805,6 +75805,13 @@ export namespace Schemas {
     before?: string;
     };
 
+    export type HogFlowsReputationRetrieveParams = {
+    /**
+     * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
+     */
+    search?: string;
+    };
+
     export type HogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
