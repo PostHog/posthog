@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { toParams } from 'lib/utils/url'
 import {
     SessionRecordingPlayerLogicProps,
@@ -232,6 +232,21 @@ export type playlistPopoverLogicType = MakeLogicType<
     playlistPopoverLogicMeta
 >
 
+// A stale/inaccessible project context (e.g. a stale currentProjectId) makes the
+// team-scoped playlists endpoint return 404/403. That's benign here, so treat it
+// as no playlists rather than letting it surface as an uncaught error.
+async function listPlaylistsOrEmpty(params: string): Promise<SessionRecordingPlaylistType[]> {
+    try {
+        const response = await api.recordings.listPlaylists(params)
+        return response.results
+    } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+            return []
+        }
+        throw e
+    }
+}
+
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -258,11 +273,9 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylists: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists(
-                    toParams({ search: values.searchQuery, type: 'collection' })
-                )
+                const results = await listPlaylistsOrEmpty(toParams({ search: values.searchQuery, type: 'collection' }))
                 breakpoint()
-                return response.results
+                return results
             },
         },
     })),
@@ -271,11 +284,11 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylistsForRecording: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists(
+                const results = await listPlaylistsOrEmpty(
                     toParams({ session_recording_id: props.sessionRecordingId, type: 'collection' })
                 )
                 breakpoint()
-                return response.results
+                return results
             },
 
             addToPlaylist: async ({ playlist }) => {
