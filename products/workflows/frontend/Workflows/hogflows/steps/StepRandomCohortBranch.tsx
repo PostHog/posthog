@@ -13,13 +13,16 @@ import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { useDebouncedNameInputs } from './utils'
 
+// Stable reference so a config missing `cohorts` doesn't allocate a new array each render
+const EMPTY_COHORTS: Extract<HogFlowAction, { type: 'random_cohort_branch' }>['config']['cohorts'] = []
+
 export function StepRandomCohortBranchConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>
 }): JSX.Element {
     const action = node.data
-    const cohorts = action.config.cohorts ?? []
+    const cohorts = action.config.cohorts ?? EMPTY_COHORTS
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)

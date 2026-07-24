@@ -15,13 +15,16 @@ import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { getBranchRemovalDisabledReason, removeBranchEdge, useDebouncedNameInputs } from './utils'
 
+// Stable reference so a config missing `conditions` doesn't allocate a new array each render
+const EMPTY_CONDITIONS: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions'] = []
+
 export function StepConditionalBranchConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'conditional_branch' }>>
 }): JSX.Element {
     const action = node.data
-    const conditions = action.config.conditions ?? []
+    const conditions = action.config.conditions ?? EMPTY_CONDITIONS
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
