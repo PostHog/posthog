@@ -216,6 +216,9 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    autosaveTicket: () => {
+        value: true
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -375,9 +378,6 @@ export interface supportTicketSceneLogicActions {
         rating: AiReplyFeedbackRating
     }
     updateTicket: () => {
-        value: true
-    }
-    autosaveTicket: () => {
         value: true
     }
 }
