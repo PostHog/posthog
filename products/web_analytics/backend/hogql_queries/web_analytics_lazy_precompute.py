@@ -15,27 +15,21 @@ from typing import Optional, Protocol, Union
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import (
-    EventPropertyFilter,
-    PropertyOperator,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-    WebVitalsPathBreakdownQuery,
-)
+from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     is_precompute_enabled_for_team,
-    is_precompute_unrestricted_for_team,
 )
 
 logger = structlog.get_logger(__name__)
@@ -174,6 +168,20 @@ class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
     pass
 
 
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    """A filter is not an event/person property — precompute only handles those,
+    since session/cohort filters are applied differently on the live path per family."""
+
+    def __init__(self, filter_type: object):
+        self.filter_type = filter_type
+        super().__init__(f"type={filter_type!r}")
+
+
+class PropertyAccessControlled(LazyPrecomputeIneligible):
+    """The team has property-level access controls — userless shared precompute
+    can't honor per-user property restrictions, so the query stays on the live path."""
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -270,24 +278,23 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    # Unrestricted teams accept any filter shape — `user_filter_expr` translates
-    # arbitrary filters via `property_to_expr`, and each distinct filter set
-    # becomes a distinct cache key. Filters the INSERT can't express fail the
-    # job and fall back to the live query automatically.
-    unrestricted = is_precompute_unrestricted_for_team(runner.team)
-    if not unrestricted:
-        properties = query.properties or []
-        if len(properties) > 1:
-            raise TooManyFilters()
-        for prop in properties:
-            if not isinstance(prop, EventPropertyFilter):
-                raise NonEventPropertyFilter()
-            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-                raise UnsupportedFilterKey(prop.key)
-            if prop.operator != PropertyOperator.EXACT:
-                raise UnsupportedFilterOperator(prop.operator)
-            if not isinstance(prop.value, str) or not prop.value:
-                raise NonStringOrEmptyFilterValue()
+    # Any event/person filter shape is accepted (any key, operator, count), translated
+    # as a whole via `user_filter_expr`; each distinct set becomes its own cache key,
+    # bounded by the per-team shape ceiling in `web_ensure_precomputed`. Session and
+    # cohort filters are refused: the precompute INSERT applies the whole list userlessly,
+    # but the live runners handle those types differently per family (web vitals drops
+    # them entirely), so precomputing them would serve a different population than the
+    # live fallback. Those queries fall through to the live path, which applies them right.
+    for prop in query.properties or []:
+        if get_property_type(prop) not in ("event", "person"):
+            raise UnsupportedFilterType(get_property_type(prop))
+
+    # Precompute results are built userless and shared by a user-independent cache
+    # key, so they cannot honor per-user property restrictions. If the team has any
+    # property-level access controls, skip precompute and let the live path enforce
+    # them per requesting user.
+    if team_has_property_access_rules(team_id=runner.team.id):
+        raise PropertyAccessControlled()
 
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
@@ -415,22 +422,10 @@ def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     if not runner.query.properties:
         return ast.Constant(value=True)
 
-    # Unrestricted teams may pass arbitrary filters — translate the whole list
-    # via the general `property_to_expr`. Each distinct filter set becomes a
-    # distinct cache key.
-    if is_precompute_unrestricted_for_team(runner.team):
-        return property_to_expr(runner.query.properties, team=runner.team)
-
-    # Gate already enforces single EventPropertyFilter with $host exact + string value.
-    host_filter = runner.query.properties[0]
-    assert isinstance(host_filter, EventPropertyFilter)
-    return ast.Call(
-        name="equals",
-        args=[
-            ast.Field(chain=["events", "properties", host_filter.key]),
-            ast.Constant(value=host_filter.value),
-        ],
-    )
+    # Any filter list is translated via the general `property_to_expr`; each distinct
+    # filter set becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    return property_to_expr(runner.query.properties, team=runner.team)
 
 
 def test_account_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:

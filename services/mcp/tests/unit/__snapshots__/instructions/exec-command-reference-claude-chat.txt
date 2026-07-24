@@ -11,26 +11,12 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
-**SKILLS FIRST: HARD REQUIREMENT**
-
-For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
-
-Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
-
-Syntax: `learn [skills|-s <query>|-d <name...>|(posthog|project):<skill> [path...] [-s <query>|--lines <start>:<end>]]`
-
-<example>
-User: Investigate why checkout conversion dropped this week.
-Assistant: [Runs only `learn -s "checkout conversion drop"`; waits. Gets `posthog:investigate-metric`; loads it exactly, follows it, then discovers tools.]
-</example>
-
 **LEARN FIRST: HARD REQUIREMENT**
 
-Load all matching advertised topics in one `learn` command before non-learning commands. Topics are cumulative.
+Load all matching topics in one `learn` command first. Topics are cumulative.
 
 - analytics: Query or analyze PostHog data, metrics, and events.
 - visualizations: Create or render a visualization.
-- urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
@@ -172,3 +158,15 @@ Defined group types: organization, project
 You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
 Project timezone: America/New_York.
 The user's name is Jane Doe (jane@acme.com).
+
+### URL patterns
+
+PostHog app links must be full URLs (origin + path) — bare paths aren't clickable in MCP clients like Cursor or Claude Desktop. Use Markdown with descriptive anchor text, e.g. `[Cohorts](https://us.posthog.com/project/1/cohorts)`. Never include `/-/`.
+
+Choose the link source in this order:
+
+1. If a tool result has a `*url` field (e.g. `_posthogUrl`), surface it verbatim — never rewrite or strip it.
+2. Only when you actually want to link a specific entity (or the user asks for a link) and it has no `_posthogUrl`, call `generate-app-url` and surface the `url` verbatim — don't hand-write slugs or retype IDs into paths, both are easy to get wrong. Don't fetch a link just because a result has an ID.
+3. Only for genuinely static pages not covered by `generate-app-url` (some settings / data-management pages), build the link from the Base URL in the active-environment block (don't double-prefix):
+   - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`.
+   - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
