@@ -1,9 +1,23 @@
+import { Counter } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { Team } from '~/types'
+
+import { EncryptedFields } from '../../utils/encryption-utils'
+
+// Nonzero means a flow's encrypted secret inputs couldn't be decrypted (most likely Fernet key skew
+// between Django and the workers, or a corrupt blob). The flow still runs, but its secret-input steps
+// run without their credentials, so this is worth alerting on.
+const counterEncryptedInputsDecryptFailed = new Counter({
+    name: 'cdp_hogflow_encrypted_inputs_decrypt_failed',
+    help: 'A hog flow encrypted_inputs blob could not be decrypted; the flow runs without its secrets',
+})
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -21,6 +35,7 @@ const HOG_FLOW_FIELDS = [
     'exit_condition',
     'edges',
     'actions',
+    'encrypted_inputs',
     'abort_action',
     'billable_action_types',
     'variables',
@@ -35,7 +50,8 @@ export class HogFlowManagerService {
 
     constructor(
         private postgres: PostgresRouter,
-        private pubSub: PubSub
+        private pubSub: PubSub,
+        private encryptedFields: EncryptedFields
     ) {
         // The reload-hog-flows pub/sub below is the primary invalidation; these ages bound how
         // stale a worker can run when it misses the publish (pod restart, Redis blip). Live edits
@@ -181,8 +197,65 @@ export class HogFlowManagerService {
                     }
                 }
             }
+            this.mergeEncryptedInputs(item)
             acc[item.id] = item
             return acc
         }, {})
+    }
+
+    // Decrypts `encrypted_inputs` and folds each action's secret inputs back into
+    // `action.config.inputs` so the executor sees a whole config. `encrypted_inputs` is authoritative:
+    // if a key also appears in plaintext `actions` (a row not yet re-saved since encryption shipped),
+    // the encrypted value takes precedence, so both shapes resolve to the right value.
+    private mergeEncryptedInputs(item: HogFlow): void {
+        const raw = item.encrypted_inputs as unknown
+
+        let decrypted: Record<string, Record<string, unknown>> | undefined
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            // The sql lib occasionally hands back an already-parsed object
+            decrypted = raw as Record<string, Record<string, unknown>>
+        } else if (typeof raw === 'string' && raw) {
+            try {
+                const plaintext = this.encryptedFields.decrypt(raw)
+                if (plaintext) {
+                    decrypted = parseJSON(plaintext)
+                }
+            } catch (error) {
+                // The blob is dropped below and the flow runs without its secrets (fail-open, matching
+                // HogFunctionManagerService). The counter makes the failure alertable - the most likely
+                // cause is Fernet key skew between Django and the workers.
+                logger.warn('[HogFlowManager]', 'Could not decrypt encrypted inputs - flow will run without them', {
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+                counterEncryptedInputsDecryptFailed.inc()
+                captureException(error)
+            }
+        }
+
+        // Drop the encrypted blob from the in-memory flow either way - downstream reads inputs off
+        // `action.config.inputs`, and this keeps the ciphertext out of anything that logs the flow.
+        delete item.encrypted_inputs
+
+        if (!decrypted) {
+            return
+        }
+
+        for (const action of item.actions ?? []) {
+            const actionSecrets = decrypted[action.id]
+            if (!actionSecrets || !('config' in action)) {
+                continue
+            }
+            const config = action.config as { inputs?: Record<string, unknown> }
+            config.inputs = { ...config.inputs, ...actionSecrets }
+
+            // The top-level `trigger` is derived from the trigger action and is stripped of secrets
+            // the same way. The source-webhook consumer builds its function from `hogFlow.trigger`
+            // (not the action), so re-merge the trigger action's secrets there too or a webhook
+            // trigger's secret auth header would be missing at runtime.
+            if (action.type === 'trigger' && item.trigger && 'inputs' in item.trigger) {
+                const trigger = item.trigger as { inputs?: Record<string, unknown> }
+                trigger.inputs = { ...trigger.inputs, ...actionSecrets }
+            }
+        }
     }
 }
