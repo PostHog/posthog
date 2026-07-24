@@ -80,10 +80,8 @@ jobs:
 
     publish:
         name: Publish to crates.io
-        # Depot: ambient sccache WebDAV credentials, so the verify build's dependency
-        # compiles hit the shared cache instead of building cold under the timeout.
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 10
         if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
         permissions:
             contents: read
