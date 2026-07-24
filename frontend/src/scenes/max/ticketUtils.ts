@@ -1,6 +1,32 @@
 import { SupportTicketTargetArea, TARGET_AREA_OPTIONS } from 'lib/components/Support/supportLogic'
 
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
+
+/**
+ * Whether a composer submission is the /ticket slash command.
+ */
+export function isTicketCommand(content: string): boolean {
+    const trimmed = content.trim()
+    return trimmed === '/ticket' || trimmed.startsWith('/ticket ')
+}
+
+/**
+ * Mirrors the support side panel's plan gate (`canEmail` in SidePanelSupport.tsx, minus its
+ * billing-topic bypass): /ticket must not create tickets for orgs the panel would turn away.
+ */
+export function canCreateSupportTicket(billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean {
+    const hasActiveTrial =
+        billing?.trial?.status === 'active' &&
+        (billing.trial.target === 'boost' || billing.trial.target === 'scale' || billing.trial.target === 'enterprise')
+    return (
+        billing?.subscription_level === 'paid' ||
+        billing?.subscription_level === 'custom' ||
+        hasActiveTrial ||
+        isCurrentOrganizationNew
+    )
+}
 
 export interface TicketSummaryData {
     summary?: string
@@ -67,7 +93,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     const isInitialTicketPrompt =
         firstMessage?.type === 'human' &&
         'content' in firstMessage &&
-        firstMessage.content.startsWith('/ticket') &&
+        isTicketCommand(firstMessage.content) &&
         lastMessage?.type === 'ai' &&
         'content' in lastMessage &&
         lastMessage.content.includes("I'll help you create a support ticket")
@@ -107,7 +133,7 @@ export function getTicketSummaryData(
     let ticketCommandIndex = -1
     for (let i = threadGrouped.length - 1; i >= 0; i--) {
         const msg = threadGrouped[i]
-        if (msg?.type === 'human' && 'content' in msg && msg.content.startsWith('/ticket')) {
+        if (msg?.type === 'human' && 'content' in msg && isTicketCommand(msg.content)) {
             ticketCommandIndex = i
             break
         }

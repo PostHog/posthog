@@ -1,5 +1,14 @@
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
-import { appendTicketMetadata, composeTicketBody, getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
+import {
+    appendTicketMetadata,
+    canCreateSupportTicket,
+    composeTicketBody,
+    getTicketSummaryData,
+    isTicketCommand,
+    parseTicketTargetArea,
+} from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
@@ -11,6 +20,17 @@ const DENIAL =
 
 describe('ticketUtils', () => {
     describe('getTicketSummaryData', () => {
+        it('does not treat a near-miss like /tickets as a ticket command', () => {
+            const thread = [
+                human('How do I create an insight?'),
+                ai('You can create an insight by...'),
+                human('/tickets'),
+                ai("/tickets isn't a recognized slash command. You might be looking for /ticket (singular)."),
+            ]
+
+            expect(getTicketSummaryData(thread, false)).toBeNull()
+        })
+
         it('does not treat an eligibility denial as a ticket summary', () => {
             const thread = [
                 human('How do I create an insight?'),
@@ -46,6 +66,70 @@ describe('ticketUtils', () => {
                 messageIndex: 3,
                 targetArea: 'session_replay',
             })
+        })
+    })
+
+    describe('canCreateSupportTicket', () => {
+        const billing = (partial: Partial<BillingType>): BillingType => partial as BillingType
+
+        it.each([
+            ['paid subscription', billing({ subscription_level: 'paid' }), false, true],
+            ['custom subscription', billing({ subscription_level: 'custom' }), false, true],
+            [
+                'free with active boost trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active scale trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'scale' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active enterprise trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'enterprise' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with expired trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'expired', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                false,
+            ],
+            ['free without trial', billing({ subscription_level: 'free' }), false, false],
+            ['free but organization is new', billing({ subscription_level: 'free' }), true, true],
+            ['billing not loaded, organization not new', null, false, false],
+            ['billing not loaded, organization new', null, true, true],
+        ])('%s', (_name, billingValue, isOrgNew, expected) => {
+            expect(canCreateSupportTicket(billingValue, isOrgNew)).toBe(expected)
+        })
+    })
+
+    describe('isTicketCommand', () => {
+        it.each([
+            ['/ticket', true],
+            ['/ticket my recordings are broken', true],
+            ['  /ticket  ', true],
+            ['/tickets', false],
+            ['/feedback', false],
+            ['tell me about /ticket', false],
+        ])('%s', (content, expected) => {
+            expect(isTicketCommand(content)).toBe(expected)
         })
     })
 
