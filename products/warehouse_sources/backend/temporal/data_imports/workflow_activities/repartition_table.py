@@ -38,10 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    MAX_REPARTITION_TOTAL_FAILURES,
+    REPARTITION_ABANDON_BACKOFF_SECONDS,
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
     is_auto_repartition_enabled,
+    is_repartition_backing_off,
     maybe_flag_for_repartition,
     target_partition_bytes,
 )
@@ -127,6 +130,11 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
     if not enabled:
         return False
     if schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return False
+    # A table parked by the circuit breaker stays skipped until its backoff elapses, so it stops paying
+    # for a live-size measurement (and the rewrite it would trigger) every sync. Once the backoff is up
+    # this returns True again and detection re-evaluates it, clearing the marker.
+    if is_repartition_backing_off(schema):
         return False
     return True
 
@@ -346,6 +354,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     )
     capture_repartition_event(event, props)
     outcome = result.get("outcome")
+    if outcome == "completed":
+        # A completed rewrite is genuine progress, so clear the cumulative failure counter that drives
+        # the abandonment circuit breaker — a table that fails again later starts from a clean slate.
+        schema.clear_repartition_failure_count()
     logger.info(
         f"repartition: finished outcome={outcome} duration_seconds={duration}",
         outcome=outcome,
@@ -362,13 +374,16 @@ def _handle_failure(
     claim_token: str,
     logger: FilteringBoundLogger,
 ) -> str:
-    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
+    """Record a failed attempt; clear the current target after MAX_REPARTITION_ATTEMPTS, and park the
+    whole table after MAX_REPARTITION_TOTAL_FAILURES cumulative failures.
 
-    Returns the metric outcome: "failed" normally, or "superseded" when the authoritative post-refresh
-    read shows a newer attempt now owns the claim. `_still_claimant` is conservative and reports True on
-    a transient DB blip, so a zombie could reach here after a newer claimant already finished; the
-    refresh below is the authoritative read (the DB is reachable again), so re-checking the claim here
-    stops us recording a spurious failure and re-queueing `repartition_pending` the newer attempt cleared.
+    Returns the metric outcome: "failed" normally, "abandoned" when the cumulative circuit breaker
+    tripped and the table was parked with a backoff, or "superseded" when the authoritative
+    post-refresh read shows a newer attempt now owns the claim. `_still_claimant` is conservative and
+    reports True on a transient DB blip, so a zombie could reach here after a newer claimant already
+    finished; the refresh below is the authoritative read (the DB is reachable again), so re-checking
+    the claim here stops us recording a spurious failure and re-queueing `repartition_pending` the newer
+    attempt cleared.
     """
     schema.refresh_from_db(fields=["sync_type_config"])
     claim = schema.repartition_claim
@@ -377,16 +392,34 @@ def _handle_failure(
         return "superseded"
     pending = schema.repartition_pending or pending or {}
     attempts = int(pending.get("attempts", 0)) + 1
+    # Cumulative across targets, unlike `attempts` (which detection resets whenever it re-flags). This
+    # is what actually bounds a perpetually-failing table.
+    total_failures = schema.increment_repartition_failure_count()
 
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
         {
             "trigger_reason": trigger_reason,
             "attempts": attempts,
+            "total_failures": total_failures,
             "error_type": type(error).__name__,
             "error_message": str(error)[:1000],
         }
     )
+
+    if total_failures >= MAX_REPARTITION_TOTAL_FAILURES:
+        # Circuit breaker: the rewrite has failed too many times across targets. Park the table
+        # (clearing pending/swap/claim) and back off so it stops re-attempting the always-failing
+        # rewrite every sync; detection re-evaluates it once the backoff elapses.
+        props["abandoned"] = True
+        schema.reset_repartition_state(
+            reason="max_total_failures",
+            last_error=f"{type(error).__name__}: {error}",
+            backoff_seconds=REPARTITION_ABANDON_BACKOFF_SECONDS,
+        )
+        capture_repartition_event("warehouse_repartition_abandoned", props)
+        capture_exception(error)
+        return "abandoned"
 
     if attempts >= MAX_REPARTITION_ATTEMPTS:
         props["final"] = True

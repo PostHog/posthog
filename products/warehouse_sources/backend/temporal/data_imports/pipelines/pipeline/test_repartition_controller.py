@@ -4,9 +4,11 @@ import datetime
 import tempfile
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -95,10 +97,10 @@ class TestRepartitionDetection:
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
 
-    def test_unpartitioned_table_flags_auto_target_scheme(self, team):
-        # An unpartitioned table's target legitimately has mode None (auto-detect at rewrite time),
-        # but the flagged event must report "auto" — a null here NULL-poisons dashboard strings —
-        # while the pending target must keep mode None so the rewrite still auto-detects.
+    def test_unpartitioned_table_flags_concrete_md5_target(self, team):
+        # An unpartitioned table with only a string/int key (no datetime cursor) is flagged with a
+        # concrete md5 target — not mode None auto-detect, which can't size md5 and fails on a string
+        # key. The flagged event reports the concrete scheme so it's never a null-poisoned "auto".
         schema = _make_schema(team, {"primary_key_columns": ["id"]})
         with tempfile.TemporaryDirectory() as d:
             delta = _write_unpartitioned_delta(f"{d}/t")
@@ -112,9 +114,10 @@ class TestRepartitionDetection:
         schema.refresh_from_db()
         pending = schema.repartition_pending
         assert pending is not None
-        assert pending["partition_mode"] is None
+        assert pending["partition_mode"] == "md5"
+        assert pending["partition_count"] >= 1
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
-        assert capture.call_args.args[1]["partition_mode_after"] == "auto"
+        assert capture.call_args.args[1]["partition_mode_after"] == "md5"
 
     def test_within_budget_records_size_but_does_not_flag(self, team):
         schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2})
@@ -187,7 +190,7 @@ class TestRepartitionDetection:
 
     def test_unpartitioned_over_budget_with_keys_enables_partitioning(self, team):
         # An unpartitioned table that's over budget but HAS a usable key must be flagged to become
-        # partitioned (partition_mode=None → auto-detect on the rewrite), not skipped — this is the
+        # partitioned via a concrete md5 target over that key, not skipped — this is the
         # not-partitioned → partitioned transition.
         schema = _make_schema(team, {"primary_key_columns": ["id"]})
         with tempfile.TemporaryDirectory() as d:
@@ -201,8 +204,68 @@ class TestRepartitionDetection:
 
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
-        assert schema.repartition_pending["partition_mode"] is None
+        assert schema.repartition_pending["partition_mode"] == "md5"
         assert schema.repartition_pending["partition_keys"] == ["id"]
+
+    @freeze_time("2024-01-01")
+    @pytest.mark.parametrize("elapsed", [False, True])
+    def test_abandoned_backoff_gates_detection(self, team, elapsed):
+        # The circuit breaker's two halves. While the backoff is live, detection must skip an over-budget
+        # table entirely so it stops re-flagging the always-failing rewrite every sync. Once the backoff
+        # elapses, the marker is cleared and the table is evaluated fresh (flagged here, since it's over
+        # budget) — the auto-recovery path that lets a table fixed out-of-band heal without operator action.
+        retry_after = timezone.now() + (datetime.timedelta(days=-1) if elapsed else datetime.timedelta(days=1))
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": 2,
+                "partitioning_keys": ["id"],
+                "repartition_failure_count": ctrl.MAX_REPARTITION_TOTAL_FAILURES,
+                "repartition_abandoned": {"reason": "max_total_failures", "retry_after": retry_after.isoformat()},
+            },
+        )
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        if elapsed:
+            assert schema.repartition_abandoned is None
+            assert schema.repartition_failure_count == 0
+            assert schema.repartition_pending is not None
+        else:
+            assert schema.repartition_abandoned is not None
+            assert schema.repartition_pending is None
+
+
+@pytest.mark.parametrize(
+    "marker,expected",
+    [
+        pytest.param(None, False, id="no_marker"),
+        pytest.param("future", True, id="future_retry_after"),
+        pytest.param("past", False, id="elapsed_retry_after"),
+        pytest.param({"reason": "x"}, True, id="missing_retry_after_fails_safe"),
+        pytest.param({"retry_after": "not-a-date"}, True, id="unparseable_retry_after_fails_safe"),
+    ],
+)
+@freeze_time("2024-01-01")
+def test_is_repartition_backing_off(marker, expected):
+    # The gate the detection paths consult. A missing or unparseable `retry_after` must fail safe to
+    # "still backing off" so a malformed marker can't silently reopen the rewrite loop.
+    if marker == "future":
+        marker = {"retry_after": (timezone.now() + datetime.timedelta(days=1)).isoformat()}
+    elif marker == "past":
+        marker = {"retry_after": (timezone.now() - datetime.timedelta(days=1)).isoformat()}
+    sync_type_config = {} if marker is None else {"repartition_abandoned": marker}
+    schema = ExternalDataSchema(sync_type_config=sync_type_config)
+    assert ctrl.is_repartition_backing_off(schema) is expected
 
 
 class TestRepartitionOOMHistoryTrigger:
@@ -442,6 +505,58 @@ class TestRepartitionActivity:
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    def test_abandons_after_max_total_failures(self, team):
+        # The loop fix. The per-target `attempts` cap can't stop a perpetually-failing table because
+        # detection re-flags a fresh target (attempts=0) every run. Here the table is one short of the
+        # cumulative cap and carries a just-re-flagged target (attempts=0): this failure trips the
+        # breaker, which clears every in-flight marker (pending/swap/claim) and parks the table with a
+        # week-out backoff instead of leaving it to re-attempt the rewrite next sync.
+        schema = _make_schema(team, {"repartition_failure_count": ctrl.MAX_REPARTITION_TOTAL_FAILURES - 1})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "oom_history",
+                "attempts": 0,
+            }
+        )
+        capture = self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.repartition_swap is None
+        assert schema.repartition_claim is None
+        assert schema.repartition_failure_count == 0
+        marker = schema.repartition_abandoned
+        assert marker is not None
+        assert marker["reason"] == "max_total_failures"
+        retry_after = datetime.datetime.fromisoformat(marker["retry_after"])
+        # The backoff is genuinely applied (roughly a week out), not a trivial few seconds.
+        assert retry_after > datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=6)
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_abandoned" in emitted
+        assert "warehouse_repartition_failed" not in emitted
+
+    def test_success_clears_failure_count(self, team):
+        # A completed rewrite is real progress, so the cumulative failure counter must reset — otherwise a
+        # table that oscillates failure/success slowly accumulates failures across successes and is
+        # eventually abandoned despite currently being healthy.
+        schema = _make_schema(team, {"repartition_failure_count": ctrl.MAX_REPARTITION_TOTAL_FAILURES - 1})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "test",
+                "attempts": 0,
+            }
+        )
+        self._run(self._inputs(team, schema), AsyncMock(return_value={"outcome": "completed", "row_count": 6}))
+        schema.refresh_from_db()
+        assert schema.repartition_failure_count == 0
+        assert schema.repartition_abandoned is None
 
     @pytest.mark.parametrize("cancel_exc", [asyncio.CancelledError(), CancelledError()])
     def test_cancellation_propagates_and_is_not_recorded(self, team, cancel_exc):

@@ -200,12 +200,81 @@ class TestSelectRepartitionTarget:
                 1000,
                 {"partition_mode": "datetime", "partition_format": "hour"},
             ),
+            # At the finest datetime tier and still over budget, but with a primary key that has
+            # within-date cardinality: escalate to composite datetime+md5 rather than parking. Keeps the
+            # day bucket, splits it into ceil(5000/1000)=5 md5 sub-buckets over the non-date key.
             (
-                "unpartitioned_with_keys_enables_partitioning",
+                "datetime_finest_tier_with_pk_escalates_to_datetime_md5",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["segments_date"],
+                    "primary_key_columns": ["ad_id", "segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 5,
+                    "partition_keys": ["segments_date", "ad_id"],
+                },
+            ),
+            # Finest tier but the only primary key IS the date — md5 over it can't split a single day, so
+            # there's nothing to gain. Stays parked (the circuit breaker / alert handles it).
+            (
+                "datetime_finest_tier_pk_only_date_stays_parked",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["segments_date"],
+                    "primary_key_columns": ["segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                None,
+            ),
+            # An existing composite table whose heaviest sub-bucket is still over budget grows the
+            # sub-bucket count: max(current+1, ceil(current * max_bytes / target)) = max(5, 4*5000/1000)=20.
+            (
+                "datetime_md5_over_budget_grows_subcount",
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 4,
+                    "partitioning_keys": ["segments_date", "ad_id"],
+                },
+                {"2024-01-01_0": 5000, "2024-01-01_1": 100},
+                1000,
+                {"partition_mode": "datetime_md5", "partition_count": 20},
+            ),
+            # Unpartitioned + keys but no datetime cursor: md5 over the keys, sized in one shot from the
+            # measured total (5000/1000 = 5) so a single rewrite lands under budget. An explicit scheme,
+            # not mode=None auto-detect, so the rewrite can't fail on a string-only key.
+            (
+                "unpartitioned_with_keys_falls_back_to_md5",
                 {"partition_mode": None, "primary_key_columns": ["id"]},
                 {None: 5000},
                 1000,
-                {"partition_mode": None, "partition_keys": ["id"]},
+                {"partition_mode": "md5", "partition_count": 5, "partition_keys": ["id"]},
+            ),
+            # Unpartitioned but with a datetime incremental field: prefer datetime (keeps time pruning),
+            # starting a tier finer than the coarse default since the table is already over budget.
+            (
+                "unpartitioned_with_datetime_cursor_prefers_datetime",
+                {
+                    "partition_mode": None,
+                    "primary_key_columns": ["id"],
+                    "incremental_field": "received_at",
+                    "incremental_field_type": "timestamp",
+                },
+                {None: 5000},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "day", "partition_keys": ["received_at"]},
             ),
             (
                 "unpartitioned_without_keys_noop",

@@ -260,6 +260,38 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 staged["partitioning_keys_override"] = None
             staged["partition_count_override"] = new_count
             label_bits.append(f"partition_count={new_count}")
+        elif new_mode == "datetime_md5":
+            # Composite: a datetime bucket (first key) split into md5 sub-buckets over the remaining
+            # keys. Needs the date column first plus at least one further key, a datetime format, and
+            # a sub-bucket count.
+            if keys:
+                if len(keys) < 2:
+                    messages.error(
+                        request,
+                        "datetime_md5 mode needs at least two partitioning keys — the date/timestamp "
+                        "column to bucket on first, then one or more keys to split each date by.",
+                    )
+                    return redirect(_change_url(schema_id))
+                staged["partitioning_keys_override"] = keys
+                label_bits.append(f"keys={keys}")
+            elif mode_changed:
+                messages.error(
+                    request,
+                    "Switching to datetime_md5 needs at least two partitioning keys — the date/timestamp "
+                    "column to bucket on first, then one or more keys to split each date by.",
+                )
+                return redirect(_change_url(schema_id))
+            new_format = request.POST.get("partition_format")
+            if new_format not in PARTITION_FORMAT_CHOICES:
+                messages.error(request, f"Invalid partition_format: {new_format!r}.")
+                return redirect(_change_url(schema_id))
+            staged["partition_format"] = new_format
+            label_bits.append(f"format={new_format!r}")
+            new_count = _parse_positive_int(request, "partition_count", "partition_count")
+            if new_count is None:
+                return redirect(_change_url(schema_id))
+            staged["partition_count_override"] = new_count
+            label_bits.append(f"partition_count={new_count}")
         else:
             # Exhaustive over PartitionMode; assert_never makes mypy enforce an update here if a
             # new mode is ever added.

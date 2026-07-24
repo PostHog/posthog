@@ -324,6 +324,20 @@ def select_repartition_target(
             partition_keys=keys, trigger_reason="", partition_mode="md5", partition_count=new_count
         ), "selected"
 
+    if mode == "datetime_md5":
+        # Already composite (a datetime tier split by md5 sub-buckets) but a sub-bucket is still over
+        # budget: grow the sub-bucket count. Sized from the largest composite partition so a date's
+        # heaviest sub-bucket lands near budget after the rewrite.
+        current = schema.partition_count or 1
+        new_count = max(current + 1, math.ceil(current * max_bytes / target_partition_bytes))
+        return RepartitionTarget(
+            partition_keys=keys,
+            trigger_reason="",
+            partition_mode="datetime_md5",
+            partition_format=schema.partition_format,
+            partition_count=new_count,
+        ), "selected"
+
     if mode == "numerical":
         current_size = schema.partition_size
         if not current_size:
@@ -345,8 +359,26 @@ def select_repartition_target(
         # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
         ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
         if current_index >= ceiling_index:
-            # Already at the finest usable tier — can't go finer. Caller alerts.
-            return None, "datetime_at_finest_tier"
+            # At the finest usable datetime tier and a single bucket is still over budget. Escalate to a
+            # composite datetime+md5 scheme: keep the date bucket (so incremental merges still touch only
+            # recent dates) but split each date into md5 sub-buckets over the primary keys. Needs primary
+            # keys with within-date cardinality — a key that's only the date itself can't split a date.
+            date_key = keys[0] if keys else None
+            md5_keys = [
+                column
+                for column in (schema.primary_key_columns or [])
+                if date_key is None or normalize_column_name(column) != normalize_column_name(date_key)
+            ]
+            if date_key is None or not md5_keys:
+                return None, "datetime_at_finest_tier"
+            subcount = max(2, math.ceil(max_bytes / target_partition_bytes))
+            return RepartitionTarget(
+                partition_keys=[date_key, *md5_keys],
+                trigger_reason="",
+                partition_mode="datetime_md5",
+                partition_format=current_format,
+                partition_count=subcount,
+            ), "selected"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
@@ -354,10 +386,27 @@ def select_repartition_target(
             partition_format=DATETIME_FORMAT_TIERS[current_index + 1],
         ), "selected"
 
-    # Unpartitioned but over budget: attempt to enable partitioning via auto-detection. Needs keys.
+    # Unpartitioned but over budget: enable partitioning. Needs something to bucket on.
     if not keys:
         return None, "unpartitionable_no_keys"
-    return RepartitionTarget(partition_keys=keys, trigger_reason="", partition_mode=None), "selected"
+    # Prefer the incremental timestamp field as a datetime key (keeps time-range pruning); otherwise md5
+    # over the keys, sized in one shot from the measured total so a single rewrite lands under budget.
+    # Passing an explicit scheme rather than mode=None means the rewrite never has to auto-detect and so
+    # can't fail on a table whose only key is a string/UUID.
+    datetime_types = (IncrementalFieldType.Date, IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp)
+    if schema.incremental_field is not None and schema.incremental_field_type in datetime_types:
+        # Start a tier finer than the "week" default: the table is already over budget, so the coarse
+        # tiers would just waste a rewrite. Tier-stepping refines further on later cycles if needed.
+        return RepartitionTarget(
+            partition_keys=[schema.incremental_field],
+            trigger_reason="",
+            partition_mode="datetime",
+            partition_format="day",
+        ), "selected"
+    new_count = max(1, math.ceil(total_bytes / target_partition_bytes))
+    return RepartitionTarget(
+        partition_keys=keys, trigger_reason="", partition_mode="md5", partition_count=new_count
+    ), "selected"
 
 
 def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
