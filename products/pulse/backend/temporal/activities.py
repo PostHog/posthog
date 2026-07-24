@@ -30,7 +30,12 @@ _DEFAULT_LOOKBACK_DAYS = 7
 # crowd out actionable items. The assert fails loudly at import if a new SourceItemKind lacks a
 # priority (same import-time enum-coverage guard the KIND_DESCRIPTIONS assert uses) — it would
 # otherwise silently sort last.
-KIND_PRIORITY: dict[str, int] = {SourceItemKind.HEALTH: 0, SourceItemKind.MOVEMENT: 1, SourceItemKind.CONTEXT: 2}
+KIND_PRIORITY: dict[str, int] = {
+    SourceItemKind.HEALTH: 0,
+    SourceItemKind.SIGNAL: 1,
+    SourceItemKind.MOVEMENT: 2,
+    SourceItemKind.CONTEXT: 3,
+}
 assert set(KIND_PRIORITY) == set(SourceItemKind)
 
 
@@ -155,9 +160,7 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         end_date=resolved.end_date,
         lookback_days=resolved.lookback_days,
     )
-    brief = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items
-    )
+    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(brief=brief, out=out, items=items)
     return brief.status
 
 
