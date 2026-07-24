@@ -77,6 +77,7 @@ import {
     useLocalWizardRunActive,
 } from 'scenes/onboarding/shared/wizard-sync/InstallationProgressView'
 import { WizardCloudRunBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCloudRunBlock'
+import { wizardCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/wizardCloudRunLogic'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -1601,6 +1602,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
     const { openToolSetupModal } = useActions(quickstartLogic)
 
     const isLocalRunActive = useLocalWizardRunActive()
+    const { isGithubConnected, selectedRepository } = useValues(wizardCloudRunLogic)
     const offerCloud = cloudRunEnabled && isCloudOrDev
     const [mode, setMode] = useState<QuickstartInstallMode>(offerCloud ? 'cloud' : 'local')
     const cloudRunPinned = !!activeCloudRun
@@ -1659,9 +1661,13 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                     <InstallPathTimeline
                         steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
                         activeIndex={
-                            effectiveMode === 'cloud' && cloudRunPinned
-                                ? 2
-                                : effectiveMode === 'local' && isLocalRunActive
+                            effectiveMode === 'cloud'
+                                ? cloudRunPinned
+                                    ? 2
+                                    : selectedRepository || isGithubConnected
+                                      ? 1
+                                      : 0
+                                : isLocalRunActive
                                   ? 1
                                   : 0
                         }
