@@ -66,6 +66,7 @@ export function ScoutCreateButton({
                         overlay: (
                             <LemonButton
                                 fullWidth
+                                size={size}
                                 icon={<IconPlus />}
                                 disabledReason={manualDisabledReason}
                                 onClick={() => setIsManualModalOpen(true)}
