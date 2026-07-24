@@ -17,7 +17,7 @@ import posthog from 'posthog-js'
 
 import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -476,7 +476,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     current_url_length: window.location.href.length,
                     is_new_ticket: values.view === 'new',
                 })
-                lemonToast.error('Failed to send message. Please try again.')
+                lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
             } finally {
                 actions.setMessageSending(false)
             }
