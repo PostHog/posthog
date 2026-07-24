@@ -1571,8 +1571,10 @@ class TestQueryUsageReportSQL:
         sponsor_params = mock_sync_execute.call_args_list[1].args[1]
         assert "max(relay) AS has_verified_relay" in base_query
         assert "argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id" in sponsor_query
-        assert "countIf(sponsors.sponsor_timestamp <= relays.relay_timestamp) AS generation_count" in sponsor_query
-        assert "relay_rank <= generation_count * %(allowance)s" in sponsor_query
+        assert "sum(balance_delta) OVER" in sponsor_query
+        assert "min(cumulative_balance) OVER" in sponsor_query
+        assert "cumulative_balance >= least(ifNull(previous_minimum, 0), 0)" in sponsor_query
+        assert "UNION ALL" in sponsor_query
         assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
         assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
         assert sponsor_params["relayed_team_ids"] == [1]
@@ -6083,6 +6085,67 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         self.assertEqual(ai_count(), baseline_count + 1, "the later generation cannot sponsor the earlier span")
+
+    def test_gateway_sponsorship_does_not_carry_relay_debt_forward(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "chronological-sponsored-trace"
+
+        def create_generation(request_id: str, timestamp: datetime) -> None:
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=timestamp,
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+
+        def create_relays(prefix: str, count: int, timestamp: datetime) -> None:
+            for index in range(count):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{prefix}-{index}",
+                    },
+                )
+
+        create_relays("before-sponsor", 1, self.begin + relativedelta(minutes=30))
+        create_generation("first-request", self.begin + relativedelta(hours=1))
+        create_relays(
+            "first-allowance",
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1,
+            self.begin + relativedelta(hours=2),
+        )
+        create_generation("second-request", self.begin + relativedelta(hours=3))
+        create_relays(
+            "second-allowance",
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            self.begin + relativedelta(hours=4),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 2,
+            "pre-sponsor and over-allowance relays stay billable without consuming later allowance",
+        )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""
