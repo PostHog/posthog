@@ -308,6 +308,7 @@ export function EditAlertModalV2({
                 trendInterval={trendInterval}
                 nextPlannedEvaluationStale={nextPlannedEvaluationStale}
                 canCheckOngoingInterval={can_check_ongoing_interval}
+                projectTimezone={projectTimezone}
                 onSetAlertFormValue={setAlertFormValue}
             />
             <AlertTimezoneNotice

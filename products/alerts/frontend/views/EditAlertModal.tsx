@@ -400,6 +400,7 @@ function LegacyEditAlertModal({
                                         trendInterval={trendInterval}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
                                         canCheckOngoingInterval={can_check_ongoing_interval}
+                                        projectTimezone={projectTimezone}
                                         onSetAlertFormValue={setAlertFormValue}
                                     />
                                 </div>

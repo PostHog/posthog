@@ -42,16 +42,21 @@ export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Elemen
 interface AlertNextEvaluationStatusProps {
     children: ReactNode
     loading?: boolean
+    label?: string
 }
 
-export function AlertNextEvaluationStatus({ children, loading = false }: AlertNextEvaluationStatusProps): JSX.Element {
+export function AlertNextEvaluationStatus({
+    children,
+    loading = false,
+    label = 'Next planned evaluation',
+}: AlertNextEvaluationStatusProps): JSX.Element {
     return (
         <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
             <IconClock
                 className={`size-4 shrink-0 text-muted motion-reduce:animate-none${loading ? ' animate-spin' : ''}`}
                 aria-hidden
             />
-            <span className="shrink-0">Next planned evaluation:</span>
+            <span className="shrink-0">{label}:</span>
             {children}
         </div>
     )
