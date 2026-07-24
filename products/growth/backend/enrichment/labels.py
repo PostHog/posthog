@@ -23,7 +23,7 @@ UNKNOWN: Literal["unknown"] = "unknown"
 
 
 class LabelVerdict(BaseModel):
-    ai_pilled: bool
+    verdict: bool
     confidence: float = Field(ge=0, le=1)
     reasoning: str = ""
 
@@ -55,10 +55,13 @@ def build_messages(
     # Domain only, never the full address: the signup email's local part is personal data
     # with no classification signal, and nothing else internal sends PII to the gateway.
     system = config.prompt_text.replace("{email}", signup_domain or "unknown")
+    # The verdict key is the label name — the runner serves every label, not just ai_pilled.
     user = (
         "Company data:\n"
         + json.dumps(inputs, indent=2)
-        + '\n\nRespond with a JSON object: {"ai_pilled": boolean, "confidence": number between 0 and 1, '
+        + '\n\nRespond with a JSON object: {"'
+        + config.name
+        + '": boolean, "confidence": number between 0 and 1, '
         '"reasoning": string, one short sentence}.'
     )
     return [
@@ -77,7 +80,9 @@ def _strip_code_fence(raw: str) -> str:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=30), reraise=True)
-def _call_and_parse(config: EnrichmentPromptConfig, messages: list[dict[str, str]], client: OpenAI) -> LabelVerdict:
+def _call_and_parse(
+    config: EnrichmentPromptConfig, messages: list[dict[str, str]], client: OpenAI
+) -> tuple[LabelVerdict, dict[str, Any]]:
     response = client.chat.completions.create(
         model=config.model,
         messages=cast(list[ChatCompletionMessageParam], messages),
@@ -87,7 +92,32 @@ def _call_and_parse(config: EnrichmentPromptConfig, messages: list[dict[str, str
     raw = _strip_code_fence(response.choices[0].message.content or "")
     if not raw:
         raise ValueError("LLM returned an empty response")
-    return LabelVerdict.model_validate(json.loads(raw))
+    data = json.loads(raw)
+    if config.name not in data:
+        raise ValueError(f"LLM response is missing the {config.name!r} verdict key")
+    verdict = LabelVerdict(
+        verdict=data[config.name], confidence=data.get("confidence", 0.0), reasoning=data.get("reasoning", "")
+    )
+    return verdict, _response_meta(response)
+
+
+def _response_meta(response: Any) -> dict[str, Any]:
+    """What the gateway actually served, stamped per result: config.model is an alias the
+    provider can silently repoint, and usage tokens are the raw input to spend-per-config."""
+    meta: dict[str, Any] = {}
+    served_model = getattr(response, "model", None)
+    if isinstance(served_model, str):
+        meta["response_model"] = served_model
+    fingerprint = getattr(response, "system_fingerprint", None)
+    if isinstance(fingerprint, str):
+        meta["system_fingerprint"] = fingerprint
+    usage = getattr(response, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+        meta["prompt_tokens"] = prompt_tokens
+        meta["completion_tokens"] = completion_tokens
+    return meta
 
 
 def classify_payload(
@@ -96,12 +126,19 @@ def classify_payload(
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
     if not payload or payload.get("companyFound") is False:
-        return {"ai_pilled": UNKNOWN, "confidence": 0.0, "reasoning": "missing or empty archived payload"}
+        return {config.name: UNKNOWN, "confidence": 0.0, "reasoning": "missing or empty archived payload"}
 
     inputs = extract_input_fields(payload, config.input_fields)
     messages = build_messages(config, inputs, signup_domain)
-    verdict = _call_and_parse(config, messages, client)
-    return {"ai_pilled": verdict.ai_pilled, "confidence": verdict.confidence, "reasoning": verdict.reasoning}
+    verdict, meta = _call_and_parse(config, messages, client)
+    output: dict[str, Any] = {
+        config.name: verdict.verdict,
+        "confidence": verdict.confidence,
+        "reasoning": verdict.reasoning,
+    }
+    if meta:
+        output["meta"] = meta
+    return output
 
 
 def signup_domain_for_organization(organization: Organization) -> str | None:

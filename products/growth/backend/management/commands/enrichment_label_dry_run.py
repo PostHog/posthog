@@ -31,8 +31,8 @@ def _truncate(value: str, width: int) -> str:
     return value if len(value) <= width else value[: width - 1] + "…"
 
 
-def _verdict_str(ai_pilled: Any) -> str:
-    return "unknown" if ai_pilled == UNKNOWN else str(bool(ai_pilled)).lower()
+def _verdict_str(value: Any) -> str:
+    return "unknown" if value == UNKNOWN else str(bool(value)).lower()
 
 
 class Command(BaseCommand):
@@ -99,8 +99,8 @@ class Command(BaseCommand):
                 self.stdout.write(row_fmt.format(*row))
                 continue
 
-            ai_pilled = verdict.get("ai_pilled")
-            if ai_pilled == UNKNOWN:
+            label_verdict = verdict.get(label)
+            if label_verdict == UNKNOWN:
                 unknown += 1
             else:
                 classified += 1
@@ -108,7 +108,7 @@ class Command(BaseCommand):
             row = [
                 _truncate(company, _COMPANY_WIDTH),
                 _truncate(signup_domain, _DOMAIN_WIDTH) if signup_domain else "-",
-                _verdict_str(ai_pilled),
+                _verdict_str(label_verdict),
                 f"{verdict.get('confidence', 0.0):.2f}",
                 _truncate(str(verdict.get("reasoning", "")), _REASONING_WIDTH),
             ]
@@ -121,7 +121,7 @@ class Command(BaseCommand):
                     .first()
                 )
                 if prior is not None:
-                    row += [_verdict_str(prior.output.get("ai_pilled")), f"{prior.output.get('confidence', 0.0):.2f}"]
+                    row += [_verdict_str(prior.output.get(label)), f"{prior.output.get('confidence', 0.0):.2f}"]
                 else:
                     row += ["-", "-"]
             self.stdout.write(row_fmt.format(*row))

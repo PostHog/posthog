@@ -23,13 +23,11 @@ _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichmen
 
 
 def _mock_llm_client(
-    ai_pilled: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software"
+    verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", label: str = "test_label"
 ) -> MagicMock:
     client = MagicMock()
     response = MagicMock()
-    response.choices[0].message.content = json.dumps(
-        {"ai_pilled": ai_pilled, "confidence": confidence, "reasoning": reasoning}
-    )
+    response.choices[0].message.content = json.dumps({label: verdict, "confidence": confidence, "reasoning": reasoning})
     client.chat.completions.create.return_value = response
     return client
 
@@ -55,7 +53,7 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
         result = classify_payload(config, payload, "example.com", client)
 
         # Missing data must never come back as a confident false verdict.
-        assert result["ai_pilled"] == UNKNOWN
+        assert result["test_label"] == UNKNOWN
         client.chat.completions.create.assert_not_called()
 
 
@@ -92,6 +90,31 @@ class TestEnrichmentLabelBatch(BaseTest):
         assert result.prompt_hash == config.content_hash
         assert result.model == config.model
         assert result.fetch_id == fetch.id
+
+    def test_output_is_keyed_by_the_label_name_and_stamps_response_meta(self):
+        self._config()
+        self._fetch()
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"test_label": True, "confidence": 0.8, "reasoning": "x"})
+        response.model = "gpt-5-mini-2026-07-01"
+        response.system_fingerprint = "fp_abc"
+        response.usage.prompt_tokens = 900
+        response.usage.completion_tokens = 40
+        client.chat.completions.create.return_value = response
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        output = EnrichmentLabelResult.objects.get(label_name="test_label").output
+        assert output["test_label"] is True
+        assert "ai_pilled" not in output
+        assert output["meta"] == {
+            "response_model": "gpt-5-mini-2026-07-01",
+            "system_fingerprint": "fp_abc",
+            "prompt_tokens": 900,
+            "completion_tokens": 40,
+        }
 
     def test_rerun_is_idempotent_and_makes_no_further_llm_calls(self):
         self._config()
@@ -192,7 +215,7 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
             prompt_version=config.version,
             prompt_hash=config.content_hash,
             model=config.model,
-            output={"ai_pilled": True, "confidence": 0.9, "reasoning": "x"},
+            output={"test_label": True, "confidence": 0.9, "reasoning": "x"},
         )
 
     @parameterized.expand(
@@ -281,7 +304,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
             prompt_version=config.version,
             prompt_hash=config.content_hash,
             model=config.model,
-            output={"ai_pilled": True, "confidence": 0.9, "reasoning": "x"},
+            output={"test_label": True, "confidence": 0.9, "reasoning": "x"},
         )
         self.user.is_staff = True
         self.user.save()

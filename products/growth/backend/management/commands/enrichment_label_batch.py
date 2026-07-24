@@ -103,7 +103,7 @@ class Command(BaseCommand):
                 return
             with counts_lock:
                 counts["succeeded"] += 1
-                if output.get("ai_pilled") == UNKNOWN:
+                if output.get(label) == UNKNOWN:
                     counts["unknown"] += 1
 
         def _process_threaded(fetch: OrganizationEnrichmentFetch) -> None:

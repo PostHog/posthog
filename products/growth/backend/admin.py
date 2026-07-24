@@ -442,7 +442,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             return {
                 "company": company,
                 "domain": signup_domain,
-                "verdict": str(verdict.get("ai_pilled")).lower(),
+                "verdict": str(verdict.get(config.name)).lower(),
                 "confidence": f"{verdict.get('confidence', 0.0):.2f}",
                 "reasoning": verdict.get("reasoning", ""),
             }
@@ -575,4 +575,4 @@ class EnrichmentLabelResultAdmin(admin.ModelAdmin):
 
     @admin.display(description="Verdict")
     def verdict(self, result: EnrichmentLabelResult) -> str:
-        return str(result.output.get("ai_pilled", "?"))
+        return str(result.output.get(result.label_name, "?"))
