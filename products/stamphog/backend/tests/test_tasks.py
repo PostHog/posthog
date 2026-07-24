@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.utils.dateparse import parse_datetime
 
 from posthog.models import Project, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
@@ -24,6 +25,9 @@ from products.tasks.backend.facade.contracts import SignalImplementationRunDTO
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "1001"
+# The instance's PostHog Code App slug: genuine self-driving PRs are authored by <slug>[bot], the
+# identity `_is_self_driving_pr` requires. The self-driving fixtures below author as this bot.
+APP_SLUG = "posthog-code"
 
 # The registry slot stamphog's webhook carve-out reads its toggle resolver from; patched directly
 # so the real review_hog resolver (registered at app-ready) never runs inside stamphog's tests.
@@ -84,12 +88,16 @@ def _pr_payload(
     return payload
 
 
-def _run_task(payload: dict[str, Any], delivery_id: str, team_id: int, author_permission: str = "write"):
+def _run_task(
+    payload: dict[str, Any], delivery_id: str, team_id: int, author_permission: str = "write", app_slug: str = APP_SLUG
+):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
-    # the author write-permission lookup (a GitHub API call).
+    # the author write-permission lookup (a GitHub API call). The App slug is set so the carve-out's
+    # server-attested identity check can resolve <slug>[bot]; pass "" to exercise the fail-closed path.
     with (
         team_scope(team_id),
+        override_instance_config("GITHUB_APP_SLUG", app_slug),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
@@ -832,6 +840,7 @@ def test_inbox_carve_out_toggle_off_still_dismisses_stale_approvals(team, repo_c
     [
         ({}, 0, 777, True),
         ({"head_repo": "fork/widgets"}, 0, 777, False),
+        ({"author_login": "dependabot[bot]"}, 0, 777, False),
         ({"action": "opened"}, 0, 777, False),
         ({"action": "ready_for_review", "draft": False}, 0, 777, False),
         ({}, 1, 777, False),
@@ -840,6 +849,7 @@ def test_inbox_carve_out_toggle_off_still_dismisses_stale_approvals(team, repo_c
     ids=[
         "synchronize_rereviews",
         "fork_head_is_never_linked",
+        "foreign_bot_is_never_linked",
         "opened_is_the_receiver_legs_job",
         "ready_for_review_keeps_the_draft_verdict",
         "team_mismatch_fails_closed",
@@ -887,10 +897,16 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     mock_execute.assert_not_called()
 
 
-def _run_inbox_task(team_id: int, pr: dict[str, Any] | None, pr_url: str = f"https://github.com/{REPO}/pull/42"):
+def _run_inbox_task(
+    team_id: int,
+    pr: dict[str, Any] | None,
+    pr_url: str = f"https://github.com/{REPO}/pull/42",
+    app_slug: str = APP_SLUG,
+):
     """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client)."""
     with (
         team_scope(team_id),
+        override_instance_config("GITHUB_APP_SLUG", app_slug),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
@@ -906,16 +922,26 @@ def _run_inbox_task(team_id: int, pr: dict[str, Any] | None, pr_url: str = f"htt
     return mock_execute, mock_client
 
 
-def _inbox_pr(state: str = "open", head_sha: str = "sha-1") -> dict[str, Any]:
-    """The REST get_pr shape the receiver-leg task consumes (no webhook payload on this leg)."""
+def _inbox_pr(
+    state: str = "open",
+    head_sha: str = "sha-1",
+    author_login: str = "posthog-code[bot]",
+    user_type: str = "Bot",
+    head_repo: str = REPO,
+) -> dict[str, Any]:
+    """The REST get_pr shape the receiver-leg task consumes (no webhook payload on this leg).
+
+    A real get_pr response carries head.repo.full_name, which the server-attested identity check
+    needs; defaults describe a genuine self-driving PR (App bot author, repo-native head).
+    """
     return {
         "number": 42,
         "state": state,
         "html_url": f"https://github.com/{REPO}/pull/42",
         "title": "feat: self-driving fix",
-        "user": {"login": "posthog-code[bot]", "type": "Bot"},
+        "user": {"login": author_login, "type": user_type},
         "draft": True,
-        "head": {"sha": head_sha, "ref": "posthog-code/fix"},
+        "head": {"sha": head_sha, "ref": "posthog-code/fix", "repo": {"full_name": head_repo}},
         "updated_at": "2026-07-20T00:00:00Z",
     }
 
@@ -1053,6 +1079,31 @@ def test_inbox_receiver_leg_skips_a_closed_pr(team, repo_config):
     # closed PR burns a sandbox to post a verdict nobody can act on.
     _sync_repo_config(team.id, repo_config)
     mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(state="closed"))
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "pr_kwargs,app_slug",
+    [
+        ({"author_login": "dependabot[bot]", "user_type": "Bot"}, APP_SLUG),
+        ({"head_repo": "fork/widgets"}, APP_SLUG),
+        ({"author_login": "human-dev", "user_type": "User"}, APP_SLUG),
+        ({}, ""),
+    ],
+    ids=["foreign_bot", "fork_head", "human_author", "app_slug_unconfigured"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_receiver_leg_refuses_non_self_driving_prs(team, repo_config, pr_kwargs, app_slug):
+    # output.pr_url is caller-writable, so the receiver re-verifies server-attested identity before
+    # stamping inbox provenance: a foreign bot, a fork head, a human author, or an instance with no
+    # App slug configured must never mint an inbox-provenance run (the stamp that flips the engine's
+    # bot/draft bypass). Guards the escalation where a member points a signal-report run at an
+    # arbitrary open PR in a configured repo to win an approve-first review past every gate.
+    _sync_repo_config(team.id, repo_config)
+    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(**pr_kwargs), app_slug=app_slug)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0

@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
 from products.stamphog.backend.facade.enums import (
@@ -1394,16 +1395,19 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
     pr_object["draft"] = True
     pr_object["state"] = "open"
     pr_object["user"]["type"] = "Bot"
+    # Server-attested identity: the receiver requires a repo-native head authored by the App bot.
+    pr_object["head"]["repo"] = {"full_name": REPO}
     recorder.register_pr(REPO, 120, pr_object, _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
 
-    process_inbox_pr_review(
-        team_id=team.id,
-        pr_url=f"https://github.com/{REPO}/pull/120",
-        acting_user_id=777,
-        signal_report_id="rep-1",
-        task_run_id="run-1",
-    )
+    with override_instance_config("GITHUB_APP_SLUG", "posthog-code"):
+        process_inbox_pr_review(
+            team_id=team.id,
+            pr_url=f"https://github.com/{REPO}/pull/120",
+            acting_user_id=777,
+            signal_report_id="rep-1",
+            task_run_id="run-1",
+        )
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
