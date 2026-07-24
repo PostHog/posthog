@@ -1,12 +1,27 @@
-import { render, screen } from '@testing-library/react'
-import { ReactNode } from 'react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { KeyboardEvent, ReactNode } from 'react'
 
 import { AlertNotificationDestinationEditor } from './AlertNotificationDestinationEditor'
 
 jest.mock('@posthog/lemon-ui', () => ({
     LemonButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
     LemonBanner: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    LemonInput: () => <input />,
+    LemonInput: ({
+        onPressEnter,
+        placeholder,
+    }: {
+        onPressEnter?: (event: KeyboardEvent<HTMLInputElement>) => void
+        placeholder?: string
+    }) => (
+        <input
+            placeholder={placeholder}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                    onPressEnter?.(event)
+                }
+            }}
+        />
+    ),
     LemonSelect: () => <select />,
     LemonSkeleton: () => <div>Loading integrations</div>,
     LemonTag: ({ children }: { children: ReactNode }) => <span>{children}</span>,
@@ -69,5 +84,73 @@ describe('AlertNotificationDestinationEditor', () => {
 
         expect(screen.getByText('Loading integrations')).toBeTruthy()
         expect(screen.queryByText("Couldn't load Slack workspaces.")).toBeNull()
+    })
+
+    it('renders pending destinations with the same structure and a pending tag', () => {
+        render(
+            <AlertNotificationDestinationEditor
+                destinations={{
+                    showExisting: false,
+                    existingLoading: false,
+                    existing: [],
+                    pending: [
+                        {
+                            key: 'pending-webhook',
+                            title: 'Webhook',
+                            detail: 'https://example.com/webhook',
+                            onRemove: jest.fn(),
+                        },
+                    ],
+                }}
+                notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
+                slack={{
+                    notificationType: 'slack',
+                    integrationsLoading: false,
+                    integrationsFailed: false,
+                    onRetryIntegrations: jest.fn(),
+                    integrations: [],
+                    channelValue: null,
+                    onChannelValueChange: jest.fn(),
+                }}
+                add={{ onClick: jest.fn() }}
+            />
+        )
+
+        expect(screen.getByText('Webhook')).toBeTruthy()
+        expect(screen.getByText('https://example.com/webhook')).toBeTruthy()
+        expect(screen.getByText('Pending')).toBeTruthy()
+    })
+
+    it('adds a valid URL on Enter without bubbling to the wizard', () => {
+        const onAdd = jest.fn()
+        const onWizardKeyDown = jest.fn()
+        render(
+            <div onKeyDown={onWizardKeyDown}>
+                <AlertNotificationDestinationEditor
+                    destinations={{ showExisting: false, existingLoading: false, existing: [], pending: [] }}
+                    notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
+                    slack={{
+                        notificationType: 'slack',
+                        integrationsLoading: false,
+                        integrationsFailed: false,
+                        onRetryIntegrations: jest.fn(),
+                        integrations: [],
+                        channelValue: null,
+                        onChannelValueChange: jest.fn(),
+                    }}
+                    url={{
+                        input: { placeholder: 'https://example.com/webhook' },
+                        value: 'https://example.com/destination',
+                        onChange: jest.fn(),
+                    }}
+                    add={{ onClick: onAdd }}
+                />
+            </div>
+        )
+
+        fireEvent.keyDown(screen.getByPlaceholderText('https://example.com/webhook'), { key: 'Enter' })
+
+        expect(onAdd).toHaveBeenCalledTimes(1)
+        expect(onWizardKeyDown).not.toHaveBeenCalled()
     })
 })

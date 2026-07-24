@@ -43,8 +43,8 @@ export interface AlertNotificationDestinationView {
 
 export interface PendingAlertNotificationDestinationView {
     key: string
-    label: string
-    status: string
+    title: ReactNode
+    detail?: ReactNode
     onRemove: () => void
 }
 
@@ -189,10 +189,17 @@ function PendingDestinations({
         <div className="space-y-2">
             {destinations.map((destination) => (
                 <div key={destination.key} className="flex items-center justify-between border rounded p-2 gap-2">
-                    <span className="text-sm min-w-0 truncate flex flex-col">
-                        {destination.label}
-                        <span className="text-muted-alt">{destination.status}</span>
-                    </span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium truncate">{destination.title}</span>
+                            <LemonTag type="warning" size="small">
+                                Pending
+                            </LemonTag>
+                        </div>
+                        {destination.detail ? (
+                            <span className="text-xs text-muted-alt truncate block">{destination.detail}</span>
+                        ) : null}
+                    </div>
                     <LemonButton
                         icon={<IconTrash />}
                         size="xsmall"
@@ -222,11 +229,10 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             disabledReason={add.disabledReason}
             className="shrink-0"
         >
-            Add destination
+            Add
         </LemonButton>
     )
-    const addDestinationButtonIsInline =
-        (notificationType.value === slack.notificationType && Boolean(slack.integration)) || Boolean(url)
+    const addDestinationButtonIsInline = notificationType.value === slack.notificationType || Boolean(url)
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
@@ -278,12 +284,16 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 </div>
             )
         } else {
-            slackDestinationInput = <SlackNotConfiguredBanner />
+            slackDestinationInput = <SlackNotConfiguredBanner type="warning" className="max-w-4xl" />
         }
     }
 
+    const hasDestinations =
+        (destinations.showExisting && (destinations.existingLoading || destinations.existing.length > 0)) ||
+        destinations.pending.length > 0
+
     return (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4" data-prevent-wizard-submit>
             {description ? <p className="text-xs text-muted-alt m-0">{description}</p> : null}
 
             {destinations.showExisting ? (
@@ -292,7 +302,9 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
 
             <PendingDestinations destinations={destinations.pending} />
 
-            <div className="space-y-3 border rounded p-3">
+            {hasDestinations ? <hr className="border-border m-0" /> : null}
+
+            <div className="space-y-3 max-w-xl">
                 <LemonSelect
                     fullWidth
                     options={notificationType.options}
@@ -309,6 +321,13 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
+                                onPressEnter={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    if (!add.disabledReason) {
+                                        add.onClick()
+                                    }
+                                }}
                                 fullWidth
                             />
                             {addDestinationButton}

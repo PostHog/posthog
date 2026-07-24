@@ -18,6 +18,7 @@ import { InsightShortId } from '~/types'
 import { AlertStateIndicator } from '../components/AlertDefinition'
 import { buildAlertSummary } from '../components/alertSummary'
 import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
+import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
 
@@ -67,23 +68,8 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
 }
 
 export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps): JSX.Element {
-    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0)
-
     if (redesigned) {
-        return (
-            <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
-                <AlertSummaryBanner
-                    summary={summary}
-                    header={
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="min-w-0 truncate">{alert.name}</span>
-                            <AlertStateIndicator alert={alert} />
-                        </div>
-                    }
-                    footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
-                />
-            </LemonButton>
-        )
+        return <RedesignedAlertListItem alert={alert} onClick={onClick} />
     }
 
     return (
@@ -97,6 +83,26 @@ export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps
 
                 <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
+        </LemonButton>
+    )
+}
+
+function RedesignedAlertListItem({ alert, onClick }: Omit<AlertListItemProps, 'redesigned'>): JSX.Element {
+    const { existingHogFunctions } = useValues(alertNotificationLogic({ alertId: alert.id }))
+    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, existingHogFunctions.length)
+
+    return (
+        <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
+            <AlertSummaryBanner
+                summary={summary}
+                header={
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate">{alert.name}</span>
+                        <AlertStateIndicator alert={alert} />
+                    </div>
+                }
+                footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
+            />
         </LemonButton>
     )
 }

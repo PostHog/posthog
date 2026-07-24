@@ -19,14 +19,16 @@ import {
     resolveGroupLabel,
 } from './logsAlertUtils'
 
-function getNotificationLabel(notification: PendingLogsAlertNotification): string {
+function getPendingNotificationDestination(
+    notification: PendingLogsAlertNotification
+): Pick<PendingAlertNotificationDestinationView, 'title' | 'detail'> {
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        return { title: 'Slack', detail: `#${notification.slackChannelName ?? 'channel'}` }
     }
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
-        return `Microsoft Teams: ${notification.webhookUrl}`
+        return { title: 'Microsoft Teams', detail: notification.webhookUrl }
     }
-    return `Webhook: ${notification.webhookUrl}`
+    return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
 export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
@@ -89,8 +91,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
             key: `${notification.type}-${index}`,
-            label: getNotificationLabel(notification),
-            status: alertId ? '(saving...)' : '(pending, save alert to apply)',
+            ...getPendingNotificationDestination(notification),
             onRemove: () => removePendingNotification(index),
         })
     )
