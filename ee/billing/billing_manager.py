@@ -19,6 +19,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -254,8 +255,13 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
         organization.available_product_features = available_product_features
         organization.save()
+
+        revoked_feature_keys = previous_feature_keys - {feature.get("key") for feature in available_product_features}
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -477,7 +483,14 @@ class BillingManager:
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
-        if available_product_features and available_product_features != organization.available_product_features:
+        revoked_feature_keys: set[str] = set()
+        # An empty list is authoritative (e.g. every paid feature revoked), so only skip on absent.
+        if available_product_features is not None and available_product_features != (
+            organization.available_product_features or []
+        ):
+            previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
+            new_feature_keys = {feature.get("key") for feature in available_product_features}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
@@ -513,6 +526,9 @@ class BillingManager:
 
         if org_modified:
             organization.save()
+
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)

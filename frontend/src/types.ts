@@ -117,6 +117,7 @@ export enum AvailableFeature {
     DATA_PIPELINES = 'data_pipelines',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    LOGS_RETENTION_30D = 'logs_retention_30d',
     CONSOLE_LOGS = 'console_logs',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
