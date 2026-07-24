@@ -29,7 +29,8 @@ export function DagsTab(): JSX.Element {
     const { dags, dagsLoading } = useValues(dagsLogic)
     const { loadDags, updateDag, deleteDag } = useActions(dagsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const dataOpsModelingEnabled = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
+    const dataOpsModelingEnabled =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB] && !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]
 
     useEffect(() => {
         loadDags()
