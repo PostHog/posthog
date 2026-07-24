@@ -123,8 +123,10 @@ class AtomicFalsePolicy(MigrationPolicy):
         "SafeRemoveIndexConcurrently",
     }
 
+    ACKNOWLEDGMENTS_FILE = Path(__file__).with_name("atomic_false_acknowledged_migrations.txt")
+
     def check_operation(self, op) -> list[str]:
-        return []  # Checked at migration level
+        return []  # Checked at migration level (needs the migration label for the acknowledgment hint)
 
     def check_migration(self, migration) -> list[str]:
         if not is_posthog_app(migration.app_label, migration):
@@ -137,17 +139,23 @@ class AtomicFalsePolicy(MigrationPolicy):
         violations = []
 
         # atomic=False without concurrent ops = warn (not block)
-        # Some legitimate uses: long-running data migrations that need partial commits
-        # But we want to discourage lazy use that breaks retry mechanism
+        # Some legitimate uses: long-running data migrations that need partial commits.
+        # Those can accept the risk by listing the migration in ACKNOWLEDGMENTS_FILE, a
+        # deliberate, reviewable act. Otherwise warn to discourage lazy use that breaks the retry mechanism.
         if not is_atomic and not has_concurrent:
-            violations.append(
-                "⚠️ WARNING: atomic=False without CONCURRENTLY operations. "
-                "This loses transaction rollback safety. If migration fails midway, "
-                "partial changes are committed and retry will fail on non-idempotent ops. "
-                "Only use atomic=False if: (1) using CONCURRENTLY, or (2) intentional for "
-                "long-running ops with idempotent SQL (IF NOT EXISTS, WHERE NOT EXISTS). "
-                "Consider async migrations for large data backfills instead."
-            )
+            label = f"{migration.app_label}.{migration.name}"
+            if label not in self._acknowledged_migrations():
+                violations.append(
+                    "⚠️ WARNING: atomic=False without CONCURRENTLY operations. "
+                    "This loses transaction rollback safety. If migration fails midway, "
+                    "partial changes are committed and retry will fail on non-idempotent ops. "
+                    "Only use atomic=False if: (1) using CONCURRENTLY, or (2) intentional for "
+                    "long-running ops with idempotent SQL (IF NOT EXISTS, WHERE NOT EXISTS). "
+                    "Consider async migrations for large data backfills instead. If this is an "
+                    f"intentional long-running data migration, add '{label}' to "
+                    "posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt "
+                    "to accept the risk."
+                )
 
         # concurrent ops without atomic=False = block (will fail at runtime anyway)
         if has_concurrent and is_atomic:
@@ -167,6 +175,12 @@ class AtomicFalsePolicy(MigrationPolicy):
             )
 
         return violations
+
+    def _acknowledged_migrations(self) -> set[str]:
+        if not self.ACKNOWLEDGMENTS_FILE.exists():
+            return set()
+        lines = self.ACKNOWLEDGMENTS_FILE.read_text().splitlines()
+        return {line.strip() for line in lines if line.strip() and not line.strip().startswith("#")}
 
     def _has_non_concurrent_operations(self, migration) -> bool:
         """Check if migration has operations that are NOT concurrent index operations."""
