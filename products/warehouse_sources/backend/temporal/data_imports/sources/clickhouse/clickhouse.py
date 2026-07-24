@@ -866,10 +866,15 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 #     caps before `read_overflow_mode='break'` truncates on rows — the probe
 #     behaving exactly as designed. Some managed servers also enforce a memory
 #     cap below our `max_memory_usage`, surfacing the same way.
+#   - "Read timed out": the probe's `max_execution_time` only bounds server-side
+#     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
+#     the server hasn't yet gotten around to capping — so the HTTP client's own
+#     read timeout can fire first. Same designed fallback as the budget caps.
 _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
     "is unknown or readonly",
     "MEMORY_LIMIT_EXCEEDED",
     "TIMEOUT_EXCEEDED",
+    "Read timed out",
 )
 
 
