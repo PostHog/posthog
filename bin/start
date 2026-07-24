@@ -147,143 +147,22 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
-# Labels are attacker-settable strings headed for the terminal and a docker
-# command line; strip anything outside the compose name charset.
-sanitize_compose_name() {
-    printf '%s' "${1//[^a-zA-Z0-9_.-]/}"
-}
-
 # Pre-flight: detect who already holds the host ports the dev stack needs. A stale
 # stack under a *different* compose project binds the same ports, so one of our
 # containers fails to bind — and that aborts the entire `docker compose up`,
 # sometimes leaving a container detached from the compose network. In a TTY, offer
-# to tear foreign stacks down; otherwise stay advisory. Fail-open (never block start).
-preflight_port_check() {
-    command -v docker &>/dev/null || return 0
-
-    # The always-on infra ports from docker-compose.dev.yml whose bind failure
-    # aborts `docker compose up`. Update when those mappings change; optional
-    # profile services are intentionally excluded.
-    local ports="8010:proxy 2181:zookeeper 8123:clickhouse-http 9000:clickhouse-native 9092:kafka 5432:postgres 6379:redis 7233:temporal 19000:objectstorage"
-    local foreign_candidates="" foreign_projects="" report="" unheld="" portlist=""
-    local containers lsof_out entry port name line holder container project
-    local clickhouse_projects interactive stack teardown answer
-
-    # One docker ps covers every port; the Ports column looks like
-    # "127.0.0.1:8010->8000/tcp, :::8123->8123/tcp", or for a published range
-    # "0.0.0.0:19000-19001->19000-19001/tcp". Matching ":<port>-" covers both
-    # the plain form (":19000->") and a range start (":19000-19001->").
-    containers=$(docker ps --format '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Ports}}' 2>/dev/null || true)
-
-    for entry in $ports; do
-        port="${entry%%:*}"
-        name="${entry#*:}"
-        holder=""
-        while IFS= read -r line; do
-            if [[ "$line" == *":$port-"* ]]; then
-                holder="$line"
-                break
-            fi
-        done <<< "$containers"
-        if [[ -z "$holder" ]]; then
-            unheld+="$entry "
-            continue
-        fi
-        container="${holder%%|*}"
-        project="${holder#*|}"
-        project="${project%%|*}"
-        project="$(sanitize_compose_name "$project")"
-        # Our own project's container holding its own port is the happy path.
-        if [[ "$project" != "$COMPOSE_PROJECT_NAME" ]]; then
-            report+="     • port $port ($name): container '$container' from compose project '${project:-<none>}'"$'\n'
-            [[ -n "$project" ]] && foreign_candidates+="$project"$'\n'
-        fi
-    done
-
-    # Only offer teardown for candidates that look like a PostHog dev stack:
-    # they have a clickhouse container in any state (a partial stack may hold
-    # ports while its clickhouse is stopped). An unrelated project that happens
-    # to hold postgres/redis ports gets reported, not torn down.
-    if [[ -n "$foreign_candidates" ]]; then
-        clickhouse_projects=$(docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
-            --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null || true)
-        for stack in $(sort -u <<< "$foreign_candidates"); do
-            while IFS= read -r project; do
-                project="$(sanitize_compose_name "$project")"
-                if [[ "$project" == "$stack" ]]; then
-                    foreign_projects+="$stack"$'\n'
-                    break
-                fi
-            done <<< "$clickhouse_projects"
-        done
-    fi
-
-    # Ports with no docker holder: one lsof pass for plain-process listeners.
-    # Report only; killing arbitrary pids from a start script is out of bounds
-    # (doctor:zombies already cleaned up orphans above).
-    if [[ -n "$unheld" ]] && command -v lsof &>/dev/null; then
-        for entry in $unheld; do
-            portlist+="${portlist:+,}${entry%%:*}"
-        done
-        lsof_out=$(lsof -nP -iTCP:"$portlist" -sTCP:LISTEN 2>/dev/null || true)
-        for entry in $unheld; do
-            port="${entry%%:*}"
-            name="${entry#*:}"
-            # lsof columns: $1=COMMAND $2=PID $9=NAME (e.g. "*:5432"); match NAME
-            # ending in ":<port>". tr strips escape bytes a process name could
-            # smuggle to the terminal.
-            holder=$(awk -v p="$port" '$9 ~ (":" p "$") {print $1 " (pid " $2 ")"; exit}' <<< "$lsof_out" | tr -d '[:cntrl:]')
-            [[ -n "$holder" ]] && report+="     • port $port ($name): process $holder"$'\n'
-        done
-    fi
-
-    [[ -z "$report" ]] && return 0
-
-    echo "⚠️  Some ports the dev stack needs are already held by something outside the"
-    echo "   '$COMPOSE_PROJECT_NAME' compose project. 'docker compose up' will abort if any"
-    echo "   of its containers fails to bind, and services here may be reported as 'missing':"
-    printf '%s' "$report"
-
-    [[ -z "$foreign_projects" ]] && return 0
-
-    interactive=0
-    if [[ -t 0 && -t 1 ]]; then
-        interactive=1
-    else
-        echo "   Tear a foreign stack down with:"
-    fi
-    # A for-loop, not `while read <<< ...`: redirecting the loop's stdin would
-    # make the inner `read` consume project names instead of the user's answer.
-    # Project names are sanitized above, so word splitting is safe.
-    for stack in $(sort -u <<< "$foreign_projects"); do
-        teardown="docker compose -p $stack -f docker-compose.dev.yml down --remove-orphans"
-        if [[ "$interactive" != 1 ]]; then
-            echo "     $teardown"
-            continue
-        fi
-        answer=""
-        read -t 30 -r -p "   Stop foreign stack '$stack' now? [y/N] " answer || echo
-        if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
-            echo "   Stopping compose project '$stack'…"
-            if $teardown; then
-                echo "   Stopped '$stack'."
-            else
-                echo "   ⚠️  Could not stop '$stack' (see docker's output above) — its ports may still be held."
-            fi
-        else
-            echo "   Leaving '$stack' running. Stop it later with:"
-            echo "     $teardown"
-        fi
-    done
-    return 0
-}
-preflight_port_check || true
+# to tear foreign stacks down; otherwise stay advisory. Delegated to hogli (tested
+# there, see doctor_ports in hogli_commands/doctor.py); skipped if hogli isn't on
+# PATH, same as doctor:zombies above.
+if command -v hogli &>/dev/null; then
+    hogli doctor:ports || true
+fi
 
 # One-time notice for the July 2026 named-volume switch: the named volume is
 # absent until the first `up` after the switch, and if a clickhouse container
 # already exists under this project, its data is about to be reset. See the
 # "Local ClickHouse suddenly empty" gotcha in developing-locally.md. Fail-open,
-# like preflight_port_check above.
+# like the port pre-flight above.
 named_volume_reset_notice() {
     command -v docker &>/dev/null || return 0
     docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
