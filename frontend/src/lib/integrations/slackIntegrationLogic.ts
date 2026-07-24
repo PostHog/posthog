@@ -90,12 +90,12 @@ export interface slackIntegrationLogicActions {
         errorObject?: any
     }
     loadSlackChannelByIdSuccess: (
-        slackChannelById: SlackChannelType,
+        slackChannelById: SlackChannelType | null,
         payload?: {
             channelId: string
         }
     ) => {
-        slackChannelById: SlackChannelType
+        slackChannelById: SlackChannelType | null
         payload?: {
             channelId: string
         }

@@ -286,7 +286,10 @@ describe('slackIntegrationLogic — inactive Slack integration', () => {
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': () =>
                     respondInactive
-                        ? [400, { type: 'validation_error', code: 'slack_integration_inactive', detail: inactiveDetail }]
+                        ? [
+                              400,
+                              { type: 'validation_error', code: 'slack_integration_inactive', detail: inactiveDetail },
+                          ]
                         : [
                               200,
                               {
