@@ -2928,6 +2928,42 @@ class TestPostgresSourceForPipelineSchemaResolution:
         validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
 
 
+class TestValidateCredentialsForAccessMethodGuardsManagedWarehouse:
+    @parameterized.expand(
+        [
+            ("copy_blocked", "my-wh.dw.us.postwh.com", "warehouse", False),
+            ("direct_allowed", "my-wh.dw.us.postwh.com", "direct", True),
+            ("normal_host_allowed", "db.example.com", "warehouse", True),
+        ]
+    )
+    def test_postwh_hosts_blocked_for_copy_mode(
+        self, _name: str, host: str, access_method: str, should_delegate: bool
+    ) -> None:
+        source = PostgresSource()
+        config = source.parse_config(
+            {
+                "host": host,
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+            }
+        )
+
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            is_valid, error = source.validate_credentials_for_access_method(
+                config, team_id=1, access_method=access_method
+            )
+
+        if should_delegate:
+            assert is_valid is True
+            validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
+        else:
+            assert is_valid is False
+            assert error is not None and "managed warehouse" in error
+            validate_credentials.assert_not_called()
+
+
 class TestValidateCredentialsErrorMapping:
     @pytest.fixture
     def source(self):

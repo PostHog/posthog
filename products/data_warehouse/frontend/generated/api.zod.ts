@@ -10,6 +10,40 @@
 import * as zod from 'zod'
 
 /**
+ * Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.
+ * @summary Publish a managed warehouse table
+ */
+export const dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax = 63
+
+export const dataWarehouseManagedWarehousePublishTableCreateBodySourceTableNameMax = 63
+
+export const dataWarehouseManagedWarehousePublishTableCreateBodyNameMax = 128
+
+export const DataWarehouseManagedWarehousePublishTableCreateBody = /* @__PURE__ */ zod.object({
+    source_schema_name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax)
+        .describe('Duckgres schema containing the modeled table.'),
+    source_table_name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceTableNameMax)
+        .describe('Modeled Duckgres table to publish.'),
+    name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodyNameMax)
+        .optional()
+        .describe('Warehouse table name in PostHog. Defaults to <schema>_<table>.'),
+})
+
+/**
+ * Copy a fresh snapshot of an already-published modeled Duckgres table.
+ * @summary Republish a managed warehouse table
+ */
+export const DataWarehouseManagedWarehouseRepublishTableCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Publication ID.'),
+})
+
+/**
  * Onboard this project onto the organization's existing managed warehouse.
  *
  * Requires a schema name; records the project's membership both in duckgres and in the

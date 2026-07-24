@@ -216,6 +216,99 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+export interface ModeledTableApi {
+    /** Duckgres schema name. */
+    schema_name: string
+    /** Duckgres table name. */
+    table_name: string
+}
+
+export interface ModeledTablesResponseApi {
+    /** Modeled tables eligible for publishing. */
+    results: ModeledTableApi[]
+}
+
+export interface PublishModeledTableRequestApi {
+    /**
+     * Duckgres schema containing the modeled table.
+     * @maxLength 63
+     */
+    source_schema_name: string
+    /**
+     * Modeled Duckgres table to publish.
+     * @maxLength 63
+     */
+    source_table_name: string
+    /**
+     * Warehouse table name in PostHog. Defaults to <schema>_<table>.
+     * @maxLength 128
+     */
+    name?: string
+}
+
+/**
+ * * `pending` - Pending
+ * * `publishing` - Publishing
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type PublishedTableStatusEnumApi = (typeof PublishedTableStatusEnumApi)[keyof typeof PublishedTableStatusEnumApi]
+
+export const PublishedTableStatusEnumApi = {
+    Pending: 'pending',
+    Publishing: 'publishing',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface PublishedTableApi {
+    /** Publication ID. */
+    id: string
+    /** Warehouse table name in PostHog. */
+    name: string
+    /** Duckgres schema of the source modeled table. */
+    source_schema_name: string
+    /** Duckgres table this publication copies. */
+    source_table_name: string
+    /** Publish lifecycle state.
+     *
+     * * `pending` - Pending
+     * * `publishing` - Publishing
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: PublishedTableStatusEnumApi
+    /**
+     * When the last publish completed, or null if it has not completed.
+     * @nullable
+     */
+    last_published_at: string | null
+    /**
+     * Error from the last failed publish, if any.
+     * @nullable
+     */
+    last_error: string | null
+    /**
+     * Rows in the last published snapshot, or null before the first successful publish.
+     * @nullable
+     */
+    row_count: number | null
+}
+
+export interface PublishedTablesResponseApi {
+    /** Published tables and their current status. */
+    results: PublishedTableApi[]
+}
+
+export interface PublishedTableIdApi {
+    /** Publication ID. */
+    id: string
+}
+
+export interface PublishedTableConflictApi {
+    /** Why the publication could not be started. */
+    detail: string
+}
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -3971,6 +4064,13 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      * @minLength 1
      */
     name: string
+}
+
+export type DataWarehouseManagedWarehousePublishedTableDestroyParams = {
+    /**
+     * Publication ID.
+     */
+    id: string
 }
 
 export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {

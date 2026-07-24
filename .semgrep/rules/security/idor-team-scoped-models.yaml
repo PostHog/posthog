@@ -203,6 +203,7 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehousePublishedTable
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
@@ -519,6 +520,7 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehousePublishedTable
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference

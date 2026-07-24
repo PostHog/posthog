@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -188,3 +189,43 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         verbose_name = "Duckgres sink schema state"
         verbose_name_plural = "Duckgres sink schema states"
         indexes = [models.Index(fields=["team", "state"], name="duckgres_sink_team_state_idx")]
+
+
+class ManagedWarehousePublishedTable(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """A modeled duckgres table published into the ClickHouse-queryable warehouse."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PUBLISHING = "publishing", "Publishing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    source_schema_name = models.CharField(max_length=63)
+    source_table_name = models.CharField(max_length=63)
+    name = models.CharField(max_length=128)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    last_published_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=512, null=True, blank=True)
+    row_count = models.BigIntegerField(null=True, blank=True)
+    folder_version = models.CharField(max_length=32, null=True, blank=True)
+    table_id = models.UUIDField(null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    # User ownership is metadata here, so this does not enforce a database-level foreign key.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+
+    class Meta:
+        db_table = "posthog_managedwarehousepublishedtable"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False),
+                name="unique_published_table_name_per_team",
+            )
+        ]

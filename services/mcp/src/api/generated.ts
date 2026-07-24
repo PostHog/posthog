@@ -39404,6 +39404,18 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface ModeledTable {
+      /** Duckgres schema name. */
+      schema_name: string;
+      /** Duckgres table name. */
+      table_name: string;
+    }
+
+    export interface ModeledTablesResponse {
+      /** Modeled tables eligible for publishing. */
+      results: ModeledTable[];
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -55850,6 +55862,88 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface PublishModeledTableRequest {
+      /**
+         * Duckgres schema containing the modeled table.
+         * @maxLength 63
+         */
+      source_schema_name: string;
+      /**
+         * Modeled Duckgres table to publish.
+         * @maxLength 63
+         */
+      source_table_name: string;
+      /**
+         * Warehouse table name in PostHog. Defaults to <schema>_<table>.
+         * @maxLength 128
+         */
+      name?: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `publishing` - Publishing
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type PublishedTableStatusEnum = typeof PublishedTableStatusEnum[keyof typeof PublishedTableStatusEnum];
+
+
+    export const PublishedTableStatusEnum = {
+      Pending: 'pending',
+      Publishing: 'publishing',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface PublishedTable {
+      /** Publication ID. */
+      id: string;
+      /** Warehouse table name in PostHog. */
+      name: string;
+      /** Duckgres schema of the source modeled table. */
+      source_schema_name: string;
+      /** Duckgres table this publication copies. */
+      source_table_name: string;
+      /** Publish lifecycle state.
+       *
+       * * `pending` - Pending
+       * * `publishing` - Publishing
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: PublishedTableStatusEnum;
+      /**
+         * When the last publish completed, or null if it has not completed.
+         * @nullable
+         */
+      last_published_at: string | null;
+      /**
+         * Error from the last failed publish, if any.
+         * @nullable
+         */
+      last_error: string | null;
+      /**
+         * Rows in the last published snapshot, or null before the first successful publish.
+         * @nullable
+         */
+      row_count: number | null;
+    }
+
+    export interface PublishedTableConflict {
+      /** Why the publication could not be started. */
+      detail: string;
+    }
+
+    export interface PublishedTableId {
+      /** Publication ID. */
+      id: string;
+    }
+
+    export interface PublishedTablesResponse {
+      /** Published tables and their current status. */
+      results: PublishedTable[];
     }
 
     export interface PushCISample {
@@ -73821,6 +73915,13 @@ export namespace Schemas {
      * @minLength 1
      */
     name: string;
+    };
+
+    export type DataWarehouseManagedWarehousePublishedTableDestroyParams = {
+    /**
+     * Publication ID.
+     */
+    id: string;
     };
 
     export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from django.db import connection
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncHour
+from django.shortcuts import get_object_or_404
 
 import structlog
 from dateutil import parser
@@ -14,6 +15,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -24,6 +26,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.ducklake.models import ManagedWarehousePublishedTable
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -34,6 +37,7 @@ from products.cdp.backend.facade.models import HogFunction, HogFunctionState, Ho
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
+from products.data_warehouse.backend.logic import managed_warehouse_publish
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
     ManagedWarehouseDataStatusResponseSerializer,
     ManagedWarehouseSourceSchemasQuerySerializer,
@@ -47,6 +51,67 @@ from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+class PublishModeledTableRequestSerializer(serializers.Serializer):
+    source_schema_name = serializers.CharField(
+        max_length=63,
+        help_text="Duckgres schema containing the modeled table.",
+    )
+    source_table_name = serializers.CharField(
+        max_length=63,
+        help_text="Modeled Duckgres table to publish.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+        help_text="Warehouse table name in PostHog. Defaults to <schema>_<table>.",
+    )
+
+
+class PublishedTableSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Publication ID.")
+    name = serializers.CharField(help_text="Warehouse table name in PostHog.")
+    source_schema_name = serializers.CharField(help_text="Duckgres schema of the source modeled table.")
+    source_table_name = serializers.CharField(help_text="Duckgres table this publication copies.")
+    status = serializers.ChoiceField(
+        choices=ManagedWarehousePublishedTable.Status.choices,
+        help_text="Publish lifecycle state.",
+    )
+    last_published_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the last publish completed, or null if it has not completed.",
+    )
+    last_error = serializers.CharField(
+        allow_null=True,
+        help_text="Error from the last failed publish, if any.",
+    )
+    row_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Rows in the last published snapshot, or null before the first successful publish.",
+    )
+
+
+class ModeledTableSerializer(serializers.Serializer):
+    schema_name = serializers.CharField(help_text="Duckgres schema name.")
+    table_name = serializers.CharField(help_text="Duckgres table name.")
+
+
+class ModeledTablesResponseSerializer(serializers.Serializer):
+    results = ModeledTableSerializer(many=True, help_text="Modeled tables eligible for publishing.")
+
+
+class PublishedTablesResponseSerializer(serializers.Serializer):
+    results = PublishedTableSerializer(many=True, help_text="Published tables and their current status.")
+
+
+class PublishedTableIdSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Publication ID.")
+
+
+class PublishedTableConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the publication could not be started.")
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -1116,3 +1181,130 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if admin_error:
             return admin_error
         return managed_warehouse.check_schema_name(self.team.organization_id, request.query_params.get("name"))
+
+    @extend_schema(
+        responses={
+            200: ModeledTablesResponseSerializer,
+            503: OpenApiResponse(description="The managed warehouse is temporarily unavailable."),
+        },
+        summary="List modeled managed warehouse tables",
+        description="List modeled Duckgres tables that can be published to the PostHog data warehouse.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-modeled-tables",
+        required_scopes=["warehouse_view:read"],
+    )
+    def managed_warehouse_modeled_tables(self, request: Request, **kwargs) -> Response:
+        try:
+            tables = managed_warehouse_publish.list_modeled_tables(self.team_id)
+        except managed_warehouse_publish.ModeledTableDiscoveryError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(
+            {"results": [{"schema_name": table.schema_name, "table_name": table.table_name} for table in tables]}
+        )
+
+    @extend_schema(
+        responses={200: PublishedTablesResponseSerializer},
+        summary="List published managed warehouse tables",
+        description="List modeled Duckgres tables published to the PostHog data warehouse.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-published-tables",
+        required_scopes=["warehouse_view:read"],
+    )
+    def managed_warehouse_published_tables(self, request: Request, **kwargs) -> Response:
+        publications = (
+            ManagedWarehousePublishedTable.objects.for_team(self.team_id).filter(deleted=False).order_by("name")
+        )
+        return Response({"results": PublishedTableSerializer(publications, many=True).data})
+
+    @validated_request(
+        request_serializer=PublishModeledTableRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=PublishedTableSerializer, description="Publication created."),
+            400: OpenApiResponse(description="The modeled table or publication name is invalid."),
+        },
+        summary="Publish a managed warehouse table",
+        description="Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="managed-warehouse-publish-table",
+        required_scopes=["warehouse_view:write"],
+    )
+    def managed_warehouse_publish_table(self, request: Request, **kwargs) -> Response:
+        try:
+            publication = managed_warehouse_publish.create_publication(
+                team=self.team,
+                source_schema_name=request.validated_data["source_schema_name"],
+                source_table_name=request.validated_data["source_table_name"],
+                name=request.validated_data.get("name") or None,
+            )
+        except managed_warehouse_publish.PublishValidationError as error:
+            raise serializers.ValidationError(str(error)) from error
+
+        managed_warehouse_publish.start_publish_workflow(publication)
+        return Response(PublishedTableSerializer(publication).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=PublishedTableIdSerializer,
+        responses={
+            200: OpenApiResponse(response=PublishedTableSerializer, description="Publication started."),
+            404: OpenApiResponse(description="The publication was not found."),
+            409: OpenApiResponse(
+                response=PublishedTableConflictSerializer,
+                description="A publish is already running for this table.",
+            ),
+        },
+        summary="Republish a managed warehouse table",
+        description="Copy a fresh snapshot of an already-published modeled Duckgres table.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="managed-warehouse-republish-table",
+        required_scopes=["warehouse_view:write"],
+    )
+    def managed_warehouse_republish_table(self, request: Request, **kwargs) -> Response:
+        publication = get_object_or_404(
+            ManagedWarehousePublishedTable.objects.for_team(self.team_id),
+            id=request.validated_data["id"],
+            deleted=False,
+        )
+        try:
+            managed_warehouse_publish.start_publish_workflow(publication)
+        except WorkflowAlreadyStartedError:
+            return Response(
+                {"detail": "A publish for this table is already running."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(PublishedTableSerializer(publication).data)
+
+    @validated_request(
+        query_serializer=PublishedTableIdSerializer,
+        responses={
+            204: OpenApiResponse(description="Publication removed."),
+            404: OpenApiResponse(description="The publication was not found."),
+        },
+        summary="Delete a published managed warehouse table",
+        description="Remove a published table from PostHog without changing the modeled Duckgres table.",
+    )
+    @action(
+        methods=["DELETE"],
+        detail=False,
+        url_path="managed-warehouse-published-table",
+        required_scopes=["warehouse_view:write"],
+    )
+    def managed_warehouse_delete_published_table(self, request: Request, **kwargs) -> Response:
+        publication = get_object_or_404(
+            ManagedWarehousePublishedTable.objects.for_team(self.team_id),
+            id=request.validated_query_data["id"],
+            deleted=False,
+        )
+        managed_warehouse_publish.delete_publication(publication)
+        return Response(status=status.HTTP_204_NO_CONTENT)

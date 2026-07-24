@@ -16,6 +16,7 @@ import type {
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseManagedWarehousePublishedTableDestroyParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
@@ -30,6 +31,7 @@ import type {
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
+    ModeledTablesResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
@@ -54,6 +56,10 @@ import type {
     PatchedWarehouseColumnAnnotationApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
+    PublishModeledTableRequestApi,
+    PublishedTableApi,
+    PublishedTableIdApi,
+    PublishedTablesResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
@@ -364,6 +370,121 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getDataWarehouseManagedWarehouseModeledTablesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-modeled-tables/`
+}
+
+/**
+ * List modeled Duckgres tables that can be published to the PostHog data warehouse.
+ * @summary List modeled managed warehouse tables
+ */
+export const dataWarehouseManagedWarehouseModeledTablesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ModeledTablesResponseApi> => {
+    return apiMutator<ModeledTablesResponseApi>(getDataWarehouseManagedWarehouseModeledTablesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseManagedWarehousePublishTableCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-publish-table/`
+}
+
+/**
+ * Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.
+ * @summary Publish a managed warehouse table
+ */
+export const dataWarehouseManagedWarehousePublishTableCreate = async (
+    projectId: string,
+    publishModeledTableRequestApi: PublishModeledTableRequestApi,
+    options?: RequestInit
+): Promise<PublishedTableApi> => {
+    return apiMutator<PublishedTableApi>(getDataWarehouseManagedWarehousePublishTableCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(publishModeledTableRequestApi),
+    })
+}
+
+export const getDataWarehouseManagedWarehousePublishedTableDestroyUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehousePublishedTableDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-published-table/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-published-table/`
+}
+
+/**
+ * Remove a published table from PostHog without changing the modeled Duckgres table.
+ * @summary Delete a published managed warehouse table
+ */
+export const dataWarehouseManagedWarehousePublishedTableDestroy = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehousePublishedTableDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDataWarehouseManagedWarehousePublishedTableDestroyUrl(projectId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDataWarehouseManagedWarehousePublishedTablesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-published-tables/`
+}
+
+/**
+ * List modeled Duckgres tables published to the PostHog data warehouse.
+ * @summary List published managed warehouse tables
+ */
+export const dataWarehouseManagedWarehousePublishedTablesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PublishedTablesResponseApi> => {
+    return apiMutator<PublishedTablesResponseApi>(
+        getDataWarehouseManagedWarehousePublishedTablesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseRepublishTableCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-republish-table/`
+}
+
+/**
+ * Copy a fresh snapshot of an already-published modeled Duckgres table.
+ * @summary Republish a managed warehouse table
+ */
+export const dataWarehouseManagedWarehouseRepublishTableCreate = async (
+    projectId: string,
+    publishedTableIdApi: PublishedTableIdApi,
+    options?: RequestInit
+): Promise<PublishedTableApi> => {
+    return apiMutator<PublishedTableApi>(getDataWarehouseManagedWarehouseRepublishTableCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(publishedTableIdApi),
+    })
 }
 
 export const getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl = (
