@@ -1,14 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
-
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
