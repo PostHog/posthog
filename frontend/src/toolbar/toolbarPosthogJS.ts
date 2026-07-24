@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 
 import { FeatureFlagKey } from 'lib/constants'
 
+import { dropTelemetryTimeouts } from './dropTelemetryTimeouts'
+
 const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
@@ -13,6 +15,7 @@ const initResult = posthog.init(
     apiKey || DEFAULT_API_KEY,
     {
         api_host: apiHost,
+        before_send: dropTelemetryTimeouts,
         opt_out_capturing_by_default: true, // must call .opt_in_capturing() before any events are sent
         persistence: 'memory', // We don't want to persist anything, all events are in-memory
         persistence_name: apiKey + '_toolbar', // We don't need this but it ensures we don't accidentally mess with the standard persistence
