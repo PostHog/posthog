@@ -26,11 +26,12 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.metrics import record_provider_call
@@ -72,6 +73,11 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
+    # Re-check consent right before the provider generation — a separate egress step from the upload, so revocation
+    # in the window between them must still abort before any recording data reaches the model. Fail closed.
+    if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
+        raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
+
     if inputs.snapshot_override is not None:
         snapshot = inputs.snapshot_override
         team_name, llm_inputs = await asyncio.gather(

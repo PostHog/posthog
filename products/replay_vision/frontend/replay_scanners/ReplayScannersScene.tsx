@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
@@ -15,6 +16,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,6 +40,60 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
     value,
     label,
 }))
+
+/**
+ * "Create scanner" CTA that requires the organization to have approved AI data processing first.
+ * When consent is missing, clicking surfaces the AI consent popover; approving flows straight into
+ * the create-scanner journey, so the empty state stays the same whether or not consent is set.
+ */
+function CreateScannerButton({
+    acceptedLabel,
+    dataAttr,
+    size = 'small',
+}: {
+    acceptedLabel: string
+    dataAttr: string
+    size?: 'small' | 'medium'
+}): JSX.Element {
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { push } = useActions(router)
+    const [consentRequested, setConsentRequested] = useState(false)
+    const goToCreate = (): void => push(urls.replayVisionTemplates())
+
+    const button = (
+        <LemonButton
+            type="primary"
+            size={size}
+            icon={<IconPlus />}
+            disabledReason={getReplayVisionEditDisabledReason()}
+            data-attr={dataAttr}
+            onClick={() => (dataProcessingAccepted ? goToCreate() : setConsentRequested(true))}
+        >
+            {dataProcessingAccepted ? acceptedLabel : 'Allow AI analysis and create scanner'}
+        </LemonButton>
+    )
+
+    if (dataProcessingAccepted) {
+        return button
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                goToCreate()
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {button}
+        </AIConsentPopoverWrapper>
+    )
+}
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -206,16 +263,7 @@ export function ReplayScannersScene(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlus />}
-                            to={urls.replayVisionTemplates()}
-                            disabledReason={getReplayVisionEditDisabledReason()}
-                            data-attr="vision-scanner-create"
-                        >
-                            New scanner
-                        </LemonButton>
+                        <CreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
                     </>
                 }
             />
@@ -308,14 +356,11 @@ export function ReplayScannersScene(): JSX.Element {
                         scannersTotal === 0 && !hasActiveFilters ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
                                 <div className="text-muted">No scanners yet.</div>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    to={urls.replayVisionTemplates()}
-                                    data-attr="vision-scanner-create-empty"
-                                >
-                                    Create your first scanner
-                                </LemonButton>
+                                <CreateScannerButton
+                                    acceptedLabel="Create your first scanner"
+                                    dataAttr="vision-scanner-create-empty"
+                                    size="medium"
+                                />
                             </div>
                         ) : (
                             <span className="text-muted">No scanners match your filters.</span>
