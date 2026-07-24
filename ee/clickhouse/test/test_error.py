@@ -204,6 +204,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 190. DB::Exception: Sizes of arrays don't match: 12, 11. (SIZES_OF_ARRAYS_DONT_MATCH)",
+                code=190,
+            ),
+            "CHQueryErrorSizesOfArraysDontMatch",
+            "Arrays passed to a function like arrayMap must all be the same length.",
+            190,
+            "CHQueryErrorSizesOfArraysDontMatch",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
