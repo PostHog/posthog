@@ -153,7 +153,8 @@ class TestMetricRunPreparation(APIBaseTest):
             ("exposed_hogql", ExposedHogQLError("no such table"), ValidationError),
             ("exposed_clickhouse", ExposedCHQueryError("memory limit"), ValidationError),
             ("concurrency", ConcurrencyLimitExceeded("too many"), Throttled),
-            ("unexpected", RuntimeError("engine bug"), RuntimeError),
+            # A non-exposed engine failure must still become an actionable 400, not an opaque 500.
+            ("unexpected", RuntimeError("engine bug"), ValidationError),
         ]
     )
     def test_engine_exceptions_keep_their_http_semantics(
