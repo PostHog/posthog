@@ -6660,6 +6660,30 @@ class TestPostgresPrinter(BaseTest):
     def test_select_queries(self, query: str, expected: str):
         self.assertEqual(self._select(query), expected)
 
+    @parameterized.expand(
+        [
+            (
+                "union_all",
+                "SELECT event FROM events UNION ALL SELECT event FROM events",
+                "(SELECT events.event FROM events LIMIT 50000) UNION ALL (SELECT events.event FROM events LIMIT 50000)",
+            ),
+            (
+                "union_distinct",
+                "SELECT event FROM events UNION DISTINCT SELECT event FROM events",
+                "(SELECT events.event FROM events LIMIT 50000) UNION DISTINCT (SELECT events.event FROM events LIMIT 50000)",
+            ),
+            (
+                "three_way_union",
+                "SELECT event FROM events UNION ALL SELECT event FROM events UNION ALL SELECT event FROM events",
+                "(SELECT events.event FROM events LIMIT 50000) UNION ALL (SELECT events.event FROM events LIMIT 50000) UNION ALL (SELECT events.event FROM events LIMIT 50000)",
+            ),
+        ]
+    )
+    def test_union_members_are_parenthesized(self, _name: str, query: str, expected: str):
+        # Postgres rejects a union member that carries its own LIMIT/ORDER BY unless it is parenthesized,
+        # so the per-branch 50k guard must not leak out as a bare `... LIMIT 50000 UNION ALL ...`.
+        self.assertEqual(self._select(query), expected)
+
     def test_omits_clickhouse_specific_transforms(self):
         postgres = self._select("SELECT event FROM events")
         clickhouse = self._select("SELECT event FROM events", dialect="clickhouse")

@@ -468,14 +468,29 @@ class BasePrinter(Visitor[str]):
         else:
             response = " ".join([clause for clause in clauses if clause is not None])
 
+        # A union member that carries its own LIMIT/ORDER BY/OFFSET/LIMIT BY must be parenthesized in
+        # some dialects (e.g. Postgres rejects `SELECT ... LIMIT n UNION ALL SELECT ... LIMIT n`).
+        wrap_union_member = (
+            part_of_select_union
+            and self._parenthesize_union_member_with_limit()
+            and (limit is not None or bool(order_by) or node.limit_by is not None or node.offset is not None)
+        )
+
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if not part_of_select_union and not is_top_level_query:
+        if (not part_of_select_union and not is_top_level_query) or wrap_union_member:
             if self.pretty:
                 response = f"({response.strip()})"
             else:
                 response = f"({response})"
 
         return response
+
+    def _parenthesize_union_member_with_limit(self) -> bool:
+        """Whether union members carrying their own LIMIT/ORDER BY must be wrapped in parentheses.
+
+        ClickHouse tolerates bare members; Postgres and other ANSI-leaning dialects require parentheses.
+        """
+        return False
 
     def _get_extra_select_clauses(
         self,
