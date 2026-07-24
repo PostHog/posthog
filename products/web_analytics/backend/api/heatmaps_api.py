@@ -1095,7 +1095,9 @@ class HeatmapPrewarmRequestSerializer(serializers.Serializer):
         return validate_page_url(value)
 
 
-class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+class SavedHeatmapViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
+):
     scope_object = "heatmap"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
