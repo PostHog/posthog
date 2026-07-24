@@ -401,7 +401,7 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 loadTours: async () => {
                     const result = await toolbarApi.productTours.list({ context: 'load_product_tours' })
-                    if (!result.ok) {
+                    if (!result?.ok) {
                         return []
                     }
                     return Array.isArray(result.data) ? result.data : (result.data.results ?? [])
@@ -554,8 +554,8 @@ export const productToursLogic = kea<productToursLogicType>([
                     await buildDraftPayload(formValues, values.tours),
                     { context: 'save_product_tour_draft' }
                 )
-                if (!result.ok) {
-                    throw new ToolbarRequestError('Failed to save draft', result.status)
+                if (!result?.ok) {
+                    throw new ToolbarRequestError('Failed to save draft', result?.status)
                 }
             },
         },
@@ -832,7 +832,7 @@ export const productToursLogic = kea<productToursLogicType>([
                       context: 'save_product_tour',
                       toastOnError: 'Failed to save tour',
                   })
-            if (!result.ok) {
+            if (!result?.ok) {
                 return
             }
             const editUrl = joinWithUiHost(uiHost, urls.productTour(result.data.id, 'edit=true'))
@@ -956,7 +956,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 context: 'delete_product_tour',
                 toastOnError: 'Failed to delete tour',
             })
-            if (result.ok) {
+            if (result?.ok) {
                 lemonToast.success('Tour deleted')
                 actions.loadTours()
                 actions.selectTour(null)
