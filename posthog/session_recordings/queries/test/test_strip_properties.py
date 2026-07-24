@@ -2,7 +2,9 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CohortPropertyFilter,
+    DataWarehousePropertyFilter,
     EventPropertyFilter,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -16,6 +18,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     is_recording_property,
     is_session_property,
+    unexpected_properties_to_report,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -87,6 +90,42 @@ class TestStripProperties:
         assert not is_recording_property(
             EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
         )
+
+    @parameterized.expand(
+        [
+            (
+                "raw hogql on distinct_id is not reported",
+                HogQLPropertyFilter(key="distinct_id IN ('+15162537163')"),
+            ),
+            (
+                "raw hogql on person_id is not reported",
+                HogQLPropertyFilter(key="person_id NOT IN ('abc')"),
+            ),
+            (
+                "raw hogql function expression is not reported",
+                HogQLPropertyFilter(key="dateDiff('minute', min_first_timestamp, max_last_timestamp) > 1"),
+            ),
+            (
+                "flag filter is not reported",
+                FlagPropertyFilter(key="new-onboarding", value=True),
+            ),
+        ]
+    )
+    def test_handled_replay_filters_are_not_reported_as_unexpected(
+        self, _name: str, replay_filter: AnyPropertyFilter
+    ) -> None:
+        # These survive the strip (they aren't event/person/etc.) but property_to_expr(scope="replay")
+        # turns them into a valid expression, so they must not trigger UnexpectedQueryProperties.
+        remaining = _strip_person_and_event_and_cohort_properties([replay_filter])
+        assert remaining == [replay_filter]
+        assert unexpected_properties_to_report(remaining) == []
+
+    def test_genuinely_unhandled_property_is_still_reported(self) -> None:
+        # A property type we neither route to a sub-query nor recognize as HogQL/flag must still be
+        # reported so we notice missing handling.
+        data_warehouse = DataWarehousePropertyFilter(key="x", operator=PropertyOperator.EXACT, value="y")
+        remaining = _strip_person_and_event_and_cohort_properties([data_warehouse])
+        assert unexpected_properties_to_report(remaining) == [data_warehouse]
 
     def test_unexpected_query_properties_message_does_not_contain_raw_value(self) -> None:
         # The exception used to embed the filter value directly, so every distinct

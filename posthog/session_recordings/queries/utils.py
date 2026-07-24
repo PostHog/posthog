@@ -96,6 +96,30 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+def is_hogql_property(p: AnyPropertyFilter) -> bool:
+    # Any raw HogQL expression (e.g. `distinct_id IN (...)`, `dateDiff(...)`) is turned into an
+    # expression by property_to_expr(scope="replay") via parse_expr, so it's expected, not unexpected.
+    return getattr(p, "type", None) == "hogql"
+
+
+def is_flag_property(p: AnyPropertyFilter) -> bool:
+    # Flag dependencies are evaluated at flag-matching time; property_to_expr returns a neutral
+    # filter for them, so they're handled and must not be reported as unexpected.
+    return getattr(p, "type", None) == "flag"
+
+
+def unexpected_properties_to_report(
+    remaining_properties: list[AnyPropertyFilter] | None,
+) -> list[AnyPropertyFilter]:
+    """Of the properties not routed to a dedicated sub-query, the ones we genuinely can't turn into
+    a replay-scoped expression. Raw HogQL and flag filters are handled by property_to_expr(scope="replay"),
+    so they're excluded here to avoid spurious UnexpectedQueryProperties reports for queries that succeed.
+    """
+    if not remaining_properties:
+        return []
+    return [p for p in remaining_properties if not is_hogql_property(p) and not is_flag_property(p)]
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
