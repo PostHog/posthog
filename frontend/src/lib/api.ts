@@ -2674,6 +2674,7 @@ const api = {
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
                     ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT,
                     ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
