@@ -2301,9 +2301,13 @@ class Resolver(CloningVisitor):
         return node
 
     def _raise_on_invalid_uuid_literal(self, node: ast.CompareOperation) -> None:
-        """A malformed string literal compared against a UUID column (events.uuid, person ids)
-        would fail the whole query at execution time with ClickHouse's CANNOT_PARSE_UUID —
-        reject it here instead, naming the bad value."""
+        """A malformed string literal compared against a UUID column (events.uuid, person ids,
+        warehouse UUID columns) would fail the whole query at execution time with ClickHouse's
+        CANNOT_PARSE_UUID — reject it here instead, naming the bad value. Only ClickHouse-bound
+        queries are guarded: other target dialects (postgres, snowflake, ...) accept UUID text
+        forms ClickHouse doesn't, so rejecting the canonical-form mismatch there would be wrong."""
+        if self.dialect not in ("clickhouse", "hogql"):
+            return
         if node.op not in _UUID_GUARDED_COMPARE_OPS:
             return
         for uuid_side, literal_side in ((node.left, node.right), (node.right, node.left)):
