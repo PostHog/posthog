@@ -39,7 +39,10 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
     }
 
     recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
-    void api.fileSystemLogView.create({ type, ref: String(ref) })
+    // Best-effort recent-items tracking: swallow failures (including 404s when the path isn't
+    // routed for this team) so a fire-and-forget POST never becomes an uncaught rejection that
+    // spams error tracking.
+    void api.fileSystemLogView.create({ type, ref: String(ref) }).catch(() => {})
 }
 
 export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {

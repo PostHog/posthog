@@ -6,6 +6,25 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * DRF `detail` returned by the `api_not_found` catch-all (posthog/api/rest_router.py) when a
+ * request falls through to the `^api.+` route in urls.py — i.e. the client hit a path the
+ * backend doesn't route. Kept in sync with that backend constant.
+ */
+export const ENDPOINT_NOT_FOUND_DETAIL = 'Endpoint not found.'
+
+/**
+ * A 404 from the unrouted-path catch-all rather than a genuinely missing resource. These happen
+ * when the frontend POSTs to a path the backend doesn't route for that team (team-gating or
+ * deploy-timing mismatch), and are expected/graceful rather than a code regression — so they
+ * shouldn't spam error tracking.
+ */
+export function isEndpointNotFoundError(
+    error: { status?: number; detail?: string | null } | null | undefined
+): boolean {
+    return error?.status === 404 && error?.detail === ENDPOINT_NOT_FOUND_DETAIL
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
