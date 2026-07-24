@@ -341,12 +341,15 @@ async function compose(src: Src, W: number, H: number, boxes: Box[], timings: St
     // Soften edges by blurring the COLOUR layer only (alpha stays hard, so nothing under a box is
     // ever revealed; the blur just fades the fill into its background margin).
     const redBlurred = EDGE_BLUR > 0 ? await sharp(red, raw3).blur(EDGE_BLUR).raw().toBuffer() : red
-    const overlay = await sharp(redBlurred, raw3).joinChannel(alphaLayer, raw1).png().toBuffer()
+    // Raw RGBA, not PNG: composite reads a raw buffer directly, so encoding the overlay only to
+    // decode it again inside composite is a full-frame PNG round-trip for nothing. It also ran at
+    // sharp's default compression rather than PNG_LEVEL, making it dearer than the output encode.
+    const overlay = await sharp(redBlurred, raw3).joinChannel(alphaLayer, raw1).raw().toBuffer()
 
     timings.composeMs = performance.now() - tC
     const tE = performance.now()
     const out = await srcSharp(src)
-        .composite([{ input: overlay, left: 0, top: 0 }])
+        .composite([{ input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 }])
         .png({ compressionLevel: PNG_LEVEL })
         .toBuffer()
     timings.encodeMs = performance.now() - tE

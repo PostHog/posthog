@@ -66,7 +66,7 @@ const sourceFormat = new Counter({
 })
 const sourceMegapixels = new Histogram({
     name: 'ml_mirror_image_scrub_source_megapixels',
-    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the 2.56 budget bucket is the only traffic a shrink-on-load path could speed up',
+    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the 1 MP budget bucket is the traffic that actually gets downscaled',
     labelNames: ['format'],
     buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
     registers: [register],

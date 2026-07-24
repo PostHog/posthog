@@ -6,13 +6,19 @@ import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 
 // Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
-// unconditionally. Two reasons: (1) memory — compose holds a few full-frame buffers, and bytes are
-// proportional to area, so the budget bounds the per-image working set (~8 MB/frame at 1600^2 vs
-// ~150 MB at the 50 MP decode limit); (2) fidelity honesty — text detection runs under the same
-// area budget (DET_CAP^2), so storing pixels above it would preserve exactly the detail the
-// detectors never certified as clean. An area budget rather than a long-side cap so tall pages
-// (skyscraper screenshots, infographics) keep legible native resolution instead of being squashed.
-export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
+// unconditionally. Three reasons: (1) memory — compose holds a few full-frame buffers, and bytes are
+// proportional to area, so the budget bounds the per-image working set; (2) fidelity honesty — text
+// detection runs under its own area budget, so storing pixels above it would preserve exactly the
+// detail the detectors never certified as clean; (3) cost — decode, compose and encode are all
+// linear in area, and DBNet's input side scales with sqrt(area), so this is the one dial that makes
+// most of the pipeline cheaper at once.
+//
+// 1 MP is where those stop trading off against each other: `adaptiveDetLimit` floors at 736, which
+// sqrt(1 MP) * DET_FACTOR reaches exactly, so text detection costs the same at any smaller budget
+// while the frame keeps getting less legible. Real traffic sits just under 2 MP (p95 by format:
+// webp 1.9, jpeg 2.0, png 0.9), so before this nearly nothing was downscaled at all. An area budget
+// rather than a long-side cap so tall pages keep legible native resolution instead of being squashed.
+export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1000 * 1000, 96 * 96, LIMIT_INPUT_PIXELS)
 
 export interface Src {
     data: Buffer
