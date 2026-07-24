@@ -336,7 +336,7 @@ async fn test_surveys_redis_hit() -> anyhow::Result<()> {
         body["surveys"][0]["questions"][0]["question"],
         "What can we do to improve our product?"
     );
-    assert_eq!(body["survey_config"], json!(null));
+    assert!(body.get("survey_config").is_none());
 
     server.cleanup("surveys", "surveys.json", token).await?;
     Ok(())
@@ -367,6 +367,7 @@ async fn test_surveys_s3_fallback() -> anyhow::Result<()> {
         body["surveys"][0]["appearance"]["backgroundColor"],
         "#ffffff"
     );
+    assert!(body.get("survey_config").is_none());
 
     server.cleanup("surveys", "surveys.json", token).await?;
     Ok(())
@@ -385,8 +386,7 @@ async fn test_surveys_complete_miss_returns_empty() -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await?;
-    assert_eq!(body["surveys"], json!([]));
-    assert_eq!(body["survey_config"], json!(null));
+    assert_eq!(body, json!({"surveys": []}));
 
     Ok(())
 }
@@ -427,6 +427,7 @@ async fn test_config_redis_hit_with_headers() -> anyhow::Result<()> {
     assert_eq!(body["heatmaps"], json!(true));
     assert_eq!(body["analytics"]["endpoint"], "/i/v0/e/");
     assert_eq!(body["supportedCompression"], json!(["gzip", "gzip-js"]));
+    assert!(body.get("token").is_none());
     // sessionRecording should be preserved as object (empty domains = allow all)
     assert!(body["sessionRecording"].is_object());
     // domains should be stripped from response
@@ -457,6 +458,7 @@ async fn test_config_s3_fallback() -> anyhow::Result<()> {
     let body: Value = resp.json().await?;
     assert_eq!(body["heatmaps"], json!(true));
     assert_eq!(body["elementsChainAsString"], json!(true));
+    assert!(body.get("token").is_none());
 
     server.cleanup("array", "config.json", token).await?;
     Ok(())

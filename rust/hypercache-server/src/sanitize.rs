@@ -1,6 +1,7 @@
 //! Config sanitization for public-facing responses.
 //!
 //! Matches Python's `sanitize_config_for_public_cdn` behavior:
+//! - Removes unused public config and survey fields
 //! - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
 //! - Removes `sessionRecording.domains` (internal field, not needed by SDK)
 //! - Sets `sessionRecording` to `false` if request origin not in permitted domains
@@ -19,7 +20,9 @@ const AUTHORIZED_MOBILE_CLIENTS: &[&str] = &[
 pub fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
     if let Some(obj) = cached_config.as_object_mut() {
         obj.remove("siteAppsJS");
+        obj.remove("token");
     }
+    sanitize_surveys_for_client(cached_config);
 
     let session_recording = match cached_config.get_mut("sessionRecording") {
         Some(sr) => sr,
@@ -43,6 +46,49 @@ pub fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap
             // Empty domains list means always permitted
             if !domain_strings.is_empty() && !on_permitted_domain(&domain_strings, headers) {
                 *session_recording = json!(false);
+            }
+        }
+    }
+}
+
+pub fn sanitize_surveys_for_client(payload: &mut Value) {
+    let Some(payload) = payload.as_object_mut() else {
+        return;
+    };
+    payload.remove("survey_config");
+
+    let Some(surveys) = payload.get_mut("surveys").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    for survey in surveys {
+        let Some(survey) = survey.as_object_mut() else {
+            continue;
+        };
+        survey.remove("base_language");
+
+        if let Some(questions) = survey.get_mut("questions").and_then(Value::as_array_mut) {
+            for question in questions {
+                if let Some(question) = question.as_object_mut() {
+                    question.remove("isNpsQuestion");
+                }
+            }
+        }
+
+        let Some(actions) = survey
+            .get_mut("conditions")
+            .and_then(Value::as_object_mut)
+            .and_then(|conditions| conditions.get_mut("actions"))
+            .and_then(Value::as_object_mut)
+            .and_then(|actions| actions.get_mut("values"))
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for action in actions {
+            if let Some(action) = action.as_object_mut() {
+                action.retain(|field, _| matches!(field.as_str(), "id" | "name" | "steps"));
             }
         }
     }
@@ -159,6 +205,7 @@ mod tests {
     #[test]
     fn test_removes_site_apps_js() {
         let mut config = json!({
+            "token": "phc_test",
             "siteApps": [{"id": 1}],
             "siteAppsJS": ["function() {}"],
             "heatmaps": true
@@ -166,6 +213,7 @@ mod tests {
 
         sanitize_config_for_client(&mut config, &HeaderMap::new());
 
+        assert!(config.get("token").is_none());
         assert!(config.get("siteAppsJS").is_none());
         assert!(config.get("siteApps").is_some());
         assert_eq!(config.get("heatmaps"), Some(&json!(true)));
