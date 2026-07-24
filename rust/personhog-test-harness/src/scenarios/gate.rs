@@ -189,10 +189,13 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // the harness, so start from a clean slate.
     seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
     let state = PersonState::new();
+    // A spawned stack always uses its own identity service — the gate's
+    // assertions target that stack, so an external identity service pointed
+    // elsewhere would only produce confusing failures.
     let identity_url = match (&args.external_identity_url, &stack) {
         _ if !args.create_via_identity => None,
-        (Some(url), _) => Some(url.clone()),
-        (None, Some(stack)) => stack.identity_url.clone(),
+        (_, Some(stack)) => stack.identity_url.clone(),
+        (Some(url), None) => Some(url.clone()),
         (None, None) => unreachable!("validated above"),
     };
     let person_ids = match &identity_url {
