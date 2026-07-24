@@ -344,9 +344,11 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="text-muted text-sm">
-                    {ratedCount === 0
-                        ? 'Rate results below to get PostHog AI recommendations here.'
-                        : 'No recommendation yet for the current ratings.'}
+                    {editDisabledReason
+                        ? editDisabledReason
+                        : ratedCount === 0
+                          ? 'Rate results below to get PostHog AI recommendations here.'
+                          : 'No recommendation yet for the current ratings.'}
                 </span>
                 <LemonButton
                     size="small"

@@ -62,12 +62,49 @@ describe('scannerRunTabLogic', () => {
         expect(lookupUrl).not.toContain('limit=')
     })
 
-    it('releases the pending bridge once the scanned session lands in the lookup', async () => {
+    it('registers a pending scan per row so rapid clicks on different rows all take', async () => {
+        const posted: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': async ({ request }: { request: Request }) => {
+                    posted.push((await request.json()).session_id)
+                    return [202, {}]
+                },
+            },
+        })
+        // No visible rows loaded, so the post-scan refetch is a no-op and the pending bridge stays put.
         await expectLogic(logic, () => {
-            logic.actions.setPendingId('s1')
-            logic.actions.setVisibleSessionIds(['s1', 's2'])
-        }).toDispatchActions(['loadObservationsSuccess'])
-        expect(logic.values.pendingId).toBeNull()
+            logic.actions.startScan('a')
+            logic.actions.startScan('b')
+        }).toFinishAllListeners()
+
+        // Both clicks post and hold their own spinner — neither is swallowed by the other being in flight.
+        expect(posted.sort()).toEqual(['a', 'b'])
+        expect(logic.values.pendingSessionIds).toEqual({ a: true, b: true })
+    })
+
+    it('releases a row from pending once its observation lands in the lookup', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': () => [202, {}],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.startScan('s1')).toFinishAllListeners()
+        expect(logic.values.pendingSessionIds).toEqual({ s1: true })
+
+        logic.actions.loadObservationsSuccess({ s1: { id: 'obs-1', status: 'succeeded' } })
+        expect(logic.values.pendingSessionIds).toEqual({})
+    })
+
+    it('releases a row from pending when the scan fails to start', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': () => [500, { detail: 'boom' }],
+            },
+        })
+        // A failed post must not strand the row's spinner spinning forever.
+        await expectLogic(logic, () => logic.actions.startScan('s1')).toFinishAllListeners()
+        expect(logic.values.pendingSessionIds).toEqual({})
     })
 
     it('bulk scan posts the selected sessions and clears its loading state', async () => {
