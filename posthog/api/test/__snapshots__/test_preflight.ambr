@@ -61,6 +61,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
