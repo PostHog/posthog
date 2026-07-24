@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import deltalake.exceptions
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
@@ -171,24 +172,38 @@ class TestRunPreWriteDefensiveCompact:
         [
             (
                 "credentials_loading",
+                OSError,
                 "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
             ),
             (
                 "credential_provider_not_enabled",
+                OSError,
                 "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
             ),
             (
                 "generic_s3_error",
+                OSError,
                 "Generic S3 error: Error getting list response body: operation timed out",
+            ),
+            (
+                # table.vacuum()/optimize.compact() surface the identical object-store error text
+                # wrapped in DeltaError instead of OSError (unlike is_deltatable()'s OSError) — the
+                # exact shape of the issue this test guards against.
+                "generic_s3_error_as_delta_error",
+                deltalake.exceptions.DeltaError,
+                "Generic error: Kernel error: Error interacting with object store: Generic S3 error: "
+                "Server returned non-2xx status code: 503 Service Unavailable: SlowDown",
             ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_logs_transient_object_store_error_without_capturing(self, _name: str, error_message: str):
+    async def test_logs_transient_object_store_error_without_capturing(
+        self, _name: str, error_cls: type[Exception], error_message: str
+    ):
         # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
         # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
         # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=OSError(error_message)))
+        helper = MagicMock(run_maintenance=AsyncMock(side_effect=error_cls(error_message)))
         logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
 
         schema = MagicMock(partition_count=5, sync_type_config={})
