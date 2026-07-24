@@ -1486,6 +1486,7 @@ class ExternalDataSourceType(StrEnum):
     EMPLOYMENT_HERO = "EmploymentHero"
     ENCHARGE = "Encharge"
     EVENTEE = "Eventee"
+    EXCEL = "Excel"
     EVENTZILLA = "Eventzilla"
     EVERHOUR = "Everhour"
     EZ_OFFICE_INVENTORY = "EZOfficeInventory"

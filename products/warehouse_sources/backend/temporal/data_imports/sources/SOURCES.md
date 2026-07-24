@@ -25,6 +25,7 @@ new source / vendor-SDK / migration PR.
 | **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). Routed through the [tracked gRPC transport](common/grpc/) via client interceptors (see `common/grpc/`). |
 | **DB protocol**           | Native database wire protocol via a driver (e.g. PostgreSQL, MySQL, Snowflake). Not HTTP.                                                                        |
 | **Webhook (S3-buffered)** | Vendor pushes events to a webhook endpoint; payloads are buffered to S3 by the `WebhookSourceManager` and consumed by the pipeline.                              |
+| **Own object storage**    | No vendor at all — the source reads a file a user uploaded into PostHog's own data warehouse bucket, so there is no outbound third-party traffic.                |
 
 When a source uses more than one transport (e.g. BigQuery REST + Storage gRPC, or Stripe pull-API + webhooks),
 the row lists both.
@@ -210,6 +211,7 @@ the row lists both.
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| excel                            | Own object storage          | openpyxl (reads an uploaded workbook from our bucket)           | ➖ N/A                      |
 | freshcaller                      | HTTP                        | requests                                                        | ✅                          |
 | freshchat                        | HTTP                        | requests                                                        | ✅                          |
 | freshdesk                        | HTTP                        | requests                                                        | ✅                          |

@@ -7152,6 +7152,7 @@ export const externalDataSources = [
     'EmploymentHero',
     'Encharge',
     'Eventee',
+    'Excel',
     'Eventzilla',
     'Everhour',
     'EZOfficeInventory',
