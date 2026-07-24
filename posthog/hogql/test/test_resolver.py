@@ -2117,3 +2117,9 @@ class TestResolver(BaseTest):
     def test_uuid_literal_comparison_allows(self, _name, query):
         expr = self._select(query)
         resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_uuid_literal_guard_skipped_for_non_clickhouse_dialects(self):
+        # other target dialects accept UUID text forms ClickHouse doesn't (braces, no dashes),
+        # so the canonical-form guard must not reject their queries
+        expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
+        resolve_types(expr, self.context, dialect="postgres")

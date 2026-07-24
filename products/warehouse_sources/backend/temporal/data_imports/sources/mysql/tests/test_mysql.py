@@ -926,6 +926,9 @@ class TestIsTransientConnectDrop:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
             # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
             "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+            # A raw socket close (TCP RST/FIN) mid-handshake, with unread bytes still buffered.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "(Closed before TLS handshake with data in recv buffer. (_ssl.c:1032))",
         ],
     )
     def test_matches_ssl_peer_close_on_connect(self, message):
@@ -1918,6 +1921,22 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process (connect-time and streaming-query FORCE INDEX fallback); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Transient lost-connection error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

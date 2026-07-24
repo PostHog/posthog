@@ -385,12 +385,17 @@ tools:
             idempotent: false
         title: Create custom property definition
         description: >
-            Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide
-            `name` (required, unique within the team), optional `description`, `display_type` (required; one of text,
-            number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large
-            numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and
-            shared across all accounts; set the value a specific account holds via the account custom property value
-            tools.
+            Create a Customer Analytics custom property definition — the shape of a custom attribute. Provide `name`
+            (required, unique within the team), optional `description`, `display_type` (required; one of text, number,
+            currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values
+            (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches
+            to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group
+            properties are populated from a warehouse table via a custom property source and become usable like any
+            other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass
+            `group_type_index` (0-4) selecting the group type. Person and group targets require the
+            `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write`
+            scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the
+            account custom property value tools.
         feature_flag: customer-analytics-csp
     custom-property-definitions-destroy:
         operation: custom_property_definitions_destroy
@@ -403,9 +408,11 @@ tools:
             idempotent: true
         title: Delete custom property definition
         description: >
-            Permanently delete a Customer Analytics custom property definition by id. Because values reference the
-            definition, deleting it also removes the value every account holds for that property. The definition is
-            team-scoped, so this affects all accounts.
+            Permanently delete a Customer Analytics custom property definition by id. For account targets, because
+            values reference the definition, deleting it also removes the value every account holds for that property;
+            for person/group targets it removes the source binding and stops future syncs (already-written person/group
+            properties stay). The definition is team-scoped, so this affects all accounts. Deleting a group-target
+            definition additionally requires the `group:write` scope.
         feature_flag: customer-analytics-csp
     custom-property-definitions-list:
         operation: custom_property_definitions_list
@@ -420,14 +427,16 @@ tools:
         title: List custom property definitions
         description: >
             List Customer Analytics custom property definitions for the project. A definition is the shape of a custom
-            account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency,
-            percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across
-            all accounts; the value a specific account holds for a definition is managed separately via the account
-            custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.
-            To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and
-            query it via HogQL against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` ``
-            (backtick-quote the id) and filtering it `IS NOT NULL`. The per-account value tools return one account at a
-            time; this HogQL path scales to all accounts.
+            attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent,
+            date, datetime, boolean), `is_big_number` flag, and `target_type` (`account`, `person`, or `group`, with
+            `group_type_index` set for group targets). Definitions are team-scoped; for account targets, the value a
+            specific account holds is managed separately via the account custom property value tools. Group-target
+            definitions are only listed for callers holding the `group:read` scope. Use
+            `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a
+            custom property value in bulk, take a definition `id` from this tool and query it via HogQL against
+            `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and
+            filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales
+            to all accounts.
         feature_flag: customer-analytics-csp
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
@@ -443,7 +452,9 @@ tools:
             Update fields on an existing Customer Analytics custom property definition. Accepts a subset of fields;
             unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team),
             `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and
-            `is_big_number` (only valid for numeric display types).
+            `is_big_number` (only valid for numeric display types). `target_type` and `group_type_index` are create-only
+            and cannot be changed here. Updating a group-target definition additionally requires the `group:write`
+            scope.
         feature_flag: customer-analytics-csp
     custom-property-definitions-retrieve:
         operation: custom_property_definitions_retrieve
@@ -457,9 +468,11 @@ tools:
         title: Get custom property definition
         description: >
             Fetch a single Customer Analytics custom property definition by id. Returns its `name`, optional
-            `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and
-            `is_big_number` flag. A definition is the shape of a custom account attribute; the value a specific account
-            holds for it is managed separately via the account custom property value tools.
+            `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean),
+            `is_big_number` flag, and `target_type` (`account`, `person`, or `group`, with `group_type_index` for group
+            targets). A definition is the shape of a custom attribute; for account targets, the value a specific account
+            holds is managed separately via the account custom property value tools. A group-target definition is only
+            returned to callers holding the `group:read` scope.
         feature_flag: customer-analytics-csp
     custom-property-definitions-update:
         operation: custom_property_definitions_update
@@ -467,21 +480,137 @@ tools:
     custom-property-definitions-values-retrieve:
         operation: custom_property_definitions_values_retrieve
         enabled: false
+    custom-property-sources-backfill:
+        operation: custom_property_sources_backfill
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Backfill a warehouse person- or group-property source
+        description: >
+            Person- and group-property sources only: start a backfill that reads the whole warehouse table and populates
+            person or group properties for its historical rows. Backfill is per table — one call refreshes every enabled
+            property mapped from that table — and it coalesces if one is already running for the table (the response's
+            `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property
+            source. Backfilling a group-target source additionally requires the `group:write` scope.
+        feature_flag: warehouse-person-properties
     custom-property-sources-create:
         operation: custom_property_sources_create
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create custom property source
+        description: >
+            Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query`
+            + `source_column`); person and group sources read a synced warehouse table (`external_data_schema` +
+            `column_property_map` mapping warehouse columns to person/group properties, plus `key_column` = the
+            distinct_id column for person sources or the group-key column for group sources). One source per definition.
+            The target (account, person, or group) follows the bound definition's `target_type`; creating a source for a
+            group-target definition additionally requires the `group:write` scope.
+        feature_flag: customer-analytics-csp
     custom-property-sources-destroy:
         operation: custom_property_sources_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete custom property source
+        description: >
+            Delete a custom property source by id, stopping its sync. Values already written stay on the
+            accounts/people/groups but stop updating. The definition itself is not deleted. Deleting a group-target
+            source additionally requires the `group:write` scope.
+        feature_flag: customer-analytics-csp
     custom-property-sources-list:
         operation: custom_property_sources_list
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List custom property sources
+        description: >
+            List custom property sources for the project, newest first. Each source binds a definition to a data source
+            and reports its sync status (`last_synced_at`, `last_sync_error`) and, for person and group sources, the
+            schedule (`next_sync_at`, `sync_frequency_interval_seconds`) and the most recent run (`latest_run`). Sources
+            feeding group-target definitions are only listed for callers holding the `group:read` scope.
+        feature_flag: customer-analytics-csp
     custom-property-sources-partial-update:
         operation: custom_property_sources_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update custom property source
+        description: >
+            Update the editable fields of a custom property source (`key_column`, `is_enabled`). Re-enabling a disabled
+            source resets its failure count. The definition binding, warehouse schema, and column map are create-only
+            and cannot be changed here. Updating a group-target source additionally requires the `group:write` scope.
+        feature_flag: customer-analytics-csp
     custom-property-sources-retrieve:
         operation: custom_property_sources_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get custom property source
+        description: >
+            Fetch a single custom property source by id, including its binding, sync status, and (for person and group
+            sources) schedule and latest run. Fetching a source that feeds a group-target definition additionally
+            requires the `group:read` scope.
+        feature_flag: customer-analytics-csp
+    custom-property-sources-runs-list:
+        operation: custom_property_sources_runs_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List person- or group-property source runs
+        description: >
+            Person- and group-property sources only: the source's sync/backfill run history, newest first. Each run
+            reports `trigger` (scheduled/manual/backfill), `status` (running/completed/failed), the funnel counts
+            (`rows_read`, `changed`, `existing` = person/group profiles affected, `produced`, `skipped_missing_person`),
+            `error`, and timestamps. Listing runs for a group-target source additionally requires the `group:read`
+            scope.
+        feature_flag: warehouse-person-properties
+    custom-property-sources-sync:
+        operation: custom_property_sources_sync
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Sync a warehouse person- or group-property source now
+        description: >
+            Person- and group-property sources only: trigger the underlying warehouse schema's sync now. This re-runs a
+            real (billable) warehouse sync, and the incremental person/group-property update rides off it. It does not
+            reset the schema's recurring sync schedule. Returns 400 for a source that is not an enabled person- or
+            group-property source. Syncing a group-target source additionally requires the `group:write` scope.
+        feature_flag: warehouse-person-properties
     custom-property-sources-update:
         operation: custom_property_sources_update
         enabled: false

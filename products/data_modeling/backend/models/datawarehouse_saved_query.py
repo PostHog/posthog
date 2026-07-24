@@ -32,6 +32,7 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
@@ -449,7 +450,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
+                fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
                 fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:

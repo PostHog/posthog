@@ -63,7 +63,10 @@ impl IssueCreatedWorkflowStarter {
             namespace: config.temporal_namespace.clone(),
             client_cert: config.temporal_client_cert.clone(),
             client_key: config.temporal_client_key.clone(),
-            server_root_ca_cert: config.temporal_client_root_ca.clone(),
+            // Temporal Cloud's server certificate chains to a public CA. Match the
+            // Python workers and use native roots rather than the injected CA,
+            // which is not the server certificate issuer.
+            server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
         })

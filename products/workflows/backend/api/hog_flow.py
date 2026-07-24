@@ -14,7 +14,6 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -51,7 +50,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.event_usage import EventSource, get_event_source
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
@@ -187,6 +186,41 @@ def _first_error_string(detail: Any) -> Optional[str]:
             if message := _first_error_string(value):
                 return message
     return None
+
+
+# The literal template_id each fixed-template node type requires. A saved library template
+# (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
+# putting its UUID in template_id is the dominant authoring mistake on these nodes.
+_FIXED_TEMPLATE_IDS = {
+    "function_email": "template-email",
+    "function_sms": "template-twilio",
+    "function_push": "template-native-push",
+}
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid_mod.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _describe_unknown_template(action: dict, template_id: str) -> str:
+    fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
+    if fixed_id and _looks_like_uuid(template_id):
+        return (
+            f"Template not found. template_id must be the literal '{fixed_id}' for this step type. "
+            "To use a saved template from the library, set config.template_uuid to its UUID instead."
+        )
+    if fixed_id:
+        return f"Template not found. template_id must be the literal '{fixed_id}' for this step type."
+    if _looks_like_uuid(template_id):
+        return (
+            "Template not found. Function steps reference a destination template id like "
+            "'template-webhook' (discover them with the template catalog), not a UUID."
+        )
+    return "Template not found"
 
 
 def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
@@ -587,7 +621,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
-                    raise serializers.ValidationError({"template_id": "Template not found"})
+                    raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
@@ -1787,6 +1821,26 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
+    def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
+        # report_user_action injects source and MCP-client properties from the request, so usage is
+        # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
+        try:
+            report_user_action(
+                self.request.user,
+                event,
+                {
+                    "workflow_id": str(instance.id),
+                    "workflow_name": instance.name,
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization.id),
+                    **(extra_properties or {}),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        except Exception as e:
+            logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
+
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
             raise exceptions.ValidationError(
@@ -1798,26 +1852,14 @@ class HogFlowViewSet(
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
-        try:
-            # Count edges and actions
-            edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
-            actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
-
-            posthoganalytics.capture(
-                distinct_id=str(serializer.context["request"].user.distinct_id),
-                event="hog_flow_created",
-                properties={
-                    "workflow_id": str(serializer.instance.id),
-                    "workflow_name": serializer.instance.name,
-                    # "trigger_type": trigger_type,
-                    "edges_count": edges_count,
-                    "actions_count": actions_count,
-                    "team_id": str(self.team_id),
-                    "organization_id": str(self.organization.id),
-                },
-            )
-        except Exception as e:
-            logger.warning("Failed to capture hog_flow_created event", error=str(e))
+        self._report_workflow_action(
+            "hog_flow_created",
+            serializer.instance,
+            {
+                "edges_count": len(serializer.instance.edges or []),
+                "actions_count": len(serializer.instance.actions or []),
+            },
+        )
 
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
@@ -1921,25 +1963,25 @@ class HogFlowViewSet(
             and before_update.status == HogFlow.State.DRAFT
             and serializer.instance.status == HogFlow.State.ACTIVE
         ):
-            try:
-                # Count edges and actions
-                edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
-                actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
+            self._report_workflow_action(
+                "hog_flow_activated",
+                serializer.instance,
+                {
+                    "edges_count": len(serializer.instance.edges or []),
+                    "actions_count": len(serializer.instance.actions or []),
+                },
+            )
 
-                posthoganalytics.capture(
-                    distinct_id=str(serializer.context["request"].user.distinct_id),
-                    event="hog_flow_activated",
-                    properties={
-                        "workflow_id": str(serializer.instance.id),
-                        "workflow_name": serializer.instance.name,
-                        "edges_count": edges_count,
-                        "actions_count": actions_count,
-                        "team_id": str(self.team_id),
-                        "organization_id": str(self.organization.id),
-                    },
-                )
-            except Exception as e:
-                logger.warning("Failed to capture hog_flow_activated event", error=str(e))
+    def perform_destroy(self, instance: HogFlow) -> None:
+        # Workflow deletes are hard deletes; without this override they leave no trail at all.
+        # The audit row shares the delete's transaction so a failed delete rolls it back; the
+        # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
+        flow_id = instance.id
+        with transaction.atomic():
+            log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
+            instance.delete()
+        instance.id = flow_id
+        self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
 
     def _refresh_action_redirects(
         self, target: HogFlow, old: HogFlow, new_actions: Optional[list], enabled: bool
@@ -2069,8 +2111,15 @@ class HogFlowViewSet(
 
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, locked)
-        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        # Explicit "updated" (the action name "graph" isn't in ACTIVITY_TYPES, which would fall back to
+        # the indistinct "changed" and miss the describer's per-field rendering).
+        log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
+        self._report_workflow_action(
+            "hog_flow_graph_updated",
+            locked,
+            {"operations_count": len(operations), "routed_to_draft": route_to_draft},
+        )
 
         return Response(self.get_serializer(locked).data)
 
@@ -2232,8 +2281,9 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at"])
 
         self._maybe_reschedule_timing_edits(before_update, locked)
-        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="published", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
+        self._report_workflow_action("hog_flow_draft_published", locked)
 
         return Response(
             {
@@ -2263,8 +2313,9 @@ class HogFlowViewSet(
             locked.draft_updated_at = None
             locked.save(update_fields=["draft", "draft_updated_at"])
 
-        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="draft_discarded", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
+        self._report_workflow_action("hog_flow_draft_discarded", locked)
 
         return Response(self.get_serializer(locked).data)
 
@@ -2330,8 +2381,9 @@ class HogFlowViewSet(
             locked.draft_updated_at = timezone.now()
             locked.save(update_fields=["draft", "draft_updated_at"])
 
-        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
+        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": revision.version})
 
         return Response(self.get_serializer(locked).data)
 
@@ -2362,7 +2414,14 @@ class HogFlowViewSet(
                     {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
                 )
             if not hog_flow or not hog_flow.draft:
-                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+                raise exceptions.ValidationError(
+                    {
+                        "use_draft": (
+                            "This workflow has no staged draft to test. Stage one by editing the "
+                            "workflow first, or omit use_draft to test the live config."
+                        )
+                    }
+                )
             payload["configuration"] = hog_flow.draft
 
         res = create_hog_flow_invocation_test(
@@ -2616,13 +2675,30 @@ class HogFlowViewSet(
         # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
         candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
         self.user_access_control.preload_object_access_controls(candidates)
-        deletable_ids = [
-            flow.id
+        deletable = [
+            flow
             for flow in candidates
             if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
         ]
 
-        deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
+        # Hard deletes must leave a trail, same as the single destroy path. Lock the rows so the
+        # audit entries match exactly what this request deletes (a concurrently removed row gets no
+        # entry), and share the delete's transaction so a failed delete rolls its audit rows back.
+        # Usage events fire only after commit.
+        with transaction.atomic():
+            deleted_ids = set(
+                self.get_queryset()
+                .select_for_update()
+                .filter(id__in=[flow.id for flow in deletable])
+                .values_list("id", flat=True)
+            )
+            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
+            for flow in deleted_flows:
+                log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
+
+        for flow in deleted_flows:
+            self._report_workflow_action("hog_flow_deleted", flow, {"via": "bulk_delete"})
 
         return Response({"deleted": deleted_count})
 
@@ -2750,6 +2826,7 @@ class HogFlowViewSet(
                 return Response(serializer.errors, status=400)
 
             batch_job = serializer.save()
+            self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
@@ -2767,7 +2844,8 @@ class HogFlowViewSet(
         if request.method == "POST":
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            serializer.save(team=self.team, hog_flow=hog_flow)
+            schedule = serializer.save(team=self.team, hog_flow=hog_flow)
+            self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
             return Response(serializer.data, status=201)
 
         schedules = HogFlowSchedule.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
@@ -2794,7 +2872,9 @@ class HogFlowViewSet(
             raise exceptions.NotFound("Schedule not found")
 
         if request.method == "DELETE":
+            schedule_id_str = str(schedule.id)
             schedule.delete()
+            self._report_workflow_action("hog_flow_schedule_deleted", hog_flow, {"schedule_id": schedule_id_str})
             return Response(status=204)
 
         serializer = HogFlowScheduleSerializer(
@@ -2802,6 +2882,7 @@ class HogFlowViewSet(
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
         return Response(serializer.data)
 
 

@@ -370,6 +370,16 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * Async-accepted response for POST /vision/actions/{id}/run/.
+ */
+export interface RunActionResponseApi {
+    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+    workflow_id: string
+    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+    already_running: boolean
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed
@@ -709,12 +719,14 @@ export const ScannerProviderEnumApi = {
 
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
  * * `gemini-3.6-flash` - Gemini 3.6 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
     Gemini36Flash: 'gemini-3.6-flash',
 } as const
 
@@ -790,6 +802,7 @@ export interface ReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -881,6 +894,7 @@ export interface PatchedReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -1373,6 +1387,7 @@ export interface EstimateRequestApi {
     /** Proposed model; determines `credits_per_observation` in the response.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }

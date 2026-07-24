@@ -30,7 +30,8 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
+from posthog.errors import wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -40,6 +41,7 @@ from posthog.sync import database_sync_to_async
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
@@ -197,7 +199,7 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
 
     return STR_TO_HOGQL_MAPPING.get(
         str(column_definition.get("hogql", "UnknownDatabaseField")),
@@ -876,12 +878,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)
+
+        # Capacity errors are transient — surface them so the caller can retry. Check this
+        # before the message matching below, since ClickHouseAtCapacity is an APIException
+        # and has no `.message` attribute.
+        if isinstance(err, ClickHouseAtCapacity):
+            raise err
+
         for key, value in ExtractErrors.items():
             if key in err.message:
                 raise Exception(value)
-
-        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
-            raise err
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "
