@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
@@ -52,13 +51,6 @@ export function TicketPrompt({
     const submitInFlightRef = useRef(false)
 
     function handleTicketCreated(ticketId: string): void {
-        posthog.capture('posthog_ai_support_ticket_created', {
-            $ai_conversation_id: conversationId,
-            $ai_session_id: conversationId,
-            $ai_trace_id: traceId,
-            $ai_support_ticket_id: ticketId,
-        })
-
         // Persist the confirmation message and add it to the thread
         const confirmationMessage = formatConfirmationMessage(ticketId)
         appendMessageToConversation(confirmationMessage)
@@ -82,6 +74,8 @@ export function TicketPrompt({
             severity_level: 'low',
             message: summary ? '' : issueText,
             tags: ['raised_from_posthog_ai_chat'],
+            ai_conversation_id: conversationId,
+            ai_trace_id: traceId,
         })
         setIsSupportModalOpen(true)
     }
