@@ -1,6 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -936,10 +937,20 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
+@dataclass(frozen=True)
+class BillingQuotaUpdateResult:
+    """Outcome of a quota-limiting run. The two org maps have the same shape, so returning them
+    positionally is easy to get backwards. Named fields keep them straight."""
+
+    quota_limited_orgs: dict[str, dict[str, int]]
+    quota_limiting_suspended_orgs: dict[str, dict[str, int]]
+    stats: dict[str, float | int]
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
-) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, float | int]]:
+) -> BillingQuotaUpdateResult:
     """
     This is called on a cron job every 30 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
@@ -1349,10 +1360,10 @@ def update_all_orgs_billing_quotas(
         orgs_suspended=orgs_suspended_count,
     )
 
-    return (
-        quota_limited_orgs,
-        quota_limiting_suspended_orgs,
-        {
+    return BillingQuotaUpdateResult(
+        quota_limited_orgs=quota_limited_orgs,
+        quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
+        stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,
             "orgs_processed": orgs_processed,

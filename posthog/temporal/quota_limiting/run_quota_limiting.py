@@ -50,8 +50,8 @@ async def run_quota_limiting_all_orgs(
             def async_update_all_orgs_billing_quotas():
                 return update_all_orgs_billing_quotas(progress_callback=progress_callback)
 
-            _limited, _suspended, stats = await async_update_all_orgs_billing_quotas()
-            result = QuotaLimitingResult(**stats)
+            quota_result = await async_update_all_orgs_billing_quotas()
+            result = QuotaLimitingResult(**quota_result.stats)
         except ImportError:
             pass
         except Exception as e:
