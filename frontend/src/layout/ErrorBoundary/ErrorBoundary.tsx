@@ -2,6 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useContext } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -10,6 +11,8 @@ import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Suppor
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { ChunkLoadRecoveryContext } from 'scenes/ChunkLoadErrorBoundary'
 import { teamLogic } from 'scenes/teamLogic'
 
 const DOM_MUTATION_PATTERNS = [
@@ -32,6 +35,7 @@ interface ErrorBoundaryProps {
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const chunkLoadRecoveryAvailable = useContext(ChunkLoadRecoveryContext)
 
     const additionalProperties = { ...exceptionProps }
 
@@ -44,6 +48,12 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
             additionalProperties={additionalProperties}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
+                if (chunkLoadRecoveryAvailable && isChunkLoadError(rawError)) {
+                    // Rethrow chunk-load failures (PostHogErrorBoundary has already captured them) so the
+                    // ChunkLoadErrorBoundary above reloads once and a stale deploy heals with fresh assets,
+                    // instead of dead-ending in this error UI on every lazy component that failed to load.
+                    throw rawError
+                }
                 const normalizedError =
                     rawError instanceof Error
                         ? rawError
@@ -146,6 +156,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
 export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    const chunkLoadRecoveryAvailable = useContext(ChunkLoadRecoveryContext)
     const additionalProperties = { ...exceptionProps }
     if (currentTeamId !== undefined) {
         additionalProperties.team_id = currentTeamId
@@ -155,6 +166,10 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
             additionalProperties={additionalProperties}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
+                if (chunkLoadRecoveryAvailable && isChunkLoadError(rawError)) {
+                    // Same recovery as ErrorBoundary: let the ChunkLoadErrorBoundary above reload once.
+                    throw rawError
+                }
                 const normalizedError =
                     rawError instanceof Error
                         ? rawError
