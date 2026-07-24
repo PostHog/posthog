@@ -262,9 +262,15 @@ describe('exportsLogic', () => {
                 label: 'clears the highlight when the download succeeds',
                 downloadOk: true,
                 remainingIds: [] as number[],
+                expectsDismiss: false,
             },
-            { label: 'keeps the highlight when the download fails', downloadOk: false, remainingIds: [41] },
-        ])('downloadExport $label', async ({ downloadOk, remainingIds }) => {
+            {
+                label: 'keeps the highlight and drops the generic toast when the download fails',
+                downloadOk: false,
+                remainingIds: [41],
+                expectsDismiss: true,
+            },
+        ])('downloadExport $label', async ({ downloadOk, remainingIds, expectsDismiss }) => {
             const tracked = asset({ id: 41, export_format: ExporterFormat.MP4, has_content: true })
             logic.actions.addFresh(tracked)
             jest.mocked(downloadExportedAsset).mockResolvedValueOnce(downloadOk)
@@ -274,6 +280,14 @@ describe('exportsLogic', () => {
 
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[tracked]])
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(remainingIds)
+            // The spinner is shown immediately so the button doesn't look dead during the blocking probe.
+            expect(lemonToast.promise).toHaveBeenCalledWith(
+                expect.any(Promise),
+                expect.objectContaining({ pending: 'Preparing download…' }),
+                expect.objectContaining({ toastId: expect.any(String) })
+            )
+            // On failure downloadExportedAsset shows its own specific toast, so the generic one is dismissed.
+            expect(jest.mocked(lemonToast.dismiss).mock.calls.length > 0).toBe(expectsDismiss)
         })
 
         it('surfaces the failure and stops tracking when a tracked async export fails', async () => {
