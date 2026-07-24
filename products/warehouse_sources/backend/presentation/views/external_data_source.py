@@ -2552,8 +2552,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
         # channels).
         try:
+            # A `syncs_once` source (an uploaded file) gets its schedule created paused: the create
+            # call still triggers the initial import, but nothing recurs afterwards. The schema stays
+            # `should_sync=True` so the table reads as imported and a manual re-sync still works.
             schedule_errors = bulk_create_external_data_job_schedules(
-                [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
+                [
+                    (active_schema, active_schema.should_sync and not source.syncs_once)
+                    for active_schema in active_schemas
+                ]
             )
             for schema_id, schedule_error in schedule_errors:
                 # The source model was already created, so a partial schedule failure

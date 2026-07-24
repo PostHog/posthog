@@ -96,7 +96,7 @@ class TestWarehouseTableUploadFile(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unsupported_format", "xlsx", "Invalid format"),
+            ("unsupported_format", "tsv", "Invalid format"),
             ("empty_format", "", "Invalid format"),
         ]
     )
@@ -108,6 +108,24 @@ class TestWarehouseTableUploadFile(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected in response.json()["message"]
+
+    def test_xlsx_is_stored_as_is_for_the_excel_source(self) -> None:
+        # The Excel source imports the workbook on a worker, so the endpoint only has to land the
+        # bytes — no conversion, and the object keeps its own name.
+        response = self._upload(
+            file=SimpleUploadedFile(
+                "report.xlsx", b"PK\x03\x04 fake workbook", content_type="application/vnd.ms-excel"
+            ),
+            file_format="xlsx",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["file_format"] == "xlsx"
+        assert body["filename"] == "report.xlsx"
+        [written_path] = self.s3.written
+        assert written_path.endswith("/report.xlsx")
+        assert self.s3.written[written_path] == b"PK\x03\x04 fake workbook"
 
     def test_rejects_missing_file(self) -> None:
         response = self._upload(file_format="csv")
