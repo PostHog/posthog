@@ -29,3 +29,21 @@ export const POSITION_LABELS: Record<Required<CookieBannerAppearanceApi>['positi
     'bottom-right': 'Bottom right',
     'bottom-bar': 'Bottom bar',
 }
+
+// One-click theme presets applied to the four color fields; "light" mirrors DEFAULT_APPEARANCE
+export const THEME_PALETTES = {
+    light: {
+        backgroundColor: '#eeefe9',
+        textColor: '#151515',
+        buttonColor: '#f54e00',
+        buttonTextColor: '#ffffff',
+    },
+    dark: {
+        backgroundColor: '#1d1f27',
+        textColor: '#f3f4ef',
+        buttonColor: '#f54e00',
+        buttonTextColor: '#ffffff',
+    },
+} satisfies Record<string, Partial<CookieBannerAppearanceApi>>
+
+export type ThemePreset = keyof typeof THEME_PALETTES

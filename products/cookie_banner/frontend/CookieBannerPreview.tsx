@@ -40,7 +40,7 @@ export function CookieBannerPreview({ appearance }: { appearance: Required<Cooki
                 <button
                     type="button"
                     className="rounded bg-transparent border px-3.5 py-2 font-semibold cursor-pointer"
-                    style={{ color: appearance.textColor }}
+                    style={{ color: appearance.textColor, borderColor: appearance.textColor }}
                 >
                     {appearance.declineButtonText}
                 </button>

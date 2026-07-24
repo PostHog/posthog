@@ -156,6 +156,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         decline.type = 'button';
         decline.textContent = cfg.declineButtonText;
         decline.style.color = cfg.textColor;
+        decline.style.borderColor = cfg.textColor;
         decline.addEventListener('click', function () { choose('declined'); });
         actions.appendChild(decline);
 
@@ -165,7 +166,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
             var powered = document.createElement('div');
             powered.className = 'powered';
             var poweredLink = document.createElement('a');
-            poweredLink.href = 'https://posthog.com';
+            poweredLink.href = 'https://posthog.com?utm_source=cookie-banner&utm_medium=powered-by&utm_campaign=joes-cookie-banner';
             poweredLink.target = '_blank';
             poweredLink.rel = 'noopener';
             poweredLink.textContent = 'Powered by PostHog';
