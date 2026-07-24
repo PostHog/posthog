@@ -4,7 +4,7 @@ from posthog.clickhouse.property_groups import property_groups
 
 operations = [
     *[
-        run_sql_with_exceptions(statement, node_roles=[NodeRole.DATA], sharded=True)
+        run_sql_with_exceptions(statement, node_roles=[NodeRole.DATA], sharded=True, is_alter_on_replicated_table=True)
         for statement in property_groups.get_alter_create_statements("sharded_events", "person_properties", "custom")
     ],
     *[
