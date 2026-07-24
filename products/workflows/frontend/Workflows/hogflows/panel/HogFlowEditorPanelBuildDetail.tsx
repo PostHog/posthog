@@ -169,7 +169,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                         <LemonLabel
                             htmlFor="Track opens and link clicks"
                             className="flex gap-2 justify-between items-center"
-                            info="When disabled, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded."
+                            info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings."
                         >
                             <span>Track opens and link clicks</span>
                             <LemonSwitch

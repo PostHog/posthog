@@ -10,6 +10,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
@@ -98,7 +99,8 @@ describe('EmailService', () => {
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
         mockFetch.mockClear()
     })
@@ -121,7 +123,8 @@ describe('EmailService', () => {
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                new RecipientsManagerService(hub.postgres)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -711,6 +714,100 @@ describe('EmailService', () => {
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
                 expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
+            })
+
+            it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
+                const normal = await service.executeSendEmail(invocation)
+                expect(normal.metrics.map((m) => m.metric_name)).toEqual(
+                    expect.arrayContaining(['email_sent', 'email_untracked'])
+                )
+
+                const testSend = await service.executeSendEmail(invocation, true)
+                expect(testSend.metrics).toEqual([])
+            })
+        })
+
+        describe('recipient tracking consent', () => {
+            const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
+
+            const setConsentState = (
+                mode: 'off' | 'opt_out' | 'opt_in',
+                storedConsent: 'OPTED_IN' | 'OPTED_OUT' | null
+            ): void => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'getEmailTrackingConsentMode'
+                ).mockResolvedValue(mode)
+                jest.spyOn((service as any).recipientsManager, 'get').mockResolvedValue(
+                    storedConsent
+                        ? {
+                              id: 'pref-1',
+                              team_id: team.id,
+                              identifier: 'test@example.com',
+                              preferences: { $email_tracking: storedConsent },
+                              created_at: '',
+                              updated_at: '',
+                          }
+                        : null
+                )
+            }
+
+            beforeEach(() => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
+                invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+            })
+
+            it.each([
+                ['off mode ignores consent entirely', 'off', null, true],
+                ['opt_out mode tracks recipients with no stored preference', 'opt_out', null, true],
+                ['opt_out mode does not track recipients who opted out', 'opt_out', 'OPTED_OUT', false],
+                ['opt_in mode does not track recipients with no stored preference', 'opt_in', null, false],
+                ['opt_in mode tracks recipients who opted in', 'opt_in', 'OPTED_IN', true],
+            ] as [string, 'off' | 'opt_out' | 'opt_in', 'OPTED_IN' | 'OPTED_OUT' | null, boolean][])(
+                '%s',
+                async (_name, mode, storedConsent, expectTracked) => {
+                    setConsentState(mode, storedConsent)
+                    const result = await service.executeSendEmail(invocation)
+                    expect(result.error).toBeUndefined()
+                    const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
+                        .Data
+                    if (expectTracked) {
+                        expect(sentHtml).toContain('/redirect?ph_id=')
+                    } else {
+                        expect(sentHtml).toEqual(trackableHtml)
+                    }
+                }
+            )
+
+            it('transactional emails are exempt from consent enforcement', async () => {
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+                setConsentState('opt_in', null)
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml).toContain('/redirect?ph_id=')
+            })
+
+            it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {
+                invocation.hogFunction.metadata = { message_category_type: 'marketing', tracking_enabled: false }
+                setConsentState('opt_in', 'OPTED_IN')
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml).toEqual(trackableHtml)
+            })
+
+            it('sends untracked when the consent lookup fails (fail closed)', async () => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'getEmailTrackingConsentMode'
+                ).mockResolvedValue('opt_out')
+                jest.spyOn((service as any).recipientsManager, 'get').mockRejectedValue(new Error('db down'))
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml).toEqual(trackableHtml)
             })
         })
 

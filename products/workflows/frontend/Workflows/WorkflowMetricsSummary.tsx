@@ -80,8 +80,40 @@ export function WorkflowMetricsSummary({
                 align: 'right',
                 render: (_, row) => row.delivered.toLocaleString(),
             },
-            { title: 'Opened', key: 'opened', align: 'right', render: (_, row) => row.opened.toLocaleString() },
-            { title: 'Clicked', key: 'clicked', align: 'right', render: (_, row) => row.linkClicked.toLocaleString() },
+            {
+                title: 'Opened',
+                key: 'opened',
+                align: 'right',
+                tooltip:
+                    'Untracked sends can never record opens or clicks, so opens are shown against tracked deliveries (delivered minus untracked).',
+                render: (_, row) => (
+                    <span>
+                        {row.opened.toLocaleString()}
+                        {row.untracked > 0 && (
+                            <span className="text-muted">
+                                {' '}
+                                of {Math.max(0, row.delivered - row.untracked).toLocaleString()} tracked
+                            </span>
+                        )}
+                    </span>
+                ),
+            },
+            {
+                title: 'Clicked',
+                key: 'clicked',
+                align: 'right',
+                render: (_, row) => (
+                    <span>
+                        {row.linkClicked.toLocaleString()}
+                        {row.untracked > 0 && (
+                            <span className="text-muted">
+                                {' '}
+                                of {Math.max(0, row.delivered - row.untracked).toLocaleString()} tracked
+                            </span>
+                        )}
+                    </span>
+                ),
+            },
             {
                 title: 'Issues',
                 key: 'issues',
