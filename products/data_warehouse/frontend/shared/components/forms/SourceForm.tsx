@@ -370,6 +370,36 @@ export const sourceFieldToElement = (
         )
     }
 
+    if (field.type === 'number') {
+        // Use type="text" with inputMode="numeric" to prevent browsers from
+        // changing the value on scroll, which is the default behavior for
+        // native <input type="number"> elements.
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={
+                    field.caption ? (
+                        <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown>
+                    ) : undefined
+                }
+            >
+                {({ value, onChange }) => (
+                    <LemonInput
+                        className="ph-ignore-input"
+                        data-attr={field.name}
+                        placeholder={field.placeholder}
+                        type="text"
+                        inputMode="numeric"
+                        value={value || ''}
+                        onChange={onChange}
+                    />
+                )}
+            </LemonField>
+        )
+    }
+
     return (
         <LemonField
             key={field.name}
