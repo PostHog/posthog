@@ -512,6 +512,30 @@ def test_other_teams_backfills_do_not_count_toward_concurrent_limit(
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
+def test_batch_export_backfill_without_end_at_on_non_http_destination_returns_400(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test a backfill with no end_at on a non-HTTP destination returns a clean 400, not a 500.
+
+    Only HTTP/NOOP destinations support unbounded (no end_at) backfills. For everything else the
+    service raises BatchExportWithNoEndNotAllowedError, which must surface as a validation error.
+    """
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at=None,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Backfilling a BatchExport with no end date is not allowed"
+
+
 def test_batch_export_earliest_backfill_allowed_with_feature_flag(
     client: HttpClient, organization, team, user, temporal
 ):

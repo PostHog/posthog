@@ -107,7 +107,9 @@ def list_batch_exports_ok(client: TestClient, team_id: int):
     return response.json()
 
 
-def backfill_batch_export(client: TestClient, team_id: int, batch_export_id: str, start_at: str | None, end_at: str):
+def backfill_batch_export(
+    client: TestClient, team_id: int, batch_export_id: str, start_at: str | None, end_at: str | None
+):
     """Create a backfill for a BatchExport."""
     url = f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills"
 
