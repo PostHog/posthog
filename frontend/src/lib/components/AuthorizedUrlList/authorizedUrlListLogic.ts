@@ -193,7 +193,7 @@ export function directToolbarUrl(
 }
 
 /** Treat www.domain.com and domain.com as equivalent. */
-const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
+export const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
 
 export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {

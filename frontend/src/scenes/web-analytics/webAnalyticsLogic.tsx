@@ -117,6 +117,7 @@ import {
     WebVitalsPercentile,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
+    hostPropertyFilterValues,
     loadPriorityMap,
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
@@ -1279,7 +1280,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ...filters,
                         {
                             key: '$host',
-                            value: selectedHost,
+                            // Match both the bare and www. host so the filter doesn't miss events
+                            // ingested with the opposite prefix to the authorized URL.
+                            value: hostPropertyFilterValues(selectedHost),
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },

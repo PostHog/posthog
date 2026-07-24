@@ -7,7 +7,7 @@ import { isNotNil } from 'lib/utils/guards'
 import { CompareFilter, WebAnalyticsPropertyFilter, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator, WebAnalyticsFiltersConfig } from '~/types'
 
-import { DeviceType, INITIAL_WEB_ANALYTICS_FILTER } from './common'
+import { DeviceType, INITIAL_WEB_ANALYTICS_FILTER, hostPropertyFilterValues } from './common'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -370,7 +370,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             ): WebAnalyticsPropertyFilter[] => {
                 const filters: WebAnalyticsPropertyFilter[] = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
                 if (host) {
-                    filters.push(eventFilter('$host', host))
+                    filters.push(eventFilter('$host', hostPropertyFilterValues(host)))
                 }
                 if (deviceType === 'Desktop') {
                     filters.push(eventFilter('$device_type', 'Desktop'))

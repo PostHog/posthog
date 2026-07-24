@@ -2,6 +2,7 @@ import { BreakPointFunction } from 'kea'
 
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
+import { stripWww } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
@@ -528,6 +529,15 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+// The domain picker builds its options from Authorized URLs, which may carry a `www.` prefix
+// (or not) independently of how events were ingested into `$host`. Match both the bare and
+// `www.`-prefixed forms so an exact host filter doesn't silently return zero when the prefixes
+// disagree (e.g. authorized `https://www.example.com` but events on `$host = example.com`).
+export const hostPropertyFilterValues = (host: string): string[] => {
+    const bare = stripWww(host)
+    return [bare, `www.${bare}`]
+}
 
 // Utility function to map SQL/internal column names to UI-friendly display names
 export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
