@@ -4,6 +4,15 @@ Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHo
 
 Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
+#### Query performance — avoid full events-table scans
+
+The `events` table holds the team's entire history and is by far the largest table. Before running any query against it, check it against these four anti-patterns — each one forces a full column scan (or overcounts users) and is the most common cause of slow queries. Each is detailed with examples in the sections below.
+
+1. **Leading-wildcard substring match.** `LIKE '%term%'`, `ILIKE '%term%'`, and `position()` read the column for every row in the window, and a leading `%` makes the index useless. First look up the exact value with `read-data-schema` (`event_property_values`) and match on equality or `IN`; only fall back to a substring predicate when you genuinely need contains semantics. See **Search types**.
+2. **Missing timestamp bound.** Every query and subquery over `events` needs a `WHERE timestamp >= …` predicate — point lookups by session/trace/`distinct_id`/property included. Without it the query scans all of history. See **Time ranges**.
+3. **Counting users by `distinct_id`.** Count unique users with `uniq(person_id)`, never `uniq(distinct_id)` — one person has many distinct_ids, so `distinct_id` overcounts. See **Other rules**.
+4. **Raw joins on `events`.** Don't `JOIN` the events table onto itself or another events subquery. Use a subquery filter or conditional aggregates (`countIf`, `uniqIf`, `argMax`) so you scan once. See **JOINs**.
+
 #### Search types
 
 Proactively use different search types depending on a task:
@@ -14,6 +23,34 @@ Proactively use different search types depending on a task:
 
 Substring search on events-table strings is a full scan: `LIKE '%term%'`, `ILIKE '%term%'`, and `position()` read the column for every row in the time range, and a leading `%` makes indexes useless.
 Before fuzzy-matching a property value, try `read-data-schema` (`event_property_values`) to find common exact values. If the requested value is not returned, or the user needs true contains semantics, keep the timestamp window tight, filter `event` first, and use the substring predicate.
+
+**How you should NOT match a property value**
+
+<example>
+User: How many pageviews hit the checkout page in the last week?
+Assistant:
+```sql
+SELECT count() FROM events
+WHERE event = '$pageview'
+  AND properties.$current_url ILIKE '%checkout%'
+  AND timestamp >= now() - INTERVAL 7 DAY
+```
+<reasoning>The leading `%` forces a full scan of `$current_url` across every pageview in the week — the index can't help.</reasoning>
+</example>
+
+**How you should match a property value**
+
+<example>
+User: How many pageviews hit the checkout page in the last week?
+Assistant: First I'll look up the exact URLs with `read-data-schema` (`event_property_values` for `$current_url`), then match on equality:
+```sql
+SELECT count() FROM events
+WHERE event = '$pageview'
+  AND properties.$current_url IN ('https://example.com/checkout', 'https://example.com/checkout/payment')
+  AND timestamp >= now() - INTERVAL 7 DAY
+```
+<reasoning>Discovering the exact values first turns an unindexable substring scan into an equality/`IN` match. Fall back to `ILIKE` only when no exact value fits and the user needs contains semantics — then keep the window tight and filter `event` first.</reasoning>
+</example>
 
 #### Data Groups
 
