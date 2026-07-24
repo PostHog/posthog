@@ -607,6 +607,33 @@ class TestProperty(BaseTest):
             self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['123', '456.78', 'True']) > 0"),
         )
 
+    @parameterized.expand(
+        [
+            ("icontains", ast.Or, ast.CompareOperationOp.Gt),
+            ("not_icontains", ast.And, ast.CompareOperationOp.Eq),
+        ]
+    )
+    def test_property_to_expr_multiSearch_chunks_over_255_values(self, operator, combinator, compare_op):
+        # ClickHouse caps multiSearch* at 255 needles, so a larger list must split into
+        # multiple calls combined together rather than one oversized call it would reject.
+        values = [f"v{i}" for i in range(313)]
+        result = self._property_to_expr({"type": "event", "key": "a", "value": values, "operator": operator})
+
+        self.assertIsInstance(result, combinator)
+        self.assertEqual(len(result.exprs), 2)  # 313 -> chunks of 255 + 58
+
+        chunk_needle_counts = []
+        for comparison in result.exprs:
+            self.assertIsInstance(comparison, ast.CompareOperation)
+            self.assertEqual(comparison.op, compare_op)
+            call = comparison.left
+            self.assertEqual(call.name, "multiSearchAnyCaseInsensitive")
+            needles = call.args[1].exprs
+            self.assertLessEqual(len(needles), 255)
+            chunk_needle_counts.append(len(needles))
+
+        self.assertEqual(sum(chunk_needle_counts), len(values))
+
     def test_property_to_expr_element(self):
         self.assertEqual(
             self._property_to_expr(
