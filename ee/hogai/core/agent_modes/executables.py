@@ -135,7 +135,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
 
         tools = cast("list[MaxTool]", tools)
-        model = self._get_model(state, tools)
 
         # Add context messages on start of the conversation.
         messages_to_replace: Sequence[AssistantMessageUnion] = []
@@ -150,6 +149,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
         window_id = state.root_conversation_start_id
         start_id = state.start_id
+
+        # Pick the model after the window is built so we can inspect the trailing message:
+        # our default model rejects assistant-message prefill, so a conversation that ends
+        # with an assistant turn must fall back to a prefill-tolerant model.
+        model = self._get_model(state, tools, langchain_messages)
 
         # Summarize the conversation if it's too long.
         current_token_count = await self._window_manager.calculate_token_count(
@@ -270,9 +274,15 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "supermode": supermode_value,
         }
 
-    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+    def _get_model(
+        self, state: AssistantState, tools: list["MaxTool"], langchain_messages: list[BaseMessage] | None = None
+    ):
         model_name = "claude-sonnet-4-6"
-        if self._has_legacy_summarize_sessions_messages(state.messages):
+        if langchain_messages is not None and self._ends_with_assistant_message(langchain_messages):
+            # claude-sonnet-4-6 doesn't support assistant-message prefill — the conversation must
+            # end with a user message. Any conversation whose last turn converts to an assistant
+            # message (legacy summarize_sessions forms, slash-command output, etc.) would 400,
+            # so fall back to a model that tolerates a trailing assistant turn.
             model_name = "claude-sonnet-4-5"
 
         is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
@@ -385,26 +395,16 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         return normalize_ai_message(message)
 
     @staticmethod
-    def _has_legacy_summarize_sessions_messages(messages: Sequence[AssistantMessageUnion]) -> bool:
-        """Detect pre-migration summarize_sessions AssistantMessages with meta.form.
+    def _ends_with_assistant_message(langchain_messages: list[BaseMessage]) -> bool:
+        """Whether the converted conversation ends with an assistant turn.
 
-        Before the migration, summarize_sessions returned a ToolMessagesArtifact containing
-        an AssistantMessage with meta.form (the "Open report" button). This AssistantMessage
-        converts to a trailing AIMessage, causing a prefill error with Sonnet 4.6.
-        Sonnet 4.5 handles this gracefully, so we fall back to it for legacy conversations.
+        claude-sonnet-4-6 requires the request to end with a user message and rejects
+        assistant-message prefill. A trailing assistant turn arises whenever the last
+        message converts to an AIMessage — e.g. legacy summarize_sessions "Open report"
+        forms or slash-command output — so we detect it on the converted history rather
+        than special-casing any single legacy shape.
         """
-        for message in messages:
-            if (
-                isinstance(message, AssistantMessage)
-                and message.meta
-                and message.meta.form
-                and any(
-                    option.href and option.href.startswith("/session-summaries/")
-                    for option in message.meta.form.options
-                )
-            ):
-                return True
-        return False
+        return bool(langchain_messages) and isinstance(langchain_messages[-1], LangchainAIMessage)
 
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
