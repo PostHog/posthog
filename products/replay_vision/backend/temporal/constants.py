@@ -7,6 +7,13 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 
+# Run window for the rasterize-recording child. Must exceed the rasterize activity's 30-min
+# start_to_close so its maximum_attempts=2 retry can actually be scheduled: when the two are equal
+# the child's window caps the activity's schedule-to-close, so once attempt 1 runs there's no time
+# left for attempt 2 and Temporal gives up retrying. Kept under the parent's 1-hour budget so the
+# downstream Gemini upload/analysis steps still fit.
+RASTERIZE_CHILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=45)
+
 # Pending/running rows older than twice the apply execution timeout are provably orphaned.
 OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.

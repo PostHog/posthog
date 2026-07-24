@@ -36,7 +36,10 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_succeeded_activity,
     upload_video_to_gemini_activity,
 )
-from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_WORKFLOW_NAME
+from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_WORKFLOW_NAME,
+    RASTERIZE_CHILD_EXECUTION_TIMEOUT,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -351,7 +354,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=dt.timedelta(minutes=30),
+                execution_timeout=RASTERIZE_CHILD_EXECUTION_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
