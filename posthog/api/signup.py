@@ -1,8 +1,9 @@
+import re
 import json
 import uuid as uuid_module
 from datetime import timedelta
 from typing import Any, Optional, TypedDict, Union, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from django import forms
 from django.conf import settings
@@ -60,8 +61,10 @@ def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         next_url = request.data.get("next_url") if request and request.data else None
 
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if is_relative_url(next_url):
+        # Only redirect to a relative url so we don't leave the current domain, and only when it
+        # doesn't point at a project the user can't access (otherwise they land on a 404 they
+        # can't escape right after verifying their email).
+        if next_url and is_relative_url(next_url) and not _next_url_targets_inaccessible_project(user, next_url):
             EmailVerifier.create_token_and_send_email_verification(user, next_url)
         else:
             EmailVerifier.create_token_and_send_email_verification(user)
@@ -69,8 +72,35 @@ def verify_email_or_login(request: Request, user: User) -> None:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
+# Matches the project prefix in an app URL, e.g. "/project/501330/..." or "/project/phc_abc/...".
+# Mirrors the frontend's `projectIdentifierInUrlRegex` in lib/utils/kea-router.ts.
+_PROJECT_PREFIX_RE = re.compile(r"^/project/(\d+|phc_[a-zA-Z0-9]+)(?:/|$)")
+
+
+def _next_url_targets_inaccessible_project(user: User, next_url: str) -> bool:
+    """Return True when next_url points at a /project/<id> the user cannot access.
+
+    A freshly-invited user often arrives carrying a `next` param that points at a different
+    project (e.g. a shared link they opened before accepting the invite). Replaying it verbatim
+    drops them on a team-scoped 404 they can't navigate away from, so callers fall back to the
+    project home when this returns True.
+    """
+    match = _PROJECT_PREFIX_RE.match(urlsplit(next_url).path)
+    if not match:
+        # No embedded project id — the frontend resolves it against the user's current team.
+        return False
+
+    identifier = match.group(1)
+    if identifier.startswith("phc_"):
+        return not user.teams.filter(api_token=identifier).exists()
+    return not user.teams.filter(pk=int(identifier)).exists()
+
+
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
     user = User.objects.get(uuid=uuid)
+
+    if next_url and _next_url_targets_inaccessible_project(user, next_url):
+        next_url = None
 
     require_email_verification = (
         is_email_available()
