@@ -93,6 +93,7 @@ CLICKHOUSE_ONLY_PROPERTY_TYPES = [
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "event_metadata": ["key", "value"],
+    "feature": ["key", "value"],
     "person": ["key", "value"],
     "person_metadata": ["key", "value"],
     "data_warehouse": ["key", "value"],

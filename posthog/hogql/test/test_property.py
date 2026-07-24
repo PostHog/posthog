@@ -443,6 +443,24 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
             self._parse_expr("properties.a = 'b'"),
         )
+        # A "feature" filter carries the bare flag key and must resolve to the "$feature/<flag>" event property.
+        self.assertEqual(
+            self._property_to_expr({"type": "feature", "key": "my-flag", "value": "test"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", "$feature/my-flag"]),
+                right=ast.Constant(value="test"),
+            ),
+        )
+        # An already-prefixed key is left untouched (no double prefixing).
+        self.assertEqual(
+            self._property_to_expr({"type": "feature", "key": "$feature/my-flag", "value": "test"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", "$feature/my-flag"]),
+                right=ast.Constant(value="test"),
+            ),
+        )
 
     def test_property_to_expr_person(self):
         self.assertEqual(

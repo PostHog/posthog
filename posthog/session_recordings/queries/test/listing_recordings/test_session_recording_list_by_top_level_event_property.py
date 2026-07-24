@@ -245,6 +245,35 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
+    def test_feature_filter_excludes_non_matching_variant(self) -> None:
+        # A "feature" property filter (bare flag key, as sent by the replay feature-flag filter UI)
+        # must resolve to the "$feature/<flag>" event property and exclude other variants —
+        # otherwise a filter for the test variant still returns control-variant recordings.
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        for session_id, variant in [("test-variant", "test"), ("control-variant", "control")]:
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                event_name="$pageview",
+                team=self.team,
+                distinct_id="user",
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id, "$window_id": "1", "$feature/target-flag": variant},
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"type": "feature", "key": "target-flag", "operator": "exact", "value": ["test"]}]},
+            ["test-variant"],
+        )
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_can_filter_for_two_is_not_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
