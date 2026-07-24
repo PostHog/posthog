@@ -31,7 +31,10 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -53,7 +56,8 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -1065,11 +1069,67 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
 
+    def _team_for_warehouse_access_check(self) -> Optional[Team]:
+        # The viewset provides get_team; out-of-viewset constructions (feature flag copy,
+        # experiments) pass "team" or "team_id" instead - resolve all three so the access
+        # check can't be skipped by a context shape.
+        team = self.context.get("get_team", lambda: None)()
+        if team is None:
+            team = self.context.get("team")
+        if team is None and self.context.get("team_id"):
+            team = Team.objects.filter(pk=self.context["team_id"]).first()
+        return team
+
+    def _validate_warehouse_access(self, attrs: dict) -> None:
+        """Background execution runs the cohort without warehouse access control (the definition
+        is team-owned), so access is enforced here instead: the member saving the definition must
+        be able to read every warehouse table it resolves through. Covers every way a definition
+        can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
+        if not any(field in attrs for field in ("filters", "groups", "query")):
+            return
+        team = self._team_for_warehouse_access_check()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if team is None or user is None or not getattr(user, "is_authenticated", False):
+            return
+
+        # Validate the effective post-save definition, mirroring Cohort.properties precedence
+        # (filters win over groups): clearing filters re-activates preserved legacy groups, so
+        # what survives the save is what must be checked - not just the fields in the payload.
+        instance = cast(Optional[Cohort], self.instance)
+        filters = attrs["filters"] if "filters" in attrs else (instance.filters if instance else None)
+        properties: Optional[dict] = None
+        if filters:
+            properties = filters.get("properties")
+        else:
+            groups = attrs["groups"] if "groups" in attrs else (instance.groups if instance else None)
+            if groups:
+                properties = Cohort(team=team, filters=None, groups=deepcopy(groups)).properties.to_dict()
+
+        try:
+            if properties:
+                HogQLCohortQuery(
+                    filter=Filter(data={"properties": properties}, team=team), team=team
+                ).get_query_executor(user=user).generate_clickhouse_sql()
+            if attrs.get("query"):
+                context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
+                query = get_query_runner(attrs["query"], team=team, limit_context=LimitContext.COHORT_CALCULATION)
+                prepare_ast_for_printing(query.to_query(), context=context, dialect="clickhouse")
+        except TableAccessDeniedError as e:
+            raise ValidationError(
+                f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its definition uses."
+            )
+        except Exception:
+            # Only access denials gate saving; other compile problems surface elsewhere.
+            return
+
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        self._validate_warehouse_access(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
