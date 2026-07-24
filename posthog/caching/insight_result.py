@@ -4,23 +4,6 @@ from typing import Any, Optional
 
 from posthog.schema import QueryTiming
 
-from posthog.query_cache.results import fetch_entry
-from posthog.query_cache.serialization import (
-    QUERY_CACHE_SPLIT_MAGIC,  # noqa: F401, re-exported for existing importers during the transition
-    CachedEntry as SplitCachedResponse,
-    encode_split_cached_response,  # noqa: F401, re-exported for existing importers during the transition
-    results_have_custom_names,  # noqa: F401, re-exported for existing importers during the transition
-)
-
-
-def fetch_split_cached_response_by_key(cache_key: str, team_id: int) -> Optional[SplitCachedResponse]:
-    return fetch_entry(cache_key, team_id)
-
-
-def fetch_cached_response_by_key(cache_key: str, team_id: int) -> Optional[dict]:
-    entry = fetch_entry(cache_key, team_id)
-    return entry.as_full_response() if entry else None
-
 
 @dataclass(frozen=True)
 class InsightResult:

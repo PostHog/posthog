@@ -20,10 +20,10 @@ from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_quer
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
+from posthog.query_cache import QueryCache
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
@@ -411,8 +411,8 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
                     return "skipped_duplicate"
                 seen_cache_keys.add((team.pk, cache_key))
 
-            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=cache_key)
-            cached_data = cache_manager.get_cache_data()
+            entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
+            cached_data = entry.as_full_response() if entry else None
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])

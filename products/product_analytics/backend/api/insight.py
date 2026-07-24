@@ -64,7 +64,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
+from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
@@ -111,6 +111,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false
+from posthog.query_cache import QueryCache
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -1248,7 +1249,8 @@ class InsightSerializer(InsightBasicSerializer):
         export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
         if export_cache_keys and insight.id in export_cache_keys:
             expected_cache_key = export_cache_keys[insight.id]
-            cached_response = fetch_cached_response_by_key(expected_cache_key, team_id=insight.team_id)
+            entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
+            cached_response = entry.as_full_response() if entry else None
             if cached_response:
                 return InsightResult(
                     result=cached_response.get("results"),
