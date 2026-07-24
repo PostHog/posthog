@@ -1744,6 +1744,36 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_error, response.json()["error"])
 
+    def test_union_pagination_returns_400_without_capturing_exception(self):
+        # A UNION query paginated with a limit raises a deliberate DRF ValidationError. The caller
+        # gets a clean, actionable 400; it must NOT be logged to error tracking or emit a failure
+        # signal, since it is expected user input, not a server fault.
+        endpoint = create_endpoint_with_version(
+            name="union_pagination",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT event FROM events UNION ALL SELECT event FROM events",
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"limit": 10},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Wrap the UNION in a subquery", str(response.json()))
+        mock_capture.assert_not_called()
+        mock_signal.assert_not_called()
+
     def test_offset_on_insight_endpoint_returns_400(self):
         endpoint = create_endpoint_with_version(
             name="trends_offset_test",
