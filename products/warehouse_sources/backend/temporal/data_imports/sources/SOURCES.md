@@ -884,11 +884,13 @@ doesn't conflict with concurrent PRs.
 - dremio
 - dropbox
 - dubsado
+- ducklake
 - dwolla
 - dynamics365
 - dynamics_365_business_central
 - dynamodb
 - e2b
+- easybill
 - ebay
 - ecb_data_portal
 - eloqua
@@ -1268,6 +1270,7 @@ doesn't conflict with concurrent PRs.
 - shopware
 - shopwired
 - shortio
+- sideshift
 - sigma_computing
 - signnow
 - sim
@@ -1297,6 +1300,7 @@ doesn't conflict with concurrent PRs.
 - spotify_ads
 - sprinklr
 - sprout_social
+- starburst
 - statsig
 - stockx
 - strava
@@ -1376,6 +1380,7 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - wiz
 - wompi
+- workato
 - workday
 - workflowmax
 - workiz

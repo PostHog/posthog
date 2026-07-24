@@ -2432,6 +2432,11 @@ class ExternalDataSourceType(StrEnum):
     MELTWATER = "Meltwater"
     USER_COM = "UserCom"
     LATITUDE = "Latitude"
+    WORKATO = "Workato"
+    SIDE_SHIFT = "SideShift"
+    DUCK_LAKE = "DuckLake"
+    STARBURST = "Starburst"
+    EASYBILL = "Easybill"
 
 
 class ExternalQueryErrorCode(StrEnum):

@@ -1291,6 +1291,11 @@ class ExternalDataSourceType(models.TextChoices):
     MELTWATER = "Meltwater", "Meltwater"
     USERCOM = "UserCom", "UserCom"
     LATITUDE = "Latitude", "Latitude"
+    WORKATO = "Workato", "Workato"
+    SIDESHIFT = "SideShift", "SideShift"
+    DUCKLAKE = "DuckLake", "DuckLake"
+    STARBURST = "Starburst", "Starburst"
+    EASYBILL = "Easybill", "Easybill"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
