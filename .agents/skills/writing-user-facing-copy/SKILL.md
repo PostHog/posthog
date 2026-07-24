@@ -48,6 +48,20 @@ Also avoid the sentence *shapes* that lean on that dash, because they read as ma
 
 Write the plain version instead.
 
+### No punchy or clever phrasing
+
+This is the failure mode that slips through even when you know the rule, so check for it specifically. It applies to every string, including headings, section titles, and button labels, not just body text.
+
+The tells:
+
+- **Antithesis** ("X, not Y" / "X, they don't Y") used for effect. ❌ "Errors guide, they don't dead-end." → ✅ "Errors point to a next step."
+- **A heading written to sound weighty.** ❌ "The rules that are easy to break" → ✅ "Common mistakes".
+- **A clever or dramatic closing line.** ❌ "Never leave the user staring at a failure." → ✅ "Say what happened and what to do next."
+- **Filler that sounds like a principle but adds nothing.** ❌ "This is a tool people use to get work done." → cut it.
+- **Emphasis the sentence doesn't need.** ❌ "This will completely transform how you work." → ✅ "This changes how X works."
+
+After drafting, re-read and cut anything that's there to sound good rather than to inform. If a line would feel out of place said plainly out loud to a colleague, rewrite it.
+
 ### Errors and empty states point to a next step
 
 Say what happened and the next action. Never leave the user staring at a failure with nothing to do.
