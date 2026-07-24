@@ -116,6 +116,9 @@ describe('supportLogic', () => {
 
         const zendeskCalls = (): unknown[][] => fetchMock.mock.calls.filter(([url]) => url === ZENDESK_URL)
 
+        const aiTicketCaptures = (): unknown[][] =>
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
+
         const enableConversationsFlag = (): void => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
         }
@@ -129,6 +132,7 @@ describe('supportLogic', () => {
                 } as unknown as Response)
             )
             global.fetch = fetchMock
+            ;(posthog.capture as jest.Mock).mockClear()
             initKeaTests()
             logic = supportLogic.build()
             logic.mount()
@@ -249,6 +253,66 @@ describe('supportLogic', () => {
             // lastSubmittedTicketId stays null on failure — callers use this to detect the failure
             expect(zendeskCalls()).toHaveLength(0)
             expect(logic.values.lastSubmittedTicketId).toBeNull()
+        })
+
+        // Regression guard: the AI /ticket handover event must fire from supportLogic once the ticket id
+        // resolves. It previously lived in a component effect that raced the async conversations
+        // round-trip and silently dropped the event once submissions were routed to conversations.
+        it('captures posthog_ai_support_ticket_created once on the conversations path when AI context is present', async () => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+            enableConversationsFlag()
+
+            await logic.asyncActions.submitSupportTicket({
+                ...FORM_FIELDS,
+                ai_conversation_id: 'conv-1',
+                ai_trace_id: 'trace-1',
+                ai_feedback_rating: 'bad',
+            })
+
+            expect(aiTicketCaptures()).toEqual([
+                [
+                    'posthog_ai_support_ticket_created',
+                    {
+                        $ai_conversation_id: 'conv-1',
+                        $ai_session_id: 'conv-1',
+                        $ai_trace_id: 'trace-1',
+                        $ai_support_ticket_id: 't1',
+                        $ai_feedback_rating: 'bad',
+                    },
+                ],
+            ])
+        })
+
+        it('captures posthog_ai_support_ticket_created on the Zendesk fallback path with the zendesk ticket id', async () => {
+            // Flag off and no conversations extension → Zendesk path; fetchMock returns request id 123
+            await logic.asyncActions.submitSupportTicket({
+                ...FORM_FIELDS,
+                ai_conversation_id: 'conv-2',
+                ai_trace_id: null,
+            })
+
+            expect(aiTicketCaptures()).toEqual([
+                [
+                    'posthog_ai_support_ticket_created',
+                    {
+                        $ai_conversation_id: 'conv-2',
+                        $ai_session_id: 'conv-2',
+                        $ai_trace_id: null,
+                        $ai_support_ticket_id: '123',
+                    },
+                ],
+            ])
+        })
+
+        it('does not capture the AI ticket event for a regular (non-AI) submission', async () => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+            enableConversationsFlag()
+
+            await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
+
+            expect(aiTicketCaptures()).toHaveLength(0)
         })
     })
 })
