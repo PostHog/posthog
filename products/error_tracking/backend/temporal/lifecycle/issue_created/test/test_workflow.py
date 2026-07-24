@@ -20,12 +20,12 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
-from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
-    _decode_token_prefix,
-    _fetch_event_properties,
+from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     error_tracking_event_properties_key,
+    fetch_event_properties,
+)
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     generate_issue_created_embedding_activity,
-    render_stacktrace,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
@@ -36,6 +36,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueEmbeddingPreparationResult,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
+from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
 
 
 def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
@@ -72,7 +73,7 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
     tokens = encoding.encode("hello 💥")
 
     assert encoding.decode(tokens[:2]) == "hello �"
-    assert _decode_token_prefix(encoding, tokens, max_tokens=2) == "hello"
+    assert decode_token_prefix(encoding, tokens, max_tokens=2) == "hello"
 
 
 def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
@@ -112,7 +113,7 @@ def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
 
 
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
 def test_embedding_service_timeout_is_classified_as_retryable(
@@ -134,7 +135,7 @@ def test_embedding_service_timeout_is_classified_as_retryable(
 
 
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
 def test_embedding_service_rejected_request_is_non_retryable(
@@ -156,8 +157,8 @@ def test_embedding_service_rejected_request_is_non_retryable(
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.execute_hogql_query")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.get_client")
+@patch("products.error_tracking.backend.temporal.lifecycle.event_properties.execute_hogql_query")
+@patch("products.error_tracking.backend.temporal.lifecycle.event_properties.get_client")
 def test_fetches_full_event_properties_from_valkey_without_clickhouse(
     get_client: MagicMock, execute_hogql_query: MagicMock
 ) -> None:
@@ -168,14 +169,14 @@ def test_fetches_full_event_properties_from_valkey_without_clickhouse(
     }
     get_client.return_value.get.return_value = json.dumps(properties, ensure_ascii=False).encode()
 
-    assert _fetch_event_properties(MagicMock(), inputs) == properties
+    assert fetch_event_properties(MagicMock(), inputs) == properties
     get_client.return_value.get.assert_called_once_with(error_tracking_event_properties_key(1, inputs.event_uuid))
     execute_hogql_query.assert_not_called()
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.execute_hogql_query")
-@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.get_client")
+@patch("products.error_tracking.backend.temporal.lifecycle.event_properties.execute_hogql_query")
+@patch("products.error_tracking.backend.temporal.lifecycle.event_properties.get_client")
 def test_falls_back_to_clickhouse_when_valkey_payload_expired(
     get_client: MagicMock, execute_hogql_query: MagicMock
 ) -> None:
@@ -184,7 +185,7 @@ def test_falls_back_to_clickhouse_when_valkey_payload_expired(
     get_client.return_value.get.return_value = None
     execute_hogql_query.return_value = SimpleNamespace(results=[[json.dumps(properties)]])
 
-    assert _fetch_event_properties(MagicMock(), inputs) == properties
+    assert fetch_event_properties(MagicMock(), inputs) == properties
     execute_hogql_query.assert_called_once()
 
 

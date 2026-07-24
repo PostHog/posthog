@@ -223,6 +223,7 @@ async fn load_and_maybe_reopen(
         &issue,
         assignment,
         processed_properties,
+        event_properties.uuid(),
         &event_timestamp,
     )
     .await?;
@@ -270,6 +271,7 @@ async fn resolve_issue(
                 &issue,
                 assignment,
                 processed_properties,
+                event_properties.uuid(),
                 &event_timestamp,
             )
             .await?;
@@ -346,6 +348,7 @@ async fn resolve_issue(
                 &issue,
                 assignment,
                 processed_properties,
+                event_properties.uuid(),
                 &event_timestamp,
             )
             .await?;
