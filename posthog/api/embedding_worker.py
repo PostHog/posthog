@@ -34,7 +34,20 @@ class EmbeddingResponse:
     did_truncate: bool
 
 
+@dataclass(frozen=True)
+class DocumentKey:
+    """Identity of an emitted document. `document_id` is not unique on its own — the
+    same id recurs across products, document types and renderings — so the full tuple
+    is the key. Frozen so it can be used as a dict key in lookup results."""
+
+    product: str
+    document_type: str
+    rendering: str
+    document_id: str
+
+
 _EMBEDDING_URL = EMBEDDING_API_URL + "/generate/ad_hoc"
+_RECENTLY_SEEN_URL = EMBEDDING_API_URL + "/recently_seen"
 
 
 def _build_embedding_payload(team: Team, content: str, model: str | None, no_truncate: bool) -> dict:
@@ -161,3 +174,71 @@ def emit_embedding_request(
 
     producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)
+
+
+def _build_recently_seen_payload(documents: list[DocumentKey], team_id: int) -> dict:
+    return {
+        "team_id": team_id,
+        "documents": [
+            {
+                "product": d.product,
+                "document_type": d.document_type,
+                "rendering": d.rendering,
+                "document_id": d.document_id,
+            }
+            for d in documents
+        ],
+    }
+
+
+def _parse_recently_seen_response(data: dict, documents: list[DocumentKey]) -> dict[DocumentKey, Optional[datetime]]:
+    # Default every requested document to None so callers can index their full input,
+    # then overlay whatever the worker reported.
+    results: dict[DocumentKey, Optional[datetime]] = dict.fromkeys(documents)
+    for item in data.get("results", []):
+        key = DocumentKey(
+            product=item["product"],
+            document_type=item["document_type"],
+            rendering=item["rendering"],
+            document_id=item["document_id"],
+        )
+        emitted_at = item.get("emitted_at")
+        results[key] = datetime.fromisoformat(emitted_at) if emitted_at else None
+    return results
+
+
+def get_recently_seen_documents(
+    documents: list[DocumentKey],
+    *,
+    team_id: int,
+    timeout: float | None = 30.0,
+) -> dict[DocumentKey, Optional[datetime]]:
+    """Check whether documents were recently emitted to ClickHouse by the embedding worker.
+
+    Returns a dict mapping each requested document to the timestamp it was emitted, or
+    None if it was never emitted (or its record has expired — records have a ~1 week TTL).
+    Backed by the worker's recently-seen store, this answers "has this been processed?"
+    without a slow ClickHouse query.
+    """
+    if not documents:
+        return {}
+    payload = _build_recently_seen_payload(documents, team_id)
+    # `internal_requests` is a bare Session with no default timeout — pass one so callers can't hang on a stuck worker.
+    response = internal_requests.post(_RECENTLY_SEEN_URL, json=payload, timeout=timeout)
+    response.raise_for_status()
+    return _parse_recently_seen_response(response.json(), documents)
+
+
+async def async_get_recently_seen_documents(
+    documents: list[DocumentKey],
+    *,
+    team_id: int,
+) -> dict[DocumentKey, Optional[datetime]]:
+    """Async equivalent of get_recently_seen_documents — uses httpx to avoid blocking a thread."""
+    if not documents:
+        return {}
+    payload = _build_recently_seen_payload(documents, team_id)
+    async with internal_httpx_async_client(timeout=30.0) as client:
+        response = await client.post(_RECENTLY_SEEN_URL, json=payload)
+        response.raise_for_status()
+        return _parse_recently_seen_response(response.json(), documents)
