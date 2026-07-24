@@ -1779,6 +1779,53 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  // Same emission as ColumnExprPrecedence3; the grammar alternative differs only in
+  // admitting an aliased left operand (`x AS er > 0`).
+  VISIT(ColumnExprAliasCompare) {
+    string op;
+    if (ctx->EQ_SINGLE() || ctx->EQ_DOUBLE()) {
+      op = "==";
+    } else if (ctx->NOT_EQ()) {
+      op = "!=";
+    } else if (ctx->LT()) {
+      op = "<";
+    } else if (ctx->LT_EQ()) {
+      op = "<=";
+    } else if (ctx->GT()) {
+      op = ">";
+    } else if (ctx->GT_EQ()) {
+      op = ">=";
+    } else if (ctx->LIKE()) {
+      op = ctx->NOT() ? "not like" : "like";
+    } else if (ctx->ILIKE()) {
+      op = ctx->NOT() ? "not ilike" : "ilike";
+    } else if (ctx->REGEX_SINGLE() or ctx->REGEX_DOUBLE()) {
+      op = "=~";
+    } else if (ctx->NOT_REGEX()) {
+      op = "!~";
+    } else if (ctx->IREGEX_SINGLE() or ctx->IREGEX_DOUBLE()) {
+      op = "=~*";
+    } else if (ctx->NOT_IREGEX()) {
+      op = "!~*";
+    } else if (ctx->IN()) {
+      if (ctx->COHORT()) {
+        op = ctx->NOT() ? "not in cohort" : "in cohort";
+      } else {
+        op = ctx->NOT() ? "not in" : "in";
+      }
+    } else {
+      throw ParsingError("Unsupported value of rule ColumnExprAliasCompare");
+    }
+
+    Json json = Json::object();
+    json["node"] = "CompareOperation";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = visitAsJSON(ctx->left);
+    json["right"] = visitAsJSON(ctx->right);
+    json["op"] = op;
+    return json;
+  }
+
   VISIT(ColumnExprInterval) {
     auto interval_ctx = ctx->interval();
     const char* name;
