@@ -411,6 +411,14 @@ pub fn match_property(
             }
 
             let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
+            if parsed_value.is_nan() {
+                // "NaN" parses successfully as f64::NAN rather than failing, but a NaN
+                // property value is malformed input, not a real number: it must be a
+                // non-match for both operators, not just the ones where NaN comparisons
+                // happen to fall out as false (Between would; NotBetween would flip it
+                // to true via `!in_range`).
+                return Ok(false);
+            }
 
             let in_range = parsed_value >= low && parsed_value <= high;
             if operator == OperatorType::Between {

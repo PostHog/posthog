@@ -1,7 +1,9 @@
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
@@ -24,16 +26,30 @@ use common_types::TeamId;
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
 
+/// Cohorts already warned about by `record_malformed_cohort_filter`, so a persistently
+/// malformed cohort on the hot `/flags` path logs its identifying context once per
+/// process lifetime instead of flooding logs on every request.
+static WARNED_MALFORMED_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
+
 /// Logs and counts a cohort whose filters failed dependency extraction or evaluation
 /// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
 /// structural error surfaced by `traverse_filters`/`InnerCohortProperty::evaluate`).
+///
+/// The counter is unlabeled (cardinality), so this log is the only place the cohort
+/// and team ids are recorded; it's deduped per cohort so it stays visible at `warn`
+/// without flooding logs when the same cohort keeps failing.
 fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
-    tracing::debug!(
-        cohort_id,
-        team_id,
-        "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
-    );
     common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
+
+    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
+    if warned.insert((team_id, cohort_id)) {
+        tracing::warn!(
+            cohort_id,
+            team_id,
+            "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
+        );
+    }
 }
 
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
