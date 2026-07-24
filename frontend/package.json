@@ -128,6 +128,7 @@
         "@posthog/products-session-summaries": "workspace:*",
         "@posthog/products-skills": "workspace:*",
         "@posthog/products-stamphog": "workspace:*",
+        "@posthog/products-streamlit-apps": "workspace:*",
         "@posthog/products-subscriptions": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-tasks": "workspace:*",

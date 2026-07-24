@@ -9803,9 +9803,25 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    export interface AppSandboxContract {
+      status: string;
+      restart_count: number;
+      last_error: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      last_activity_at: string | null;
+      /** @nullable */
+      version_number: number | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
+      /** Currently active version, or null if none uploaded yet. */
+      active_version?: AppVersionContract | null;
+      /** Current sandbox state, or null if the app has never started. */
+      sandbox?: AppSandboxContract | null;
       id: string;
       short_id: string;
       name: string;
@@ -9831,6 +9847,20 @@ export namespace Schemas {
 
     export interface AppMetricsTotalsResponse {
       totals: AppMetricsTotalsResponseTotals;
+    }
+
+    export interface AppSummaryContract {
+      /** User who created this app. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      short_id: string;
+      name: string;
+      description: string;
+      cpu_cores: number;
+      memory_gb: number;
+      status: string;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -40607,13 +40637,13 @@ export namespace Schemas {
       results: Announcement[];
     }
 
-    export interface PaginatedAppContractList {
+    export interface PaginatedAppSummaryContractList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: AppContract[];
+      results: AppSummaryContract[];
     }
 
     export interface PaginatedApprovalPolicyList {
