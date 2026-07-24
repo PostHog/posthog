@@ -3,13 +3,14 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import connection, models
 
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.core_event import CoreEvent
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
@@ -473,3 +474,45 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert cached is not None
         assert cached.api_token == "phc_old_token_value"
         assert get_team_in_cache("phc_already_taken") is None
+
+
+class TestTeamProjectProvisioning(BaseTest):
+    @parameterized.expand([("get_or_create",), ("update_or_create",)])
+    def test_manager_shortcut_provisions_parent_project(self, method_name: str) -> None:
+        # get_or_create / update_or_create delegate to QuerySet.create, which used to bypass the
+        # project-provisioning path and leave project_id NULL, tripping project_id_is_not_null.
+        kwargs: dict = {"organization": self.organization, "name": f"Provisioned via {method_name}"}
+        if method_name == "update_or_create":
+            kwargs["defaults"] = {}
+        team, created = getattr(Team.objects, method_name)(**kwargs)
+
+        self.assertTrue(created)
+        self.assertIsNotNone(team.project_id)
+        self.assertEqual(team.project_id, team.id)
+        self.assertTrue(Project.objects.filter(id=team.project_id).exists())
+
+    @parameterized.expand([("create",), ("get_or_create",)])
+    def test_project_manager_shortcut_assigns_shared_sequence_id(self, method_name: str) -> None:
+        # Project.id has no autofield — it's drawn from the shared sequence. A bare create without
+        # an explicit id used to leave id NULL and violate the posthog_project PK not-null.
+        result = getattr(Project.objects, method_name)(
+            organization=self.organization, name=f"Standalone via {method_name}"
+        )
+        project = result[0] if method_name == "get_or_create" else result
+
+        self.assertIsNotNone(project.id)
+        self.assertTrue(Project.objects.filter(id=project.id).exists())
+
+    def test_increment_id_sequence_recovers_from_lagging_sequence(self) -> None:
+        # A DB restore / fixture seed can leave the shared sequence behind existing rows, so a plain
+        # nextval hands back an already-used id. Guard against the resulting duplicate-PK crash.
+        highest = max(
+            Team.objects.order_by("-id").values_list("id", flat=True).first() or 0,
+            Project.objects.order_by("-id").values_list("id", flat=True).first() or 0,
+        )
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT setval('posthog_team_id_seq', %s, true)", [max(highest - 5, 1)])
+
+        next_id = Team.objects.increment_id_sequence()
+
+        self.assertGreater(next_id, highest)

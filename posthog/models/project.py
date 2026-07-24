@@ -10,7 +10,22 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+class ProjectQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        from .team import Team
+
+        # `Project.id` has no autofield — it's drawn from the sequence `Team` shares.
+        # Assign it here (not just in `create_with_team`) so get_or_create / update_or_create,
+        # which call QuerySet.create, don't leave `id` NULL and trip the not-null constraint.
+        if kwargs.get("id") is None:
+            kwargs["id"] = Team.objects.increment_id_sequence()
+        return super().create(**kwargs)
+
+
 class ProjectManager(models.Manager):
+    # Route `create`/`get_or_create`/`update_or_create` through `ProjectQuerySet.create`.
+    _queryset_class = ProjectQuerySet
+
     def create_with_team(
         self, *, team_fields: Optional[dict] = None, initiating_user: Optional["User"], **kwargs
     ) -> tuple["Project", "Team"]:
