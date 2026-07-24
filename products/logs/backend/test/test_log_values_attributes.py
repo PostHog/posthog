@@ -2,6 +2,7 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -304,6 +305,20 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
         )
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
+
+    @patch("posthog.api.mixins.capture_exception")
+    def test_log_attributes_without_filter_group_does_not_capture_exception(self, mock_capture):
+        # An absent filterGroup must not report a handled PropertyGroupFilter ValidationError to error
+        # tracking: the old empty-dict default never validates and get_model() captures before raising.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_capture.assert_not_called()
 
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
