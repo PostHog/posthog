@@ -59202,16 +59202,6 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
-
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -59225,6 +59215,16 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
+
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
 
     /**
      * * `bug` - bug
@@ -59392,6 +59392,12 @@ export namespace Schemas {
       perspective_selection: ReviewPerspectiveSelection | null;
       /** The rendered review body published to GitHub, as markdown. */
       report_markdown: string;
+      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      run_urgency_threshold: ReviewIssuePriorityEnum | null;
       /** The latest turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
       /** The latest turn's findings the validator dismissed, with its reasoning. */
@@ -78502,7 +78508,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
@@ -78521,7 +78527,7 @@ export namespace Schemas {
 
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
