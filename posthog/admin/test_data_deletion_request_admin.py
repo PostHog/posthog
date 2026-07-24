@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
@@ -11,6 +12,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
@@ -415,6 +417,74 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
 
         self.assertTrue(self._call_submit(event_removal, method="GET").context_data["auto_approve_candidate"])
         self.assertFalse(self._call_submit(property_removal, method="GET").context_data["auto_approve_candidate"])
+
+    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
+    @parameterized.expand(
+        [
+            # Requires human approval → lands in the review channel.
+            ("property_removal", RequestType.PROPERTY_REMOVAL, True),
+            # Auto-approve candidate → handled by the sweep job, never reaches the channel.
+            ("event_removal", RequestType.EVENT_REMOVAL, False),
+        ]
+    )
+    def test_submit_notifies_review_channel_only_when_approval_needed(self, _name, request_type, should_notify):
+        request = (
+            self._property_removal_request(properties=["$ip"])
+            if request_type == RequestType.PROPERTY_REMOVAL
+            else self._event_removal_request()
+        )
+        with patch("posthog.admin.admins.data_deletion_request_admin.requests.post") as mock_post:
+            response = self._call_submit(request, data={})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(mock_post.called, should_notify)
+
+    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
+    def test_submit_notification_mentions_submitter_by_slack_handle(self):
+        self.user.email = "jane.doe@posthog.com"
+        self.user.save()
+        request = self._property_removal_request(properties=["$ip"])
+        request.created_by = self.user
+        request.save()
+
+        with patch("posthog.admin.admins.data_deletion_request_admin.requests.post") as mock_post:
+            self._call_submit(request, data={})
+
+        body = json.dumps(mock_post.call_args.kwargs["json"])
+        # The email local part is posted as a handle; the domain must not leak into the channel.
+        self.assertIn("@jane.doe", body)
+        self.assertNotIn("jane.doe@posthog.com", body)
+
+    @parameterized.expand(
+        [
+            ("slack_sent", "https://hooks.slack.test/T/B/xxx", None, "success"),
+            ("slack_failed", "https://hooks.slack.test/T/B/xxx", requests.RequestException("boom"), "warning"),
+            ("webhook_not_configured", "", None, "warning"),
+        ]
+    )
+    def test_submit_message_reflects_slack_delivery(self, _name, webhook_url, post_side_effect, expected_level):
+        request = self._property_removal_request(properties=["$ip"])
+        path = f"/admin/posthog/datadeletionrequest/{request.pk}/submit/"
+        http_request = self.factory.post(path, {})
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with (
+            override_settings(DATA_DELETION_SLACK_WEBHOOK_URL=webhook_url),
+            patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse),
+            patch(
+                "posthog.admin.admins.data_deletion_request_admin.requests.post",
+                side_effect=post_side_effect,
+            ),
+        ):
+            response = self.admin.submit_view(http_request, str(request.pk))
+
+        # A failed or unconfigured Slack notification must never roll back the submit...
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+        # ...but the operator is told plain success only when the review channel was actually notified.
+        levels = [m.level_tag for m in get_messages(http_request)]
+        self.assertEqual(levels, [expected_level])
 
 
 @freeze_time("2025-01-15 12:00:00")
