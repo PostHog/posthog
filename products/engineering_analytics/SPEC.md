@@ -9,7 +9,7 @@ The product surfaces PR + CI data through **named, typed endpoints** that run cu
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
-The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
 ## 2. Non-goals
 
@@ -30,7 +30,7 @@ graph TB
     subgraph Consumers
         MCP["MCP clients: Claude Code / Cursor / PostHog AI"]
         UI["in-app UI: React + kea"]
-        Other["PostHog Code & other agent-driven callers"]
+        Other["PostHog Desktop & other agent-driven callers"]
         SQL["insights / subscriptions / execute-sql"]
     end
 
@@ -89,6 +89,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
 - Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
+- Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
 ### Exposed warehouse views
@@ -127,6 +128,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
   - Attribution is a possibly-empty, possibly-multi set (a run ↔ PR is 0..N); the read layer credits a run to the first PR in its association.
 - **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** Timestamps parse via `parseDateTimeBestEffort`; Nullable columns unwrap before any array function (ClickHouse rejects an Array inside a Nullable). `source_schema.py` mirrors the real landed types so seed and tests exercise the real path; violating this 500'd every endpoint on real data while idealized fixtures stayed green.
 - **The warehouse views are managed data, not code registration.** "No global HogQL views" locks out `Database.create_for` (core importing the product, every team's per-query hot path). A per-team `DataWarehouseSavedQuery`, synced only for qualifying teams, reopens nothing: it exists so cost and CI history are queryable by insights, subscriptions, and `execute-sql`.
+- **CI Signals use immutable evidence.** Flaky checks require job rows from `github_workflow_jobs` showing a failed attempt followed by a successful later attempt for the same `(run_id, job)`. The run snapshot alone cannot prove this transition. Broken-default-branch detection reads GitHub's reported `repository.default_branch` and gates on the rate over runs that reached a verdict (cancelled and skipped runs decide nothing). Duration comparisons require enough successful samples because the percentiles exclude failed and cancelled runs. All three conditions carry a week-stable `source_id`, and the coordinator records each emitted key in `SignalEmissionRecord` so an hourly sweep doesn't re-emit the same standing condition within its week. For broken-default-branch that means one signal per week per workflow, accepting that a distinct second breakage of the same workflow inside one week dedupes into the first rather than minting a signal (and a ledger row) per completed run.
 - **HogQL only for analytics data.** No raw ClickHouse.
 - **No product Postgres DB.** Analytics data lives in the warehouse / ClickHouse; any product-config model goes on the main DB as a team-scoped model (`TeamScopedRootMixin`), never a separate DB.
 - **No author leaderboards or per-developer performance rankings; the author page is allowed.** The surveillance risk is ranking people against each other, not an engineer viewing their own PRs and CI cost. The page is reachable only from PR-row author links; `author_workflow_costs` stays a UI-only read (MCP `enabled: false`).

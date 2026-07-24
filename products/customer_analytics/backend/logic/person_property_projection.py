@@ -98,8 +98,21 @@ def person_property_sync_sources(team_id: int, schema_id: str | UUID) -> list[Pe
             definition_id=str(source.definition_id),
             key_column=source.key_column,
             column_property_map=dict(source.column_property_map or {}),
+            property_descriptions=_property_descriptions(source),
             target=source.definition.target_type,
             group_type_index=source.definition.group_type_index,
         )
         for source in sources
     ]
+
+
+def _property_descriptions(source: CustomPropertySource) -> dict[str, str]:
+    """Re-key the source's ``{column: description}`` onto ``{property_name: description}`` so the sync
+    can stamp each mapped property with its description without knowing the warehouse columns."""
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    return {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }

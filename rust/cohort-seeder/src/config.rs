@@ -135,6 +135,17 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub clickhouse_secure: bool,
 
+    /// Validate the server certificate against the public root CAs. Defaults on so an unconfigured
+    /// deployment fails closed; the chart sets it to `false` for internal ClickHouse.
+    #[envconfig(default = "true")]
+    pub clickhouse_verify: bool,
+
+    /// PEM CA bundle to validate the ClickHouse server certificate against, as Django's
+    /// `CLICKHOUSE_CA`. Naming a CA is an explicit request to authenticate the server, so it wins
+    /// over `clickhouse_verify` rather than being downgraded by an inherited `CLICKHOUSE_VERIFY=false`.
+    #[envconfig(default = "")]
+    pub clickhouse_ca: String,
+
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
@@ -286,6 +297,14 @@ mod tests {
                 .cohort_partition_count,
             8
         );
+    }
+
+    /// The fail-closed TLS posture lives entirely in these defaults, so pin them.
+    #[test]
+    fn clickhouse_tls_defaults_are_fail_closed() {
+        let config = default_config();
+        assert!(config.clickhouse_verify);
+        assert!(config.clickhouse_ca.is_empty());
     }
 
     #[test]

@@ -466,7 +466,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=keep.pk).exists()
 
     def test_sync_full_cache_evicts_cross_source_rows_for_team(self):
-        # Team upgrade scenario: PostHog Code (UserIntegration) hydrated rows for this team, then
+        # Team upgrade scenario: PostHog Desktop (UserIntegration) hydrated rows for this team, then
         # the team connected a team-level Integration. Cascade now picks the Integration; the old
         # UserIntegration row would otherwise linger and surface as a duplicate to HogQL queries.
         user = User.objects.create(email="user@example.com")

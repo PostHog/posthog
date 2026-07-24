@@ -36,6 +36,10 @@
             "description": "Comma-separated list of person `distinct_id`s to filter by (max 100).",
             "type": "string"
         },
+        "emails": {
+            "description": "Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
