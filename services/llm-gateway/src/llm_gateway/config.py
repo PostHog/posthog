@@ -217,7 +217,7 @@ class Settings(BaseSettings):
     anthropic_circuit_breaker_window_seconds: int = 300
     anthropic_circuit_breaker_bypass_probability: float = 0.9
     anthropic_circuit_breaker_min_requests: int = 20
-    anthropic_circuit_breaker_model_min_requests: int = 5
+    anthropic_circuit_breaker_model_min_requests: dict[str, int] = {"claude-fable-5": 5}
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod
@@ -260,6 +260,17 @@ class Settings(BaseSettings):
                 )
             result[_normalize_cost_key(str(product))] = value
         return result
+
+    @field_validator("anthropic_circuit_breaker_model_min_requests")
+    @classmethod
+    def validate_anthropic_circuit_breaker_model_min_requests(cls, value: dict[str, int]) -> dict[str, int]:
+        if len(value) > 50:
+            raise ValueError("at most 50 model-specific circuit breakers may be configured")
+        if any(not model or len(model) > 200 for model in value):
+            raise ValueError("circuit breaker model names must contain 1 to 200 characters")
+        if any(min_requests < 1 for min_requests in value.values()):
+            raise ValueError("circuit breaker model minimum requests must be at least 1")
+        return value
 
     @field_validator("staff_rate_limit_multiplier")
     @classmethod

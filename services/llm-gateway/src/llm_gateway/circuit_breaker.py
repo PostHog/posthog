@@ -16,9 +16,8 @@ logger = structlog.get_logger(__name__)
 
 
 BUCKET_WIDTH_SECONDS = 30
-# v1: bumping the prefix invalidates buckets from any prior version with different bucket
-# semantics, so a rolling deploy can't mix incompatible writes into the same keyspace.
-KEY_PREFIX = "llm_gateway:cb:anthropic:v2"
+# Bump the prefix when bucket semantics change so rolling deploys cannot mix incompatible writes.
+KEY_PREFIX = "llm_gateway:cb:anthropic:v3"
 REDIS_OP_TIMEOUT_SECONDS = 0.1
 
 _OutcomeField = Literal["s", "f"]
@@ -48,7 +47,7 @@ class AnthropicCircuitBreaker:
         window_seconds: int,
         bypass_probability: float,
         min_requests: int,
-        model_min_requests: int,
+        model_min_requests: dict[str, int],
         enabled: bool,
     ) -> None:
         self.redis = redis
@@ -61,8 +60,12 @@ class AnthropicCircuitBreaker:
         self._bucket_count = max(1, math.ceil(window_seconds / BUCKET_WIDTH_SECONDS))
 
     def _bucket_key(self, bucket_index: int, model: str | None = None) -> str:
-        scope = model or "all"
-        return f"{KEY_PREFIX}:{scope}:{bucket_index}"
+        if model is None:
+            return f"{KEY_PREFIX}:aggregate:{bucket_index}"
+        return f"{KEY_PREFIX}:model:{model}:{bucket_index}"
+
+    def _model_scope(self, model: str | None) -> str | None:
+        return model if model in self.model_min_requests else None
 
     def _current_bucket_index(self, now: float | None = None) -> int:
         return int((now if now is not None else time.time()) // BUCKET_WIDTH_SECONDS)
@@ -75,7 +78,10 @@ class AnthropicCircuitBreaker:
         try:
             # Pipeline atomicity is required: HINCRBY without EXPIRE leaks keys without TTL.
             pipe = self.redis.pipeline()
-            for key in {self._bucket_key(bucket), self._bucket_key(bucket, model)}:
+            keys = [self._bucket_key(bucket)]
+            if model_scope := self._model_scope(model):
+                keys.append(self._bucket_key(bucket, model_scope))
+            for key in keys:
                 pipe.hincrby(key, field, 1)
                 pipe.expire(key, self.window_seconds + BUCKET_WIDTH_SECONDS)
             await asyncio.wait_for(pipe.execute(), timeout=REDIS_OP_TIMEOUT_SECONDS)
@@ -94,7 +100,8 @@ class AnthropicCircuitBreaker:
         if not self.enabled or self.redis is None:
             return 0, 0
         current = self._current_bucket_index()
-        keys = [self._bucket_key(current - offset, model) for offset in range(self._bucket_count)]
+        model_scope = self._model_scope(model)
+        keys = [self._bucket_key(current - offset, model_scope) for offset in range(self._bucket_count)]
         try:
             pipe = self.redis.pipeline()
             for key in keys:
@@ -130,7 +137,8 @@ class AnthropicCircuitBreaker:
         total, failures = await self._get_stats(model)
         rate = failures / total if total else 0.0
 
-        min_requests = self.model_min_requests if model is not None else self.min_requests
+        model_scope = self._model_scope(model)
+        min_requests = self.model_min_requests[model_scope] if model_scope is not None else self.min_requests
         if total < min_requests or rate < self.failure_threshold:
             return BreakerDecision(bypass=False, open=False, failure_rate=rate, total_requests=total)
 
@@ -165,6 +173,9 @@ async def publish_anthropic_breaker_gauges_loop(
         ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
         ANTHROPIC_CIRCUIT_BREAKER_OPEN,
         ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS,
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_FAILURE_RATE,
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_OPEN,
+        ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS,
     )
 
     while True:
@@ -173,6 +184,11 @@ async def publish_anthropic_breaker_gauges_loop(
             ANTHROPIC_CIRCUIT_BREAKER_OPEN.set(1 if decision.open else 0)
             ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE.set(decision.failure_rate)
             ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS.set(decision.total_requests)
+            for model in breaker.model_min_requests:
+                model_decision = await breaker.evaluate(model)
+                ANTHROPIC_MODEL_CIRCUIT_BREAKER_OPEN.labels(model=model).set(1 if model_decision.open else 0)
+                ANTHROPIC_MODEL_CIRCUIT_BREAKER_FAILURE_RATE.labels(model=model).set(model_decision.failure_rate)
+                ANTHROPIC_MODEL_CIRCUIT_BREAKER_WINDOW_REQUESTS.labels(model=model).set(model_decision.total_requests)
         except asyncio.CancelledError:
             raise
         except Exception:

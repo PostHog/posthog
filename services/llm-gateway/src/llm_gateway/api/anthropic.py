@@ -555,10 +555,11 @@ async def _handle_anthropic_messages(
     except HTTPException as exc:
         # Provider-attributable failures we fail over for: 5xx, 429 throttling, and billing/spend-limit
         # blocks (which arrive as 400 invalid_request_error). All three are recorded as breaker
-        # failures so the breaker can open; ordinary caller-side 4xx stay a breaker success.
+        # failures so the breaker can open; provider 4xx are successes and gateway 4xx are ignored.
         billing_block = _is_anthropic_billing_block(exc)
         fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
-        await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
+        if isinstance(exc, ProviderError) or exc.status_code >= 500:
+            await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
         if not use_bedrock_fallback or not fallback_eligible:
             raise
 

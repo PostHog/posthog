@@ -1849,7 +1849,7 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 400
         assert mock_anthropic.call_count == 0  # rejected before any provider call
-        breaker.record_outcome.assert_awaited_with(success=True, model="gemini/credit balance is too low")
+        breaker.record_outcome.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_generic_400_not_routed_to_bedrock(
