@@ -20,6 +20,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -3395,3 +3396,105 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
+
+
+class TestHogFlowActionTemplateLinking(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(webhook_template)
+        # A destination catalog template with a secret input, for the detach-secret materialization test.
+        HogFunctionTemplate.objects.create(
+            template_id="template-secret-webhook",
+            sha="1.0.0",
+            name="Secret webhook",
+            code="return event",
+            code_language="hog",
+            type="destination",
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": False},
+            ],
+        )
+
+    def _create_action_template(self, template_id: str = "template-webhook", inputs: Optional[dict] = None) -> str:
+        payload = {
+            "name": "Saved webhook",
+            "template_id": template_id,
+            "inputs": inputs or {"url": {"value": "https://saved.example.com"}},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_action_templates", payload)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def _flow_with_function_config(self, config: dict, action_type: str = "function") -> dict:
+        return {
+            "name": "Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {"id": "action_1", "name": "action", "type": action_type, "config": config},
+            ],
+        }
+
+    def test_linked_action_saves_with_empty_inputs_and_coerced_template_id(self):
+        action_template_id = self._create_action_template()
+        flow = self._flow_with_function_config(
+            {"template_id": "template-webhook", "action_template_id": action_template_id}
+        )
+        # Strict (programmatic) validation must accept a linked action even though it carries no inputs —
+        # the webhook's required `url` lives on the saved template, not the action.
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 201, response.json()
+        action = response.json()["actions"][1]
+        assert action["config"]["action_template_id"] == action_template_id
+        assert action["config"]["inputs"] == {}
+        assert action["config"]["template_id"] == "template-webhook"
+
+    def test_dangling_action_template_rejected_strictly(self):
+        flow = self._flow_with_function_config(
+            {"template_id": "template-webhook", "action_template_id": "00000000-0000-0000-0000-000000000000"}
+        )
+        # Strict (programmatic) callers get the dangling reference rejected up front.
+        strict = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert strict.status_code == 400, strict.json()
+        # The lenient web builder saves it (incomplete mid-edit graphs are allowed).
+        lenient = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert lenient.status_code == 201, lenient.json()
+
+    def test_action_template_id_on_non_function_step_rejected(self):
+        action_template_id = self._create_action_template()
+        flow = self._flow_with_function_config(
+            {"template_id": "template-email", "action_template_id": action_template_id},
+            action_type="function_email",
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+
+    def test_detach_materializes_secret_from_provenance_template(self):
+        # A step customized from a saved template sends the masked {"secret": true} marker plus provenance;
+        # the backend must resolve it back to the template's stored secret value on save.
+        action_template_id = self._create_action_template(
+            template_id="template-secret-webhook",
+            inputs={"url": {"value": "https://saved.example.com"}, "api_key": {"value": "resolved-secret"}},
+        )
+        flow = self._flow_with_function_config(
+            {
+                "template_id": "template-secret-webhook",
+                "detached_action_template_id": action_template_id,
+                "inputs": {
+                    "url": {"value": "https://saved.example.com"},
+                    "api_key": {"secret": True},
+                },
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        action = response.json()["actions"][1]
+        assert action["config"]["inputs"]["api_key"]["value"] == "resolved-secret"

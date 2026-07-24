@@ -127,6 +127,11 @@ export function sanitizeWorkflow(
     // Sanitize all function-like actions the same as we would a hog function
     workflow.actions.forEach((action) => {
         if (isFunctionAction(action) || isTriggerFunction(action)) {
+            // A step linked to a saved action template carries no inline inputs — the template row is
+            // the source of truth, resolved at execution time — so leave its (empty) inputs untouched.
+            if (isFunctionAction(action) && action.config.action_template_id) {
+                return
+            }
             const inputs = action.config.inputs
             const template = hogFunctionTemplatesById[action.config.template_id]
             if (template) {
@@ -3116,7 +3121,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                     // This is a special case for the template_id field which might need to go to a generic error message
                                     _template_id: 'Template not found',
                                 }
-                            } else {
+                            } else if (!(isFunctionAction(action) && action.config.action_template_id)) {
+                                // A linked step has no inline inputs to validate — the saved action template
+                                // owns them and validated them at save time. Skip the input validation so a
+                                // required input on the catalog template doesn't block enabling the workflow.
                                 const configValidation = CyclotronJobInputsValidation.validate(
                                     action.config.inputs,
                                     template.inputs_schema ?? []

@@ -21,6 +21,7 @@ import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { HogFlowActionTemplateManagerService } from './services/hogflows/hogflow-action-template-manager.service'
 import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -447,10 +448,16 @@ export function createCdpCoreServices(
     )
 
     const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(deps.postgres)
+    const hogFlowActionTemplateManager = new HogFlowActionTemplateManagerService(
+        deps.postgres,
+        deps.pubSub,
+        deps.encryptedFields
+    )
     const hogFlowFunctionsService = new HogFlowFunctionsService(
         config.SITE_URL,
         hogFunctionTemplateManager,
-        hogExecutor
+        hogExecutor,
+        hogFlowActionTemplateManager
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)

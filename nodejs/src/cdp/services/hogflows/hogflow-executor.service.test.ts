@@ -26,6 +26,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messa
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
+import { HogFlowActionTemplateManagerService } from './hogflow-action-template-manager.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
@@ -100,10 +101,16 @@ describe('Hogflow Executor', () => {
             undefined as any
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
+        const hogFlowActionTemplateManager = new HogFlowActionTemplateManagerService(
+            hub.postgres,
+            hub.pubSub,
+            hub.encryptedFields
+        )
         const hogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             hogFunctionTemplateManager,
-            hogExecutor
+            hogExecutor,
+            hogFlowActionTemplateManager
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)

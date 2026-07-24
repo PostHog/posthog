@@ -207,6 +207,39 @@ export const insertHogFunctionTemplate = async (
     return res
 }
 
+export const insertHogFlowActionTemplate = async (
+    postgres: PostgresRouter,
+    team_id: Team['id'],
+    actionTemplate: {
+        template_id: string
+        name?: string
+        inputs?: Record<string, any>
+        // Pass an encrypted string (via hub.encryptedFields.encrypt) or a plain object.
+        encrypted_inputs?: string | Record<string, any> | null
+        mappings?: any[] | null
+        deleted?: boolean
+    }
+): Promise<{ id: string }> => {
+    const id = randomUUID()
+    await insertRow(postgres, 'posthog_hogflowactiontemplate', {
+        id,
+        team_id,
+        name: actionTemplate.name ?? 'Test action template',
+        description: '',
+        template_id: actionTemplate.template_id,
+        inputs: actionTemplate.inputs ?? {},
+        encrypted_inputs:
+            typeof actionTemplate.encrypted_inputs === 'string' || actionTemplate.encrypted_inputs == null
+                ? (actionTemplate.encrypted_inputs ?? null)
+                : JSON.stringify(actionTemplate.encrypted_inputs),
+        mappings: actionTemplate.mappings ?? null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        deleted: actionTemplate.deleted ?? false,
+    })
+    return { id }
+}
+
 export const insertIntegration = async (
     postgres: PostgresRouter,
     team_id: Team['id'],

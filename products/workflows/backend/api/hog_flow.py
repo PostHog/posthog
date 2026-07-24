@@ -90,6 +90,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     PERSON_DEPENDENT_ACTION_TYPES,
     HogFlow,
 )
+from products.workflows.backend.models.hog_flow.hog_flow_action_template import HogFlowActionTemplate
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
@@ -379,6 +380,20 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
+def _resolve_action_template(
+    team_id: int, action_template_id: Any, *, include_deleted: bool
+) -> Optional[HogFlowActionTemplate]:
+    if not isinstance(action_template_id, str) or not action_template_id:
+        return None
+    queryset = HogFlowActionTemplate.objects.for_team(team_id)
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    try:
+        return queryset.filter(id=action_template_id).first()
+    except (DjangoValidationError, ValueError):  # not a valid UUID
+        return None
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -412,6 +427,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             "type: event|person|group}. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
+            "function only: action_template_id links the step to a saved action template (a reusable, "
+            "team-owned input configuration) — inputs are then resolved from the template at execution "
+            "time and inline inputs are ignored. detached_action_template_id records which template a "
+            "customized step was forked from. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
@@ -582,32 +601,66 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
-            template_id = data.get("config", {}).get("template_id", "")
-            template = HogFunctionTemplate.get_template(template_id)
-            if not template:
-                if strict:
-                    raise serializers.ValidationError({"template_id": "Template not found"})
-            else:
-                input_schema = template.inputs_schema
-                inputs = data.get("config", {}).get("inputs", {})
+            config = data.get("config", {})
+            action_template_id = config.get("action_template_id")
 
-                function_config_serializer = HogFlowConfigFunctionInputsSerializer(
-                    data={
-                        "inputs_schema": input_schema,
-                        "inputs": inputs,
-                    },
-                    context={
-                        "function_type": template.type,
-                        "is_dwh_source": self.context.get("is_dwh_source", False),
-                    },
-                )
-
-                if not strict:
-                    if function_config_serializer.is_valid():
-                        data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+            if action_template_id:
+                if data.get("type") != "function":
+                    raise serializers.ValidationError(
+                        {"action_template_id": "Saved action templates are only supported on function steps."}
+                    )
+                team = self.context["get_team"]()
+                action_template = _resolve_action_template(team.id, action_template_id, include_deleted=False)
+                if not action_template:
+                    if strict:
+                        raise serializers.ValidationError({"action_template_id": "Saved action template not found"})
                 else:
-                    function_config_serializer.is_valid(raise_exception=True)
-                    data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    # Linked step: the template row is the single source of truth. Keep the catalog id in
+                    # sync and drop inline inputs/mappings — the worker resolves them from the row at
+                    # execution time, and the row's inputs were validated & compiled at template save.
+                    config["template_id"] = action_template.template_id
+                    config["inputs"] = {}
+                    config.pop("mappings", None)
+            else:
+                template_id = config.get("template_id", "")
+                template = HogFunctionTemplate.get_template(template_id)
+                if not template:
+                    if strict:
+                        raise serializers.ValidationError({"template_id": "Template not found"})
+                else:
+                    input_schema = template.inputs_schema
+                    inputs = config.get("inputs", {})
+
+                    # A step customized from a saved template carries provenance in
+                    # detached_action_template_id. Resolving that row lets {"secret": true} markers the
+                    # client sends on detach (it only ever sees masked secrets) materialize server-side
+                    # into the template's stored values, like HogFunctionSerializer secret round-trips.
+                    detached_template = _resolve_action_template(
+                        self.context["get_team"]().id,
+                        config.get("detached_action_template_id"),
+                        include_deleted=True,
+                    )
+
+                    function_config_serializer = HogFlowConfigFunctionInputsSerializer(
+                        data={
+                            "inputs_schema": input_schema,
+                            "inputs": inputs,
+                        },
+                        context={
+                            "function_type": template.type,
+                            "is_dwh_source": self.context.get("is_dwh_source", False),
+                            "encrypted_inputs": (
+                                (detached_template.encrypted_inputs or {}) if detached_template else None
+                            ),
+                        },
+                    )
+
+                    if not strict:
+                        if function_config_serializer.is_valid():
+                            data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    else:
+                        function_config_serializer.is_valid(raise_exception=True)
+                        data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
         conditions = data.get("config", {}).get("conditions", [])
 

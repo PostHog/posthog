@@ -32260,7 +32260,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -32310,7 +32310,7 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -32421,6 +32421,64 @@ export namespace Schemas {
          * @nullable
          */
       readonly action_redirects: HogFlowActionRedirects;
+    }
+
+    /**
+     * Function inputs keyed by the catalog template's input schema keys, each wrapped as {"value": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {"secret": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it.
+     */
+    export type HogFlowActionTemplateInputs = {[key: string]: {
+      /** The input value; shape depends on the input schema type. */
+      value?: unknown;
+      /** Read marker meaning a secret value is stored server-side. */
+      secret?: boolean;
+    }};
+
+    export type HogFlowActionTemplateMappingsItem = { [key: string]: unknown };
+
+    export interface HogFlowActionTemplate {
+      readonly id: string;
+      /**
+         * Human-readable template name shown in the library and step selector.
+         * @maxLength 400
+         */
+      name: string;
+      /** What the template is for and when to use it. */
+      description?: string;
+      /**
+         * The catalog hog function template this configuration is for, e.g. 'template-webhook'. Immutable after creation — changing it would swap the function under every linked workflow step.
+         * @maxLength 400
+         */
+      template_id: string;
+      /** Function inputs keyed by the catalog template's input schema keys, each wrapped as {"value": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {"secret": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it. */
+      inputs?: HogFlowActionTemplateInputs;
+      /**
+         * Optional mappings for catalog templates that use per-event mappings; same shape as a workflow function action's config.mappings.
+         * @nullable
+         */
+      mappings?: HogFlowActionTemplateMappingsItem[] | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      /** Soft-delete flag. Setting it to true is rejected while any non-archived workflow still links to this template. */
+      deleted?: boolean;
+      /** Number of non-archived workflows with a step linked to this template (drafts included). */
+      readonly usage_count: number;
+    }
+
+    export interface HogFlowActionTemplateUsageReference {
+      /** Workflow (HogFlow) id. */
+      id: string;
+      /** Workflow name. */
+      name: string;
+      /** Workflow status: draft or active. */
+      status: string;
+    }
+
+    export interface HogFlowActionTemplateUsage {
+      /** Number of non-archived workflows linking to this template. */
+      count: number;
+      /** The workflows with a step linked to this template (drafts included). */
+      hog_flows: HogFlowActionTemplateUsageReference[];
     }
 
     /**
@@ -41264,6 +41322,15 @@ export namespace Schemas {
       results: HealthIssue[];
     }
 
+    export interface PaginatedHogFlowActionTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowActionTemplate[];
+    }
+
     export interface PaginatedHogFlowMinimalList {
       count: number;
       /** @nullable */
@@ -48676,6 +48743,48 @@ export namespace Schemas {
          * @nullable
          */
       readonly action_redirects?: PatchedHogFlowActionRedirects;
+    }
+
+    /**
+     * Function inputs keyed by the catalog template's input schema keys, each wrapped as {"value": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {"secret": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it.
+     */
+    export type PatchedHogFlowActionTemplateInputs = {[key: string]: {
+      /** The input value; shape depends on the input schema type. */
+      value?: unknown;
+      /** Read marker meaning a secret value is stored server-side. */
+      secret?: boolean;
+    }};
+
+    export type PatchedHogFlowActionTemplateMappingsItem = { [key: string]: unknown };
+
+    export interface PatchedHogFlowActionTemplate {
+      readonly id?: string;
+      /**
+         * Human-readable template name shown in the library and step selector.
+         * @maxLength 400
+         */
+      name?: string;
+      /** What the template is for and when to use it. */
+      description?: string;
+      /**
+         * The catalog hog function template this configuration is for, e.g. 'template-webhook'. Immutable after creation — changing it would swap the function under every linked workflow step.
+         * @maxLength 400
+         */
+      template_id?: string;
+      /** Function inputs keyed by the catalog template's input schema keys, each wrapped as {"value": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {"secret": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it. */
+      inputs?: PatchedHogFlowActionTemplateInputs;
+      /**
+         * Optional mappings for catalog templates that use per-event mappings; same shape as a workflow function action's config.mappings.
+         * @nullable
+         */
+      mappings?: PatchedHogFlowActionTemplateMappingsItem[] | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+      /** Soft-delete flag. Setting it to true is rejected while any non-archived workflow still links to this template. */
+      deleted?: boolean;
+      /** Number of non-archived workflows with a step linked to this template (drafts included). */
+      readonly usage_count?: number;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -75462,6 +75571,21 @@ export namespace Schemas {
       UniqueVisitors: 'unique_visitors',
       TotalCount: 'total_count',
     } as const;
+
+    export type HogFlowActionTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return saved templates for this catalog template id, e.g. 'template-webhook'.
+     */
+    template_id?: string;
+    };
 
     export type HogFlowTemplatesListParams = {
     /**

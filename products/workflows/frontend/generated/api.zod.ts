@@ -9,6 +9,134 @@
  */
 import * as zod from 'zod'
 
+export const hogFlowActionTemplatesCreateBodyNameMax = 400
+
+export const hogFlowActionTemplatesCreateBodyTemplateIdMax = 400
+
+export const HogFlowActionTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(hogFlowActionTemplatesCreateBodyNameMax)
+        .describe('Human-readable template name shown in the library and step selector.'),
+    description: zod.string().optional().describe('What the template is for and when to use it.'),
+    template_id: zod
+        .string()
+        .max(hogFlowActionTemplatesCreateBodyTemplateIdMax)
+        .describe(
+            "The catalog hog function template this configuration is for, e.g. 'template-webhook'. Immutable after creation — changing it would swap the function under every linked workflow step."
+        ),
+    inputs: zod
+        .record(
+            zod.string(),
+            zod.object({
+                value: zod.unknown().optional().describe('The input value; shape depends on the input schema type.'),
+                secret: zod.boolean().optional().describe('Read marker meaning a secret value is stored server-side.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Function inputs keyed by the catalog template\'s input schema keys, each wrapped as {\"value\": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {\"secret\": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it.'
+        ),
+    mappings: zod
+        .array(zod.looseObject({}))
+        .nullish()
+        .describe(
+            "Optional mappings for catalog templates that use per-event mappings; same shape as a workflow function action's config.mappings."
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Setting it to true is rejected while any non-archived workflow still links to this template.'
+        ),
+})
+
+export const hogFlowActionTemplatesUpdateBodyNameMax = 400
+
+export const hogFlowActionTemplatesUpdateBodyTemplateIdMax = 400
+
+export const HogFlowActionTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(hogFlowActionTemplatesUpdateBodyNameMax)
+        .describe('Human-readable template name shown in the library and step selector.'),
+    description: zod.string().optional().describe('What the template is for and when to use it.'),
+    template_id: zod
+        .string()
+        .max(hogFlowActionTemplatesUpdateBodyTemplateIdMax)
+        .describe(
+            "The catalog hog function template this configuration is for, e.g. 'template-webhook'. Immutable after creation — changing it would swap the function under every linked workflow step."
+        ),
+    inputs: zod
+        .record(
+            zod.string(),
+            zod.object({
+                value: zod.unknown().optional().describe('The input value; shape depends on the input schema type.'),
+                secret: zod.boolean().optional().describe('Read marker meaning a secret value is stored server-side.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Function inputs keyed by the catalog template\'s input schema keys, each wrapped as {\"value\": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {\"secret\": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it.'
+        ),
+    mappings: zod
+        .array(zod.looseObject({}))
+        .nullish()
+        .describe(
+            "Optional mappings for catalog templates that use per-event mappings; same shape as a workflow function action's config.mappings."
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Setting it to true is rejected while any non-archived workflow still links to this template.'
+        ),
+})
+
+export const hogFlowActionTemplatesPartialUpdateBodyNameMax = 400
+
+export const hogFlowActionTemplatesPartialUpdateBodyTemplateIdMax = 400
+
+export const HogFlowActionTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(hogFlowActionTemplatesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable template name shown in the library and step selector.'),
+    description: zod.string().optional().describe('What the template is for and when to use it.'),
+    template_id: zod
+        .string()
+        .max(hogFlowActionTemplatesPartialUpdateBodyTemplateIdMax)
+        .optional()
+        .describe(
+            "The catalog hog function template this configuration is for, e.g. 'template-webhook'. Immutable after creation — changing it would swap the function under every linked workflow step."
+        ),
+    inputs: zod
+        .record(
+            zod.string(),
+            zod.object({
+                value: zod.unknown().optional().describe('The input value; shape depends on the input schema type.'),
+                secret: zod.boolean().optional().describe('Read marker meaning a secret value is stored server-side.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Function inputs keyed by the catalog template\'s input schema keys, each wrapped as {\"value\": ...}. String values support hog templating like {person.properties.email}. Secret inputs are stored encrypted and read back as the marker {\"secret\": true}; send the marker back unchanged to keep the stored value, or send a new value to replace it.'
+        ),
+    mappings: zod
+        .array(zod.looseObject({}))
+        .nullish()
+        .describe(
+            "Optional mappings for catalog templates that use per-event mappings; same shape as a workflow function action's config.mappings."
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Setting it to true is rejected while any non-archived workflow still links to this template.'
+        ),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201
@@ -692,7 +820,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1024,7 +1152,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1361,7 +1489,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1876,7 +2004,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             ])
                             .describe(
-                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
@@ -2434,7 +2562,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function only: action_template_id links the step to a saved action template (a reusable, team-owned input configuration) — inputs are then resolved from the template at execution time and inline inputs are ignored. detached_action_template_id records which template a customized step was forked from. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()

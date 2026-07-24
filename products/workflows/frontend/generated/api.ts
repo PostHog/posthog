@@ -13,6 +13,9 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    HogFlowActionTemplateApi,
+    HogFlowActionTemplateUsageApi,
+    HogFlowActionTemplatesListParams,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
@@ -38,9 +41,11 @@ import type {
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
     MessageAssetApi,
+    PaginatedHogFlowActionTemplateListApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
+    PatchedHogFlowActionTemplateApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -78,6 +83,134 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getHogFlowActionTemplatesListUrl = (projectId: string, params?: HogFlowActionTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flow_action_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flow_action_templates/`
+}
+
+export const hogFlowActionTemplatesList = async (
+    projectId: string,
+    params?: HogFlowActionTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowActionTemplateListApi> => {
+    return apiMutator<PaginatedHogFlowActionTemplateListApi>(getHogFlowActionTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowActionTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/`
+}
+
+export const hogFlowActionTemplatesCreate = async (
+    projectId: string,
+    hogFlowActionTemplateApi: NonReadonly<HogFlowActionTemplateApi>,
+    options?: RequestInit
+): Promise<HogFlowActionTemplateApi> => {
+    return apiMutator<HogFlowActionTemplateApi>(getHogFlowActionTemplatesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowActionTemplateApi),
+    })
+}
+
+export const getHogFlowActionTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/${id}/`
+}
+
+export const hogFlowActionTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowActionTemplateApi> => {
+    return apiMutator<HogFlowActionTemplateApi>(getHogFlowActionTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowActionTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/${id}/`
+}
+
+export const hogFlowActionTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    hogFlowActionTemplateApi: NonReadonly<HogFlowActionTemplateApi>,
+    options?: RequestInit
+): Promise<HogFlowActionTemplateApi> => {
+    return apiMutator<HogFlowActionTemplateApi>(getHogFlowActionTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowActionTemplateApi),
+    })
+}
+
+export const getHogFlowActionTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/${id}/`
+}
+
+export const hogFlowActionTemplatesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowActionTemplateApi?: NonReadonly<PatchedHogFlowActionTemplateApi>,
+    options?: RequestInit
+): Promise<HogFlowActionTemplateApi> => {
+    return apiMutator<HogFlowActionTemplateApi>(getHogFlowActionTemplatesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowActionTemplateApi),
+    })
+}
+
+export const getHogFlowActionTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const hogFlowActionTemplatesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getHogFlowActionTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getHogFlowActionTemplatesUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_action_templates/${id}/usage/`
+}
+
+export const hogFlowActionTemplatesUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowActionTemplateUsageApi> => {
+    return apiMutator<HogFlowActionTemplateUsageApi>(getHogFlowActionTemplatesUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

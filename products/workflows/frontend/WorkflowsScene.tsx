@@ -30,6 +30,7 @@ import { MessageChannels } from './Channels/MessageChannels'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
+import { ActionTemplatesTable } from './TemplateLibrary/ActionTemplatesTable'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
@@ -215,9 +216,10 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             label: 'Library',
             key: 'library',
             content: (
-                <>
+                <div className="flex flex-col gap-8">
                     <MessageTemplatesTable />
-                </>
+                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_ACTION_TEMPLATES] && <ActionTemplatesTable />}
+                </div>
             ),
             link: urls.workflows('library'),
         },

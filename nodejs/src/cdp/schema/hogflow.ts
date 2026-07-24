@@ -190,6 +190,11 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
+            // Reference to a saved HogFlowActionTemplate — when set, inputs/mappings are resolved
+            // from that row at execution time and the inline values below are ignored.
+            action_template_id: z.string().optional().nullable(),
+            // Provenance for a step customized from a saved template (no longer receives updates).
+            detached_action_template_id: z.string().optional().nullable(),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),

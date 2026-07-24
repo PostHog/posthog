@@ -3,7 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
+import { insertHogFlowActionTemplate, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -22,6 +22,7 @@ import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
+import { HogFlowActionTemplateManagerService } from '../hogflow-action-template-manager.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
@@ -83,7 +84,8 @@ describe('HogFunctionHandler', () => {
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             mockHogFunctionTemplateManager,
-            mockHogFunctionExecutor
+            mockHogFunctionExecutor,
+            new HogFlowActionTemplateManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
@@ -593,6 +595,62 @@ describe('HogFunctionHandler', () => {
             expect(builtHogFunction.inputs?.non_failure_status_codes).toEqual({
                 value: ['4xx', 500],
             })
+        })
+    })
+
+    describe('linked action templates', () => {
+        const buildLinkedFlow = (actionTemplateId: string): CyclotronJobInvocationHogFlow['hogFlow'] =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        function: {
+                            type: 'function',
+                            config: { template_id: template.template_id, action_template_id: actionTemplateId },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'function', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+        it('resolves inputs and mappings from the saved template row, including decrypted secrets', async () => {
+            const { id } = await insertHogFlowActionTemplate(hub.postgres, team.id, {
+                template_id: template.template_id,
+                inputs: { name: { value: 'From template' } },
+                encrypted_inputs: hub.encryptedFields.encrypt(JSON.stringify({ oauth: { value: 1 } })),
+                mappings: [{ name: 'mapping from template' }],
+            })
+
+            const hogFlow = buildLinkedFlow(id)
+            const flowAction = findActionByType(hogFlow, 'function')!
+            const built = await mockHogFlowFunctionsService.buildHogFunction(hogFlow, flowAction.config)
+
+            expect(built.inputs?.name).toEqual({ value: 'From template' })
+            // Secret merged in from the row's decrypted encrypted_inputs
+            expect(built.inputs?.oauth).toEqual({ value: 1 })
+            expect(built.mappings).toEqual([{ name: 'mapping from template' }])
+        })
+
+        it('throws when the referenced template belongs to another team', async () => {
+            const otherTeam = await getFirstTeam(hub.postgres)
+            const { id } = await insertHogFlowActionTemplate(hub.postgres, otherTeam.id + 99999, {
+                template_id: template.template_id,
+                inputs: { name: { value: 'x' } },
+            })
+            const hogFlow = buildLinkedFlow(id)
+            const flowAction = findActionByType(hogFlow, 'function')!
+            await expect(mockHogFlowFunctionsService.buildHogFunction(hogFlow, flowAction.config)).rejects.toThrow(
+                /Action template .* not found/
+            )
+        })
+
+        it('throws on a dangling reference', async () => {
+            const hogFlow = buildLinkedFlow('00000000-0000-0000-0000-000000000000')
+            const flowAction = findActionByType(hogFlow, 'function')!
+            await expect(mockHogFlowFunctionsService.buildHogFunction(hogFlow, flowAction.config)).rejects.toThrow(
+                /Action template .* not found/
+            )
         })
     })
 })

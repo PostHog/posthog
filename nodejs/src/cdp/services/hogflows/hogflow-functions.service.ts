@@ -9,6 +9,7 @@ import {
 
 import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { HogFlowActionTemplateManagerService } from './hogflow-action-template-manager.service'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
@@ -18,17 +19,40 @@ export class HogFlowFunctionsService {
     constructor(
         private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private hogFunctionExecutor: HogExecutorService
+        private hogFunctionExecutor: HogExecutorService,
+        private hogFlowActionTemplateManager: HogFlowActionTemplateManagerService
     ) {}
 
     async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
+        const { inputs: configInputs, mappings: configMappings, ...config } = configuration
+        let inputs = configInputs
+        let mappings = configMappings
+        let catalogTemplateId: string = config.template_id
 
-        if (!template) {
-            throw new Error(`Template '${configuration.template_id}' not found`)
+        // A linked step stores only a reference to a saved action template; the row is the single
+        // source of truth for inputs/mappings so template edits propagate without re-saving flows.
+        const actionTemplateId = 'action_template_id' in config ? config.action_template_id : undefined
+        if (actionTemplateId) {
+            const actionTemplate = await this.hogFlowActionTemplateManager.getHogFlowActionTemplate(actionTemplateId)
+            // The cache is keyed by id across teams, so the team check must happen post-load.
+            // A dangling or cross-team reference fails closed via the action's on_error handling.
+            if (!actionTemplate || actionTemplate.team_id !== hogFlow.team_id) {
+                throw new Error(`Action template '${actionTemplateId}' not found`)
+            }
+            catalogTemplateId = actionTemplate.template_id
+            const encryptedInputs =
+                actionTemplate.encrypted_inputs && typeof actionTemplate.encrypted_inputs === 'object'
+                    ? actionTemplate.encrypted_inputs
+                    : {}
+            inputs = { ...(actionTemplate.inputs ?? {}), ...encryptedInputs }
+            mappings = actionTemplate.mappings ?? undefined
         }
 
-        const { inputs, mappings, ...config } = configuration
+        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(catalogTemplateId)
+
+        if (!template) {
+            throw new Error(`Template '${catalogTemplateId}' not found`)
+        }
 
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,
