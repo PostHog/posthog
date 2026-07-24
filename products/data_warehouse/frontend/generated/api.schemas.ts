@@ -2497,6 +2497,11 @@ export interface CredentialApi {
  * * `Meltwater` - Meltwater
  * * `UserCom` - UserCom
  * * `Latitude` - Latitude
+ * * `Workato` - Workato
+ * * `SideShift` - SideShift
+ * * `DuckLake` - DuckLake
+ * * `Starburst` - Starburst
+ * * `Easybill` - Easybill
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3751,6 +3756,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Meltwater: 'Meltwater',
     UserCom: 'UserCom',
     Latitude: 'Latitude',
+    Workato: 'Workato',
+    SideShift: 'SideShift',
+    DuckLake: 'DuckLake',
+    Starburst: 'Starburst',
+    Easybill: 'Easybill',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
