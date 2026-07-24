@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     ExperimentApiExposureCriteria,
@@ -379,6 +379,18 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "flag_cleanup_task action."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository holding this experiment's feature-flag code, in `organization/repository` "
+            "format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on "
+            "end/ship_variant. When not set, cleanup targets the team's only connected repository and is "
+            "skipped if the team has several."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -416,6 +428,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conclusion",
             "conclusion_comment",
             "flag_cleanup_task_id",
+            "repository",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
@@ -507,6 +520,24 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_saved_metrics_ids(self, value):
         ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
+        return value
+
+    def validate_repository(self, value: str | None) -> str | None:
+        # Keeps the tasks product's access module off the experiments import path.
+        from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        value = value.lower()
+        # The field steers where the cleanup PR is opened, so pointing it somewhere new
+        # needs the same PostHog Code access as opening one (mirrors open_cleanup_pr).
+        if self.instance is None or value != self.instance.repository:
+            request = self.context.get("request")
+            if request is None or not has_tasks_access(request.user):
+                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Code.")
         return value
 
     def validate(self, data):
@@ -705,6 +736,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             deleted=self.validated_data.get("deleted", False),
             conclusion=self.validated_data.get("conclusion"),
             conclusion_comment=self.validated_data.get("conclusion_comment"),
+            repository=self.validated_data.get("repository"),
             holdout_id=holdout_id,
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
@@ -745,6 +777,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "deleted",
             "conclusion",
             "conclusion_comment",
+            "repository",
             "holdout",
             "filters",
             "scheduling_config",
@@ -1527,3 +1560,8 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
             "experiment's run window overlaps the recording or no flag data was observed in the session."
         ),
     )
+
+
+class ExperimentActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")

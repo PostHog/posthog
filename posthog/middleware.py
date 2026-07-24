@@ -1111,6 +1111,10 @@ class ActivityLoggingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Lets bearer-auth code (which runs later, inside the view) attribute activity safely,
+        # knowing the finally block below will clean up.
+        activity_storage.mark_request_scoped()
+
         # Set user in activity storage if authenticated
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
@@ -1312,9 +1316,6 @@ IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
 # up/downgraded). Persisted server-side so the reason survives both Django-admin and
 # in-app starts and can be surfaced to the frontend and the activity log.
 IMPERSONATION_REASON_SESSION_KEY = "impersonation_reason"
-
-# Session key holding the support ticket an impersonation session was started from
-IMPERSONATION_TICKET_ID_SESSION_KEY = "impersonation_ticket_id"
 
 
 def is_read_only_impersonation(request: HttpRequest) -> bool:

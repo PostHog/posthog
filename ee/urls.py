@@ -15,7 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 
 from products.cdp.backend.api import hooks
 
-from ee.admin.loginas_views import loginas_user, loginas_user_from_ticket, upgrade_impersonation
+from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.agentic_provisioning import views as agentic_provisioning_views
@@ -227,7 +227,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
         path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
-        path("admin/impersonation/from-ticket/", loginas_user_from_ticket, name="impersonation-from-ticket"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
@@ -276,7 +275,14 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Agentic Provisioning Protocol (APP 0.1d)
+    # Stripe Projects provisioning (APP 0.1d) — the namespace the Stripe app
+    # manifest points at (provisioning.base_url = .../api/partners/stripe/)
+    path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
+    # Account Provisioning
+    # TODO(migration): the Stripe-only routes below (health, services,
+    # update_service) and Stripe's use of the rest are served by
+    # /api/partners/stripe/ - remove the Stripe-only ones once Stripe traffic
+    # has fully moved (watch path_namespace on agentic_provisioning events).
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),
@@ -368,6 +374,9 @@ urlpatterns: list[Any] = [
         name="agentic_login",
     ),
     # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
+    # TODO(migration): health, services, and update_service in this block are
+    # Stripe-only — remove them once Stripe traffic has fully moved to
+    # /api/partners/stripe/, unless another partner adopts them.
     path(
         "api/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),

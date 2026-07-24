@@ -167,6 +167,12 @@ def resolve_job_cost_source_pairs(team: Team) -> list[tuple[str, str]]:
     return pairs
 
 
+# Listing the team's connected sources is its own concern (no curated read handle): it threads the
+# requesting user's access control so the picker can't enumerate sources the user can't access.
+def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
+    return list_github_sources(team=team, user_access_control=user_access_control)
+
+
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     """The team's selectable ``(source, repo)`` refs the caller may access, oldest source first.
 

@@ -41,6 +41,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 

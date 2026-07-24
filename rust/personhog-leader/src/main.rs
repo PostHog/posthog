@@ -27,17 +27,20 @@ use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService};
+use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::{
     fetch_writer_committed_offsets, WarmingConfig, WarmingRetryPolicy,
 };
+use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("Invalid configuration");
+    validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -142,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
-    let fallback_pool = if config.fallback_database_url.is_empty() {
+    let fallback = if config.fallback_database_url.is_empty() {
         tracing::info!("PG fallback disabled (no FALLBACK_DATABASE_URL)");
         None
     } else {
@@ -154,10 +157,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(common_database::get_pool_with_config(
-            &config.fallback_database_url,
-            pool_config,
-        )?)
+        Some(PgFallback {
+            pool: common_database::get_pool_with_config(
+                &config.fallback_database_url,
+                pool_config,
+            )?,
+            table: config.fallback_table.clone(),
+        })
     };
 
     // Connect to etcd for coordination and the partition count
@@ -192,16 +198,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
+    let warnings = WarningsProducer::new(
+        kafka_producer.clone(),
+        config.ingestion_warnings_topic.clone(),
+    );
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         config.kafka_person_state_topic.clone(),
-        fallback_pool,
+        fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
         num_partitions,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(
+            config.properties_size_threshold,
+            config.properties_trim_target,
+        ),
+        warnings.clone(),
     );
 
     let handler = LeaderHandoffHandler::new(
@@ -247,13 +262,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks
+    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
     let sweep_locks = Arc::clone(&locks);
+    let sweep_warnings = warnings.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
+            sweep_warnings.sweep_throttle();
         }
     });
 

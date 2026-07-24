@@ -243,6 +243,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
     )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    members_can_see_org_members = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
         "ee.Role",

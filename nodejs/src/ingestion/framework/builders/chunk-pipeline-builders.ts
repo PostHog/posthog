@@ -11,6 +11,12 @@ import {
     ConcurrentlyGroupingChunkPipeline,
     GroupingFunction,
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import {
+    FanInFunction,
+    FanOutFanInChunkPipeline,
+    FanOutFunction,
+    FanOutSubContext,
+} from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
@@ -63,6 +69,86 @@ export class GroupProcessingBuilder<
     ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new ChunkPipelineBuilder(this.buildGroupedPipeline(processor))
+    }
+}
+
+/**
+ * Middle stage of `.fanOut(fn).via(cb).fanIn(fn)`. Its only method is `via`,
+ * so a fan-out stage cannot be built (or have results handled) until it is
+ * closed with a subpipeline and a fan-in function.
+ */
+export class FanOutBuilder<
+    TInput,
+    TOutput,
+    TSub,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    R extends string = never,
+> {
+    // Holds a completion function instead of the fan-out function and previous
+    // pipeline directly, for the same variance reason as GroupProcessingBuilder:
+    // in this closure's signature TOutput only appears in variance-neutral
+    // positions, keeping ChunkPipelineBuilder covariant in TOutput.
+    constructor(
+        private readonly buildFannedOutPipeline: <TSubOut, U, RSub extends string>(
+            subPipeline: ChunkPipeline<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>,
+            fanInFn: FanInFunction<TOutput, TSubOut, U>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R>
+    ) {}
+
+    /**
+     * Route the sub-elements through a subpipeline built on the full chunk
+     * builder surface (`concurrently` with `maxConcurrency`, per-step `retry`,
+     * `concurrentlyPerGroup`, …). Sub-elements from all parents share the
+     * subpipeline, so one concurrency cap governs the whole stage.
+     *
+     * Redirect sub-results never escape the stage, so the subpipeline's
+     * redirect names (`RSub`) do not propagate to the stage's result type —
+     * downstream `handleResults` won't demand outputs for redirects that
+     * cannot happen. (A DLQ sub-result does surface, as the parent's
+     * aggregated DLQ, which carries no redirect names.)
+     */
+    via<TSubOut, RSub extends string = never>(
+        subpipelineCallback: (
+            builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>
+        ) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>
+    ): FanInBuilder<TInput, TOutput, TSubOut, CInput, COutput, R> {
+        const startBuilder = new ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>(
+            new BufferingChunkPipeline<TSub, FanOutSubContext>()
+        )
+        const subPipeline = subpipelineCallback(startBuilder).build()
+        return new FanInBuilder(<U>(fanInFn: FanInFunction<TOutput, TSubOut, U>) =>
+            this.buildFannedOutPipeline(subPipeline, fanInFn)
+        )
+    }
+}
+
+/**
+ * Final stage of `.fanOut(fn).via(cb).fanIn(fn)`. Its only method is `fanIn`,
+ * which folds the sub-results back into the parent and returns a regular
+ * {@link ChunkPipelineBuilder}.
+ */
+export class FanInBuilder<
+    TInput,
+    TOutput,
+    TSubOut,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    R extends string = never,
+> {
+    // Completion-closure shape for the same variance reason as FanOutBuilder.
+    constructor(
+        private readonly buildFannedInPipeline: <U>(
+            fanInFn: FanInFunction<TOutput, TSubOut, U>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R>
+    ) {}
+
+    /**
+     * Close the stage: fold each parent's collected sub-results back into the
+     * original element (synchronous, cheap).
+     */
+    fanIn<U>(fanInFn: FanInFunction<TOutput, TSubOut, U>): ChunkPipelineBuilder<TInput, U, CInput, COutput, R> {
+        return new ChunkPipelineBuilder(this.buildFannedInPipeline(fanInFn))
     }
 }
 
@@ -135,6 +221,42 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
                 R,
                 ROut
             >(this.pipeline, mappingFn, subPipeline)
+        )
+    }
+
+    /**
+     * Open a fan-out/fan-in stage: fan each OK element out into sub-elements,
+     * process them through a subpipeline, and fan the results back into the
+     * original element. The stage is staged so each part reads at the call
+     * site — `.fanOut(fn).via((sub) => …).fanIn(fn)` — and only `.fanIn()`
+     * closes it into a buildable pipeline.
+     *
+     * Cardinality is preserved at the parent level (N in, N out); parents emit
+     * as they complete (unordered). Non-OK elements pass through unchanged.
+     * OK sub-results are collected for the fan-in; dropped sub-elements are
+     * silently excluded (DROP is the sanctioned way for a sub-step to discard
+     * its sub-element); a DLQ sub-result fails the whole parent, which emits a
+     * DLQ aggregating its sub DLQs instead of fanning in; REDIRECT sub-results
+     * are excluded with a warning log — sub-elements are not Kafka messages.
+     *
+     * Like processing steps, the fan-out and fan-in functions are named
+     * functions (defined in step files, created by factories where they need
+     * config) — their `.name` is used for error attribution.
+     *
+     * @param fanOutFn - Splits an element into sub-elements (synchronous, cheap)
+     */
+    fanOut<TSub>(fanOutFn: FanOutFunction<TOutput, TSub>): FanOutBuilder<TInput, TOutput, TSub, CInput, COutput, R> {
+        return new FanOutBuilder(
+            <TSubOut, U, RSub extends string>(
+                subPipeline: ChunkPipeline<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>,
+                fanInFn: FanInFunction<TOutput, TSubOut, U>
+            ) =>
+                new FanOutFanInChunkPipeline<TInput, TOutput, TSub, TSubOut, U, CInput, COutput, R, RSub>(
+                    this.pipeline,
+                    fanOutFn,
+                    subPipeline,
+                    fanInFn
+                )
         )
     }
 

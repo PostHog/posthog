@@ -195,7 +195,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
 
 # Applied at fire time when a loop leaves its model unset ("" / None): a blank
 # model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops.
+# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
     RuntimeAdapter.CODEX.value: "gpt-5",
@@ -1118,6 +1118,7 @@ def build_sandbox_environment_variables(
     access_token: str,
     team_id: int,
     sandbox_environment: Optional[Any] = None,
+    otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
 
@@ -1148,6 +1149,27 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if otel_telemetry_enabled:
+        env_vars.update(get_sandbox_otel_env_vars())
+
+    return env_vars
+
+
+def get_sandbox_otel_env_vars() -> dict[str, str]:
+    """OTLP config for agent-server run telemetry (PostHog Logs/APM).
+
+    Deliberately POSTHOG_-prefixed rather than the standard OTEL_* names: the
+    sandbox env is inherited by user processes, and standard OTEL_* vars would
+    make any OTel SDK in user code auto-export into our telemetry project.
+    """
+    if not (settings.SANDBOX_AGENT_OTEL_LOGS_URL and settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN):
+        return {}
+    env_vars = {
+        "POSTHOG_AGENT_OTEL_LOGS_URL": settings.SANDBOX_AGENT_OTEL_LOGS_URL,
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN": settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN,
+    }
+    if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
+        env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
 
 

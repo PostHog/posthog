@@ -159,6 +159,117 @@ fn classifies_elfs_without_debug_info_or_build_id() {
     assert!(posthog_cli::debug_symbols::report_problems(&report, dir.path()).is_ok());
 }
 
+/// Decompress a zstd-packed binary fixture into a scratch directory.
+fn unpack_fixture(name: &str, dir: &Path, as_name: &str) -> PathBuf {
+    let compressed = std::fs::read(fixtures_dir().join(name)).unwrap();
+    let target = dir.join(as_name);
+    std::fs::write(&target, zstd::decode_all(compressed.as_slice()).unwrap()).unwrap();
+    target
+}
+
+#[test]
+fn discovers_and_packages_macho_executables() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = unpack_fixture("test_go_binary_macho.zst", dir.path(), "gohello");
+
+    let report = discover(dir.path()).unwrap();
+    assert_eq!(
+        report.files.len(),
+        1,
+        "expected the Mach-O binary to be valid"
+    );
+    assert!(report.compressed_dwarf.is_empty());
+
+    // Mach-O chunk ids are the LC_UUID, uppercased to match the SDKs and
+    // `dsym upload` (elf_debug_id parses any object and reports the
+    // symbolic-cased id, which is lowercase).
+    let file = report.files.into_iter().next().unwrap();
+    assert_eq!(file.debug_id, elf_debug_id(&path).unwrap().to_uppercase());
+
+    // Packaged as an AppleDsym container with the thin Mach-O at `dwarf`.
+    let upload = file.into_upload(None, false).unwrap();
+    let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
+    assert_eq!(dwarf_magic(&unwrapped.data), [0xcf, 0xfa, 0xed, 0xfe]);
+}
+
+#[test]
+fn flags_compressed_dwarf_macho_with_guidance() {
+    let dir = tempfile::tempdir().unwrap();
+    unpack_fixture("test_go_binary_macho_zdebug.zst", dir.path(), "gohello");
+
+    // Go's default darwin build compresses DWARF (__zdebug sections), which
+    // symbolication can't read — classified separately so the guidance can
+    // name -compressdwarf=false, and never uploaded as a names-only set.
+    let report = discover(dir.path()).unwrap();
+    assert!(report.files.is_empty());
+    assert!(report.without_debug_info.is_empty());
+    assert_eq!(report.compressed_dwarf.len(), 1);
+
+    assert!(posthog_cli::debug_symbols::report_problems(&report, dir.path()).is_err());
+}
+
+#[test]
+fn discovers_every_fat_macho_slice() {
+    let dir = tempfile::tempdir().unwrap();
+    let thin_path = unpack_fixture("test_go_binary_macho.zst", dir.path(), "thin");
+    let thin = std::fs::read(&thin_path).unwrap();
+    std::fs::remove_file(&thin_path).unwrap();
+
+    // Second slice: same binary with one LC_UUID byte flipped, standing in
+    // for another architecture's build (each slice carries its own UUID).
+    let lc_uuid_header = b"\x1b\x00\x00\x00\x18\x00\x00\x00";
+    let uuid_pos = thin
+        .windows(lc_uuid_header.len())
+        .position(|w| w == lc_uuid_header)
+        .expect("fixture must carry LC_UUID")
+        + lc_uuid_header.len();
+    let mut thin_b = thin.clone();
+    thin_b[uuid_pos] ^= 0xff;
+
+    // Wrap both in a universal (fat) container: fat_header + two fat_arch
+    // entries (big-endian), then the slices at aligned offsets, with
+    // cputype/cpusubtype copied from each slice's own header.
+    const ALIGN: usize = 0x4000;
+    let slice_a_offset = ALIGN;
+    let slice_b_offset = (slice_a_offset + thin.len()).next_multiple_of(ALIGN);
+    let mut fat = vec![0u8; slice_b_offset + thin_b.len()];
+    fat[0..4].copy_from_slice(&0xcafebabe_u32.to_be_bytes());
+    fat[4..8].copy_from_slice(&2_u32.to_be_bytes());
+    for (index, (slice, offset)) in [(&thin, slice_a_offset), (&thin_b, slice_b_offset)]
+        .into_iter()
+        .enumerate()
+    {
+        let entry = &mut fat[8 + index * 20..8 + (index + 1) * 20];
+        entry[0..4]
+            .copy_from_slice(&u32::from_le_bytes(slice[4..8].try_into().unwrap()).to_be_bytes());
+        entry[4..8]
+            .copy_from_slice(&u32::from_le_bytes(slice[8..12].try_into().unwrap()).to_be_bytes());
+        entry[8..12].copy_from_slice(&(offset as u32).to_be_bytes());
+        entry[12..16].copy_from_slice(&(slice.len() as u32).to_be_bytes());
+        entry[16..20].copy_from_slice(&14_u32.to_be_bytes());
+        fat[offset..offset + slice.len()].copy_from_slice(slice);
+    }
+    std::fs::write(dir.path().join("universal"), &fat).unwrap();
+
+    let report = discover(dir.path()).unwrap();
+    assert_eq!(report.files.len(), 2, "expected one candidate per slice");
+
+    // Each upload carries its own slice's bytes under that slice's UUID, not
+    // the fat container: the server resolves one thin binary per chunk id.
+    for (file, expected_slice) in report.files.into_iter().zip([&thin, &thin_b]) {
+        assert_eq!(file.debug_id, file.debug_id.to_uppercase());
+        let upload = file.into_upload(None, false).unwrap();
+        let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(unwrapped.data)).unwrap();
+        let mut dwarf = Vec::new();
+        zip.by_name("dwarf")
+            .unwrap()
+            .read_to_end(&mut dwarf)
+            .unwrap();
+        assert_eq!(&dwarf, expected_slice);
+    }
+}
+
 #[test]
 fn dsym_only_directory_is_uploadable() {
     // A directory with only a dSYM bundle (no ELF) used to be a hard error
@@ -182,7 +293,7 @@ fn empty_directory_errors_on_both_formats() {
     let err = report_problems(&report, dir.path()).unwrap_err();
     assert!(
         err.to_string()
-            .contains("No ELF files with debug info or dSYM bundles"),
+            .contains("No ELF or Mach-O files with debug info or dSYM bundles"),
         "got: {err}"
     );
 }

@@ -5,14 +5,18 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from products.skills.backend.models.skills import LLMSkill
+
 from .models import (
     SignalReport,
     SignalReportArtefact,
     SignalScoutConfig,
+    SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
     SignalTeamConfig,
 )
+from .scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -89,6 +93,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "enabled",
         "emit",
         "run_interval_minutes",
+        "run_cron_schedule",
         "last_run_at",
         "updated_at",
     )
@@ -161,6 +166,50 @@ class SignalScratchpadAdmin(admin.ModelAdmin):
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[scratchpad.team.pk]),
             scratchpad.team.name,
+        )
+
+
+class SignalScoutNoteAdminForm(forms.ModelForm):
+    class Meta:
+        model = SignalScoutNote
+        fields = "__all__"
+
+    def clean(self) -> dict:
+        # Mirror the API write path (`scout_harness/tools/notes.py`): the run-time list matches
+        # `skill_name` exactly, so a typo'd target saved here would silently steer no one.
+        cleaned = super().clean() or {}
+        skill_name = (cleaned.get("skill_name") or "").strip()
+        cleaned["skill_name"] = skill_name
+        if not skill_name:
+            return cleaned
+        if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+            raise forms.ValidationError(
+                {"skill_name": f"Must be blank (a note for every scout) or start with '{SIGNALS_SCOUT_SKILL_PREFIX}'."}
+            )
+        team = cleaned.get("team")
+        if team is not None and not LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
+            raise forms.ValidationError({"skill_name": "No scout skill with this name exists on the selected team."})
+        return cleaned
+
+
+@admin.register(SignalScoutNote)
+class SignalScoutNoteAdmin(admin.ModelAdmin):
+    form = SignalScoutNoteAdminForm
+    list_display = ("id", "team_link", "skill_name", "created_by", "expires_at", "created_at")
+    list_display_links = ("id",)
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "content")
+    raw_id_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "created_at")
+    list_select_related = ("team", "team__organization", "created_by")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, note: SignalScoutNote):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[note.team.pk]),
+            note.team.name,
         )
 
 

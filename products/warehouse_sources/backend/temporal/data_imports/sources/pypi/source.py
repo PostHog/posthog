@@ -95,6 +95,7 @@ Each sync fetches the current metadata for every configured package. PyPI has no
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -115,7 +116,7 @@ Each sync fetches the current metadata for every configured package. PyPI has no
         return schemas
 
     def validate_credentials(
-        self, config: PyPISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PyPISourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_pypi_credentials(config.packages)
 
