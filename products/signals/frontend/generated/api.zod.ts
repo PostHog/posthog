@@ -48,6 +48,34 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * @summary Merge a report's implementation PR, or arm/cancel auto-merge
+ */
+export const SignalsReportPrMergeBody = /* @__PURE__ */ zod
+    .object({
+        merge_mode: zod
+            .enum(['merge', 'auto_merge', 'cancel_auto_merge', 'approve'])
+            .describe(
+                '\* `merge` - merge\n\* `auto_merge` - auto_merge\n\* `cancel_auto_merge` - cancel_auto_merge\n\* `approve` - approve'
+            )
+            .describe(
+                "'merge' merges now; 'auto_merge' arms merge-when-checks-pass; 'cancel_auto_merge' disarms it; 'approve' records an approving review (used before merging when a review is the only blocker).\n\n\* `merge` - merge\n\* `auto_merge` - auto_merge\n\* `cancel_auto_merge` - cancel_auto_merge\n\* `approve` - approve"
+            ),
+        node_id: zod.string().nullish().describe('PR GraphQL node id (required for auto_merge \/ cancel_auto_merge).'),
+        sha: zod
+            .string()
+            .nullish()
+            .describe('Head SHA the client last saw, guarding a direct merge against a branch that moved.'),
+        merge_method: zod
+            .enum(['squash', 'merge', 'rebase'])
+            .describe('\* `squash` - squash\n\* `merge` - merge\n\* `rebase` - rebase')
+            .optional()
+            .describe(
+                "Merge method; defaults to the repo's preferred method when omitted.\n\n\* `squash` - squash\n\* `merge` - merge\n\* `rebase` - rebase"
+            ),
+    })
+    .describe("Request body for merging, arming auto-merge, or cancelling auto-merge on a report's PR.")
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */

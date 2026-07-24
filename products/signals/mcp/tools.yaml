@@ -818,6 +818,12 @@ tools:
     signals-report-pr-comments:
         operation: signals_report_pr_comments
         enabled: false
+    signals-report-pr-merge:
+        operation: signals_report_pr_merge
+        enabled: false
+    signals-report-pr-merge-readiness:
+        operation: signals_report_pr_merge_readiness
+        enabled: false
     signals-report-pr-review-comment-destroy:
         operation: signals_report_pr_review_comment_destroy
         enabled: false

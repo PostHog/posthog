@@ -876,6 +876,11 @@ class PullRequestCheckSerializer(serializers.Serializer):
     url = serializers.CharField(
         read_only=True, allow_null=True, help_text="Link to the check run / status detail on GitHub."
     )
+    is_required = serializers.BooleanField(
+        read_only=True,
+        default=False,
+        help_text="Whether branch protection requires this check to pass before the PR can merge.",
+    )
 
 
 class PullRequestChecksResponseSerializer(serializers.Serializer):
@@ -1027,3 +1032,94 @@ class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Seria
     """Response after adding a reaction — the created reaction, so the frontend can track its id."""
 
     reaction = PullRequestCommentReactionSerializer(read_only=True)
+
+
+class PullRequestMergeReadinessSerializer(serializers.Serializer):
+    """Everything the merge control needs to choose direct-merge vs auto-merge and explain its state."""
+
+    node_id = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The PR's GraphQL node id, needed to arm auto-merge."
+    )
+    pr_state = serializers.CharField(read_only=True, help_text="PR lifecycle: 'open', 'merged', 'closed', or 'draft'.")
+    mergeable = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the PR can merge. Null while GitHub is still computing it (poll again).",
+    )
+    merge_state_status = serializers.CharField(
+        read_only=True,
+        help_text="GitHub merge-state: 'clean' (ready), 'blocked' (checks/reviews required), 'behind' "
+        "(base moved), 'dirty' (conflicts), 'unstable' (non-required checks failing but mergeable), "
+        "'draft', 'has_hooks', or 'unknown'.",
+    )
+    ci_status = serializers.CharField(
+        read_only=True, help_text="Overall CI rollup: 'passing', 'failing', 'pending', or 'none'."
+    )
+    review_decision = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Review gate: 'approved', 'review_required', 'changes_requested', or null when reviews aren't required.",
+    )
+    auto_merge_enabled = serializers.BooleanField(
+        read_only=True, help_text="Whether auto-merge is already armed on this PR."
+    )
+    auto_merge_allowed = serializers.BooleanField(
+        read_only=True, help_text="Whether the repo allows auto-merge at all."
+    )
+    merge_method = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The repo's default merge method: 'squash', 'merge', or 'rebase'. Null if the repo allows none.",
+    )
+    head_branch = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The PR's head branch (deleted after a successful merge)."
+    )
+    head_sha = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Head commit SHA, passed back as the merge guard against a branch that moved.",
+    )
+
+
+class PullRequestMergeReadinessResponseSerializer(serializers.Serializer):
+    """Response for the merge-readiness endpoint of a report's implementation PR."""
+
+    readiness = PullRequestMergeReadinessSerializer(read_only=True)
+
+
+class PullRequestMergeRequestSerializer(serializers.Serializer):
+    """Request body for merging, arming auto-merge, or cancelling auto-merge on a report's PR."""
+
+    merge_mode = serializers.ChoiceField(
+        choices=["merge", "auto_merge", "cancel_auto_merge", "approve"],
+        help_text="'merge' merges now; 'auto_merge' arms merge-when-checks-pass; 'cancel_auto_merge' disarms "
+        "it; 'approve' records an approving review (used before merging when a review is the only blocker).",
+    )
+    node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="PR GraphQL node id (required for auto_merge / cancel_auto_merge)."
+    )
+    sha = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Head SHA the client last saw, guarding a direct merge against a branch that moved.",
+    )
+    merge_method = serializers.ChoiceField(
+        choices=["squash", "merge", "rebase"],
+        required=False,
+        help_text="Merge method; defaults to the repo's preferred method when omitted.",
+    )
+
+
+class PullRequestMergeResponseSerializer(serializers.Serializer):
+    """Response after a merge / auto-merge action, so the control can re-derive its state."""
+
+    merged = serializers.BooleanField(read_only=True, help_text="True when the PR was merged immediately.")
+    auto_merge_enabled = serializers.BooleanField(read_only=True, help_text="True when auto-merge is now armed.")
+    pr_state = serializers.CharField(
+        read_only=True, help_text="PR lifecycle after the action: 'open', 'merged', 'closed', or 'draft'."
+    )
+    report_status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The report's status after a merge (e.g. 'resolved'), or null when unchanged.",
+    )

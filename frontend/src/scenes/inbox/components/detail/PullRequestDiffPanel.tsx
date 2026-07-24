@@ -183,11 +183,6 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
                         renderAnnotation={renderAnnotation}
                         onLineNumberClick={hasImplementationPr ? handleLineNumberClick : undefined}
                     />
-                    {hasImplementationPr && (
-                        <p className="m-0 text-[0.6875rem] text-tertiary">
-                            Click a line number to comment — comments post to the pull request as you.
-                        </p>
-                    )}
                 </>
             ) : (
                 <div className="flex flex-col gap-2">

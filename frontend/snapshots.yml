@@ -6167,15 +6167,15 @@ snapshots:
     scenes-app-inbox-cards--skeleton--light:
         hash: v1.k794b7964.24c19ab5df1e4ccb843b1ad726752e3a98aeadaa08595e66cb4b41aff1a9e9a1.Y3z44tkU4jsAYUyXxfl72fTuZ0MKA6_S6TTNCKt5jSg
     scenes-app-inbox-detail--pull-request--dark:
-        hash: v1.k794b7964.588927d685f042c6ae2c344cae2c933d77ae414755fe233f96b5738379dafaec.Grly8apZQr_bHnB50GRU3zGS-26cL9_1_1yspWHS-1g
+        hash: v1.k794b7964.e26ce1fc68ec8fadb9507d44bf1953f6cc4996948643e1f36fa084652ef68b46.LeJVVdBmuptuZj1fis5tJYL2ijdFyQppah6nh2pxtlI
     scenes-app-inbox-detail--pull-request--light:
-        hash: v1.k794b7964.81241ba93c915449049a4b7a031ee65786be1f86e02cbea1b48a4d03a2fcb565.PhkmcKNjTo65tyfb9uKFBd9pqXriYvXP28gY68MovUU
+        hash: v1.k794b7964.26fe796d89325e5999cf468fe3c3b954b4a94bb2e62eb3d626e96eb8ded7767c.J5200C8aJGJIRMtCSzuWLOm7m-J8M4L6f1EngeKJoXI
     scenes-app-inbox-detail--pull-request-checks-passing--dark:
-        hash: v1.k794b7964.fa8c3efea43e09e4e8d64328f4c5da65fb33540f4d5fd38f5bf14dfa30fb2a5c.yl4EHtqzsp958-ddmQfX-UHbZjKCj-2FzLvemFdEDwU
+        hash: v1.k794b7964.7b506fe831634b67289f5430a740817262de625e0eed56294750d470788e164f.SkCGJzSPFeGhUpYtjZCDlXvH5AZ4P6Q81o5ltfWKxgM
     scenes-app-inbox-detail--pull-request-checks-passing--light:
-        hash: v1.k794b7964.eeed41e7a22e885fd4594816445fa96e2da94c900007c5bda32c0dba2cb2fbc1.JzTydv37FrNThMEsks5YYUp6B7tHQAFtH15f7q6fqsw
+        hash: v1.k794b7964.5b9fb6eaa0a0ec236740527f2e52298555b3026650a9708ee02d922431c0ae10.qE_tcrra6P5JVpUn7oxX7L1GZ13AvZhbXTszMHx6r8Y
     scenes-app-inbox-detail--report--dark:
-        hash: v1.k794b7964.5dbdb8db932b71d680cfe862320fdd7763f2e6fec0ba9619db3db30d3063e462.FVRwvM73SJe4aqe_th8_x5QTQB-S-ObnSWSZQWdcFQA
+        hash: v1.k794b7964.c40cc67bd2493d3e80952aa11c45f82568ca491a31f02df1f1d08d35642cdad3.-qKnf0KPG_9pUQ8Abbo7z63IdQhzwlp3wmXuGBFzSRg
     scenes-app-inbox-detail--report--light:
         hash: v1.k794b7964.1ff1da13acedacba704b9abc7e383dc9991e789986eb5fd97c6e5921d63d2bb1.kOa4M8V4szuzB71c6V8CzdtoE93zQjD4E2fUcjMFq5E
     scenes-app-inbox-detail--report-minimal--dark:

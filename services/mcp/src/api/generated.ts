@@ -38956,6 +38956,36 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * * `squash` - squash
+     * * `merge` - merge
+     * * `rebase` - rebase
+     */
+    export type MergeMethodEnum = typeof MergeMethodEnum[keyof typeof MergeMethodEnum];
+
+
+    export const MergeMethodEnum = {
+      Squash: 'squash',
+      Merge: 'merge',
+      Rebase: 'rebase',
+    } as const;
+
+    /**
+     * * `merge` - merge
+     * * `auto_merge` - auto_merge
+     * * `cancel_auto_merge` - cancel_auto_merge
+     * * `approve` - approve
+     */
+    export type MergeModeEnum = typeof MergeModeEnum[keyof typeof MergeModeEnum];
+
+
+    export const MergeModeEnum = {
+      Merge: 'merge',
+      AutoMerge: 'auto_merge',
+      CancelAutoMerge: 'cancel_auto_merge',
+      Approve: 'approve',
+    } as const;
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -55735,6 +55765,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly url: string | null;
+      /** Whether branch protection requires this check to pass before the PR can merge. */
+      readonly is_required: boolean;
     }
 
     /**
@@ -55924,6 +55956,105 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
+    }
+
+    /**
+     * Everything the merge control needs to choose direct-merge vs auto-merge and explain its state.
+     */
+    export interface PullRequestMergeReadiness {
+      /**
+         * The PR's GraphQL node id, needed to arm auto-merge.
+         * @nullable
+         */
+      readonly node_id: string | null;
+      /** PR lifecycle: 'open', 'merged', 'closed', or 'draft'. */
+      readonly pr_state: string;
+      /**
+         * Whether the PR can merge. Null while GitHub is still computing it (poll again).
+         * @nullable
+         */
+      readonly mergeable: boolean | null;
+      /** GitHub merge-state: 'clean' (ready), 'blocked' (checks/reviews required), 'behind' (base moved), 'dirty' (conflicts), 'unstable' (non-required checks failing but mergeable), 'draft', 'has_hooks', or 'unknown'. */
+      readonly merge_state_status: string;
+      /** Overall CI rollup: 'passing', 'failing', 'pending', or 'none'. */
+      readonly ci_status: string;
+      /**
+         * Review gate: 'approved', 'review_required', 'changes_requested', or null when reviews aren't required.
+         * @nullable
+         */
+      readonly review_decision: string | null;
+      /** Whether auto-merge is already armed on this PR. */
+      readonly auto_merge_enabled: boolean;
+      /** Whether the repo allows auto-merge at all. */
+      readonly auto_merge_allowed: boolean;
+      /**
+         * The repo's default merge method: 'squash', 'merge', or 'rebase'. Null if the repo allows none.
+         * @nullable
+         */
+      readonly merge_method: string | null;
+      /**
+         * The PR's head branch (deleted after a successful merge).
+         * @nullable
+         */
+      readonly head_branch: string | null;
+      /**
+         * Head commit SHA, passed back as the merge guard against a branch that moved.
+         * @nullable
+         */
+      readonly head_sha: string | null;
+    }
+
+    /**
+     * Response for the merge-readiness endpoint of a report's implementation PR.
+     */
+    export interface PullRequestMergeReadinessResponse {
+      readonly readiness: PullRequestMergeReadiness;
+    }
+
+    /**
+     * Request body for merging, arming auto-merge, or cancelling auto-merge on a report's PR.
+     */
+    export interface PullRequestMergeRequest {
+      /** 'merge' merges now; 'auto_merge' arms merge-when-checks-pass; 'cancel_auto_merge' disarms it; 'approve' records an approving review (used before merging when a review is the only blocker).
+       *
+       * * `merge` - merge
+       * * `auto_merge` - auto_merge
+       * * `cancel_auto_merge` - cancel_auto_merge
+       * * `approve` - approve */
+      merge_mode: MergeModeEnum;
+      /**
+         * PR GraphQL node id (required for auto_merge / cancel_auto_merge).
+         * @nullable
+         */
+      node_id?: string | null;
+      /**
+         * Head SHA the client last saw, guarding a direct merge against a branch that moved.
+         * @nullable
+         */
+      sha?: string | null;
+      /** Merge method; defaults to the repo's preferred method when omitted.
+       *
+       * * `squash` - squash
+       * * `merge` - merge
+       * * `rebase` - rebase */
+      merge_method?: MergeMethodEnum;
+    }
+
+    /**
+     * Response after a merge / auto-merge action, so the control can re-derive its state.
+     */
+    export interface PullRequestMergeResponse {
+      /** True when the PR was merged immediately. */
+      readonly merged: boolean;
+      /** True when auto-merge is now armed. */
+      readonly auto_merge_enabled: boolean;
+      /** PR lifecycle after the action: 'open', 'merged', 'closed', or 'draft'. */
+      readonly pr_state: string;
+      /**
+         * The report's status after a merge (e.g. 'resolved'), or null when unchanged.
+         * @nullable
+         */
+      readonly report_status: string | null;
     }
 
     /**

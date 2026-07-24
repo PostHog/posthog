@@ -20,7 +20,14 @@ from social_django.models import UserSocialAuth
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -2454,3 +2461,49 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._comments_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+
+class TestSignalReportPrMergeAuth(APIBaseTest):
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _merge_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_merge/"
+
+    def _authenticate_as_sandbox_token(self) -> None:
+        for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+            OAuthApplication.objects.get_or_create(
+                client_id=client_id,
+                defaults={
+                    "name": "Array Test App",
+                    "client_type": OAuthApplication.CLIENT_PUBLIC,
+                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    "redirect_uris": "https://app.posthog.com/callback",
+                    "algorithm": "RS256",
+                },
+            )
+        token = create_oauth_access_token_for_user(self.user, self.team.id, scopes=["task:read", "task:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_sandbox_oauth_token_cannot_merge(self):
+        # A sandbox/agent token carries task:write and is minted as the task actor; it must not be able
+        # to merge/approve as the human, even though its scope would otherwise satisfy the endpoint.
+        report = self._create_report()
+        self._authenticate_as_sandbox_token()
+        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "signed-in user" in response.json()["error"]
+
+    def test_human_session_passes_the_token_guard(self):
+        # The guard is OAuth-token-specific: a signed-in user clears it and reaches PR resolution, so a
+        # report without an implementation PR returns 404 (not the 403 the sandbox token gets).
+        report = self._create_report()
+        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

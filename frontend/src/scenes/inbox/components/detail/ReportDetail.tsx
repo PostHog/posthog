@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
-import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { IconArrowLeft, IconDocument, IconEllipsis, IconGithub, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -38,6 +38,7 @@ import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
+import { PrMergeControl } from './PrMergeControl'
 import {
     PullRequestBranchTag,
     PullRequestBranchTagSkeleton,
@@ -84,18 +85,14 @@ const FINDINGS_TOOLTIP =
     'Findings are the individual pieces of evidence – signals from your connected sources and scouts – that were grouped into this report.'
 
 /**
- * Single meta line under the title: status/actionability chips, then dot-separated stats
- * (finding count · updated · source stack). `evidenceCount` switches to the live signal count once
- * findings load, so the row reads the same before and after the query resolves.
+ * Single meta line under the title: status/actionability chips.
  */
 function ReportDetailMeta({
     report,
-    evidenceCount,
     actionabilityExplanation,
     scoutSkillName,
 }: {
     report: SignalReport
-    evidenceCount: number
     actionabilityExplanation?: string | null
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
     scoutSkillName?: string | null
@@ -105,16 +102,6 @@ function ReportDetailMeta({
     const showStatus = report.status !== 'ready' || !report.actionability
 
     const stats: ReactNode[] = []
-    if (evidenceCount > 0) {
-        stats.push(
-            <Tooltip title={FINDINGS_TOOLTIP}>
-                <span className="tabular-nums cursor-help">
-                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-                </span>
-            </Tooltip>
-        )
-    }
-    // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
     stats.push(
         <span className="flex items-center gap-1">
             <span>First seen</span>
@@ -262,6 +249,8 @@ interface InboxDetailFrameProps {
     summaryFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
+    /** Compact "Open in GitHub" icon link, rendered at the very left of the action row (when there's a PR). */
+    openInGithub?: ReactNode
     /** Whether to render the Overview / Files changed tab bar. Driven by whether the report has a PR
      * (known immediately), not by whether the diff has loaded — so the tab bar doesn't pop in a beat
      * later and shift the layout. */
@@ -288,6 +277,7 @@ export function InboxDetailFrame({
     summary,
     summaryFooter,
     primaryAction,
+    openInGithub,
     showFilesTab,
     diffSection,
     diffBranchTag,
@@ -314,9 +304,10 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
-    // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
-    const reportActions = useReportDetailActions(report)
-    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
+    // standard `LemonMenu` on narrow ones. Copy link and Open in GitHub are compact icon buttons at the
+    // very left instead (see the header); the primary action (merge) stays rightmost.
+    const detailActions = useReportDetailActions(report)
+    const overflowMenuItems: LemonMenuItem[] = detailActions.map((action) => ({
         label: action.label,
         icon: action.icon,
         disabledReason: action.loading ? 'Working…' : action.disabledReason,
@@ -412,19 +403,26 @@ export function InboxDetailFrame({
                             </h1>
                             <ReportDetailMeta
                                 report={report}
-                                evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
                                 scoutSkillName={report.scout_name}
                             />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
-                        {primaryAction}
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconLink />}
+                            tooltip="Copy a link to this report"
+                            aria-label="Copy link"
+                            onClick={() => void copyToClipboard(reportUrl, 'report link')}
+                        />
+                        {openInGithub}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                         <div className="hidden @4xl:flex items-center gap-2">
-                            {reportActions.map((action) => (
+                            {detailActions.map((action) => (
                                 <LemonButton
                                     key={action.key}
                                     type="secondary"
@@ -440,15 +438,19 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
+                        {/* The merge control is the primary CTA, so it sits last (rightmost). */}
+                        {primaryAction}
                     </div>
                 </div>
             </div>
@@ -511,18 +513,26 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             report={report}
             tab={tab}
             summary={{ icon: hasPr ? <IconPullRequest /> : <IconDocument />, title: 'Summary' }}
-            primaryAction={
+            openInGithub={
                 hasPr ? (
                     <LemonButton
-                        type="primary"
+                        type="tertiary"
                         size="small"
-                        sideIcon={<IconExternal />}
+                        icon={<IconGithub />}
                         to={prFilesUrl(prUrl)}
                         targetBlank
-                        tooltip={`${prRef.repoSlug}#${prRef.number}`}
-                    >
-                        Open in GitHub
-                    </LemonButton>
+                        tooltip={`Open ${prRef.repoSlug}#${prRef.number} on GitHub`}
+                        aria-label="Open in GitHub"
+                    />
+                ) : undefined
+            }
+            primaryAction={
+                hasPr ? (
+                    <PrMergeControl
+                        report={report}
+                        githubUrl={prFilesUrl(prUrl)}
+                        githubTooltip={`Open ${prRef.repoSlug}#${prRef.number} on GitHub`}
+                    />
                 ) : undefined
             }
             showFilesTab={hasPr || canDiff}
