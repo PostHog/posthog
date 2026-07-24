@@ -237,6 +237,7 @@ the row lists both.
 | front                            | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                          | HTTP                        | requests                                                        | ✅                          |
 | fullstory                        | HTTP                        | requests                                                        | ✅                          |
+| fusionauth                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
@@ -930,7 +931,6 @@ doesn't conflict with concurrent PRs.
 - freshservice
 - frontegg
 - fulcrum
-- fusionauth
 - g2
 - gcore
 - gcp_apigee
