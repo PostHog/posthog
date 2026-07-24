@@ -1571,6 +1571,13 @@ class BaseTestMigrations(QueryMatchingTest):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )
+        # The setUpClass guard only runs once per class, so a connection dropped after it (or a
+        # pytest-rerunfailures in-process rerun, which reuses the same dead wrapper without calling
+        # setUpClass again) still reaches the migration executor below with a closed connection and
+        # fails "the connection is closed". Reset unusable connections here too, right before first use.
+        for conn in connections.all():
+            if conn.connection is not None and not conn.is_usable():
+                conn.close()
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
