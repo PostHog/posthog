@@ -90,17 +90,31 @@ function facetFilterKey(source: FilterGroupFacetSource): string {
     return source.type === 'column' ? source.column : source.key
 }
 
-function isFacetFilter(filter: SpanFacetFilter, source: FilterGroupFacetSource): boolean {
-    return filter?.type === facetFilterType(source) && filter?.key === facetFilterKey(source)
+/**
+ * Tri-state selection for a facet: a value is included, excluded, or in neither set. The query
+ * effect is `IN (included)` AND `NOT IN (excluded)` — attribute exclusions keep spans missing the
+ * attribute entirely (an absent map key reads as '', which never equals an excluded value).
+ */
+export interface FacetSelection {
+    included: string[]
+    excluded: string[]
 }
 
-/**
- * Values currently selected for a facet whose selection lives in the filterGroup (status_code and
- * resource attributes — service_name reads the dedicated serviceNames field instead).
- */
-export function facetFilterValues(group: UniversalFiltersGroup | undefined, source: FilterGroupFacetSource): string[] {
-    const existing = innerFilters(group).find((f) => isFacetFilter(f, source))
-    const value = existing?.value
+// The rail owns a facet's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
+// with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
+// untouched on write.
+const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
+
+function isRailFacetFilter(filter: SpanFacetFilter, source: FilterGroupFacetSource): boolean {
+    return (
+        filter?.type === facetFilterType(source) &&
+        filter?.key === facetFilterKey(source) &&
+        RAIL_OPERATORS.includes(filter?.operator)
+    )
+}
+
+function filterValues(filter: SpanFacetFilter): string[] {
+    const value = filter.value
     if (Array.isArray(value)) {
         // Empty strings from external state (URL, saved view) would select a value with no visible row.
         return value.map(String).filter((v) => v !== '')
@@ -109,48 +123,79 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
 }
 
 /**
- * Values currently selected for any facet — routes the service facet to the dedicated
- * serviceNames field and everything else to its filterGroup property filter.
+ * Selection for a facet whose state lives in the filterGroup (status_code and resource attributes —
+ * service_name reads the dedicated serviceNames field instead), read from its exact (include) and
+ * is_not (exclude) filters.
  */
-export function facetSelectedValues(
+export function facetFilterSelection(
     group: UniversalFiltersGroup | undefined,
-    serviceNames: string[] | undefined | null,
-    source: FacetSource
-): string[] {
-    if (source.type === 'column') {
-        if (source.column === 'service_name') {
-            // Empty strings from external state (URL, saved view) would select a value with no visible row.
-            return (serviceNames ?? []).filter((v) => v !== '')
-        }
-        return facetFilterValues(group, { type: 'column', column: source.column })
+    source: FilterGroupFacetSource
+): FacetSelection {
+    const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, source))
+    return {
+        included: railFilters.filter((f) => f.operator === PropertyOperator.Exact).flatMap(filterValues),
+        excluded: railFilters.filter((f) => f.operator === PropertyOperator.IsNot).flatMap(filterValues),
     }
-    return facetFilterValues(group, source)
 }
 
 /**
- * Add or remove `value` from a facet's filterGroup selection, returning a new filterGroup.
- * Multi-select is one property filter per key with an array value.
+ * Selection for any facet — routes the service facet to the dedicated serviceNames field
+ * (include-only, so nothing is ever excluded there) and everything else to its filterGroup filters.
  */
-export function toggleFacetFilter(
+export function facetSelection(
+    group: UniversalFiltersGroup | undefined,
+    serviceNames: string[] | undefined | null,
+    source: FacetSource
+): FacetSelection {
+    if (source.type === 'column') {
+        if (source.column === 'service_name') {
+            // Empty strings from external state (URL, saved view) would select a value with no visible row.
+            return { included: (serviceNames ?? []).filter((v) => v !== ''), excluded: [] }
+        }
+        return facetFilterSelection(group, { type: 'column', column: source.column })
+    }
+    return facetFilterSelection(group, source)
+}
+
+/**
+ * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
+ * returning a new filterGroup. Selection is stored as up to two property filters per key with
+ * array values, `exact` and `is_not`; a filter is dropped when its side of the selection empties.
+ */
+export function cycleFacetFilter(
     group: UniversalFiltersGroup | undefined,
     source: FilterGroupFacetSource,
     value: string
 ): UniversalFiltersGroup {
-    const current = facetFilterValues(group, source)
-    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
-    const others = innerFilters(group).filter((f) => !isFacetFilter(f, source))
-    const values: SpanFacetFilter[] =
-        next.length > 0
-            ? [
-                  ...others,
-                  {
-                      key: facetFilterKey(source),
-                      type: facetFilterType(source),
-                      operator: PropertyOperator.Exact,
-                      value: next,
-                  },
-              ]
-            : others
+    const { included, excluded } = facetFilterSelection(group, source)
+    let nextIncluded = included
+    let nextExcluded = excluded
+    if (included.includes(value)) {
+        nextIncluded = included.filter((v) => v !== value)
+        nextExcluded = excluded.includes(value) ? excluded : [...excluded, value]
+    } else if (excluded.includes(value)) {
+        nextExcluded = excluded.filter((v) => v !== value)
+    } else {
+        nextIncluded = [...included, value]
+    }
+
+    const values = innerFilters(group).filter((f) => !isRailFacetFilter(f, source))
+    if (nextIncluded.length > 0) {
+        values.push({
+            key: facetFilterKey(source),
+            type: facetFilterType(source),
+            operator: PropertyOperator.Exact,
+            value: nextIncluded,
+        })
+    }
+    if (nextExcluded.length > 0) {
+        values.push({
+            key: facetFilterKey(source),
+            type: facetFilterType(source),
+            operator: PropertyOperator.IsNot,
+            value: nextExcluded,
+        })
+    }
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
