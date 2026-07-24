@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -189,6 +189,11 @@ export function InboxScene(): JSX.Element {
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
+                    nameSuffix={
+                        <LemonTag type="completion" className="ml-2 shrink-0">
+                            Beta
+                        </LemonTag>
+                    }
                     // The description explains the active tab so new users can orient themselves.
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     description={
