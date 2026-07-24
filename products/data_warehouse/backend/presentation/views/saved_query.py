@@ -1129,10 +1129,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             raise serializers.ValidationError(str(e))
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
+        error_is_user_facing = getattr(saved_query, "_materialization_error_is_user_facing", False)
         saved_query.refresh_from_db()
         if saved_query.is_materialized is False:
+            error_detail = saved_query.latest_error or "Materialization failed. Please try again or contact support."
+            if error_is_user_facing:
+                # The view itself can't be materialized as written (e.g. a circular reference,
+                # too many nested views, or resolution took too long). Surface the specific cause
+                # as a 400 so the user knows what to change.
+                raise serializers.ValidationError(error_detail)
             return response.Response(
-                {"error": "Materialization failed. Please try again or contact support."},
+                {"error": error_detail},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

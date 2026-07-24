@@ -23,6 +23,7 @@ from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -235,18 +236,39 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # instead of silently disabling materialization.
             raise
         except Exception as e:
-            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.exception(
-                "failed_to_schedule_saved_query",
-                team_id=self.team_id,
-                saved_query_id=str(self.id),
-                error=str(e),
-            )
+            # View-dependency resolution surfaces user-actionable failures (a circular reference,
+            # too many nested views, or the resolution deadline) as ExposedHogQLError. Those are
+            # safe to show verbatim so the user knows what to change; anything else is treated as
+            # an internal failure and kept generic to avoid leaking infrastructure details.
+            error_is_user_facing = isinstance(e, ExposedHogQLError)
+            if error_is_user_facing:
+                logger.warning(
+                    "failed_to_schedule_saved_query",
+                    team_id=self.team_id,
+                    saved_query_id=str(self.id),
+                    error=str(e),
+                )
+            else:
+                capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+                logger.exception(
+                    "failed_to_schedule_saved_query",
+                    team_id=self.team_id,
+                    saved_query_id=str(self.id),
+                    error=str(e),
+                )
 
             # Disable materialization for this view if we failed to schedule the workflow
-            # We can re-enable schedules via the resume_schedule API endpoint
+            # We can re-enable schedules via the resume_schedule API endpoint. Persist the cause
+            # on latest_error so the API and UI can explain why materialization didn't start
+            # instead of returning an opaque error.
             self.is_materialized = False
-            self.save(update_fields=["is_materialized"])
+            self.latest_error = (
+                str(e) if error_is_user_facing else "Materialization failed. Please try again or contact support."
+            )
+            # Transient marker (not persisted) so the calling request can pick the right status
+            # code without re-classifying the swallowed exception.
+            self._materialization_error_is_user_facing = error_is_user_facing
+            self.save(update_fields=["is_materialized", "latest_error"])
 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.schedule_reconcile import (
