@@ -20,7 +20,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 from django.utils.timezone import now
 
 from asgiref.sync import async_to_sync
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
@@ -1337,6 +1337,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "timeout_exceeded",
                 ServerException("CHQueryErrorTimeoutExceeded"),
                 "Query timeout exceeded. Try again later.",
+            ),
+            (
+                "clickhouse_unreachable_network",
+                NetworkError("Connection refused"),
+                "Query engine briefly unavailable. Try again later.",
+            ),
+            (
+                "clickhouse_unreachable_socket_timeout",
+                SocketTimeoutError("Timed out"),
+                "Query engine briefly unavailable. Try again later.",
             ),
         ]
     )

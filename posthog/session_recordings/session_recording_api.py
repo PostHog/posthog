@@ -22,7 +22,7 @@ import requests
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -966,6 +966,13 @@ class SessionRecordingViewSet(
             # exceptions already carry a correct status code and a user-safe message. Let DRF render
             # them as-is rather than masking a well-formed response behind a generic 500.
             raise
+        except (NetworkError, SocketTimeoutError):
+            # A ClickHouse node was briefly unreachable (connection refused / connect timeout). This is
+            # transient infrastructure noise, not a server bug, so return a retryable 503 without firing
+            # an alertable capture. sync_execute normally converts these to ClickHouseAtCapacity above;
+            # this catches any that reach us unwrapped.
+            _count_session_recording_throttled(location="clickhouse_unreachable", auth_type=auth_type)
+            raise Throttled(detail="Query engine briefly unavailable. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
                 _count_session_recording_throttled(location="query_timeout_exceeded", auth_type=auth_type)

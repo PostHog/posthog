@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -106,6 +106,11 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
+        # Transient client-side connectivity failures (a node briefly unreachable, connect timeout)
+        # are not server bugs - surface them as a retryable 503 rather than letting them fall through
+        # to a generic, alertable 500.
+        if isinstance(err, (NetworkError, SocketTimeoutError)):
+            return ClickHouseAtCapacity()
         return err
 
     meta = look_up_clickhouse_error_code_meta(err)
@@ -206,6 +211,11 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
         return look_up_clickhouse_error_code_meta(e).get_category()
 
     if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+        return QueryErrorCategory.RATE_LIMITED
+
+    # Transient client-side connectivity blips (node briefly unreachable, connect timeout) are
+    # retryable infrastructure noise, not a query or server failure.
+    if isinstance(e, (NetworkError, SocketTimeoutError)):
         return QueryErrorCategory.RATE_LIMITED
 
     if isinstance(

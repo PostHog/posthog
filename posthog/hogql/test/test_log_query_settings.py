@@ -2,7 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -20,6 +20,7 @@ from posthog.errors import (
     classify_query_error,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseAtCapacity
 
 
 class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
@@ -182,3 +183,29 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestTransientConnectErrorsAreRetryable(TestCase):
+    """A briefly-unreachable ClickHouse node raises a client-side NetworkError/SocketTimeoutError,
+    not a ServerException. These are transient infrastructure blips, so they must surface as a
+    retryable 503 and be classified RATE_LIMITED rather than falling through as an alertable 500."""
+
+    @parameterized.expand(
+        [
+            ("network_error", NetworkError("Connection refused")),
+            ("socket_timeout", SocketTimeoutError("Timed out")),
+        ]
+    )
+    def test_transient_connect_error_becomes_retryable(self, _name: str, err: Exception) -> None:
+        wrapped = wrap_clickhouse_query_error(err)
+        assert isinstance(wrapped, ClickHouseAtCapacity)
+        assert wrapped.status_code == 503
+
+    @parameterized.expand(
+        [
+            ("network_error", NetworkError("Connection refused")),
+            ("socket_timeout", SocketTimeoutError("Timed out")),
+        ]
+    )
+    def test_transient_connect_error_classified_rate_limited(self, _name: str, err: Exception) -> None:
+        assert classify_query_error(err) == QueryErrorCategory.RATE_LIMITED
