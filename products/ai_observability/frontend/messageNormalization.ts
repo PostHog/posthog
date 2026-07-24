@@ -1,9 +1,20 @@
 import posthog from 'posthog-js'
 
-import { mergeRecipes, RecipeNormalizer, RunOutcome, StoredRecipe } from './normalizer'
+import {
+    mergeRecipes,
+    RecipeNormalizer,
+    RunOutcome,
+    setNormalizerTelemetry,
+    StoredRecipe,
+} from '@posthog/llm-normalizer'
+
 import { CompatMessage } from './types'
 
 export type NormalizationResult = RunOutcome
+
+// Route the portable normalizer's telemetry back through posthog-js in the browser.
+// Headless callers (MCP server, tasks sandbox) leave the noop default in place.
+setNormalizerTelemetry((event, properties) => posthog.capture(event, properties))
 
 // Constructed once: the constructor compiles and sorts every recipe, so per-call
 // construction would be wasteful.

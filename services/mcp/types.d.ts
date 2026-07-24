@@ -14,3 +14,17 @@ declare namespace Cloudflare {
         MCP_HONO_URL: string | undefined
     }
 }
+
+// YAML imports resolve to the file's raw text (esbuild `.yaml` text loader,
+// wrangler `Text` rule, vitest raw-text transform).
+declare module '*.yaml' {
+    const content: string
+    export default content
+}
+
+// Vite-style raw suffix used by @posthog/llm-normalizer's recipe registry; esbuild
+// retries resolution without the query and applies the same text loader.
+declare module '*.yaml?raw' {
+    const content: string
+    export default content
+}

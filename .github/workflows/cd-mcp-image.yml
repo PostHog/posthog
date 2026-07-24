@@ -13,6 +13,11 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
+            # Bundled into the MCP image at build time (copy-instructions.ts `shared/` copy +
+            # shared parser sources) — without these paths an edit there never rebuilds the
+            # image and the bundle goes stale.
+            - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+            - 'packages/llm-normalizer/**'
     # paths mirror the push trigger; the build-mcp-image label only forces a
     # build on PRs touching these paths, use workflow_dispatch otherwise.
     pull_request:
@@ -20,6 +25,8 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
+            - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+            - 'packages/llm-normalizer/**'
     workflow_dispatch:
 
 jobs:

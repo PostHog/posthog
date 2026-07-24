@@ -154,6 +154,7 @@ POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "cdp-functions-create",
     "workflows-create",
     "workflows-create-email-template",
+    "llma-parser-recipe-create",
 )
 
 POSTHOG_EXEC_PERMISSION_REGEX = (

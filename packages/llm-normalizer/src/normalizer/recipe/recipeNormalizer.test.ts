@@ -1,4 +1,4 @@
-import { AVAILABLE_TOOLS_ROLE } from '../../utils'
+import { AVAILABLE_TOOLS_ROLE } from '../roles'
 import { RecipeNormalizer } from './recipeNormalizer'
 
 const mockRun = jest.fn()

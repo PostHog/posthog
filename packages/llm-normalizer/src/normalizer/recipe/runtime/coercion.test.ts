@@ -1,19 +1,19 @@
-import posthog from 'posthog-js'
-
 import { CompatMessage } from '../../../types'
+import { setNormalizerTelemetry } from '../../telemetry'
 import { LiteralExpr } from '../ast/expr'
 import { Scope } from '../scope'
 import { EmitSpec } from '../spec/emitSpec'
 import { SlotCoercer } from './coercion'
 
-jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
+const telemetrySpy = jest.fn()
+setNormalizerTelemetry(telemetrySpy)
 
 const coercer = new SlotCoercer()
 const scope = (input: unknown = {}, role = 'user'): Scope => Scope.forNode(input, role)
 const lit = (value: unknown): LiteralExpr => new LiteralExpr(value)
 
 describe('SlotCoercer.buildMessage', () => {
-    beforeEach(() => jest.clearAllMocks())
+    beforeEach(() => telemetrySpy.mockClear())
 
     it('builds a message with role and content', () => {
         const emit: EmitSpec = { content: lit('hello') }
@@ -82,7 +82,7 @@ describe('SlotCoercer.buildMessage', () => {
     it('non-text content yields an empty string instead of leaking JSON', () => {
         const emit: EmitSpec = { content: lit({ unexpected: 'object' }) }
         expect(coercer.buildMessage(emit, scope())?.content).toBe('')
-        expect(posthog.capture).toHaveBeenCalled()
+        expect(telemetrySpy).toHaveBeenCalled()
     })
 })
 
