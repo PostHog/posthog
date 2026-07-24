@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { ICONS } from 'lib/integrations/utils'
 
 import { IntegrationKind, IntegrationType } from '~/types'
@@ -245,14 +246,24 @@ export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicTy
             null as IntegrationType[] | null,
             {
                 loadOrganizationIntegrations: async () => {
-                    const res = await api.organizationIntegrations.list()
+                    try {
+                        const res = await api.organizationIntegrations.list()
 
-                    return res.results.map((integration) => {
-                        return {
-                            ...integration,
-                            icon_url: ICONS[integration.kind],
+                        return res.results.map((integration) => {
+                            return {
+                                ...integration,
+                                icon_url: ICONS[integration.kind],
+                            }
+                        })
+                    } catch (error) {
+                        // Users without a current organization or membership get a by-design 404
+                        // from `@current` org resolution — show an empty state rather than surfacing
+                        // an uncaught exception to error tracking.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return []
                         }
-                    })
+                        throw error
+                    }
                 },
             },
         ],
