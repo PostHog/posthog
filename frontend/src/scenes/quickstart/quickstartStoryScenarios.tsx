@@ -154,8 +154,10 @@ export const scenarioMocks = (
         },
         post: {
             // Serves both the signals aggregate and the replay count: the replay loader
-            // reads the first column, so keep totalEvents as a plausible recordings number
+            // reads the first column, so keep totalEvents as a plausible recordings number.
+            // queryHogQL appends the query kind to the path, so both routes must answer.
             '/api/environments/:team_id/query': { results: [signalsRow(signals)] },
+            '/api/environments/:team_id/query/HogQLQuery': { results: [signalsRow(signals)] },
         },
         patch: {
             // The default handlers answer with an installed MOCK_DEFAULT_TEAM, and a single
