@@ -194,9 +194,10 @@ class TestStorage(APIBaseTest):
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
         assert result == b"test content"
 
-    def test_read_bytes_returns_none_for_nosuchkey_when_missing_ok(self):
+    @parameterized.expand(["NoSuchKey", "NoSuchBucket"])
+    def test_read_bytes_returns_none_when_missing_ok(self, error_code: str):
         mock_client = MagicMock()
-        error_response = {"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}
+        error_response = {"Error": {"Code": error_code, "Message": "does not exist"}}
         mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
         storage = ObjectStorage(mock_client)
 
