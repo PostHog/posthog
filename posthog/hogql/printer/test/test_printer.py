@@ -2080,6 +2080,41 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            (
+                "single_unaliased_join",
+                "SELECT sub_col FROM (SELECT 1 AS base) AS a JOIN (SELECT 2 AS sub_col) ON equals(a.base, 1)",
+                "SELECT __subquery.sub_col AS sub_col FROM (SELECT 1 AS base) AS a "
+                "JOIN (SELECT 2 AS sub_col) AS __subquery ON equals(a.base, 1) LIMIT {limit}",
+            ),
+            (
+                "two_unaliased_joins_get_distinct_aliases",
+                "SELECT sub_col, other FROM (SELECT 1 AS base) AS a "
+                "JOIN (SELECT 2 AS sub_col) ON equals(a.base, 1) JOIN (SELECT 3 AS other) ON equals(a.base, 1)",
+                "SELECT __subquery.sub_col AS sub_col, __subquery_1.other AS other FROM (SELECT 1 AS base) AS a "
+                "JOIN (SELECT 2 AS sub_col) AS __subquery ON equals(a.base, 1) "
+                "JOIN (SELECT 3 AS other) AS __subquery_1 ON equals(a.base, 1) LIMIT {limit}",
+            ),
+            (
+                "unaliased_comma_join",
+                "SELECT sub_col FROM (SELECT 1 AS base) AS a, (SELECT 2 AS sub_col)",
+                "SELECT __subquery.sub_col AS sub_col FROM (SELECT 1 AS base) AS a "
+                "CROSS JOIN (SELECT 2 AS sub_col) AS __subquery LIMIT {limit}",
+            ),
+            (
+                "from_position_subquery_stays_unaliased",
+                "SELECT base FROM (SELECT 1 AS base)",
+                "SELECT base AS base FROM (SELECT 1 AS base) LIMIT {limit}",
+            ),
+        ]
+    )
+    def test_unaliased_joined_subquery_gets_generated_alias(self, _name, query, expected):
+        # ClickHouse rejects a JOINed subquery without an alias (code 206, ALIAS_REQUIRED). The resolver
+        # auto-aliases anonymous joined subqueries so the printed SQL is valid, while leaving a subquery in
+        # the FROM position untouched (which ClickHouse accepts unaliased).
+        self.assertEqual(self._select(query), expected.format(limit=MAX_SELECT_RETURNED_ROWS))
+
     def test_left_join_team_id_in_on_clause(self):
         # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

@@ -513,7 +513,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=QueryErrorCategory.RATE_LIMITED),
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
-    206: ErrorCodeMeta("ALIAS_REQUIRED"),
+    206: ErrorCodeMeta(
+        "ALIAS_REQUIRED",
+        user_safe="A subquery or table function used in a JOIN must have an alias. Add 'AS <name>' after it.",
+    ),
     207: ErrorCodeMeta(
         "AMBIGUOUS_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
     ),  # identifier resolves to multiple columns or aliases

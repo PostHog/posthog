@@ -308,6 +308,16 @@ class Resolver(CloningVisitor):
     def _get_scope_table_column_aliases(self, scope: ast.SelectQueryType) -> dict[str, list[str]]:
         return self._scope_table_column_aliases.setdefault(id(scope), {})
 
+    def _generate_subquery_alias(self, scope: ast.SelectQueryType) -> str:
+        """Return a table alias not already used in the scope, for auto-aliasing anonymous joined subqueries."""
+        base = "__subquery"
+        if base not in scope.tables:
+            return base
+        index = 1
+        while f"{base}_{index}" in scope.tables:
+            index += 1
+        return f"{base}_{index}"
+
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
@@ -1408,6 +1418,18 @@ class Resolver(CloningVisitor):
                     alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
                 )
                 scope.tables[node.alias] = node.type
+            elif node.join_type is not None:
+                # ClickHouse rejects a JOINed subquery without an alias
+                # ("No alias for subquery or table function in JOIN", code 206).
+                # Auto-generate one, mirroring the ValuesQuery handling below, so
+                # the printed SQL is valid. An unaliased subquery in the FROM
+                # position is fine, so only the joined case is handled here.
+                generated_alias = self._generate_subquery_alias(scope)
+                node.alias = generated_alias
+                node.type = ast.SelectQueryAliasType(
+                    alias=generated_alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[generated_alias] = node.type
             else:
                 node.type = cast(ast.TableOrSelectType, node.table.type)
                 scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
