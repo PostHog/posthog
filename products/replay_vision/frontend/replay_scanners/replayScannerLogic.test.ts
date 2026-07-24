@@ -657,6 +657,25 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('scanner load failure', () => {
+        it('flags the failure and keeps the user on the page instead of bouncing to the landing page', async () => {
+            // The default GET mock returns 404, so mounting an existing scanner fails its fetch.
+            router.actions.push(urls.replayVision('abc-123'))
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted).toDispatchActions(['loadScanner', 'loadScannerFailure']).toMatchValues({
+                    scannerLoadFailed: true,
+                    scannerLoading: false,
+                })
+                // A transient failure must not silently drop the user back on the empty scanner list.
+                expect(router.values.location.pathname).toContain(urls.replayVision('abc-123'))
+            } finally {
+                persisted.unmount()
+            }
+        })
+    })
+
     describe('retrying failed observations', () => {
         it('retryObservation hits the endpoint and re-arms the poll window for the replacement row', async () => {
             const persisted = replayScannerLogic({ id: 'abc-123' })

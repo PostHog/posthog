@@ -24,6 +24,7 @@ import { formatCredits } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
+import { ScannerLoadError } from './components/ScannerLoadError'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerQualityTab } from './components/ScannerQualityTab'
@@ -48,7 +49,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading } = useValues(scannerLogic)
+    const { scanner, scannerLoading, scannerLoadFailed } = useValues(scannerLogic)
+    const { loadScanner } = useActions(scannerLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -58,12 +60,12 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    if (scannerLoadFailed) {
+        return <ScannerLoadError onRetry={loadScanner} />
+    }
+
     if (scannerLoading || !scanner) {
-        return (
-            <SceneContent>
-                <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
-            </SceneContent>
-        )
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
