@@ -169,23 +169,23 @@ class TestRedisClusterConnectionFactory(TestCase):
 
 
 class TestPrewarmQueryCacheCluster(TestCase):
-    def test_no_op_when_alias_not_configured(self) -> None:
+    def test_no_op_when_no_cluster_configured(self) -> None:
         with patch("posthog.caching.redis_cluster_connection_factory.settings") as mock_settings:
-            mock_settings.CACHES = {}
+            mock_settings.QUERY_CACHE_REDIS_CLUSTER_URL = None
             with patch("posthog.caching.redis_cluster_connection_factory.caches") as mock_caches:
                 prewarm_query_cache_cluster()
                 mock_caches.__getitem__.assert_not_called()
 
-    def test_issues_trivial_read_when_alias_configured(self) -> None:
+    def test_issues_trivial_read_when_cluster_configured(self) -> None:
         with patch("posthog.caching.redis_cluster_connection_factory.settings") as mock_settings:
-            mock_settings.CACHES = {QUERY_CACHE_ALIAS: {}}
+            mock_settings.QUERY_CACHE_REDIS_CLUSTER_URL = "redis://cluster:6379"
             with patch("posthog.caching.redis_cluster_connection_factory.caches") as mock_caches:
                 prewarm_query_cache_cluster()
                 mock_caches[QUERY_CACHE_ALIAS].get.assert_called_once_with("__prewarm__")
 
     def test_swallows_and_logs_connection_errors(self) -> None:
         with patch("posthog.caching.redis_cluster_connection_factory.settings") as mock_settings:
-            mock_settings.CACHES = {QUERY_CACHE_ALIAS: {}}
+            mock_settings.QUERY_CACHE_REDIS_CLUSTER_URL = "redis://cluster:6379"
             with patch("posthog.caching.redis_cluster_connection_factory.caches") as mock_caches:
                 mock_caches[QUERY_CACHE_ALIAS].get.side_effect = ConnectionError("cluster down")
                 with patch("posthog.caching.redis_cluster_connection_factory.logger") as mock_logger:
@@ -196,7 +196,7 @@ class TestPrewarmQueryCacheCluster(TestCase):
 class TestPrewarmInBackground(TestCase):
     def test_runs_prewarm_on_a_completed_daemon_thread(self) -> None:
         with patch("posthog.caching.redis_cluster_connection_factory.settings") as mock_settings:
-            mock_settings.CACHES = {QUERY_CACHE_ALIAS: {}}
+            mock_settings.QUERY_CACHE_REDIS_CLUSTER_URL = "redis://cluster:6379"
             with patch("posthog.caching.redis_cluster_connection_factory.caches") as mock_caches:
                 thread = prewarm_query_cache_cluster_in_background()
                 thread.join(timeout=5)
@@ -206,7 +206,7 @@ class TestPrewarmInBackground(TestCase):
 
     def test_thread_never_raises_when_prewarm_fails(self) -> None:
         with patch("posthog.caching.redis_cluster_connection_factory.settings") as mock_settings:
-            mock_settings.CACHES = {QUERY_CACHE_ALIAS: {}}
+            mock_settings.QUERY_CACHE_REDIS_CLUSTER_URL = "redis://cluster:6379"
             with patch("posthog.caching.redis_cluster_connection_factory.caches") as mock_caches:
                 mock_caches[QUERY_CACHE_ALIAS].get.side_effect = ConnectionError("cluster down")
                 with patch("posthog.caching.redis_cluster_connection_factory.logger"):

@@ -265,6 +265,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                   }
                                         }
                                         withIcon
+                                        withCopyEmailButton
                                         withComposeTicketButton
                                     />
                                     <IdentityBadge verified={ticket.identity_verified} />
@@ -512,6 +513,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                personDistinctIds={person?.distinct_ids}
                             />
                         </>
                     )}
