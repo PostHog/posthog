@@ -112,6 +112,9 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         if acting_user_id is None:
             return
         settings = ReviewUserSettings.load(instance.team_id, acting_user_id)
+        # robust=True on both: the two legs are independent fire-and-forget dispatches sharing one
+        # commit-hook queue, so a raise in the first (e.g. a deferred-import failure) must not cancel
+        # the second. Django logs the failing hook and still runs its siblings.
         if settings.review_inbox_prs:
             transaction.on_commit(
                 lambda: _start_review(
@@ -121,7 +124,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
                     team_id=instance.team_id,
                     user_id=acting_user_id,
                     signal_report_id=str(task.signal_report_id),
-                )
+                ),
+                robust=True,
             )
         if pr_url is not None and settings.stamphog_review_inbox_prs:
             # The PR leg only: stamphog's verdict is a GitHub review, so a bare pushed branch
@@ -135,7 +139,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
                     acting_user_id=acting_user_id,
                     signal_report_id=str(task.signal_report_id),
                     task_run_id=str(instance.id),
-                )
+                ),
+                robust=True,
             )
     except Exception:
         logger.exception("review_hog_inbox_trigger_failed")
