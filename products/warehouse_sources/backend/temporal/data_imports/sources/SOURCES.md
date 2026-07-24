@@ -361,6 +361,7 @@ the row lists both.
 | metabase                         | HTTP                        | requests                                                        | ✅                          |
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
+| microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
@@ -1077,7 +1078,6 @@ doesn't conflict with concurrent PRs.
 - mezmo
 - microsoft_365_usage_reports
 - microsoft_advertising
-- microsoft_clarity
 - microsoft_dataverse
 - microsoft_defender_cloud_apps
 - microsoft_defender_endpoint
