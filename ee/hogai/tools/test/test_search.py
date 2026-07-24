@@ -5,15 +5,37 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
+import openai
 from langchain_core import messages
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig, RunnableLambda
+from parameterized import parameterized
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.search import DOC_ITEM_TEMPLATE, DOCS_SEARCH_RESULTS_TEMPLATE, InkeepDocsSearchTool, SearchTool
+from ee.hogai.tools.search import (
+    DOC_ITEM_TEMPLATE,
+    DOCS_SEARCH_RESULTS_TEMPLATE,
+    DOCS_SEARCH_UNAVAILABLE_TEMPLATE,
+    InkeepDocsSearchTool,
+    SearchTool,
+)
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+
+
+def _transient_inkeep_errors() -> list[tuple[str, Exception]]:
+    request = httpx.Request("POST", "https://api.inkeep.com/v1/chat/completions")
+    return [
+        ("timeout", openai.APITimeoutError(request=request)),
+        (
+            "internal_server_error",
+            openai.InternalServerError(
+                "upstream request timeout", response=httpx.Response(500, request=request), body=None
+            ),
+        ),
+    ]
 
 
 class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -129,3 +151,17 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
         self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
+
+    @parameterized.expand(_transient_inkeep_errors())
+    @override_settings(INKEEP_API_KEY="test-inkeep-key")
+    @patch("ee.hogai.tools.search.ChatOpenAI")
+    async def test_search_docs_degrades_on_transient_upstream_error(self, _name, exc, mock_llm_class):
+        def raise_transient(_input):
+            raise exc
+
+        mock_llm_class.return_value = RunnableLambda(raise_transient)
+
+        # Must not propagate — a raised exception would be reported via capture_exception downstream.
+        result, _ = await self.tool.execute("how to use feature", "test-tool-call-id")
+
+        self.assertEqual(result, DOCS_SEARCH_UNAVAILABLE_TEMPLATE)

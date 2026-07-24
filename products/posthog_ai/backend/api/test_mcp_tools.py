@@ -1,9 +1,25 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import openai
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+
+
+def _transient_inkeep_errors() -> list[tuple[str, Exception]]:
+    request = httpx.Request("POST", "https://api.inkeep.com/v1/chat/completions")
+    return [
+        ("timeout", openai.APITimeoutError(request=request)),
+        (
+            "internal_server_error",
+            openai.InternalServerError(
+                "upstream request timeout", response=httpx.Response(500, request=request), body=None
+            ),
+        ),
+    ]
 
 
 class TestMCPToolsAPI(APIBaseTest):
@@ -150,3 +166,18 @@ class TestDocsSearchAction(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("internal error", response.json()["content"].lower())
+
+    @parameterized.expand(_transient_inkeep_errors())
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
+    @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
+    def test_docs_search_transient_upstream_error_is_not_captured(self, _name, exc, mock_run, mock_capture):
+        from django.test import override_settings
+
+        mock_run.side_effect = exc
+
+        with override_settings(INKEEP_API_KEY="test-key"):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("temporarily unavailable", response.json()["content"].lower())
+        mock_capture.assert_not_called()

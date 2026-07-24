@@ -3,6 +3,7 @@ from typing import Literal
 
 from django.conf import settings
 
+import openai
 import structlog
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -23,6 +24,17 @@ from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 
 logger = structlog.get_logger(__name__)
+
+# Shared Inkeep RAG configuration for both callers (this LangChain tool and the typed
+# MCPToolsViewSet.docs_search endpoint) so their client/timeout config doesn't drift.
+INKEEP_BASE_URL = "https://api.inkeep.com/v1/"
+INKEEP_MODEL = "inkeep-rag"
+# Inkeep's hosted endpoint occasionally stalls; cap the wait so a slow upstream can't
+# hang the request, and so we surface a clean "unavailable" instead of an opaque 5xx.
+INKEEP_REQUEST_TIMEOUT = 30.0
+# Transient upstream failures we degrade gracefully (log at warning) instead of reporting
+# as captured exceptions — they're an external-dependency hiccup, not a bug in our code.
+INKEEP_TRANSIENT_ERRORS = (openai.APITimeoutError, openai.InternalServerError)
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
@@ -264,12 +276,22 @@ URL: {url}
 {text}
 """.strip()
 
+DOCS_SEARCH_UNAVAILABLE_TEMPLATE = """
+Documentation search is temporarily unavailable due to an upstream timeout.
+
+<system_reminder>
+Do not immediately retry the documentation search. Tell the user documentation search is
+temporarily unavailable and suggest they try again shortly or navigate to `https://posthog.com/docs`.
+</system_reminder>
+""".strip()
+
 
 async def perform_inkeep_docs_search(query: str, *, include_system_reminder: bool = True) -> str:
     model = ChatOpenAI(
-        model="inkeep-rag",
-        base_url="https://api.inkeep.com/v1/",
+        model=INKEEP_MODEL,
+        base_url=INKEEP_BASE_URL,
         api_key=settings.INKEEP_API_KEY,
+        timeout=INKEEP_REQUEST_TIMEOUT,
         streaming=False,
         stream_usage=False,
         disable_streaming=True,
@@ -277,7 +299,16 @@ async def perform_inkeep_docs_search(query: str, *, include_system_reminder: boo
 
     prompt = ChatPromptTemplate.from_messages([("user", "{query}")])
     chain = prompt | model | SimpleJsonOutputParser()
-    rag_context_raw = await chain.ainvoke({"query": query})
+    try:
+        rag_context_raw = await chain.ainvoke({"query": query})
+    except INKEEP_TRANSIENT_ERRORS as e:
+        # Transient upstream failure — degrade gracefully rather than firing capture_exception.
+        logger.warning("inkeep_docs_search_unavailable", error=str(e))
+        return (
+            DOCS_SEARCH_UNAVAILABLE_TEMPLATE
+            if include_system_reminder
+            else "Documentation search is temporarily unavailable."
+        )
 
     return format_inkeep_docs_response(rag_context_raw, include_system_reminder=include_system_reminder)
 

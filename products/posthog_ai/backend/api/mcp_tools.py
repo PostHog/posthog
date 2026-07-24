@@ -27,7 +27,13 @@ from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
-from ee.hogai.tools.search import format_inkeep_docs_response
+from ee.hogai.tools.search import (
+    INKEEP_BASE_URL,
+    INKEEP_MODEL,
+    INKEEP_REQUEST_TIMEOUT,
+    INKEEP_TRANSIENT_ERRORS,
+    format_inkeep_docs_response,
+)
 
 logger = get_logger(__name__)
 
@@ -93,10 +99,18 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise _DocsSearchUnavailable()
 
         query = cast(dict, request.validated_data)["query"]
-        client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
+        client = AsyncOpenAI(base_url=INKEEP_BASE_URL, api_key=settings.INKEEP_API_KEY, timeout=INKEEP_REQUEST_TIMEOUT)
 
         try:
             content = async_to_sync(_run_inkeep_docs_search)(client, query)
+        except INKEEP_TRANSIENT_ERRORS as e:
+            # Transient upstream failure — log at warning rather than firing capture_exception,
+            # since this is an external-dependency hiccup we already handle gracefully.
+            logger.warning("docs_search upstream unavailable", error=str(e))
+            return Response(
+                {"content": "Documentation search is temporarily unavailable. Do not immediately retry the tool call."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         except Exception as e:
             logger.exception("Error running docs_search", extra={"error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
@@ -174,7 +188,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:
     response = await client.chat.completions.create(
-        model="inkeep-rag",
+        model=INKEEP_MODEL,
         messages=[{"role": "user", "content": query}],
     )
     raw = response.choices[0].message.content if response.choices else None
