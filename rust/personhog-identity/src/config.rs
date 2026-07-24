@@ -50,7 +50,7 @@ pub struct Config {
 
     /// Router endpoint used to reach the owning leader for initial-properties
     /// writes on the creation branch (UpdatePersonProperties).
-    #[envconfig(default = "http://127.0.0.1:50052")]
+    #[envconfig(default = "http://127.0.0.1:50054")]
     pub router_url: String,
 
     /// Per-call timeout for leader-routed property writes (ms).

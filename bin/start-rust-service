@@ -291,7 +291,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export GRPC_ADDRESS=127.0.0.1:50055
     export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
-    export ROUTER_URL=http://127.0.0.1:50052
+    export ROUTER_URL=http://127.0.0.1:50054
     export METRICS_PORT=9108
     ;;
 
