@@ -174,10 +174,6 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
-    /// Leader gRPC port used when resolving pod names to addresses
-    #[envconfig(default = "50053")]
-    pub leader_port: u16,
-
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
     /// rely on caller-side retries.

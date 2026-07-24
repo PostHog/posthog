@@ -1417,6 +1417,7 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&stuck_handoff).await.unwrap();
 
@@ -1489,6 +1490,178 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         }
         _ => unreachable!(),
     }
+
+    cancel.cancel();
+}
+
+/// A handoff Complete carries an address snapshotted at handoff creation,
+/// delivered on a stream with no ordering against the registration feed.
+/// It may only fill a hole, never overwrite: a fresher re-registration
+/// must survive a stale handoff-carried address arriving after it.
+#[tokio::test]
+async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
+    let store = test_store("addr-authority").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+    let _pod = common::start_pod_with_address(
+        Arc::clone(&store),
+        "writer-0",
+        10,
+        Some("10.0.0.2:50053".to_string()),
+        cancel.clone(),
+    );
+
+    // Settle and learn the registered address.
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.2:50053")
+        }
+    })
+    .await;
+
+    // A Complete handoff arrives carrying a stale address (snapshotted
+    // before the pod's latest registration). It must not clobber.
+    store
+        .put_handoff(&personhog_coordination::types::HandoffState {
+            partition: 0,
+            old_owner: None,
+            new_owner: "writer-0".to_string(),
+            new_owner_address: Some("10.0.0.1:50053".to_string()),
+            phase: personhog_coordination::types::HandoffPhase::Complete,
+            started_at: 0,
+            handoff_id: "h-stale-addr".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // The Complete still flows through the routing table (table update +
+    // drain); wait for it to be observed, then assert the address held.
+    let table = Arc::clone(&router.table);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let table = Arc::clone(&table);
+        async move { table.read().await.get(&0).map(String::as_str) == Some("writer-0") }
+    })
+    .await;
+    assert_eq!(
+        addresses
+            .read()
+            .unwrap()
+            .get("writer-0")
+            .map(String::as_str),
+        Some("10.0.0.2:50053"),
+        "registration-fed address must survive a stale handoff-carried one"
+    );
+
+    cancel.cancel();
+}
+
+/// A leader that restarts under the same pod name at a new address while
+/// keeping its assignments produces no handoff — the router must learn
+/// the new address from the pod registration watch, or every dial keeps
+/// hitting the dead address until the next rebalance.
+#[tokio::test]
+async fn pod_re_registration_refreshes_router_addresses_without_a_handoff() {
+    let store = test_store("addr-refresh").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+    let _pod = common::start_pod_with_address(
+        Arc::clone(&store),
+        "writer-0",
+        10,
+        Some("10.0.0.1:50053".to_string()),
+        cancel.clone(),
+    );
+
+    // Settle: all partitions assigned to writer-0, addresses learned.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.1:50053")
+        }
+    })
+    .await;
+
+    // Same pod name re-registers at a new address (a restart that kept
+    // its IP-independent identity) — no pod-set change, so no handoff.
+    let lease = store.grant_lease(10).await.unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    store
+        .register_pod(
+            &personhog_coordination::types::RegisteredPod {
+                pod_name: "writer-0".to_string(),
+                generation: String::new(),
+                status: personhog_coordination::types::PodStatus::Ready,
+                registered_at: now,
+                last_heartbeat: now,
+                controller: None,
+                advertise_address: Some("10.0.0.2:50053".to_string()),
+            },
+            lease,
+        )
+        .await
+        .unwrap();
+
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.2:50053")
+        }
+    })
+    .await;
+
+    // The refresh came from the registration watch alone: ownership never
+    // moved and the persisted assignments still carry the old snapshot.
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert!(handoffs.is_empty(), "no handoff may be involved");
+    let assignments = store.list_assignments().await.unwrap();
+    assert!(
+        assignments
+            .iter()
+            .all(|a| a.owner == "writer-0"
+                && a.advertise_address.as_deref() == Some("10.0.0.1:50053"))
+    );
 
     cancel.cancel();
 }
@@ -1590,6 +1763,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&warming_handoff).await.unwrap();
 
@@ -1653,6 +1827,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&stale).await.unwrap();
 
@@ -1704,6 +1879,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&freezing_handoff).await.unwrap();
 
@@ -1782,6 +1958,7 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
 
@@ -1879,6 +2056,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&warming).await.unwrap();
     store
@@ -1945,6 +2123,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         registered_at: 0,
         last_heartbeat: 0,
         controller: None,
+        advertise_address: None,
     };
     store.register_pod(&draining_pod, lease).await.unwrap();
 
@@ -1956,6 +2135,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2044,6 +2224,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         registered_at: 0,
         last_heartbeat: 0,
         controller: None,
+        advertise_address: None,
     };
     store.register_pod(&draining_pod, lease).await.unwrap();
 
@@ -2055,6 +2236,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2113,6 +2295,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         };
         store.register_pod(&pod, lease).await.unwrap();
     }
@@ -2143,6 +2326,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2211,6 +2395,7 @@ async fn initial_assignment_skips_draining_phase() {
         registered_at: 0,
         last_heartbeat: 0,
         controller: None,
+        advertise_address: None,
     };
     store.register_pod(&new_pod, lease).await.unwrap();
 
@@ -2228,6 +2413,7 @@ async fn initial_assignment_skips_draining_phase() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2273,6 +2459,7 @@ async fn dead_old_owner_in_draining_recovers() {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         };
         store.register_pod(&pod, lease).await.unwrap();
     }
@@ -2285,6 +2472,7 @@ async fn dead_old_owner_in_draining_recovers() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2371,6 +2559,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         };
         store.register_pod(&pod, lease).await.unwrap();
     }
@@ -2382,6 +2571,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2440,6 +2630,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&draining_handoff).await.unwrap();
 
@@ -2523,6 +2714,7 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
+        new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
 
@@ -2768,6 +2960,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: "first".to_string(),
+        new_owner_address: None,
     };
     assert!(store
         .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[])
@@ -2783,11 +2976,13 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: "second".to_string(),
+        new_owner_address: None,
     };
     let stable = PartitionAssignment {
         partition: 1,
         owner: "writer-0".to_string(),
         status: AssignmentStatus::Active,
+        advertise_address: None,
     };
     assert!(!store
         .create_assignments_and_handoffs(&[stable], &[competing], &[])
@@ -2820,6 +3015,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         partition: 0,
         owner: owner.to_string(),
         status: AssignmentStatus::Active,
+        advertise_address: None,
     };
     let handoff = |old: &str, new: &str, id: &str| HandoffState {
         partition: 0,
@@ -2828,6 +3024,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
+        new_owner_address: None,
     };
 
     // The world the stale planner reads: partition 0 owned by A.
@@ -2904,6 +3101,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
+        new_owner_address: None,
     };
 
     // Partition 0 gained an assignment after the plan's snapshot.
@@ -2913,6 +3111,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
                 partition: 0,
                 owner: "pod-b".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             }],
             &[],
             &[],
