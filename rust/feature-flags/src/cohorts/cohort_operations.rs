@@ -28,7 +28,7 @@ const MAX_COHORT_FILTER_DEPTH: usize = 64;
 /// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
 /// structural error surfaced by `traverse_filters`/`InnerCohortProperty::evaluate`).
 fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
-    tracing::warn!(
+    tracing::debug!(
         cohort_id,
         team_id,
         "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
