@@ -254,7 +254,7 @@ class ObjectStorage(ObjectStorageClient):
             return s3_response["Body"].read(), s3_response.get("ContentType")
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
-            if error_code == "NoSuchKey" and missing_ok:
+            if error_code in ("NoSuchKey", "NoSuchBucket") and missing_ok:
                 return None
             logger.exception(
                 "object_storage.read_failed",
