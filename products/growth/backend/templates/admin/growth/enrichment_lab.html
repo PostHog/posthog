@@ -153,7 +153,7 @@
 </div>
 
 {{ selected.version|default:""|json_script:"lab-selected-version-json" }}
-<script>
+<script nonce="{{ request.csp_nonce }}">
 (function () {
     var form = document.getElementById("lab-form");
     var promptField = document.getElementById("prompt_text");

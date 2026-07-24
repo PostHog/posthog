@@ -44,7 +44,7 @@
         this page will replace itself with the verdict table when done.
     </div>
 </form>
-<script>
+<script nonce="{{ request.csp_nonce }}">
     document.getElementById("dryrun-form").addEventListener("submit", function () {
         var submit = document.getElementById("dryrun-submit");
         submit.disabled = true;
