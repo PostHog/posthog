@@ -19,6 +19,7 @@ from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refun
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .emission.linear_issues import LINEAR_TEAM_IDS_CONFIG_KEY
 from .models import (
     AutonomyPriority,
     SignalReport,
@@ -139,6 +140,14 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
                 if not (0 <= sample_rate <= 1):
                     raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
+        if source_product == SignalSourceConfig.SourceProduct.LINEAR and config:
+            team_ids = config.get(LINEAR_TEAM_IDS_CONFIG_KEY)
+            if team_ids is not None and (
+                not isinstance(team_ids, list) or not all(isinstance(t, str) and t for t in team_ids)
+            ):
+                raise serializers.ValidationError(
+                    {"config": f"{LINEAR_TEAM_IDS_CONFIG_KEY} must be a list of Linear team ID strings"}
+                )
         if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
             get_team = self.context.get("get_team")
             team = get_team() if get_team else None

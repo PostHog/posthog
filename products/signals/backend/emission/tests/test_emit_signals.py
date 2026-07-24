@@ -162,6 +162,59 @@ class TestQueryNewRecords:
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
 
+    def test_appends_source_config_where_clause(self):
+        # Guards the Linear team-scope path: a per-team clause from source_config_where_builder must be
+        # ANDed into the query, or emitted issues stop being scoped to the teams the user opted into.
+        config = _make_config(
+            partition_field="created_at",
+            where_clause="state = 'open'",
+            source_config_where_builder=lambda sc: f"team_id IN ({sc['team_ids']})" if sc.get("team_ids") else None,
+        )
+        mock_result = MagicMock()
+        mock_result.columns = ["id"]
+        mock_result.results = [(1,)]
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": {"team_ids": "'a', 'b'"},
+                    },
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "state = 'open'" in query_arg
+        assert "team_id IN ('a', 'b')" in query_arg
+
+    def test_omits_source_config_clause_when_builder_returns_none(self):
+        # No opt-in config → no extra clause, so existing (all-teams) behavior is preserved.
+        config = _make_config(
+            partition_field="created_at",
+            where_clause="state = 'open'",
+            source_config_where_builder=lambda sc: None,
+        )
+        mock_result = MagicMock()
+        mock_result.columns = ["id"]
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={"table_name": "test_table", "last_synced_at": None, "extra": {}},
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "state = 'open'" in query_arg
+        # Only the lookback-window clause and the static where_clause — no extra ANDed scope clause.
+        assert query_arg.count(" AND ") == 1
+
     def test_reraises_on_query_error(self):
         # Must NOT swallow: silenced failures advance last_synced_at and permanently skip records.
         # Re-raising lets the activity's retry policy handle transient HogQL/ClickHouse failures.
@@ -748,6 +801,7 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}._fetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
             run_mock.return_value = {"status": "success", "signals_emitted": 0}
@@ -764,3 +818,5 @@ class TestEmitActivityTableNameResolution:
             )
 
         assert captured_context["table_name"] == expected_hogql_name
+        # Source config is threaded to the fetcher so per-team scoping (e.g. Linear teams) can apply.
+        assert captured_context["source_config"] == {}

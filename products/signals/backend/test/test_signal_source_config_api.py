@@ -98,6 +98,37 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "source_type" in str(response.json())
 
+    def test_create_linear_config_persists_team_allowlist(self):
+        # Wiring guard: the viewset accepts and stores the Linear team allowlist that scopes which
+        # teams' issues emit (the fix for surfacing issues from teams the user isn't part of).
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "linear",
+                "source_type": "issue",
+                "enabled": True,
+                "config": {"linear_team_ids": ["team-1", "team-2"]},
+            },
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, data
+        assert data["config"] == {"linear_team_ids": ["team-1", "team-2"]}
+
+    @parameterized.expand([("not_a_list", "team-1"), ("non_string_entry", ["team-1", 2]), ("empty_entry", ["", "x"])])
+    def test_create_linear_config_rejects_malformed_team_allowlist(self, _name, team_ids):
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "linear",
+                "source_type": "issue",
+                "config": {"linear_team_ids": team_ids},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linear_team_ids" in str(response.json())
+
     def test_create_session_analysis_cluster_rejected_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])

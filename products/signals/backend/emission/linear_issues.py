@@ -1,3 +1,4 @@
+import re
 import json
 from typing import Any
 
@@ -9,6 +10,14 @@ from products.signals.backend.emission.registry import SignalEmitterOutput, Sign
 logger = get_logger(__name__)
 
 LINEAR_IGNORED_STATE_TYPES = ("completed", "canceled")
+
+# Config key on the team's SignalSourceConfig.config holding the Linear team IDs the user opted into.
+# Absent or empty means "all teams" (unchanged behavior); a non-empty list scopes emitted issues to
+# just those teams. See _linear_team_scope_where.
+LINEAR_TEAM_IDS_CONFIG_KEY = "linear_team_ids"
+# Linear team IDs are UUIDs. Restricting to this charset both validates the config and keeps the IDs
+# safe to inline as string literals in the scoping clause (no quotes/backslashes can appear).
+_LINEAR_TEAM_ID_RE = re.compile(r"^[A-Za-z0-9-]+$")
 
 LINEAR_SUMMARIZATION_PROMPT = """Summarize this Linear issue for semantic search.
 Output exactly two parts separated by a newline:
@@ -130,6 +139,39 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
     return extra
 
 
+def _linear_team_scope_where(source_config: dict[str, Any]) -> str | None:
+    """Scope emitted Linear issues to the teams the user opted into.
+
+    A workspace-wide Linear OAuth token imports every issue from every team in the workspace, so
+    without this the pipeline would surface issues from teams the user has nothing to do with. When
+    `linear_team_ids` is configured, only issues whose `team.id` is in the allowlist emit. Absent or
+    empty config leaves behavior unchanged (all teams). If the allowlist is set but no entry is a
+    valid Linear team ID we fail closed (match nothing) rather than leak every team.
+    """
+    raw = source_config.get(LINEAR_TEAM_IDS_CONFIG_KEY)
+    if not raw:
+        return None
+    if not isinstance(raw, list):
+        logger.warning(
+            "Linear team scope config is not a list; ignoring and syncing all teams",
+            linear_team_ids=raw,
+            signals_type="data-import-signals",
+        )
+        return None
+    valid = [t for t in raw if isinstance(t, str) and _LINEAR_TEAM_ID_RE.match(t)]
+    if len(valid) != len(raw):
+        logger.warning(
+            "Dropped invalid Linear team IDs from scope config",
+            linear_team_ids=raw,
+            valid=valid,
+            signals_type="data-import-signals",
+        )
+    # Fail closed: an allowlist was set, so never widen back to all teams — an all-invalid list
+    # matches no team ('' is never a real Linear team id).
+    ids = ", ".join(f"'{t}'" for t in valid) if valid else "''"
+    return f"JSONExtractString(team, 'id') IN ({ids})"
+
+
 LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     source_product="linear",
     source_type="issue",
@@ -139,6 +181,7 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"JSONExtractString(state, 'type') NOT IN ({', '.join(repr(s) for s in LINEAR_IGNORED_STATE_TYPES)})",
+    source_config_where_builder=_linear_team_scope_where,
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,

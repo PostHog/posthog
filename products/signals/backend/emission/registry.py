@@ -35,6 +35,11 @@ SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 # Uses Any for Team to avoid forward-reference issues with Pydantic model resolution.
 RecordFetcher = Callable[[Any, "SignalSourceTableConfig", dict[str, Any]], list[dict[str, Any]]]
 
+# Builds an extra filter clause from the per-team SignalSourceConfig.config JSON. Returned clause is
+# ANDed with `where_clause` by the data-warehouse fetcher. Lets a source scope which records emit
+# based on user-controlled config (e.g. Linear restricting issues to the teams the user opted into).
+SourceConfigWhereBuilder = Callable[[dict[str, Any]], str | None]
+
 
 class SignalSourceTableConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -51,6 +56,10 @@ class SignalSourceTableConfig(BaseModel):
     fields: tuple[str, ...]
     # Optional filter clause (interpreted by the fetcher — HogQL for data warehouse, ORM for Postgres sources)
     where_clause: str | None = None
+    # Optional per-team filter derived from SignalSourceConfig.config (ANDed with `where_clause`).
+    # The data-warehouse fetcher calls this with the team's source config and appends any clause it
+    # returns. Used e.g. by Linear to scope emitted issues to the teams the user opted into.
+    source_config_where_builder: SourceConfigWhereBuilder | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
