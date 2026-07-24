@@ -180,10 +180,14 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                 actions.loadViewCount()
                 actions.loadUsersLast30days()
 
-                void api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
-                    metric_name: 'viewed',
-                    instance_id: instanceId,
-                })
+                // Best-effort internal view tracking — swallow failures so a transient
+                // backend blip doesn't surface as a tracked error.
+                void api
+                    .create(`/api/projects/${values.currentProjectId}/metalytics/`, {
+                        metric_name: 'viewed',
+                        instance_id: instanceId,
+                    })
+                    .catch(() => {})
             }
         },
     })),

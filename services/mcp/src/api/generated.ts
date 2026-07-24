@@ -39098,7 +39098,11 @@ export namespace Schemas {
     } as const;
 
     export interface MetalyticsCreateRequest {
+      /** The metric being recorded. Only 'viewed' is currently supported.
+       *
+       * * `viewed` - viewed */
       metric_name: MetricNameEnum;
+      /** Identifier of the viewed item, formatted as '<activity_scope>:<activity_item_id>'. */
       instance_id: string;
     }
 
