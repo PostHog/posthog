@@ -197,6 +197,7 @@ the row lists both.
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
+| eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | freshcaller                      | HTTP                        | requests                                                        | ✅                          |
 | freshchat                        | HTTP                        | requests                                                        | ✅                          |
 | freshdesk                        | HTTP                        | requests                                                        | ✅                          |
@@ -893,7 +894,6 @@ doesn't conflict with concurrent PRs.
 - employment_hero
 - encharge
 - entsoe
-- eppo
 - etsy
 - eurostat
 - expensify
