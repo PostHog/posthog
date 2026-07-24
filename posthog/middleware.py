@@ -79,6 +79,16 @@ try:
 except ValueError:
     REQUEST_RSS_GROWTH_LOG_MB = 100.0
 
+# A finished request whose end-of-request worker RSS is at least this many MiB is logged
+# as `worker_rss_high`, regardless of how much it grew during that specific request.
+# Catches requests that execute on an already-bloated worker (one close to the cgroup
+# OOM limit) even if the per-request delta was small. Default 1500 MiB — tune via
+# WEB_REQUEST_RSS_HIGH_MB. Parsed defensively for the same reason as above.
+try:
+    REQUEST_RSS_HIGH_MB = float(os.getenv("WEB_REQUEST_RSS_HIGH_MB", "1500"))
+except ValueError:
+    REQUEST_RSS_HIGH_MB = 1500.0
+
 # Page size is invariant for the lifetime of the process — hoist it so current_rss_mb()
 # doesn't pay the sysconf syscall on every call. Fall back to 4096 (the common default)
 # if sysconf is unavailable on the host (e.g. an exotic OS).
@@ -708,14 +718,18 @@ def per_request_logging_context_middleware(
         try:
             response = get_response(request)
         finally:
-            # Flag requests that materially grew this worker's footprint. Steady
-            # accumulation of these on a pod is the in-app fingerprint of the request
-            # mix that walks RSS up to the cgroup limit and triggers the OOM kill.
-            # This runs even when get_response raises — exception paths (large error
-            # payloads, failed serialisation) are exactly the requests most likely to
-            # spike RSS. worker_pid is added explicitly because django_structlog's
+            # Flag requests that materially grew this worker's footprint, and requests
+            # that ran on a worker already close to the cgroup OOM limit. Both log lines
+            # run even when get_response raises — exception paths (large error payloads,
+            # failed serialisation) are exactly the requests most likely to spike RSS.
+            # worker_pid and team_id are added explicitly because django_structlog's
             # RequestMiddleware clears contextvars before this finally block fires.
             rss_mb_end = current_rss_mb()
+            # request.user is set by AuthenticationMiddleware, which is inner to this
+            # middleware — so it's always populated by the time the finally block fires.
+            # AnonymousUser has no current_team_id, so guard with is_authenticated.
+            _user = getattr(request, "user", None)
+            team_id = _user.current_team_id if _user is not None and _user.is_authenticated else None
             if (
                 rss_mb_start is not None
                 and rss_mb_end is not None
@@ -729,6 +743,16 @@ def per_request_logging_context_middleware(
                     request_path=request.path,
                     method=request.method,
                     worker_pid=os.getpid(),
+                    team_id=team_id,
+                )
+            if rss_mb_end is not None and rss_mb_end >= REQUEST_RSS_HIGH_MB:
+                logger.warning(
+                    "worker_rss_high",
+                    rss_mb=round(rss_mb_end, 1),
+                    request_path=request.path,
+                    method=request.method,
+                    worker_pid=os.getpid(),
+                    team_id=team_id,
                 )
             # Detect streaming responses that are holding DB connections open.
             # Under ASGI, a StreamingHttpResponse keeps the request alive until
