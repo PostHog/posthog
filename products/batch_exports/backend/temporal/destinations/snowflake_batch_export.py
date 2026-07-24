@@ -492,6 +492,15 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     role: str | None = None
 
 
+def _pem_private_key_is_encrypted(private_key: str) -> bool:
+    """Return whether a PEM private key is encrypted, without needing its passphrase."""
+    try:
+        serialization.load_pem_private_key(private_key.encode("utf-8"), password=None, backend=default_backend())
+    except (ValueError, TypeError) as e:
+        return "Password was not given but private key is encrypted" in str(e)
+    return False
+
+
 def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     try:
         p_key = serialization.load_pem_private_key(
@@ -502,7 +511,11 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
 
-        if passphrase is not None and "Incorrect password" in str(e):
+        if passphrase is not None and _pem_private_key_is_encrypted(private_key):
+            # A passphrase was supplied for an encrypted key but decryption failed: the passphrase is
+            # wrong. We classify on the key's encryption status rather than the underlying error string
+            # because ~1 in 250 wrong passphrases decrypt to bytes with valid PKCS#7 padding and then
+            # surface as an ASN.1 parse error instead of "Bad decrypt. Incorrect password?".
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"
