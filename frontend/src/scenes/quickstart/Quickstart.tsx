@@ -201,6 +201,67 @@ function LiveUsersRightNow(): JSX.Element {
     )
 }
 
+// Quiet reference chip for the facts every setup flow asks for (token, project ID, region)
+function ProjectFactChip({
+    label,
+    value,
+    mono = true,
+    copy,
+}: {
+    label: string
+    value: string
+    mono?: boolean
+    copy?: { tooltip: string; thing: string; action: string }
+}): JSX.Element {
+    return (
+        <div className="inline-flex items-stretch rounded border bg-bg-light overflow-hidden max-w-full min-w-0">
+            <span className="flex items-center px-3 border-r bg-fill-tertiary text-xs font-medium text-secondary whitespace-nowrap">
+                {label}
+            </span>
+            <span className={cnFactValue(mono)}>{value}</span>
+            {copy && (
+                <div className="flex items-center px-2 border-l">
+                    <LemonButton
+                        noPadding
+                        icon={<IconCopy />}
+                        tooltip={copy.tooltip}
+                        onClick={() => {
+                            captureQuickstartAction(copy.action)
+                            void copyToClipboard(value, copy.thing)
+                        }}
+                        data-attr={`quickstart-${copy.action.replace(/_/g, '-')}`}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
+function cnFactValue(mono: boolean): string {
+    return `${mono ? 'font-mono ' : ''}text-xs min-w-0 max-w-80 px-3 py-2 truncate`
+}
+
+function ProjectFacts(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    if (!currentTeam) {
+        return null
+    }
+    const regionLabel = preflight?.region ? `${preflight.region} Cloud` : null
+
+    return (
+        <>
+            <ProjectFactChip
+                label="Project ID"
+                value={String(currentTeam.id)}
+                copy={{ tooltip: 'Copy project ID', thing: 'project ID', action: 'copy_project_id' }}
+            />
+            {regionLabel && <ProjectFactChip label="Region" value={regionLabel} mono={false} />}
+        </>
+    )
+}
+
 function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
@@ -213,24 +274,11 @@ function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | n
     // collapses to a quiet single line
     if (inline) {
         return (
-            <div className="inline-flex items-stretch rounded border bg-bg-light overflow-hidden max-w-full min-w-0">
-                <span className="flex items-center px-3 border-r bg-fill-tertiary text-xs font-medium text-secondary whitespace-nowrap">
-                    Project token
-                </span>
-                <span className="font-mono text-xs min-w-0 max-w-80 px-3 py-2 truncate">{projectToken}</span>
-                <div className="flex items-center px-2 border-l">
-                    <LemonButton
-                        noPadding
-                        icon={<IconCopy />}
-                        tooltip="Copy project token"
-                        onClick={() => {
-                            captureQuickstartAction('copy_project_token')
-                            void copyToClipboard(projectToken, 'project token')
-                        }}
-                        data-attr="quickstart-copy-project-token"
-                    />
-                </div>
-            </div>
+            <ProjectFactChip
+                label="Project token"
+                value={projectToken}
+                copy={{ tooltip: 'Copy project token', thing: 'project token', action: 'copy_project_token' }}
+            />
         )
     }
 
@@ -1602,6 +1650,7 @@ export function Quickstart(): JSX.Element {
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                         <ProjectToken inline />
+                        <ProjectFacts />
                         {/* In focused-install mode the wizard progress renders as the page hero instead */}
                         {!focusedInstall && (
                             <QuickstartInstallationPrompt installationComplete={installationComplete} />
