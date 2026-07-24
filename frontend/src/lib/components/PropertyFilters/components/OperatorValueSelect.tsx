@@ -1,5 +1,5 @@
 import { RE2JS } from 're2js'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
@@ -216,19 +216,23 @@ export function OperatorValueSelect({
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
-    const [operators, setOperators] = useState([] as Array<PropertyOperator>)
-    useEffect(() => {
-        let propertyType = propertyDefinition?.property_type
+    // The available operators are a pure derivation of the property/type. Computing them with
+    // useMemo (rather than useState + useEffect) means the operator dropdown is fully populated on
+    // the very first render — otherwise there's an initial paint frame with zero options, and a
+    // click landing in that window opens an empty menu that reads as "didn't open", which is a
+    // common source of dead/rage clicks on the inline operator selector.
+    const { operators, resolvedPropertyType } = useMemo(() => {
+        let resolvedPropertyType = propertyDefinition?.property_type
         if (propertyKey === 'selector' || propertyKey === 'tag_name') {
-            propertyType = PropertyType.Selector
+            resolvedPropertyType = PropertyType.Selector
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
-            propertyType = PropertyType.Cohort
+            resolvedPropertyType = PropertyType.Cohort
         } else if (type === PropertyFilterType.Flag) {
-            propertyType = PropertyType.Flag
+            resolvedPropertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
-            propertyType = PropertyType.Assignee
+            resolvedPropertyType = PropertyType.Assignee
         } else if (propertyKey === 'first_seen' && type === PropertyFilterType.ErrorTrackingIssue) {
-            propertyType = PropertyType.DateTime
+            resolvedPropertyType = PropertyType.DateTime
         } else if (
             type === PropertyFilterType.Event &&
             propertyKey &&
@@ -236,16 +240,17 @@ export function OperatorValueSelect({
                 propertyKey
             )
         ) {
-            propertyType = PropertyType.StringArray
+            resolvedPropertyType = PropertyType.StringArray
         } else if (type === PropertyFilterType.Recording && propertyKey) {
             // Recording properties have no entry in propertyDefinitions, so resolve their type from
             // the authoritative taxonomy (e.g. numeric activity counts get range operators + a numeric
             // input). Reading CORE_FILTER_DEFINITIONS_BY_GROUP keeps this in sync with the one source
             // of truth rather than a hardcoded key list that drifts as new recording filters are added.
-            propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
+            resolvedPropertyType =
+                getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? resolvedPropertyType
         }
 
-        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
+        const operatorMapping: Record<string, string> = chooseOperatorMap(resolvedPropertyType)
 
         let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter(
             (op) => !operatorAllowlist || operatorAllowlist.includes(op)
@@ -311,7 +316,10 @@ export function OperatorValueSelect({
             )
         }
 
-        setOperators(operators)
+        return { operators, resolvedPropertyType }
+    }, [propertyDefinition, propertyKey, operatorAllowlist, type])
+
+    useEffect(() => {
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
         } else if (!operators.includes(currentOperator) && propertyDefinition) {
@@ -320,14 +328,14 @@ export function OperatorValueSelect({
             let defaultProperty = PropertyOperator.Exact
             if (isDateTimeProperty) {
                 defaultProperty = PropertyOperator.IsDateExact
-            } else if (propertyType === PropertyType.Cohort) {
+            } else if (resolvedPropertyType === PropertyType.Cohort) {
                 defaultProperty = PropertyOperator.In
             } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
                 defaultProperty = PropertyOperator.IContains
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [operators, resolvedPropertyType, propertyDefinition, propertyKey, operator, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
 
