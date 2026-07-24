@@ -177,6 +177,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
+    '/outcomes': ['Outcomes', 'outcomes'],
+    '/outcomes/:id': ['Outcome', 'outcome'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
@@ -709,6 +711,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
     },
+    Outcomes: {
+        name: 'Outcomes',
+        projectBased: true,
+        description:
+            'Define conditions over events that, once met by a person, become permanent facts and emit an event.',
+        iconType: 'metrics',
+    },
+    Outcome: { name: 'Outcome', projectBased: true, iconType: 'metrics' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -1186,6 +1196,8 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    outcomes: (): string => '/outcomes',
+    outcome: (id: string): string => `/outcomes/${id}`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -2061,6 +2073,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.notebooks(),
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Outcomes',
+        intents: [ProductKey.OUTCOMES],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'metrics',
+        href: urls.outcomes(),
+        flag: FEATURE_FLAGS.OUTCOMES,
+        tags: ['alpha'],
+        sceneKey: 'Outcomes',
+        sceneKeys: ['Outcomes', 'Outcome'],
     },
     {
         path: 'Playground',

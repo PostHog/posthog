@@ -94,6 +94,7 @@ from products.feature_flags.backend.tasks import (
     sync_cross_region_flags_task,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.outcomes.backend.tasks import schedule_outcome_calculations
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits
@@ -293,6 +294,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(day_of_week="mon", hour="5", minute="35"),
         refresh_signal_repository_activity.s(),
         name="refresh signals repository activity",
+    )
+
+    # Outcomes batch evaluation - every 5 minutes, fans out one task per outcome definition
+    # (reach-to-trigger latency equals this cadence, so keep it tight enough for
+    # onboarding/installation-style outcomes)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_outcome_calculations.s(),
+        name="schedule outcome calculations",
     )
 
     # Loop task retention sweep - daily at 4:30 AM

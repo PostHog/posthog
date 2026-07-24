@@ -3405,6 +3405,7 @@ class ProductKey(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
+    OUTCOMES = "outcomes"
     PERSONS = "persons"
     PIPELINE_BATCH_EXPORTS = "pipeline_batch_exports"
     PIPELINE_DESTINATIONS = "pipeline_destinations"

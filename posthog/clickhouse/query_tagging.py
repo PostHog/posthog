@@ -72,6 +72,7 @@ class Product(StrEnum):
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
+    OUTCOMES = "outcomes"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"

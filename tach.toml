@@ -113,6 +113,7 @@ depends_on = [
     "products.metrics",
     "products.notebooks",
     "products.notifications",
+    "products.outcomes",
     "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
@@ -1128,3 +1129,8 @@ expose = [
 from = [
     "products.data_catalog",
 ]
+
+[[modules]]
+path = "products.outcomes"
+depends_on = ["posthog"]
+layer = "modules"
