@@ -36,8 +36,10 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { ExcelSourceForm } from './components/ExcelSourceForm'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import { EXCEL_SOURCE_NAME } from './excelSourceLogic'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
@@ -522,6 +524,13 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
     // generic connection form and drives its own submit button rather than the wizard footer.
     if (selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME) {
         return <FileUploadSourceForm />
+    }
+
+    // Excel's "credential" is an uploaded workbook, which the generic form can't take. This step
+    // uploads it and writes the reference into the payload; the rest of the wizard is standard, so
+    // the user still gets the normal sheet and column pickers.
+    if (selectedConnector?.name === EXCEL_SOURCE_NAME) {
+        return <ExcelSourceForm />
     }
 
     return selectedConnector ? (

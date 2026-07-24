@@ -1038,7 +1038,11 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
  */
 export const WarehouseTablesUploadFileCreateBody = /* @__PURE__ */ zod.object({
     file: zod.instanceof(File).describe('The file to upload.'),
-    file_format: zod.enum(['csv', 'json', 'parquet']).describe('How the file will be read when the table is created.'),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet', 'xlsx'])
+        .describe(
+            "How the file will be read. 'xlsx' is stored for the Excel source to import; the other formats back a self-managed table read in place."
+        ),
 })
 
 /**

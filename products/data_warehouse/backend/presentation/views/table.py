@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
+    UPLOAD_ACCEPTED_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
@@ -505,8 +506,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     "file": {"type": "string", "format": "binary", "description": "The file to upload."},
                     "file_format": {
                         "type": "string",
-                        "enum": list(SUPPORTED_FILE_FORMATS),
-                        "description": "How the file will be read when the table is created.",
+                        "enum": list(UPLOAD_ACCEPTED_FORMATS),
+                        "description": (
+                            "How the file will be read. 'xlsx' is stored for the Excel source to "
+                            "import; the other formats back a self-managed table read in place."
+                        ),
                     },
                 },
                 "required": ["file", "file_format"],
@@ -564,10 +568,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         file = request.FILES["file"]
 
         file_format = request.data.get("file_format")
-        if file_format not in SUPPORTED_FILE_FORMATS:
+        if file_format not in UPLOAD_ACCEPTED_FORMATS:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid format. Must be one of: {', '.join(SUPPORTED_FILE_FORMATS)}"},
+                data={"message": f"Invalid format. Must be one of: {', '.join(UPLOAD_ACCEPTED_FORMATS)}"},
             )
 
         if file.size > MAX_FILE_UPLOAD_SIZE_BYTES:

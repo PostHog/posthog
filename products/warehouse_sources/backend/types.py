@@ -1291,6 +1291,7 @@ class ExternalDataSourceType(models.TextChoices):
     MELTWATER = "Meltwater", "Meltwater"
     USERCOM = "UserCom", "UserCom"
     LATITUDE = "Latitude", "Latitude"
+    EXCEL = "Excel", "Excel"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

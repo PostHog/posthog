@@ -387,6 +387,7 @@ from .eventbrite.source import EventbriteSource
 from .eventee.source import EventeeSource
 from .eventzilla.source import EventzillaSource
 from .everhour.source import EverhourSource
+from .excel.source import ExcelSource
 from .exchange_rates_api.source import ExchangeRatesApiSource
 from .expensify.source import ExpensifySource
 from .ezofficeinventory.source import EZOfficeInventorySource

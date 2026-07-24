@@ -140,6 +140,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # `True` for sources whose data is a one-off import rather than a feed that changes upstream
+    # (today: an uploaded Excel workbook). Their sync schedule is created paused, so the initial
+    # import runs once and any later refresh is a deliberate manual sync — re-running a cadence
+    # against a file that never changes would just rebuild the same table forever.
+    syncs_once: bool = False
+
     # `True` only for sources whose engine supports xmin-based incremental replication
     # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is
     # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag

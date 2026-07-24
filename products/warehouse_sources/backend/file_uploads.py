@@ -21,7 +21,16 @@ FORMAT_CSV = "csv"
 FORMAT_JSON = "json"
 FORMAT_PARQUET = "parquet"
 
+# Excel is stored but never read in place — ClickHouse has no Excel reader, so a workbook is imported
+# by the Excel *source*, which streams its sheets through the pipeline on a Temporal worker. The
+# upload endpoint therefore accepts it (the bytes have to land somewhere first) while the
+# table-from-file endpoint does not: `SUPPORTED_FILE_FORMATS` stays the set a self-managed table can
+# actually be built from, so a workbook can never back a table that fails every query.
+FORMAT_XLSX = "xlsx"
+
 SUPPORTED_FILE_FORMATS = (FORMAT_CSV, FORMAT_JSON, FORMAT_PARQUET)
+
+UPLOAD_ACCEPTED_FORMATS = (*SUPPORTED_FILE_FORMATS, FORMAT_XLSX)
 
 # Maps an uploaded file's format to the `DataWarehouseTable.TableFormat` value ClickHouse reads it
 # with in place. CSV is assumed to carry a header row (the common export shape), and JSON is read as
