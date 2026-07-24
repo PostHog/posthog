@@ -14,16 +14,9 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const {
-        currentStep,
-        isLastStep,
-        isFirstStep,
-        isExperimentSubmitting,
-        showGuide,
-        stepValidationErrors,
-        hasFormErrors,
-    } = useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment, toggleGuide } = useActions(experimentWizardLogic)
+    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, showGuide, stepValidationErrors } =
+        useValues(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, attemptSaveExperiment, toggleGuide } = useActions(experimentWizardLogic)
 
     const header = (
         <div className="flex items-center justify-between">
@@ -71,12 +64,7 @@ export function ExperimentWizard(): JSX.Element {
                 </div>
                 <div className="flex items-center gap-2">
                     {isLastStep ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={saveExperiment}
-                            loading={isExperimentSubmitting}
-                            disabledReason={hasFormErrors ? 'Please fix all errors before saving' : undefined}
-                        >
+                        <LemonButton type="primary" onClick={attemptSaveExperiment} loading={isExperimentSubmitting}>
                             Save as draft
                         </LemonButton>
                     ) : (
