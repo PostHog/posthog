@@ -393,6 +393,51 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
         assert filtered["results"][0]["elements"][0]["text"] == "sign up"
 
+    def test_element_stats_collapses_volatile_spa_tokens(self) -> None:
+        # the same logical button, captured across renders where Angular injects an
+        # ng-star-inserted class and a per-response CSP nonce, must aggregate into one row
+        # instead of fragmenting into one row per volatile variant
+        volatile_variants = [
+            {"attr_class": ["btn", "ng-star-inserted"], "attr__class": "btn ng-star-inserted", "nonce": "nonce-aaa"},
+            {"attr_class": ["btn"], "attr__class": "btn", "nonce": "nonce-bbb"},
+            {"attr_class": ["btn"], "attr__class": "btn", "nonce": "nonce-ccc"},
+        ]
+        for variant in volatile_variants:
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="one",
+                elements=[
+                    Element(
+                        tag_name="button",
+                        text="sign up",
+                        nth_child=2,
+                        nth_of_type=1,
+                        attr_class=variant["attr_class"],
+                        attributes={"attr__class": variant["attr__class"], "attr__ngcspnonce": variant["nonce"]},
+                    )
+                ],
+            )
+        # a genuinely different element must stay its own row (guards against over-merging)
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="one",
+            elements=[Element(tag_name="button", text="log in", nth_child=3, nth_of_type=1, attr_class=["btn"])],
+        )
+
+        results = self.client.get("/api/element/stats/?paginate_response=true").json()["results"]
+
+        assert len(results) == 2
+        sign_up = next(row for row in results if row["elements"][0]["text"] == "sign up")
+        log_in = next(row for row in results if row["elements"][0]["text"] == "log in")
+        assert sign_up["count"] == 3
+        assert log_in["count"] == 1
+        # volatile tokens are gone from the returned (normalized) chain the toolbar re-matches on
+        assert sign_up["elements"][0]["attr_class"] == ["btn"]
+        assert "attr__class" not in sign_up["elements"][0]["attributes"]
+        assert not any(key for key in sign_up["elements"][0]["attributes"] if "nonce" in key)
+
     def test_element_stats_returns_stable_chain_hashes(self) -> None:
         self._setup_events()
 
