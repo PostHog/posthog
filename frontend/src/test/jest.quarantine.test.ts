@@ -165,8 +165,12 @@ describe('jest.quarantine', () => {
                             JEST_JUNIT_OUTPUT_DIR: tmpDir,
                             // Mirror ci-frontend.yml: the CI reporter reads the `file` attribute to
                             // rebuild each test's identity, so the junit shape must match CI's here.
+                            // Every JEST_JUNIT_* var is pinned rather than inherited — under CI this
+                            // process already has them set, and an inherited output name would land
+                            // the report somewhere this test doesn't look.
                             JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true',
                             JEST_JUNIT_SUITE_NAME: '{filepath}',
+                            JEST_JUNIT_OUTPUT_NAME: 'junit.xml',
                             POSTHOG_TEST_QUARANTINE_PATH: quarantinePath,
                         },
                     }
