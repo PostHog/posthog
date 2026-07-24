@@ -1551,7 +1551,7 @@ const INSTALL_MODE_CARDS: {
 // live progress views take over once a run is actually moving.
 function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIndex: number }): JSX.Element {
     return (
-        <ol className="flex flex-wrap items-center gap-y-1 p-0 m-0 list-none">
+        <ol className="flex flex-nowrap items-center overflow-x-auto p-0 m-0 list-none">
             {steps.map((step, index) => (
                 <li key={step} className="flex items-center">
                     <span
