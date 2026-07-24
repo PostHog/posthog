@@ -218,5 +218,16 @@ mod tests {
             serde_json::to_value(OperatorType::Lte).unwrap(),
             serde_json::json!("lte")
         );
+
+        // Between/NotBetween must also round-trip to their own canonical wire names
+        // (guards the same hypercache verifier contract for the operators this PR adds).
+        assert_eq!(
+            serde_json::to_value(OperatorType::Between).unwrap(),
+            serde_json::json!("between")
+        );
+        assert_eq!(
+            serde_json::to_value(OperatorType::NotBetween).unwrap(),
+            serde_json::json!("not_between")
+        );
     }
 }
