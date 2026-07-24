@@ -37,6 +37,7 @@ import { template as twilioTemplate } from './_destinations/twilio/twilio.templa
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as whatsappTemplate } from './_destinations/whatsapp/whatsapp.template'
+import { template as witnTemplate } from './_destinations/witn/witn.template'
 import { template as pixelTemplate } from './_sources/pixel/pixel.template'
 import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
 import { template as vercelLogDrainTemplate } from './_sources/vercel/vercel_log_drain.template'
@@ -90,6 +91,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     klimeTemplate,
     unifyTemplate,
     closeTemplate,
+    witnTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
