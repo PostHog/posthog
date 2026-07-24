@@ -59,22 +59,36 @@ class KernelExecutor:
             # Cancelled while queued behind another run: never touch the kernel.
             if cancel_event is not None and cancel_event.is_set():
                 return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
+            # Attached to every envelope — error paths included, so a run that died waiting
+            # on the data plane still reports where its time went (the backend turns these
+            # into the kernel-phase metrics).
+            timings: dict[str, float] = {}
             try:
-                self._ensure_kernel()
+                boot_started = time.monotonic()
+                try:
+                    self._ensure_kernel()
+                finally:
+                    # ~0 when the kernel is already warm; a cold start — or a boot
+                    # failure — shows up as its own phase instead of unattributed time.
+                    timings["kernel_boot_s"] = round(time.monotonic() - boot_started, 3)
                 fetch_notes: list[str] = []
-                inputs = self._materialize_inputs(payload, cancel_event, fetch_notes)
+                inputs = self._materialize_inputs(payload, cancel_event, fetch_notes, timings)
+                exec_started = time.monotonic()
                 result = self._invoke_run_node(payload, inputs)
+                timings["exec_s"] = round(time.monotonic() - exec_started, 3)
                 if fetch_notes:
                     # Surface where each frame's bytes came from (truncated presigned host,
                     # never the full URL) in the node's stdout, next to the run's own output.
                     result["stdout"] = "\n".join([*fetch_notes, result.get("stdout") or ""]).strip("\n")
-                return result
             except data_plane.DataPlaneInterrupted:
-                return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
+                result = envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
             except data_plane.DataPlaneError as exc:
-                return envelope.from_python_execution(status="error", error=str(exc))
+                result = envelope.from_python_execution(status="error", error=str(exc))
             except Exception as exc:  # noqa: BLE001 — a run must always yield a callback envelope
-                return envelope.from_python_execution(status="error", error=f"Kernel run failed: {exc}")
+                result = envelope.from_python_execution(status="error", error=f"Kernel run failed: {exc}")
+            if timings:
+                result["timings"] = {**timings, **(result.get("timings") or {})}
+            return result
 
     def interrupt(self) -> None:
         if self._km is not None:
@@ -126,8 +140,14 @@ class KernelExecutor:
         payload: dict[str, Any],
         cancel_event: threading.Event | None = None,
         fetch_notes: list[str] | None = None,
+        timings: dict[str, float] | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only)."""
+        """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only).
+
+        When `timings` is given, accumulates `input_wait_s` (total wall time waiting on the
+        data plane across all inputs; cached frames add nothing) and `download_s` (the
+        presigned-download share of that wait) into it.
+        """
         kernel_inputs: list[dict[str, Any]] = []
         for spec in payload.get("inputs") or []:
             if cancel_event is not None and cancel_event.is_set():
@@ -145,14 +165,25 @@ class KernelExecutor:
             frame_path = os.path.join(self._frames_dir, f"{node_token}.{spec['run_id']}.arrow")
             if not os.path.exists(frame_path):
                 self._evict_superseded_frames(node_token, keep=frame_path)
-                _row_count, fetched_from = data_plane.materialize_query_to_file(
-                    payload["data_plane_url"],
-                    payload["data_plane_token"],
-                    spec["query"],
-                    frame_path,
-                    limit=_MATERIALIZE_ROW_CAP,
-                    cancel_event=cancel_event,
-                )
+                wait_started = time.monotonic()
+                try:
+                    _row_count, fetched_from, download_s = data_plane.materialize_query_to_file(
+                        payload["data_plane_url"],
+                        payload["data_plane_token"],
+                        spec["query"],
+                        frame_path,
+                        limit=_MATERIALIZE_ROW_CAP,
+                        cancel_event=cancel_event,
+                    )
+                finally:
+                    # Accumulated even when the fetch raises — a run that died waiting on the
+                    # data plane is exactly the one whose wait must stay visible.
+                    if timings is not None:
+                        timings["input_wait_s"] = round(
+                            timings.get("input_wait_s", 0.0) + (time.monotonic() - wait_started), 3
+                        )
+                if timings is not None:
+                    timings["download_s"] = round(timings.get("download_s", 0.0) + download_s, 3)
                 if fetched_from and fetch_notes is not None:
                     # Only object deliveries carry a source (the inline fallback has none) —
                     # this makes the frame-store path visible in the node output.
