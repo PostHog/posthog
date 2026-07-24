@@ -325,6 +325,32 @@ class TestFilters(BaseTest):
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
+    def test_date_range_placeholder_outside_comparison(self):
+        # Used outside a comparison (here directly as a SELECT expression) the placeholder
+        # used to crash with IndexError because it read an empty compare-operations stack.
+        select = replace_filters(
+            self._parse_select("SELECT {filters.dateRange.from}, {filters.dateRange.to} FROM events"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT toDateTime('2020-02-02 00:00:00.000000'), toDateTime('2020-02-03 00:00:00.000000') "
+            f"FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_date_range_placeholder_outside_comparison_without_filters(self):
+        # No date filter set: falls back to a constant instead of trying to skip a comparison.
+        select = replace_filters(
+            self._parse_select("SELECT {filters.dateRange.from}, {filters.dateRange.to} FROM events"),
+            HogQLFilters(),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT true, true FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
 
