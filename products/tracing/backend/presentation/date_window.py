@@ -17,6 +17,7 @@ previously turned a typo'd window into stale data with no error.
 """
 
 import re
+import json
 
 from dateutil import parser as dateutil_parser
 from rest_framework import serializers
@@ -91,3 +92,29 @@ def normalize_tracing_date_range(raw: object, *, default_date_from: str = "-1h")
     else:
         normalized["date_to"] = date_to
     return normalized
+
+
+def parse_tracing_date_range_param(raw_value: str | None, *, default_date_from: str = "-1h") -> dict:
+    """Parse the JSON-encoded ``dateRange`` query-string param for tracing GET endpoints.
+
+    The param carries a JSON object such as ``'{"date_from": "-7d"}'``. When it is absent or
+    blank the default window applies; when it is present but not a valid JSON object we raise a
+    ``ValidationError`` (HTTP 400) rather than silently falling back to the default — so a
+    mistyped window (e.g. the bare ``'-7d'`` string the sibling POST tools accept, which is not
+    valid JSON) surfaces as an error instead of a window silently truncated to the default.
+    """
+    if raw_value is None or not raw_value.strip():
+        return normalize_tracing_date_range({}, default_date_from=default_date_from)
+
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        raise serializers.ValidationError(
+            f'Invalid dateRange {raw_value!r}. Expected a JSON-encoded object such as \'{{"date_from": "-7d"}}\'.'
+        )
+    if not isinstance(parsed, dict):
+        raise serializers.ValidationError(
+            f"Invalid dateRange {raw_value!r}. Expected a JSON-encoded object such as "
+            '\'{"date_from": "-7d"}\', not a bare JSON value.'
+        )
+    return normalize_tracing_date_range(parsed, default_date_from=default_date_from)
