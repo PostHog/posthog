@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { QuickstartJourneyStep, quickstartLogic } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
+import { captureQuickstartAction } from '../../shared/captureQuickstartAction'
 
 export function JourneyOverlay({
     journey,

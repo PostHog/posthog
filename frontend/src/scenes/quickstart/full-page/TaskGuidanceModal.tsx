@@ -5,9 +5,9 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
-import { quickstartLogic } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
-import { PRODUCT_SDK_SETUP } from '../productSdkSetup'
+import { quickstartLogic } from '../quickstartLogic'
+import { captureQuickstartAction } from '../shared/captureQuickstartAction'
+import { PRODUCT_SDK_SETUP } from '../shared/productSdkSetup'
 
 export function TaskGuidanceModal(): JSX.Element {
     const { selectedTask, enablingProducts } = useValues(quickstartLogic)

@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
 
 import { quickstartLogic } from '../quickstartLogic'
-import { QuickstartModals } from '../shared/modals/QuickstartModals'
+import { ToolSetupModal } from '../shared/modals/ToolSetupModal'
 import { QuickstartHeader } from '../shared/QuickstartHeader'
 import { QuickstartPageShell } from '../shared/QuickstartPageShell'
-import { QuickstartToolsSections } from '../shared/QuickstartToolsSections'
 import { CompanionSetupModal } from './CompanionSetupModal'
 import { QuickstartGuidesSection } from './QuickstartGuidesSection'
 import { QuickstartInstallationPrompt } from './QuickstartInstallationPrompt'
+import { QuickstartToolsSections } from './QuickstartToolsSections'
+import { TaskGuidanceModal } from './TaskGuidanceModal'
 
 /** The test arm: the full homepage with tool cards, guides, companions, and publications. */
 export function QuickstartFullPage(): JSX.Element {
@@ -20,7 +21,8 @@ export function QuickstartFullPage(): JSX.Element {
             />
             <QuickstartToolsSections />
             <QuickstartGuidesSection />
-            <QuickstartModals installationComplete={installationComplete} />
+            <TaskGuidanceModal />
+            <ToolSetupModal installationComplete={installationComplete} />
             <CompanionSetupModal />
         </QuickstartPageShell>
     )

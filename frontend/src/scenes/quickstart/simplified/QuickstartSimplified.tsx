@@ -5,13 +5,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { quickstartLogic } from '../quickstartLogic'
 import { captureQuickstartAction } from '../shared/captureQuickstartAction'
-import { QuickstartModals } from '../shared/modals/QuickstartModals'
+import { ToolSetupModal } from '../shared/modals/ToolSetupModal'
 import { QuickstartHeader } from '../shared/QuickstartHeader'
 import { QuickstartPageShell } from '../shared/QuickstartPageShell'
-import { QuickstartToolsSections } from '../shared/QuickstartToolsSections'
 import { QuickstartFocusedInstall } from './QuickstartFocusedInstall'
-import { QuickstartHeroAnswerCard } from './QuickstartHeroAnswerCard'
 import { QuickstartSetupStatusChip } from './QuickstartSetupStatusChip'
+import { SimplifiedToolsSections } from './SimplifiedToolsSections'
 
 /** The test2 arm: a focused install view until the user moves on, then a hero answer and the tool cards. */
 export function QuickstartSimplified(): JSX.Element {
@@ -52,12 +51,9 @@ export function QuickstartSimplified(): JSX.Element {
             {focusedInstall ? (
                 <QuickstartFocusedInstall onDismiss={dismissFocusedInstall} />
             ) : (
-                <>
-                    <QuickstartHeroAnswerCard />
-                    <QuickstartToolsSections />
-                </>
+                <SimplifiedToolsSections />
             )}
-            <QuickstartModals installationComplete={installationComplete} />
+            <ToolSetupModal installationComplete={installationComplete} />
         </QuickstartPageShell>
     )
 }

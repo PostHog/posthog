@@ -3,7 +3,7 @@ import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/insta
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { QuickstartProduct } from '../../quickstartLogic'
-import { QuickstartWizardProgress } from '../QuickstartWizardProgress'
+import { QuickstartWizardProgress } from '../../shared/QuickstartWizardProgress'
 import { CompactProductCard } from './CompactProductCard'
 import { ProductCard } from './ProductCard'
 

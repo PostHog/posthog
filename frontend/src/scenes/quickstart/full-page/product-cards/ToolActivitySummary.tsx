@@ -2,7 +2,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { QuickstartProduct, QuickstartToolStatus } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
+import { captureQuickstartAction } from '../../shared/captureQuickstartAction'
 
 export function ToolActivitySummary({
     product,

@@ -8,7 +8,7 @@ import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 
 import { QuickstartProduct, quickstartLogic } from '../../quickstartLogic'
-import { isQuickstartProductInstalling } from '../QuickstartWizardProgress'
+import { isQuickstartProductInstalling } from '../../shared/QuickstartWizardProgress'
 import { ProductActions } from './ProductActions'
 import { ToolActivitySummary } from './ToolActivitySummary'
 import { ToolStatusPanel } from './ToolStatusPanel'

@@ -7,8 +7,8 @@ import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/insta
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { QuickstartToolStatus, quickstartLogic } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
-import { isQuickstartProductInstalling } from '../QuickstartWizardProgress'
+import { captureQuickstartAction } from '../../shared/captureQuickstartAction'
+import { isQuickstartProductInstalling } from '../../shared/QuickstartWizardProgress'
 import { JourneyMeter } from './JourneyMeter'
 
 /** Activity evidence and the best available improvement, without implying a finite completion goal. */

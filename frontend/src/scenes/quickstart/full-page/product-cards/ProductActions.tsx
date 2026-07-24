@@ -6,9 +6,9 @@ import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/insta
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 
 import { QuickstartProduct, quickstartLogic } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
-import { PRODUCT_SDK_SETUP } from '../productSdkSetup'
-import { isQuickstartProductInstalling } from '../QuickstartWizardProgress'
+import { captureQuickstartAction } from '../../shared/captureQuickstartAction'
+import { PRODUCT_SDK_SETUP } from '../../shared/productSdkSetup'
+import { isQuickstartProductInstalling } from '../../shared/QuickstartWizardProgress'
 
 export function ProductActions({
     product,

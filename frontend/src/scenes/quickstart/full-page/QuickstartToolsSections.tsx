@@ -5,9 +5,9 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { QUICKSTART_PRODUCT_LAYOUT } from '../productLayout'
 import { quickstartLogic } from '../quickstartLogic'
-import { HeaderStat } from './HeaderStat'
+import { HeaderStat } from '../shared/HeaderStat'
+import { SectionHeader } from '../shared/SectionHeader'
 import { QuickstartProductCard } from './product-cards/QuickstartProductCard'
-import { SectionHeader } from './SectionHeader'
 
 /** The featured and additional tool grids, shared by both variants. */
 export function QuickstartToolsSections(): JSX.Element {

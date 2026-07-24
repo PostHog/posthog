@@ -4,7 +4,7 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { QuickstartToolStatus } from '../../quickstartLogic'
-import { captureQuickstartAction } from '../captureQuickstartAction'
+import { captureQuickstartAction } from '../../shared/captureQuickstartAction'
 import { JourneyOverlay } from './JourneyOverlay'
 
 export function JourneyMeter({
