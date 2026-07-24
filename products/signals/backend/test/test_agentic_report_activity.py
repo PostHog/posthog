@@ -285,6 +285,48 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_select_repository_activity_failure_captures_error_type(monkeypatch, ateam):
+    # The catch-all failure path must split the opaque `agentic_activity_error` bucket by
+    # attaching the exception class (and a truncated first-line message) so an investigator
+    # can tell infra from GitHub from agent failures apart after the fact.
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def boom(*args, **kwargs):
+        raise ValueError("sandbox provisioning failed\nsecret continuation line")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        boom,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(ValueError):
+            await select_repository_activity(
+                SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            )
+
+    completed = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_repo_research_completed"]
+    assert len(completed) == 1
+    props = completed[0].kwargs["properties"]
+    assert props["result"] == "failed"
+    assert props["failure_reason"] == "agentic_activity_error"
+    assert props["error_type"] == "ValueError"
+    # First line only — the continuation line (which can carry customer-derived values) is dropped.
+    assert props["error"] == "sandbox provisioning failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
