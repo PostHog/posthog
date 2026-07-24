@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -67,6 +67,33 @@ describe('insight error states', () => {
 
         expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
         expect(container.querySelector('.LemonButtonWithSideAction') !== null).toBe(expectsSideAction)
+    })
+
+    // The retry button re-fires the identical (often deterministic or throttled) query, so it
+    // must back off after an attempt instead of staying immediately clickable to be hammered.
+    it('disables the retry button during a cooldown after an attempt', () => {
+        jest.useFakeTimers()
+        try {
+            const onRetry = jest.fn()
+            // Distinct query so the module-level cooldown state can't collide with other tests.
+            const query = { kind: 'DataTableNode', source: { kind: 'EventsQuery' } }
+            const { container } = render(<InsightErrorState onRetry={onRetry} query={query} />)
+
+            const button = (): HTMLElement =>
+                container.querySelector('[data-attr="insight-retry-button"]') as HTMLElement
+            expect(button().getAttribute('aria-disabled')).toBe('false')
+
+            fireEvent.click(button())
+            expect(onRetry).toHaveBeenCalledTimes(1)
+            expect(button().getAttribute('aria-disabled')).toBe('true')
+
+            act(() => {
+                jest.advanceTimersByTime(31000) // past the max cooldown
+            })
+            expect(button().getAttribute('aria-disabled')).toBe('false')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('shows support without retry guidance for persistent errors', () => {

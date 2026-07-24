@@ -166,6 +166,33 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
     )
 }
 
+// Escalating cooldown for the retry button. Many query failures are deterministic (a query
+// shape ClickHouse can't plan) or throttled (429 until the window clears), so re-firing the
+// identical query immediately just fails again. We back off between attempts to stop the
+// hammering. State lives at module scope keyed by the query, because the error empty-state
+// (and therefore this button) unmounts and remounts around each attempt, which would otherwise
+// reset any component-local counter. Entries self-expire so an unrelated later failure starts
+// fresh, and expired ones are pruned on write to keep the map from growing unbounded.
+const RETRY_BASE_COOLDOWN_MS = 3000
+const RETRY_MAX_COOLDOWN_MS = 30000
+const RETRY_STATE_RESET_MS = 60000
+const retryStateByQuery = new Map<string, { attempts: number; lastAttemptAt: number }>()
+
+function retryCooldownMs(attempts: number): number {
+    if (attempts <= 0) {
+        return 0
+    }
+    return Math.min(RETRY_BASE_COOLDOWN_MS * 2 ** (attempts - 1), RETRY_MAX_COOLDOWN_MS)
+}
+
+function retryStateKey(query?: Record<string, any> | Node | null): string {
+    try {
+        return JSON.stringify(query) ?? 'no-query'
+    } catch {
+        return 'no-query'
+    }
+}
+
 const RetryButton = ({
     onRetry,
     query,
@@ -173,6 +200,51 @@ const RetryButton = ({
     onRetry: () => void
     query?: Record<string, any> | Node | null
 }): JSX.Element => {
+    const retryKey = retryStateKey(query)
+    const [cooldownUntil, setCooldownUntil] = useState(0)
+    const [now, setNow] = useState(() => Date.now())
+
+    // On (re)mount after a failed attempt, resume the cooldown for the recorded attempt count.
+    // The failing query's round trip counts toward the cooldown, so a slow deterministic query
+    // may already be past it (no wait), while an instant 429 still gets held back.
+    useEffect(() => {
+        const entry = retryStateByQuery.get(retryKey)
+        if (entry && Date.now() - entry.lastAttemptAt < RETRY_STATE_RESET_MS) {
+            setCooldownUntil(entry.lastAttemptAt + retryCooldownMs(entry.attempts))
+        } else {
+            retryStateByQuery.delete(retryKey)
+        }
+    }, [retryKey])
+
+    // Tick only while cooling down, so the countdown label stays live without a permanent timer.
+    useEffect(() => {
+        if (cooldownUntil <= Date.now()) {
+            return
+        }
+        const interval = setInterval(() => setNow(Date.now()), 500)
+        return () => clearInterval(interval)
+    }, [cooldownUntil])
+
+    const remainingMs = Math.max(0, cooldownUntil - now)
+    const remainingSeconds = Math.ceil(remainingMs / 1000)
+
+    const handleRetry = (): void => {
+        const timestamp = Date.now()
+        for (const [key, entry] of retryStateByQuery) {
+            if (timestamp - entry.lastAttemptAt >= RETRY_STATE_RESET_MS) {
+                retryStateByQuery.delete(key)
+            }
+        }
+        const previous = retryStateByQuery.get(retryKey)
+        const attempts = (previous ? previous.attempts : 0) + 1
+        retryStateByQuery.set(retryKey, { attempts, lastAttemptAt: timestamp })
+        // Set the cooldown right away so the button also backs off if it stays mounted (the
+        // error state usually remounts between attempts, and the mount effect resumes the same
+        // cooldown from the stored attempt count either way).
+        setCooldownUntil(timestamp + retryCooldownMs(attempts))
+        onRetry()
+    }
+
     const sideAction = query
         ? {
               dropdown: {
@@ -196,7 +268,12 @@ const RetryButton = ({
             data-attr="insight-retry-button"
             size="small"
             type="primary"
-            onClick={() => onRetry()}
+            onClick={handleRetry}
+            disabledReason={
+                remainingSeconds > 0
+                    ? `This query keeps failing. Wait ${remainingSeconds}s before trying again.`
+                    : undefined
+            }
             sideAction={sideAction}
         >
             Try again

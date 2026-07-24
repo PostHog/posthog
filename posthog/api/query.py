@@ -453,13 +453,33 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
 
     def handle_column_ch_error(self, error):
-        if getattr(error, "message", None):
-            match = re.search(r"There's no column.*in table", error.message)
-            if match:
-                # TODO: remove once we support all column types
-                raise ValidationError(
-                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
-                )
+        message = getattr(error, "message", None)
+        if not message:
+            return
+
+        match = re.search(r"There's no column.*in table", message)
+        if match:
+            # TODO: remove once we support all column types
+            raise ValidationError(match.group(0) + ". Note: While in beta, not all column types may be fully supported")
+
+        # ClickHouse analyzer bug class: a synthesized column present in one stage of the query
+        # plan is missing from another ("Not found column ... in block", "Cannot find column ...
+        # in source stream"). It's deterministic for a given query shape, so re-running the same
+        # query won't help. We already work around known variants via query settings (see the
+        # bugfix workarounds in HogQLGlobalSettings), but new variants still land here — surface an
+        # actionable message instead of the opaque "ClickHouse error while executing query." Still
+        # capture it so we can chase the underlying variant and add the matching workaround.
+        if re.search(r"[Nn]ot found column .+ in block", message) or re.search(
+            r"[Cc]annot find column .+ in source stream", message
+        ):
+            capture_exception(error)
+            raise ValidationError(
+                "We couldn't run this query due to a known ClickHouse limitation in how some columns "
+                "are combined while planning the query. Retrying the same query won't help. Try adjusting "
+                "it, for example changing a filter, breakdown, or the date range. If it keeps happening, "
+                "let us know so we can add a fix.",
+                code="clickhouse_column_not_found",
+            )
         return
 
     def _tag_client_query_id(self, query_id: str | None):

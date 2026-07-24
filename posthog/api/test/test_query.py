@@ -41,6 +41,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.models.utils import UUIDT
 
@@ -64,6 +65,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+
+    @parameterized.expand(
+        [
+            (
+                "not_found_in_block",
+                "Code: 10. DB::Exception: Not found column foo in block. There are only columns: bar",
+            ),
+            (
+                "cannot_find_in_source_stream",
+                "Code: 8. DB::Exception: Cannot find column minIf(x) in source stream, there are only columns: [minIf(y)]",
+            ),
+        ]
+    )
+    def test_column_not_found_analyzer_error_returns_actionable_message(self, _name, raw_message):
+        # The ClickHouse analyzer "column ... in block" bug class is deterministic for a query shape,
+        # so it used to collapse into the opaque "ClickHouse error while executing query." with no hint.
+        # It should surface an actionable 400 while still being captured so we can chase the variant.
+        with (
+            patch(
+                "posthog.api.query.process_query_model",
+                side_effect=InternalCHQueryError(raw_message, code=10),
+            ),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("known ClickHouse limitation", detail)
+        self.assertNotIn("ClickHouse error while executing query", detail)
+        mock_capture.assert_called_once()
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
