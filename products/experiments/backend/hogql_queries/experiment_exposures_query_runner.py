@@ -33,7 +33,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.experiments.backend.analysis_health import evaluate_bias_risk
-from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries import (
+    FLAG_WITHOUT_VARIANTS_ERROR_CODE,
+    FLAG_WITHOUT_VARIANTS_ERROR_MESSAGE,
+    MULTIPLE_VARIANT_KEY,
+    variants_from_flag_filters,
+)
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
@@ -92,11 +97,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
         self.excluded_variants = set(self.experiment.excluded_variants or [])
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        flag_variants = variants_from_flag_filters(self.query.feature_flag.get("filters"))
+        if not flag_variants:
+            raise ValidationError(FLAG_WITHOUT_VARIANTS_ERROR_MESSAGE, code=FLAG_WITHOUT_VARIANTS_ERROR_CODE)
         self.variants = [
-            variant.get("key")
-            for variant in multivariate_data.get("variants", [])
-            if variant.get("key") not in self.excluded_variants
+            variant.get("key") for variant in flag_variants if variant.get("key") not in self.excluded_variants
         ]
 
         self.date_range = self._get_date_range()
@@ -188,8 +193,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         Compares observed variant distribution against expected (from rollout percentages).
         Returns None if insufficient data.
         """
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
-        variants_config = multivariate_data.get("variants", [])
+        variants_config = variants_from_flag_filters(self.query.feature_flag.get("filters"))
 
         if not variants_config or not total_exposures:
             return None
@@ -276,8 +280,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # query (the cache key), so the running/stopped decision matches the cached window.
         if self.window_end_date is not None:
             return None
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
-        flag_variants = multivariate_data.get("variants", [])
+        flag_variants = variants_from_flag_filters(self.query.feature_flag.get("filters"))
         _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
         return evaluate_bias_risk(
             flag_variants=flag_variants,

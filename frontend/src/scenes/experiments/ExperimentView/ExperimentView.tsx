@@ -38,6 +38,7 @@ import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
+import { FlagVariantsRemovedBanner } from './FlagVariantsRemovedBanner'
 import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -75,12 +76,23 @@ const AiAnalysisTab = (): JSX.Element => {
 }
 
 const MetricsTab = (): JSX.Element => {
-    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
-        useValues(experimentLogic)
+    const {
+        experiment,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
+        isExperimentLaunched,
+        flagVariantsRemoved,
+    } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
+
+    // The flag lost its variants — exposures and metrics can't be computed, so show the error state
+    // instead of empty/spinning exposure and metric panels.
+    if (flagVariantsRemoved) {
+        return <FlagVariantsRemovedBanner />
+    }
 
     return (
         <>

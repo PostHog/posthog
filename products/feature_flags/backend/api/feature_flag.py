@@ -100,6 +100,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
     FeatureFlagDashboards,
     set_feature_flags_for_team_in_cache,
+    variants_from_filters,
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
@@ -1048,6 +1049,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
+        self._validate_experiment_variants_preserved(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1154,6 +1156,35 @@ class FeatureFlagSerializer(
                 "Cannot archive an enabled feature flag. Disable it first, or send active: false in the same request."
             )
         raise serializers.ValidationError("Cannot enable an archived feature flag. Unarchive it first.")
+
+    def _validate_experiment_variants_preserved(self, attrs: dict) -> None:
+        """Block converting a flag from multivariate to boolean/rollout while a non-deleted
+        experiment references it. Every such experiment — draft, running, or ended — runs an
+        exposure query that needs the flag's variants, so dropping them breaks the results view.
+        Only deleted experiments are exempt."""
+        if self.instance is None:
+            return
+
+        # `get_filters` is the DictField's source; absent means filters aren't being updated.
+        _MISSING: Any = object()
+        new_filters = attrs.get("get_filters", _MISSING)
+        if new_filters is _MISSING:
+            return
+
+        # Only the multivariate -> boolean/rollout transition matters: had variants, now has none.
+        if not self.instance.variants or variants_from_filters(new_filters):
+            return
+
+        experiments = list(self.instance.experiment_set.filter(deleted=False))
+        if not experiments:
+            return
+
+        experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in experiments)
+        raise serializers.ValidationError(
+            f"Cannot remove this flag's variants while it is linked to experiment(s): {experiment_names}. "
+            "Converting the flag to boolean or rollout would break those experiments' exposure and "
+            "metric results. Delete or detach the experiment(s) first."
+        )
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
         """Encrypted payloads are only valid on remote configuration flags."""

@@ -47,7 +47,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
+from products.experiments.backend.hogql_queries import (
+    FLAG_WITHOUT_VARIANTS_ERROR_CODE,
+    FLAG_WITHOUT_VARIANTS_ERROR_MESSAGE,
+    MULTIPLE_VARIANT_KEY,
+    get_baseline_variant_key,
+)
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -240,6 +245,13 @@ class ExperimentQueryRunner(QueryRunner):
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.group_type_index = self.feature_flag.aggregation_group_type_index
         self.entity_key = get_entity_key(self.group_type_index)
+
+        # An experiment can't be scored without variants to split metrics across. This happens when
+        # the flag was converted from multivariate to a plain boolean/rollout flag (see
+        # FeatureFlag.variants — filters.multivariate is null or has an empty variants list). Raise a
+        # 4xx so the UI can explain it instead of failing later with an opaque error.
+        if not self.feature_flag.variants:
+            raise ValidationError(FLAG_WITHOUT_VARIANTS_ERROR_MESSAGE, code=FLAG_WITHOUT_VARIANTS_ERROR_CODE)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the metric scorecard.
