@@ -185,6 +185,10 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
 # ---------- junit parsing ----------
 
 
+def is_retry_attempt(tag: str) -> bool:
+    return tag.startswith("rerun") or tag in ("flakyFailure", "flakyError")
+
+
 def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
@@ -205,7 +209,7 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
                         rerun_count += max(0, int(prop.get("value", "0")))
                     except ValueError:
                         pass
-        elif tag.startswith("rerun") or tag in ("flakyFailure", "flakyError"):
+        elif is_retry_attempt(tag):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
@@ -315,6 +319,12 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
             duration = float(tc.get("time", "0"))
         except ValueError:
             duration = 0.0
+        for child in tc:
+            if is_retry_attempt(child.tag):
+                try:
+                    duration += max(0.0, float(child.get("time", "0")))
+                except ValueError:
+                    pass
         test_start = cursor
         test_end = cursor + timedelta(seconds=duration)
         cursor = test_end

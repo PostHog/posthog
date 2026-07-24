@@ -144,7 +144,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             <testcase classname="pkg.test_a.TestA" name="test_fast" time="0.1"/>
             <testcase classname="pkg.test_a.TestA" name="test_slow" time="2.0"/>
             <testcase classname="pkg.test_a.TestA" name="test_rerun" time="0.2">
-              <rerunFailure message="x"/>
+              <flakyFailure message="x" time="0.3"/>
             </testcase>
             <testcase classname="pkg.test_a.TestA" name="test_fail" time="0.1"><failure message="x"/></testcase>
         """,
@@ -160,8 +160,8 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.info.total == 7
     assert shard.start == datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     assert (shard.end - shard.start).total_seconds() == pytest.approx(10.0)
-    assert shard.testcase_seconds == pytest.approx(2.4)
-    assert shard.overhead_seconds == pytest.approx(7.6)
+    assert shard.testcase_seconds == pytest.approx(2.7)
+    assert shard.overhead_seconds == pytest.approx(7.3)
     assert shard.junit_filename == "junit-core.xml"
     assert [t.name for t in shard.tests] == ["test_fast", "test_slow", "test_rerun", "test_fail"]
     assert shard.tests[0].nodeid == "pkg/test_a/TestA::test_fast"
@@ -169,6 +169,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[0].end == datetime(2026, 5, 4, 10, 0, 0, 100000, tzinfo=UTC)
     assert shard.tests[1].start == shard.tests[0].end
     assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
+    assert shard.tests[2].duration_seconds == pytest.approx(0.5)
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
