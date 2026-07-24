@@ -1,4 +1,3 @@
-import pickle
 import asyncio
 from typing import cast
 from uuid import uuid4
@@ -97,12 +96,11 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_with_data(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock serialized data
-            import pickle
 
             test_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test"))
             )
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             chunks = []
@@ -117,10 +115,9 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_completion_status(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock xread to return completion status
-            import pickle
 
             test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             chunks = []
@@ -133,10 +130,8 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_error_status(self):
         # Test that RedisStreamError is raised when there's an error status
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            import pickle
-
             test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="error", error="Test error")))
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             with self.assertRaises(StreamError) as context:
@@ -245,12 +240,11 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_no_messages_continue_polling(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # First call returns no messages, second call returns data
-            import pickle
 
             test_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test chunk"))
             )
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(
                 side_effect=[
                     [],  # No messages
@@ -271,7 +265,6 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_multiple_messages(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock xread to return multiple messages
-            import pickle
 
             test_event1 = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="chunk 1"))
@@ -285,9 +278,9 @@ class TestRedisStream(BaseTest):
                     (
                         self.stream_key,
                         [
-                            (b"1234-0", {b"data": pickle.dumps(test_event1)}),
-                            (b"1234-1", {b"data": pickle.dumps(test_event2)}),
-                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                            (b"1234-0", {b"data": test_event1.model_dump_json().encode("utf-8")}),
+                            (b"1234-1", {b"data": test_event2.model_dump_json().encode("utf-8")}),
+                            (b"1234-2", {b"data": complete_event.model_dump_json().encode("utf-8")}),
                         ],
                     )
                 ]
@@ -305,7 +298,6 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_invalid_data_skipped(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock xread to return invalid serialized data
-            import pickle
 
             valid_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="valid chunk"))
@@ -316,9 +308,9 @@ class TestRedisStream(BaseTest):
                     (
                         self.stream_key,
                         [
-                            (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid pickle data
-                            (b"1234-1", {b"data": pickle.dumps(valid_event)}),
-                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                            (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid serialized data
+                            (b"1234-1", {b"data": valid_event.model_dump_json().encode("utf-8")}),
+                            (b"1234-2", {b"data": complete_event.model_dump_json().encode("utf-8")}),
                         ],
                     )
                 ]
@@ -618,10 +610,9 @@ class TestGetSubagentStreamKey(BaseTest):
 
 
 class TestConversationStreamSerializerJson(SimpleTestCase):
-    # Phase 1 of the pickle->JSON migration: the reader must parse JSON entries (and still read
-    # legacy pickle) before any writer emits JSON. The inner payload union is resolved by pydantic
-    # smart mode, so each member — especially the three that share only `content: str` — is a
-    # distinct resolution case that could misresolve or drop fields on the validate-back leg.
+    # The stream payload's inner union is resolved by pydantic smart mode, so each member is a
+    # distinct resolution case. The three that share only `content: str` are the ones most likely
+    # to misresolve or drop fields when validated back from JSON.
     @parameterized.expand(
         [
             ("assistant", AssistantMessage(content="hi")),
@@ -635,7 +626,7 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         serializer = ConversationStreamSerializer()
         event = StreamEvent(event=MessageEvent(type=AssistantEventType.MESSAGE, payload=payload))
         json_bytes = event.model_dump_json().encode("utf-8")
-        assert json_bytes[:1] == b"{"  # the byte the reader branches on to pick JSON over pickle
+        assert json_bytes[:1] == b"{"  # stream entries serialize as JSON objects
 
         result = serializer.deserialize({b"data": json_bytes})
 
@@ -699,18 +690,8 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         self.assertIs(type(result.event), type(event))
         self.assertEqual(result.event, event)
 
-    def test_deserialize_still_reads_legacy_pickle(self):
-        serializer = ConversationStreamSerializer()
-        event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
-
-        result = serializer.deserialize({b"data": pickle.dumps(event)})
-
-        self.assertEqual(result.event.type, "STREAM_STATUS")
-        payload = cast(StatusPayload, result.event.payload)
-        self.assertEqual(payload.status, "complete")
-
     def test_dumps_emits_json(self):
-        # Phase 2: the writer now emits JSON rather than pickle.
+        # the serializer emits JSON, so a stream entry is a JSON object
         serializer = ConversationStreamSerializer()
 
         result = serializer.dumps((AssistantEventType.MESSAGE, AssistantMessage(content="hi")))
