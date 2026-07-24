@@ -134,12 +134,21 @@ pub async fn handle_issue_spiking(
     context: &NotificationsContext,
     notification: IssueSpiking,
 ) -> Result<(), UnhandledError> {
+    if context
+        .issue_lifecycle_workflow_starters
+        .start_spiking_if_enabled(&notification)
+        .await?
+    {
+        return Ok(());
+    }
+
     let IssueSpiking {
         meta,
         issue,
         computed_baseline,
         current_bucket_value,
         assignee,
+        ..
     } = notification;
     let IssueNotificationContext {
         issue_id,

@@ -10,14 +10,13 @@ use crate::{
     issue_resolution::Issue,
     metric_consts::SPIKE_ALERT_STAGE,
     stages::{
-        alerting::spike_detection::do_spike_detection,
+        alerting::spike_detection::{do_spike_detection, SpikeSample},
         pipeline::{FinalizedPipelineItem, RateCheckedPipelineItem},
     },
     types::{
         batch::Batch,
         exception_event::ExceptionEvent,
         stage::{Stage, StageResult},
-        ProcessedExceptionProperties,
     },
 };
 
@@ -42,14 +41,18 @@ impl Stage for SpikeAlertStage {
 
     async fn process(self, batch: Batch<RateCheckedPipelineItem>) -> StageResult<Self> {
         let mut issues: Vec<Issue> = Vec::new();
-        let mut issue_props_by_id: HashMap<Uuid, ProcessedExceptionProperties> = HashMap::new();
+        let mut issue_samples_by_id: HashMap<Uuid, SpikeSample> = HashMap::new();
 
         for res in batch.inner_ref() {
             let Ok(evt) = res else { continue };
             let issue = evt.issue();
             // Keep one ProcessedExceptionProperties per issue (they share the same stack shape)
-            if let Entry::Vacant(e) = issue_props_by_id.entry(issue.id) {
-                e.insert(evt.processed_properties());
+            if let Entry::Vacant(e) = issue_samples_by_id.entry(issue.id) {
+                e.insert(SpikeSample {
+                    props: evt.processed_properties(),
+                    event_uuid: evt.uuid(),
+                    event_timestamp: evt.timestamp().to_string(),
+                });
             }
             issues.push(issue.clone());
         }
@@ -68,7 +71,7 @@ impl Stage for SpikeAlertStage {
         do_spike_detection(
             self.context,
             issues_by_id,
-            issue_props_by_id,
+            issue_samples_by_id,
             issues_count_by_id,
         )
         .await?;

@@ -486,9 +486,21 @@ pub async fn send_issue_spiking_notification(
     context: &AppContext,
     issue: &Issue,
     processed_properties: ProcessedExceptionProperties,
+    event_uuid: Uuid,
+    event_timestamp: &str,
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
+    store_error_tracking_event_properties(
+        &*context.issue_buckets_redis_client,
+        context.config.event_properties_ttl_seconds,
+        context.config.event_properties_max_bytes,
+        issue.team_id,
+        event_uuid,
+        "issue_spiking",
+        &processed_properties,
+    )
+    .await;
     let assignment = issue
         .get_assignments(&context.posthog_pool)
         .await?
@@ -500,6 +512,8 @@ pub async fn send_issue_spiking_notification(
         IngestionNotification::IssueSpiking(IssueSpiking {
             meta: notification_meta(issue),
             issue: issue_notification_context(issue, processed_properties),
+            event_uuid,
+            event_timestamp: event_timestamp.to_string(),
             computed_baseline,
             current_bucket_value,
             assignee: assignment_to_string(assignment)?,
