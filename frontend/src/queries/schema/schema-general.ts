@@ -484,6 +484,9 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Route queries that read only from materialized views (no joins to other tables) to the dedicated
+     * endpoints ClickHouse cluster — the same isolated S3-delta read path materialized endpoints use. */
+    useEndpointsClusterForMaterializedViewOnlyQueries?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean

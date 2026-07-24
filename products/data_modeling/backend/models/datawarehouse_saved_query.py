@@ -420,7 +420,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectRedshiftTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            return self.table.hogql_definition(modifiers)
+            definition = self.table.hogql_definition(modifiers)
+            # Flag the backing S3 read so workload detection can route matview-only queries to the
+            # endpoints cluster. Direct (Postgres/MySQL/Snowflake) backings dispatch by connection
+            # instead, so they carry no flag.
+            if isinstance(definition, HogQLDataWarehouseTable):
+                definition.is_materialized_view = True
+            return definition
 
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:

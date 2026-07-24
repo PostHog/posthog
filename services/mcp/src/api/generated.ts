@@ -620,6 +620,8 @@ export namespace Schemas {
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       timings?: boolean | null;
+      /** Route queries that read only from materialized views (no joins to other tables) to the dedicated endpoints ClickHouse cluster — the same isolated S3-delta read path materialized endpoints use. */
+      useEndpointsClusterForMaterializedViewOnlyQueries?: boolean | null;
       useMaterializedViews?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */

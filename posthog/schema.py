@@ -5131,6 +5131,14 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
+    useEndpointsClusterForMaterializedViewOnlyQueries: bool | None = Field(
+        default=None,
+        description=(
+            "Route queries that read only from materialized views (no joins to other"
+            " tables) to the dedicated endpoints ClickHouse cluster — the same isolated"
+            " S3-delta read path materialized endpoints use."
+        ),
+    )
     useMaterializedViews: bool | None = None
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(

@@ -26399,6 +26399,10 @@
                 "timings": {
                     "type": "boolean"
                 },
+                "useEndpointsClusterForMaterializedViewOnlyQueries": {
+                    "description": "Route queries that read only from materialized views (no joins to other tables) to the dedicated endpoints ClickHouse cluster — the same isolated S3-delta read path materialized endpoints use.",
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },

@@ -110,6 +110,9 @@ def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team"):
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
+    if modifiers.useEndpointsClusterForMaterializedViewOnlyQueries is None:
+        modifiers.useEndpointsClusterForMaterializedViewOnlyQueries = False
+
     if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 

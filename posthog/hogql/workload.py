@@ -1,9 +1,17 @@
 from posthog.hogql import ast
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.models import FunctionCallTable, Table
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.workload import Workload
+
+# numbers() is a pure-compute ClickHouse table function with no cluster affinity — it runs identically
+# on any cluster, so it must not disqualify a matview-only query from routing. (range() /
+# generate_series() / opaque direct-SQL table functions are DuckDB-only and raise in the ClickHouse
+# dialect this collector runs in, so they can never appear here.)
+_STANDALONE_FUNCTION_TABLES = (NumbersTable,)
 
 
 class WorkloadCollector(TraversingVisitor):
@@ -44,3 +52,38 @@ class WorkloadCollector(TraversingVisitor):
             f"Cannot query tables from different clusters in the same query. "
             f"Found tables requiring clusters: {', '.join(sorted(w.value.capitalize() for w in self.workloads))}"
         )
+
+
+class MaterializedViewOnlyCollector(TraversingVisitor):
+    """Detects queries whose only data reads are materialized-view S3 tables.
+
+    Such a query is isolated in exactly the way a materialized endpoint is — it reads a single
+    S3-delta file and nothing else — so it can run on the dedicated endpoints cluster. Must be
+    visited on the fully lazy-resolved AST: a lazy join to persons/events (which lives on another
+    cluster) only materializes into a concrete table after lazy-table resolution, and it must
+    disqualify the query.
+    """
+
+    def __init__(self):
+        self.saw_materialized_view = False
+        self.saw_other_table = False
+
+    def visit_table_type(self, node: ast.TableType):
+        self._check_table(node.table)
+
+    def visit_lazy_table_type(self, node: ast.TableType):
+        # An unresolved lazy table means the query still depends on a joined source (persons,
+        # events, groups, sessions) that isn't an S3 read — never route these.
+        self.saw_other_table = True
+
+    def _check_table(self, table: Table) -> None:
+        if isinstance(table, _STANDALONE_FUNCTION_TABLES):
+            return
+        if isinstance(table, S3Table) and table.is_materialized_view:
+            self.saw_materialized_view = True
+        else:
+            self.saw_other_table = True
+
+    @property
+    def is_materialized_view_only(self) -> bool:
+        return self.saw_materialized_view and not self.saw_other_table
