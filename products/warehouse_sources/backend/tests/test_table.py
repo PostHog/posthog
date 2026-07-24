@@ -58,6 +58,23 @@ class TestSafeExposeChError:
         with pytest.raises(ClickHouseAtCapacity):
             DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
+    def test_delta_kernel_permission_error_gets_actionable_message(self) -> None:
+        # Delta-format tables (the default for every warehouse_sources synced table) read via
+        # ClickHouse's DeltaLake kernel, whose object_store errors use different wording than
+        # the native ClickHouse S3 errors above. Without a matching ExtractErrors entry this
+        # fell through to the generic fallback message regardless of the actual cause.
+        delta_kernel_error = ServerException(
+            "DB::Exception: Received DeltaLake kernel error ObjectStoreError: Error interacting with "
+            "object store: The operation lacked the necessary privileges to complete for path "
+            "team_2_mysql_x/dw_table/_delta_log/_last_checkpoint: Error performing GET "
+            "http://objectstorage:19000/data-warehouse/team_2_mysql_x/dw_table/_delta_log/_last_checkpoint "
+            "- Server returned non-2xx status code: 403 Forbidden: AccessDenied",
+            code=742,  # DELTA_KERNEL_ERROR
+        )
+
+        with pytest.raises(Exception, match="Access was denied when reading the provided file"):
+            DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
+
 
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
