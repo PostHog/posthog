@@ -5,7 +5,9 @@ on:
         # (the merge gate). ready_for_review re-triggers the full run on the
         # current head when a PR leaves draft. To force the full matrix on a
         # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
-        # the run so it starts without needing a new push.
+        # the run so it starts without needing a new push. The `no-ci` label does
+        # the opposite: it silences this workflow on a draft entirely (prototypes),
+        # until the label is removed or the PR is marked ready for review.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     push:
         branches:
@@ -31,6 +33,13 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run frontend checks
         # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
         # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
@@ -716,8 +725,10 @@ jobs:
             # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
             # so each segment uploads under its own variant. Internal PRs only (needs the secret);
             # cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -734,7 +745,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -776,8 +787,10 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -792,7 +805,7 @@ jobs:
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

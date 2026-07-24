@@ -39,8 +39,13 @@ import argparse
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCAN_ROOT = REPO_ROOT / "products/data_warehouse/backend/presentation"
-BASELINE_FILE = SCAN_ROOT / "source_agnostic_baseline.txt"
+# The source/schema API layer lives in warehouse_sources; the table/query-side API layer
+# stays in data_warehouse. Both must stay source-agnostic, so scan both presentation trees.
+SCAN_ROOTS = [
+    REPO_ROOT / "products/data_warehouse/backend/presentation",
+    REPO_ROOT / "products/warehouse_sources/backend/presentation",
+]
+BASELINE_FILE = REPO_ROOT / "products/data_warehouse/backend/presentation/source_agnostic_baseline.txt"
 
 # Structural signals that the API layer is naming a concrete source type. Kept
 # deliberately narrow (enum member refs + the model's `is_direct_*` engine
@@ -71,7 +76,8 @@ BASELINE_HEADER = (
 def scan_current() -> dict[tuple[str, str], int]:
     """Count forbidden per-source references, keyed on (relpath, matched token)."""
     counts: dict[tuple[str, str], int] = {}
-    for path in sorted(SCAN_ROOT.rglob("*.py")):
+    paths = sorted(p for root in SCAN_ROOTS if root.exists() for p in root.rglob("*.py"))
+    for path in paths:
         if path.name.startswith("test_") or "/tests/" in path.as_posix():
             continue
         relpath = path.relative_to(REPO_ROOT).as_posix()

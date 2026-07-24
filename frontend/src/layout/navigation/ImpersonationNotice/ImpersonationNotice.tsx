@@ -18,8 +18,13 @@ import { userLogic } from 'scenes/userLogic'
 import { OrganizationMemberType } from '~/types'
 
 import { AdminLoginButtons } from './AdminLoginButtons'
-import { ExpiredSessionInfo, ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
-import { ImpersonationReasonModal, ImpersonationReasonModalCancelButton } from './ImpersonationReasonModal'
+import {
+    AdminLoginUrl,
+    ExpiredSessionInfo,
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from './impersonationNoticeLogic'
+import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 // One row in the "Change user" dropdown: name on top, email beneath in muted text, level pill on the right.
 function ChangeUserMenuItemLabel({
@@ -77,7 +82,13 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     return <span className="tabular-nums">{countdown}</span>
 }
 
-function LoginAsContent({ ticketContext }: { ticketContext: ImpersonationTicketContext }): JSX.Element {
+function LoginAsContent({
+    ticketContext,
+    adminLoginUrls,
+}: {
+    ticketContext: ImpersonationTicketContext
+    adminLoginUrls: AdminLoginUrl[]
+}): JSX.Element {
     return (
         <>
             <p className="ImpersonationNotice__message">
@@ -89,42 +100,16 @@ function LoginAsContent({ ticketContext }: { ticketContext: ImpersonationTicketC
                     'No customer email on this ticket'
                 )}
             </p>
-            <AdminLoginButtons />
+            <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
         </>
     )
 }
 
 function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInfo: ExpiredSessionInfo }): JSX.Element {
-    const { isReImpersonating, expiredSessionFromTicket, returnTicketLabel, returnTicketReason, isReturningToTicket } =
-        useValues(impersonationNoticeLogic)
-    const { reImpersonate, returnToPostHog, returnToTicket } = useActions(impersonationNoticeLogic)
+    const { isReImpersonating } = useValues(impersonationNoticeLogic)
+    const { reImpersonate, returnToPostHog } = useActions(impersonationNoticeLogic)
 
     const [readOnly, setReadOnly] = useState(true)
-
-    const cancelButton: ImpersonationReasonModalCancelButton =
-        expiredSessionFromTicket && returnTicketLabel
-            ? {
-                  label: returnTicketLabel,
-                  onClick: () => returnToTicket(),
-                  loading: isReturningToTicket,
-              }
-            : {
-                  label: 'Return to admin',
-                  status: 'danger',
-                  onClick: () => {
-                      window.location.href = '/admin/'
-                  },
-                  sideAction: {
-                      dropdown: {
-                          placement: 'top-end',
-                          overlay: (
-                              <LemonButton fullWidth onClick={() => returnToPostHog()}>
-                                  Return to PostHog
-                              </LemonButton>
-                          ),
-                      },
-                  },
-              }
 
     return (
         <ImpersonationReasonModal
@@ -134,9 +119,25 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
             description={`Your session impersonating ${expiredSessionInfo.email} has expired.`}
             confirmText="Re-impersonate"
             loading={isReImpersonating}
-            initialReason={expiredSessionFromTicket ? returnTicketReason : (expiredSessionInfo.reason ?? '')}
+            initialReason={expiredSessionInfo.reason ?? ''}
             onConfirm={(reason) => reImpersonate(reason, readOnly)}
-            cancelButton={cancelButton}
+            cancelButton={{
+                label: 'Return to admin',
+                status: 'danger',
+                onClick: () => {
+                    window.location.href = '/admin/'
+                },
+                sideAction: {
+                    dropdown: {
+                        placement: 'top-end',
+                        overlay: (
+                            <LemonButton fullWidth onClick={() => returnToPostHog()}>
+                                Return to PostHog
+                            </LemonButton>
+                        ),
+                    },
+                },
+            }}
         >
             <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
         </ImpersonationReasonModal>
@@ -154,10 +155,6 @@ function ImpersonationNoticeContent(): JSX.Element {
         hasOtherMembers,
         isChangingUser,
         membersLoading,
-        canReturnToTicket,
-        returnTicketLabel,
-        returnTicketReason,
-        isReturningToTicket,
     } = useValues(impersonationNoticeLogic)
     const {
         closeUpgradeModal,
@@ -167,7 +164,6 @@ function ImpersonationNoticeContent(): JSX.Element {
         returnToPostHog,
         changeUser,
         ensureAllMembersLoaded,
-        returnToTicket,
     } = useActions(impersonationNoticeLogic)
 
     // The user the operator picked to switch to; drives the confirm-reason modal.
@@ -261,34 +257,23 @@ function ImpersonationNoticeContent(): JSX.Element {
                         Upgrade to read-write
                     </LemonButton>
                 )}
-                {canReturnToTicket ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        loading={isReturningToTicket}
-                        onClick={() => returnToTicket()}
-                    >
-                        {returnTicketLabel}
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => logout()}
-                        sideAction={{
-                            dropdown: {
-                                placement: 'top-end',
-                                overlay: (
-                                    <LemonButton fullWidth size="small" onClick={() => returnToPostHog()}>
-                                        Log out to PostHog
-                                    </LemonButton>
-                                ),
-                            },
-                        }}
-                    >
-                        Log out to admin
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => logout()}
+                    sideAction={{
+                        dropdown: {
+                            placement: 'top-end',
+                            overlay: (
+                                <LemonButton fullWidth size="small" onClick={() => returnToPostHog()}>
+                                    Log out to PostHog
+                                </LemonButton>
+                            ),
+                        },
+                    }}
+                >
+                    Log out to admin
+                </LemonButton>
             </div>
             {isReadOnly && (
                 <ImpersonationReasonModal
@@ -299,7 +284,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                     description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
                     confirmText="Upgrade"
                     loading={isImpersonationUpgradeInProgress}
-                    initialReason={canReturnToTicket ? returnTicketReason : (storedReason ?? '')}
+                    initialReason={storedReason ?? ''}
                 />
             )}
             <ImpersonationReasonModal
@@ -324,8 +309,15 @@ function ImpersonationNoticeContent(): JSX.Element {
 export function ImpersonationNotice(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
-    const { isMinimized, isReadOnly, isImpersonated, isSessionExpired, expiredSessionInfo, ticketContext } =
-        useValues(impersonationNoticeLogic)
+    const {
+        isMinimized,
+        isReadOnly,
+        isImpersonated,
+        isSessionExpired,
+        expiredSessionInfo,
+        ticketContext,
+        adminLoginUrls,
+    } = useValues(impersonationNoticeLogic)
     const { minimize, maximize, setPageVisible } = useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
@@ -401,7 +393,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                         </div>
                         <div className="ImpersonationNotice__content">
                             {showLoginAs ? (
-                                <LoginAsContent ticketContext={ticketContext!} />
+                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrls={adminLoginUrls} />
                             ) : (
                                 <ImpersonationNoticeContent />
                             )}

@@ -1,6 +1,7 @@
 export {
     LoopReviewView,
     type LoopReviewBehaviors,
+    type LoopReviewConnectors,
     type LoopReviewContextOutputs,
     type LoopReviewContextTarget,
     type LoopReviewData,

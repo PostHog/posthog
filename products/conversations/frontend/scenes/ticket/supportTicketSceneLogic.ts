@@ -536,9 +536,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return []
                     }
 
+                    // Widen the match to email only when the current ticket's identity was positively
+                    // attested (e.g. SPF-authenticated email). email_from is attacker-controllable on
+                    // unverified tickets, and person.properties.email is customer-controlled analytics
+                    // data with no trusted mapping — trusting either would let a spoofed sender pull a
+                    // real customer's ticket history into their own ticket view.
+                    const emails = new Set<string>()
+                    if (values.ticket?.identity_verified === true && values.ticket.email_from) {
+                        emails.add(values.ticket.email_from)
+                    }
+
                     try {
                         const response = await api.conversationsTickets.list({
                             distinct_ids: person.distinct_ids.join(','),
+                            ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
                         })
                         const allTickets = response.results || []
 
@@ -923,10 +934,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
                     ticketId: ticket.id,
-                    ticketNumber: ticket.ticket_number,
                     email: ticket.anonymous_traits?.email || '',
                     region: regionFromUrl(ticket.session_context?.current_url),
-                    identityVerified: ticket.identity_verified,
                 })
 
                 // Load session context data

@@ -169,3 +169,45 @@ def test_dispatch_slot_released_after_run():
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
             start_signup_enrichment_workflow(organization_id="org-2", distinct_id="d2", email="ceo@vercel.com")
     assert connect_mock.call_count == 2
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_signup_geoip_country_is_threaded_into_workflow_inputs():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with (
+        on_commit,
+        connect as connect_mock,
+        run,
+        region,
+        record,
+        patch(
+            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            return_value={"$geoip_country_code": "US"},
+        ),
+    ):
+        start_signup_enrichment_workflow(
+            organization_id="org-1", distinct_id="d1", email="founder@stripe.com", ip_address="8.8.8.8"
+        )
+    inputs = connect_mock.return_value.start_workflow.call_args.args[1]
+    assert inputs.geoip_country_code == "US"
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_geoip_failure_degrades_to_no_country_and_still_dispatches():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with (
+        on_commit,
+        connect as connect_mock,
+        run,
+        region,
+        record,
+        patch(
+            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            side_effect=RuntimeError("geoip db missing"),
+        ),
+    ):
+        start_signup_enrichment_workflow(
+            organization_id="org-1", distinct_id="d1", email="founder@stripe.com", ip_address="8.8.8.8"
+        )
+    inputs = connect_mock.return_value.start_workflow.call_args.args[1]
+    assert inputs.geoip_country_code is None

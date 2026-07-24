@@ -452,44 +452,48 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             {!everyMatch && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">when the</span>
                     {isScorer ? (
-                        <LemonSelect
-                            size="small"
-                            value={actionForm.alert_metric}
-                            onChange={(value) => {
-                                if (!value) {
-                                    return
-                                }
-                                setActionFormValue('alert_metric', value)
-                                // Count thresholds are always "at least" (the direction control is
-                                // hidden for them), so switching back to count clears any "at most".
-                                if (value === VisionAlertMetricEnumApi.Count) {
-                                    setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
-                                }
-                            }}
-                            options={[
-                                { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
-                                { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
-                            ]}
-                            data-attr="vision-action-alert-metric"
-                        />
+                        <>
+                            <span className="text-sm">when the</span>
+                            <LemonSelect
+                                size="small"
+                                value={actionForm.alert_metric}
+                                onChange={(value) => {
+                                    if (!value) {
+                                        return
+                                    }
+                                    setActionFormValue('alert_metric', value)
+                                    // Count thresholds are always "at least" (the direction control is
+                                    // hidden for them), so switching back to count clears any "at most".
+                                    if (value === VisionAlertMetricEnumApi.Count) {
+                                        setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
+                                    }
+                                }}
+                                options={[
+                                    { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
+                                    { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
+                                ]}
+                                data-attr="vision-action-alert-metric"
+                            />
+                            {isAvg ? (
+                                <LemonSelect
+                                    size="small"
+                                    value={actionForm.alert_direction}
+                                    onChange={(value) => value && setActionFormValue('alert_direction', value)}
+                                    options={[
+                                        { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
+                                        { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
+                                    ]}
+                                    data-attr="vision-action-alert-direction"
+                                />
+                            ) : (
+                                <span className="text-sm">is at least</span>
+                            )}
+                        </>
                     ) : (
-                        <span className="text-sm">number of matches</span>
-                    )}
-                    {isAvg ? (
-                        <LemonSelect
-                            size="small"
-                            value={actionForm.alert_direction}
-                            onChange={(value) => value && setActionFormValue('alert_direction', value)}
-                            options={[
-                                { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
-                                { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
-                            ]}
-                            data-attr="vision-action-alert-direction"
-                        />
-                    ) : (
-                        <span className="text-sm">is at least</span>
+                        // One span, not one per word: adjacent flex items get the 8px control
+                        // gap, which reads as doubled spacing between plain words.
+                        <span className="text-sm">when the number of matches is at least</span>
                     )}
                     <LemonInput
                         type="number"

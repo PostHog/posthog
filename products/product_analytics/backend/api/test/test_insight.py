@@ -774,7 +774,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "favorited",
                 "filters",
                 "query",
-                "dashboards",
                 "dashboard_tiles",
                 "description",
                 "last_refresh",
@@ -1352,7 +1351,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.dashboard_api.update_dashboard(deleted_dashboard_id, {"deleted": True})
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         new_dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -1364,7 +1362,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboard_tiles(self) -> None:
@@ -1386,19 +1383,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tile.save()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == []
         assert insight_json["dashboard_tiles"] == []
 
         insight_by_short_id = self.client.get(
             f"/api/projects/{self.team.pk}/insights?short_id={insight_json['short_id']}"
         )
-        assert insight_by_short_id.json()["results"][0]["dashboards"] == []
         assert insight_by_short_id.json()["results"][0]["dashboard_tiles"] == []
 
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": False, "dashboard_id": dashboard_id}]
 
     def test_can_update_insight_with_inconsistent_dashboards(self) -> None:
@@ -1425,7 +1419,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert DashboardTile.objects_including_soft_deleted.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         # accidentally include a deleted dashboard
@@ -1437,7 +1430,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # confirm no updates happened
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_dashboards_relation_is_tile_soft_deletion_aware(self) -> None:
@@ -1458,18 +1450,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "dashboards": [dashboard_one_id],
             },
         )
-        assert on_update_insight_json["dashboards"] == [dashboard_one_id]
+        assert "dashboards" not in on_update_insight_json
         assert on_update_insight_json["dashboard_tiles"] == [
             {"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}
         ]
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_one_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}]
 
         insights_list = self.dashboard_api.list_insights()
         assert insights_list["count"] == 1
-        assert [i["dashboards"] for i in insights_list["results"]] == [[dashboard_one_id]]
         assert [i["dashboard_tiles"] for i in insights_list["results"]] == [
             [
                 {
@@ -1728,7 +1718,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert original_tiles[0]["id"] == after_update_tiles[0]["id"]  # tile has not been recreated in DB
         assert after_update_tiles[0]["layouts"] is not None  # tile has not been recreated in DB
         assert original_tiles[0]["insight"]["id"] == after_update_tiles[0]["insight"]["id"]
-        assert sorted(original_tiles[0]["insight"]["dashboards"]) == sorted([dashboard_one_id, dashboard_two_id])
         assert sorted(t["dashboard_id"] for t in original_tiles[0]["insight"]["dashboard_tiles"]) == sorted(
             [dashboard_one_id, dashboard_two_id]
         )
@@ -3524,6 +3513,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected
@@ -4386,6 +4377,52 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     }
                 ]
             },
+        }
+
+    def test_tile_ignoring_dashboard_filters_keeps_insight_query_untouched(self) -> None:
+        # The tile opts out of dashboard filters entirely, so neither the dashboard's date range nor its
+        # properties may reach the returned query; the tile's own overrides still apply.
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-90d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+        )
+        dashboard_filters = {
+            "date_from": "-7d",
+            "properties": [{"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}],
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        source = response["query"]["source"]
+        assert source["dateRange"]["date_from"] == "-90d"
+        assert self._collect_property_values(source.get("properties"), "$country") == []
+        assert self._collect_property_values(source.get("properties"), "$browser") == [["Firefox"]]
+        assert response["filter_override_context"] == {
+            "dashboard": None,
+            "tile": {
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+            "overridden_dashboard": dashboard_filters,
         }
 
     def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:

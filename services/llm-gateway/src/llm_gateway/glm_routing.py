@@ -47,6 +47,35 @@ from llm_gateway.modal import (
 
 LlmCall = Callable[..., Awaitable[Any]]
 
+GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+
+
+def normalize_glm_anthropic_request(request_data: dict[str, Any]) -> dict[str, Any]:
+    """Make Claude runtime reasoning settings valid for GLM's Anthropic surface."""
+    normalized = dict(request_data)
+    output_config = normalized.get("output_config")
+    effort = output_config.get("effort") if isinstance(output_config, dict) else None
+
+    if effort in GLM_REASONING_EFFORTS:
+        normalized["thinking"] = {"type": "adaptive"}
+
+    thinking = normalized.get("thinking")
+    thinking_type = thinking.get("type") if isinstance(thinking, dict) else None
+    if thinking_type not in {"enabled", "adaptive"}:
+        context_management = normalized.get("context_management")
+        if isinstance(context_management, dict) and isinstance(context_management.get("edits"), list):
+            edits = [
+                edit
+                for edit in context_management["edits"]
+                if not isinstance(edit, dict) or edit.get("type") != "clear_thinking_20251015"
+            ]
+            if edits:
+                normalized["context_management"] = {**context_management, "edits": edits}
+            else:
+                normalized.pop("context_management", None)
+
+    return normalized
+
 
 async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, settings: Settings) -> bool:
     if not is_modal_served_model(model) or not is_modal_configured(settings):
@@ -140,7 +169,7 @@ async def send_glm_anthropic_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     return await _send_glm_request(
-        request_data,
+        normalize_glm_anthropic_request(request_data),
         user,
         is_streaming,
         product,

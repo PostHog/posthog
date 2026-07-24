@@ -89,6 +89,7 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Luma's cursor pagination has no server-side
         # updated-since filter (list-events only bounds on event start time), so there is no
@@ -108,7 +109,7 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
         return schemas
 
     def validate_credentials(
-        self, config: LumaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: LumaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key grants read access to every endpoint on its calendar/organization, so a
         # single probe validates access to every schema.

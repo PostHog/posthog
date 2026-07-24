@@ -2,8 +2,8 @@ import json
 import uuid
 import builtins
 import dataclasses
-from datetime import UTC, datetime, timedelta
-from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
+from datetime import UTC, datetime
+from typing import Any, Optional, Union, cast  # noqa: UP035
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -34,11 +34,10 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_target_entity
+from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_by_filters
+from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -46,10 +45,7 @@ from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
@@ -79,7 +75,6 @@ from posthog.utils import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.product_analytics.backend.api.insight import capture_legacy_api_call
 from products.workflows.backend.api.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
@@ -1192,274 +1187,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(
-        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
-    ):  # noqa: UP006
-        if not results_package:
-            return response.Response(data=[])
-
-        actors, next_url, initial_url, missing_persons = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": actors, "count": len(actors)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": missing_persons,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    def _legacy_session_ids_with_recordings(self, session_ids: set[str], filter: Filter) -> set[str]:
-        """Filter session ids to those with a (non-deleted) recording, mirroring the legacy actor endpoint.
-        Unlike the modern RecordingsHelper this does not apply a retention/expiry window, preserving the
-        long-standing response shape of these public endpoints.
-        """
-        if not session_ids:
-            return set()
-
-        from posthog.clickhouse.client import sync_execute  # noqa: PLC0415
-
-        query = """
-            SELECT session_id
-            FROM session_replay_events
-            WHERE team_id = %(team_id)s AND session_id IN %(session_ids)s
-        """
-        params: dict[str, Any] = {"team_id": self.team.pk, "session_ids": sorted(session_ids)}
-        if filter.date_from:
-            query += " AND min_first_timestamp >= %(date_from)s"
-            params["date_from"] = filter.date_from - timedelta(days=1)
-        if filter.date_to:
-            query += " AND max_last_timestamp <= %(date_to)s"
-            params["date_to"] = filter.date_to + timedelta(days=1)
-        query += " GROUP BY session_id HAVING max(is_deleted) = 0"
-
-        return {row[0] for row in sync_execute(query, params)}
-
-    @staticmethod
-    def _legacy_breakdown_value(filter: Filter) -> Optional[Union[str, int]]:
-        """Translate the legacy `breakdown_value` request param into the value the HogQL trends actors path
-        expects: an empty string means the null/none bucket, a cohort breakdown value is an int cohort id.
-        """
-        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL  # noqa: PLC0415
-
-        value = filter.breakdown_value
-        if value is None:
-            return None
-        if filter.breakdown_type == "cohort":
-            return value if value == "all" else int(value)
-        if value == "":
-            return BREAKDOWN_NULL_STRING_LABEL
-        return value
-
-    def _run_legacy_actors_query(
-        self,
-        source: Any,
-        filter: Filter,
-        *,
-        aggregation_group_type_index: Optional[int],
-        include_value: bool,
-        include_recordings: bool,
-    ) -> tuple[builtins.list, int]:
-        """Run an ActorsQuery (the HogQL actor path used by the modern /query route) and reshape the
-        results into the legacy SerializedPerson/SerializedGroup envelope these endpoints have always
-        returned. `source` is an InsightActorsQuery or FunnelsActorsQuery.
-        """
-        from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation  # noqa: PLC0415
-
-        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
-        from posthog.queries.actor_base_query import get_groups  # noqa: PLC0415
-
-        # Raw id-only select (plus value/recordings columns) — we hydrate actors ourselves below, matching
-        # the legacy SerializedPerson shape rather than the ActorsQuery strategy dict.
-        select: list[str] = ["actor_id"]
-        if include_value:
-            select.append("event_count")
-        if include_recordings:
-            select.append("matched_recordings")
-
-        actors_query = ActorsQuery(
-            source=source,
-            select=select,
-            limit=filter.limit,
-            offset=filter.offset,
-        )
-        # Inline cohort definitions instead of reading precomputed membership — the legacy actor queries
-        # expanded cohorts inline, so a cohort breakdown/filter works without a prior cohort calculation.
-        # The modifiers must live on the inner insight query: ActorsQueryRunner inherits its modifiers from
-        # the source query runner, which derives them from `source.source.modifiers`.
-        source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
-            update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
-        )
-        runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        results = list(runner.calculate().results)
-        raw_count = len(results)
-
-        actor_ids = [str(row[0]) for row in results]
-        value_per_actor_id: Optional[dict[str, float]] = (
-            {str(row[0]): row[1] for row in results} if include_value else None
-        )
-
-        serialized_actors: list[Any]
-        if aggregation_group_type_index is not None:
-            _, serialized_actors = get_groups(self.team.pk, aggregation_group_type_index, actor_ids, value_per_actor_id)
-        else:
-            serialized_actors = get_serialized_people(self.team, actor_ids, value_per_actor_id)
-
-        if include_recordings:
-            recordings_column_index = select.index("matched_recordings")
-            all_session_ids = {event[2] for row in results for event in row[recordings_column_index] if event[2]}
-            valid_session_ids = self._legacy_session_ids_with_recordings(all_session_ids, filter)
-            recordings_by_actor_id: dict[str, builtins.list] = {}
-            for row in results:
-                events_by_session: dict[str, builtins.list] = {}
-                for event in row[recordings_column_index]:
-                    session_id = event[2]
-                    if session_id and session_id in valid_session_ids:
-                        events_by_session.setdefault(session_id, []).append(
-                            {"timestamp": event[0], "uuid": event[1], "window_id": event[3]}
-                        )
-                recordings_by_actor_id[str(row[0])] = [
-                    {"session_id": session_id, "events": events} for session_id, events in events_by_session.items()
-                ]
-            for actor in serialized_actors:
-                actor["matched_recordings"] = recordings_by_actor_id.get(str(actor["id"]), [])
-
-        if include_value:
-            # get_serialized_people / get_groups fetch actors out of order, so restore the
-            # descending-by-value ordering the legacy endpoint guaranteed.
-            serialized_actors.sort(key=lambda actor: cast(float, actor["value_at_data_point"]), reverse=True)
-
-        return serialized_actors, raw_count
-
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
-
-    @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        from posthog.schema import FunnelsActorsQuery, FunnelsQuery  # noqa: PLC0415
-
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        funnels_query = cast(FunnelsQuery, filter_to_query(filter.to_dict()))
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            # Funnel-trends actors are addressed by an entrance period + converted/dropped-off flag,
-            # not by a step index.
-            source = FunnelsActorsQuery(
-                source=funnels_query,
-                funnelTrendsDropOff=bool(filter.drop_off),
-                funnelTrendsEntrancePeriodStart=request.GET.get("entrance_period_start"),
-                funnelStepBreakdown=filter.funnel_step_breakdown,
-                includeRecordings=filter.include_recordings,
-            )
-        else:
-            funnel_step = filter.funnel_step
-            if funnel_step is None and filter.funnel_custom_steps:
-                funnel_step = filter.funnel_custom_steps[0]
-            source = FunnelsActorsQuery(
-                source=funnels_query,
-                funnelStep=funnel_step,
-                funnelStepBreakdown=filter.funnel_step_breakdown,
-                includeRecordings=filter.include_recordings,
-            )
-
-        serialized_actors, raw_count = self._run_legacy_actors_query(
-            source,
-            filter,
-            aggregation_group_type_index=funnels_query.aggregation_group_type_index,
-            include_value=False,
-            include_recordings=bool(filter.include_recordings),
-        )
-        initial_url = format_query_params_absolute_url(request, 0)
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
-    @action(methods=["GET"], detail=False)
-    def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_trends_persons(request))
-
-    @cached_by_filters
-    def calculate_trends_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        from posthog.schema import ChartDisplayType, InsightActorsQuery, TrendsFilter, TrendsQuery  # noqa: PLC0415
-
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-
-        filter = Filter(request=request, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-        entity = get_target_entity(filter)
-
-        # The trends person endpoint identifies its target series via the entity params (entity_id/type),
-        # not an events/actions list, so inject the resolved entity as the single series before converting.
-        filter_dict = {**filter.to_dict(), "insight": "TRENDS"}
-        entity_dict = {**entity.to_dict(), "order": 0}
-        if entity.type == "actions":
-            filter_dict["actions"] = [entity_dict]
-            filter_dict["events"] = []
-        else:
-            filter_dict["events"] = [entity_dict]
-            filter_dict["actions"] = []
-
-        trends_query = cast(TrendsQuery, filter_to_query(filter_dict))
-        # The legacy endpoint returns every actor that performed the series anywhere in the filter's date
-        # range (no per-interval `day`). A total-value display gives exactly that aggregation, so the actors
-        # builder doesn't require a `day`.
-        trends_query.trendsFilter = trends_query.trendsFilter or TrendsFilter()
-        trends_query.trendsFilter.display = ChartDisplayType.ACTIONS_BAR_VALUE
-        source = InsightActorsQuery(
-            source=trends_query,
-            series=0,
-            breakdown=self._legacy_breakdown_value(filter),
-            includeRecordings=filter.include_recordings,
-        )
-
-        serialized_actors, raw_count = self._run_legacy_actors_query(
-            source,
-            filter,
-            aggregation_group_type_index=entity.math_group_type_index,
-            include_value=True,
-            include_recordings=bool(filter.include_recordings),
-        )
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
@@ -1510,58 +1237,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
         return response.Response(MessageAssetSerializer(enriched, many=True).data)
-
-    @action(methods=["GET"], detail=False)
-    def lifecycle(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-
-        target_date = request.GET.get("target_date", None)
-        if target_date is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include specified date",
-                },
-                status=400,
-            )
-        lifecycle_type = request.GET.get("lifecycle_type", None)
-        if lifecycle_type is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include lifecycle type",
-                },
-                status=400,
-            )
-
-        from posthog.schema import InsightActorsQuery, LifecycleQuery  # noqa: PLC0415
-
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-
-        filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        lifecycle_query = cast(LifecycleQuery, filter_to_query({**filter.to_dict(), "insight": "LIFECYCLE"}))
-        source = InsightActorsQuery(source=lifecycle_query, day=target_date, status=lifecycle_type)
-
-        with personhog_caller_tag("persons/lifecycle"):
-            people, raw_count = self._run_legacy_actors_query(
-                source,
-                filter,
-                aggregation_group_type_index=lifecycle_query.aggregation_group_type_index,
-                include_value=False,
-                include_recordings=False,
-            )
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
@@ -1831,63 +1506,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
                 status=500,
             )
-
-
-def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
-) -> Optional[str]:
-    return format_paginated_url(request, offset, limit) if count >= limit else None
-
-
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
-
-
-def prepare_actor_query_filter(filter: T) -> T:
-    if not filter.limit:
-        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
-
-    search = getattr(filter, "search", None)
-    if not search:
-        return filter
-
-    group_properties_filter_group: list[dict[str, object]] = []
-    if hasattr(filter, "aggregation_group_type_index"):
-        group_properties_filter_group += [
-            {
-                "key": "name",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-            {
-                "key": "slug",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-        ]
-
-    new_group = {
-        "type": "OR",
-        "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-            *group_properties_filter_group,
-        ],
-    }
-    prop_group = (
-        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
-        if filter.property_groups.to_dict()
-        else new_group
-    )
-
-    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):
