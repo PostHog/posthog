@@ -396,6 +396,7 @@ class LLMPromptViewSet(
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,

@@ -1766,23 +1766,6 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
-export const llmPromptsNameArchiveCreateBodyNameMax = 255
-
-export const llmPromptsNameArchiveCreateBodyVersionDescriptionMax = 400
-
-export const LlmPromptsNameArchiveCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(llmPromptsNameArchiveCreateBodyNameMax)
-        .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
-    prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-    version_description: zod
-        .string()
-        .max(llmPromptsNameArchiveCreateBodyVersionDescriptionMax)
-        .nullish()
-        .describe('Optional note describing what changed in this version. Set when the version is published.'),
-})
-
 export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
 
 export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
