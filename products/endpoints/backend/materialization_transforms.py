@@ -7,6 +7,7 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.aggregations import COMBINATORS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -305,6 +306,13 @@ def analyze_variables_for_materialization(
             all_usages = find_all_variable_usages(ast_node, placeholder)
         except VariableInHavingClauseError:
             return False, "Variable used in HAVING clause are not supported for materialization.", []
+        except QueryError as e:
+            # Analysing the WHERE clause prints sub-expressions to HogQL; if the non-variable
+            # side still holds an unresolved placeholder (e.g. a variable compared against a
+            # function-wrapped expression that references another variable), the printer raises.
+            # This shape can't be materialized, so fail closed instead of 500ing the request.
+            capture_exception(e)
+            return False, "Unsupported variable usage in WHERE clause.", []
         except ValueError as e:
             capture_exception(e)
             return False, "Invalid variable usage in WHERE clause.", []

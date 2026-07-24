@@ -301,6 +301,24 @@ class TestVariableAnalysis(APIBaseTest):
         assert can_materialize is False
         assert var_infos == []
 
+    def test_variable_compared_against_placeholder_expression_fails_closed(self):
+        # A variable compared against a function-wrapped expression that itself holds an
+        # unresolved placeholder used to 500: printing the field side to HogQL raised
+        # QueryError, which escaped the analysis. It must fail closed instead.
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE {variables.date_to} > toDate({variables.date_from})",
+            "variables": {
+                "var-1": {"code_name": "date_to", "value": "2024-02-01"},
+                "var-2": {"code_name": "date_from", "value": "2024-01-01"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert var_infos == []
+
     def test_variable_with_complex_and_conditions(self):
         query = {
             "kind": "HogQLQuery",
