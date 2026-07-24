@@ -56,6 +56,20 @@ Person properties are query-time in this project. `person.properties.*` on the e
 # https://platform.openai.com/docs/guides/flex-processing
 OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
 
+# Generation-level property marking a $ai_generation as an internal utility call (memory
+# collection, title generation, conversation summarization) rather than a user-facing turn.
+# Analytics and evals filter on it so these calls don't get scored as if they were real
+# conversations. Always set (defaults to False) so filters can rely on the property existing.
+AI_INTERNAL_PROPERTY = "ai_internal"
+AI_INTERNAL_NODE_PROPERTY = "ai_internal_node"
+
+
+def internal_generation_properties(node_name: str) -> dict[str, Any]:
+    """PostHog properties tagging a utility LLM call so it can be excluded from user-facing
+    AI observability and evals. Pass the result as ``posthog_properties`` on the model."""
+    return {AI_INTERNAL_PROPERTY: True, AI_INTERNAL_NODE_PROPERTY: node_name}
+
+
 # Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
 _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
 
@@ -175,6 +189,8 @@ class MaxChatMixin(BaseModel):
         posthog_props["$ai_billable"] = self._get_effective_billable()
         posthog_props["team_id"] = self.team.id
         posthog_props.setdefault("ai_product", "posthog_ai")
+        # Always present so analytics/evals can filter user-facing turns from internal utility calls.
+        posthog_props.setdefault(AI_INTERNAL_PROPERTY, False)
 
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata

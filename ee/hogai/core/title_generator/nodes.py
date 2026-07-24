@@ -13,7 +13,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.title_generator.prompts import TITLE_AND_TOPIC_GENERATION_PROMPT, TITLE_GENERATION_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI, internal_generation_properties
 from ee.hogai.utils.feature_flags import has_conversation_topic_feature_flag
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -91,7 +91,10 @@ class TitleGeneratorNode(AssistantNode):
             stream_usage=False,
             disable_streaming=True,
             billable=True,
-            posthog_properties={"topic_classification": topic_classification},
+            posthog_properties={
+                **internal_generation_properties("title_generator"),
+                "topic_classification": topic_classification,
+            },
         )
 
     @property

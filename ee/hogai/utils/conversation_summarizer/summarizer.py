@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.models import Team, User
 
-from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.llm import MaxChatAnthropic, internal_generation_properties
 
 from .prompts import SYSTEM_PROMPT, USER_PROMPT
 
@@ -71,6 +71,7 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
             user=self._user,
             team=self._team,
             billable=True,
+            posthog_properties=internal_generation_properties("conversation_summarizer"),
         )
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):
