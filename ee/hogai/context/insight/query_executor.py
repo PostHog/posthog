@@ -41,7 +41,7 @@ from posthog.hogql.errors import (
 )
 
 from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
@@ -373,9 +373,23 @@ class AssistantQueryExecutor:
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
-                        query_status_res = await database_sync_to_async(get_query_status, thread_sensitive=True)(
-                            team_id=self._team.pk, query_id=query_status["id"]
-                        )
+                        try:
+                            query_status_res = await database_sync_to_async(get_query_status, thread_sensitive=True)(
+                                team_id=self._team.pk, query_id=query_status["id"]
+                            )
+                        except QueryNotFoundError:
+                            # The async status/results key isn't in Redis — either the task hasn't written
+                            # its initial status yet, or it expired. Mirror query_runner.get_async_query_status,
+                            # which treats a missing status as a transient, non-error condition. Keep polling
+                            # instead of letting the NotFound (a DRF APIException) bubble up to the handler below,
+                            # where it would be re-raised as a MaxToolRetryableError and captured to error tracking.
+                            total_wait_s += time.time() - status_check_start
+                            if debug_timing:
+                                logger.warning(
+                                    f"{TIMING_LOG_PREFIX} Async query status not found yet "
+                                    f"(query_id={query_status['id']}), continuing to poll"
+                                )
+                            continue
                         status_check_elapsed = time.time() - status_check_start
                         total_wait_s += status_check_elapsed
 

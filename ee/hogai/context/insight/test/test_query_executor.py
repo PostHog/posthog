@@ -36,6 +36,7 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 
@@ -313,6 +314,33 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Date|test", result)
         self.assertEqual(mock_get_query_status.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_polling_tolerates_missing_status(self, mock_get_query_status, mock_process_query):
+        """A transient QueryNotFoundError while polling should keep polling, not surface as a retryable error."""
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+
+        # The status key is briefly absent (task hasn't written it yet / expired), then lands complete.
+        mock_get_query_status.side_effect = [
+            QueryNotFoundError("Query test-query-id not found for team 1"),
+            Mock(
+                model_dump=lambda mode: {
+                    "id": "test-query-id",
+                    "complete": True,
+                    "results": {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
+                }
+            ),
+        ]
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertFalse(used_fallback)
+        self.assertIn("Date|test", result)
+        self.assertEqual(mock_get_query_status.call_count, 2)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
