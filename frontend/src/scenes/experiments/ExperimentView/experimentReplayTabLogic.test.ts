@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, FilterLogicalOperator } from '~/types'
 
 import { getViewRecordingFiltersForVariant } from '../utils'
+import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
@@ -219,6 +220,46 @@ describe('experimentReplayTabLogic', () => {
                 values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
             },
         ])
+    })
+
+    it('lists a retention metric as unmatchable instead of dropping it silently', async () => {
+        // A retention metric yields no session filter (its return visit lands in a later session).
+        // Dropping it from the list reads as the metric having been forgotten, so it stays listed
+        // with a reason — and must never reach the query, which would only narrow to nothing.
+        const withRetention = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 46,
+                metrics_secondary: [
+                    ...(EXPERIMENT.metrics_secondary ?? []),
+                    {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.RETENTION,
+                        uuid: 'metric-retention',
+                        name: '7-day retention',
+                        start_event: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        completion_event: { kind: NodeKind.EventsNode, event: '$pageview' },
+                    },
+                ],
+            } as unknown as Experiment,
+        })
+        withRetention.mount()
+        await expectLogic(withRetention).toFinishAllListeners()
+
+        expect(withRetention.values.metricOptions.find((option) => option.uuid === 'metric-retention')).toMatchObject({
+            name: '7-day retention',
+            unlinkable: true,
+            unlinkableReason: RETENTION_UNLINKABLE_REASON,
+        })
+        withRetention.actions.setMetricSelected('metric-retention', true)
+        expect(withRetention.values.effectiveMetricUuids).toEqual([])
+        expect(withRetention.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+            },
+        ])
+        withRetention.unmount()
     })
 
     it('disables a fully server-side metric and never ANDs it into the query', async () => {

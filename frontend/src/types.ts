@@ -293,6 +293,8 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Tagger = 'tagger',
+    LlmSkill = 'llm_skill',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
@@ -300,6 +302,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    McpAnalytics = 'mcp_analytics',
     Metrics = 'metrics',
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
@@ -5504,6 +5507,7 @@ export enum SlackIntegrationScopeInReview {
     COMMANDS = 'commands',
     FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
+    MPIM_HISTORY = 'mpim:history',
     MPIM_READ = 'mpim:read',
 }
 
@@ -5990,6 +5994,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT = 'LLMPrompt',
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',

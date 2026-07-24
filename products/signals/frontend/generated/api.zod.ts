@@ -369,6 +369,38 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * @summary Leave a note for the scouts
+ */
+export const signalsScoutNotesCreateBodyContentMax = 10000
+
+export const signalsScoutNotesCreateBodySkillNameMax = 200
+
+export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(signalsScoutNotesCreateBodyContentMax)
+            .describe(
+                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+            ),
+        skill_name: zod
+            .string()
+            .max(signalsScoutNotesCreateBodySkillNameMax)
+            .optional()
+            .describe(
+                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.'
+            ),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                "Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted."
+            ),
+    })
+    .describe('Request body for `notes-create`.')
+
+/**
  * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
