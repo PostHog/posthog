@@ -1,6 +1,6 @@
 use tonic::Status;
 
-use personhog_proto::personhog::types::v1::GetOrCreatePersonEntry;
+use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
 /// Request-shape limits, sourced from service configuration.
 #[derive(Debug, Clone)]

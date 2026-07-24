@@ -12,9 +12,8 @@ use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt};
 use tonic::{Code, Status};
 
-use personhog_proto::personhog::types::v1::{
-    GetOrCreatePersonEntry, Person as ProtoPerson, UpdatePersonPropertiesRequest,
-};
+use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
+use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
 use crate::service::error::log_and_convert_error;
 use crate::service::validation::validate_entry;

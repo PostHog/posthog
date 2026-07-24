@@ -11,10 +11,12 @@ use personhog_identity::leader::PropertyWriter;
 use personhog_identity::service::validation::RequestLimits;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
-use personhog_proto::personhog::types::v1::{
+use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonEntry,
-    GetOrCreatePersonsByDistinctIdsRequest, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    GetOrCreatePersonsByDistinctIdsRequest,
+};
+use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Records calls and replays queued responses; defaults to an "updated, no

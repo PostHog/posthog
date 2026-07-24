@@ -3,11 +3,12 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use personhog_common::client::RouterClient;
 use personhog_proto::personhog::{
-    identity::v1::person_hog_identity_client::PersonHogIdentityClient,
+    identity::v1::{
+        person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
+        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
+    },
     types::v1::{
-        ConsistencyLevel, GetOrCreatePersonEntry, GetOrCreatePersonResult,
-        GetOrCreatePersonsByDistinctIdsRequest, Person, UpdatePersonPropertiesRequest,
-        UpdatePersonPropertiesResponse,
+        ConsistencyLevel, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     },
 };
 use tonic::transport::Channel;

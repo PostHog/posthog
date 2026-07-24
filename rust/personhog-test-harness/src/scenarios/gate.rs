@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 
-use personhog_proto::personhog::types::v1::GetOrCreatePersonEntry;
+use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
 use crate::cli::GateArgs;
 use crate::client::{HarnessClient, IdentityClient};

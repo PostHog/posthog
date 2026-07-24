@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
-use personhog_proto::personhog::types::v1::{
+use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonByDistinctIdResponse,
     GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
     GetOrCreatePersonsByDistinctIdsResponse,
