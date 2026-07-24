@@ -84,7 +84,7 @@ export async function run(options: RunOptions): Promise<number> {
   const onSigint = () => {
     interrupted = true;
     if (sessionId) {
-      // Cancel resolves the in-flight prompt() with stopReason "cancelled";
+      // Cancel resolves an in-flight prompt() with stopReason "cancelled";
       // the normal path then finishes output and exits 130. A second Ctrl-C
       // (the handler is `once`) falls through to Node's default kill.
       void conn.cancel({ sessionId }).catch(() => undefined);
@@ -108,6 +108,10 @@ export async function run(options: RunOptions): Promise<number> {
     });
     sessionId = session.sessionId;
     debugLog(`session ${sessionId} started in ${options.cwd}`);
+
+    // A cancel sent before the turn activates is reset by the adapter, so a
+    // SIGINT that landed during session setup must be honored here instead.
+    if (interrupted) return 130;
 
     const result = await conn.prompt({
       sessionId,

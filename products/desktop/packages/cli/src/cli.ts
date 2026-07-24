@@ -49,9 +49,12 @@ async function main(): Promise<number> {
 // process.exit does not wait for pending pipe writes, so flush stdout first
 // (the write callback fires once earlier writes are accepted by the OS).
 // The agent subprocess can leave handles open past cleanup; the unref'd timer
-// force-exits then, while a clean event loop still exits naturally.
+// force-exits then, while a clean event loop still exits naturally. The
+// unconditional backstop covers a stalled consumer that never drains the pipe,
+// which would otherwise keep the flush callback from ever firing.
 function exitAfterFlush(code: number): void {
   process.exitCode = code;
+  setTimeout(() => process.exit(code), 10_000).unref();
   process.stdout.write("", () => {
     setTimeout(() => process.exit(code), 500).unref();
   });
