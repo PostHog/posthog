@@ -88,7 +88,7 @@
         },
         "page_size": {
             "default": 10,
-            "description": "Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+            "description": "Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.",
             "maximum": 1000,
             "minimum": 1,
             "type": "number"

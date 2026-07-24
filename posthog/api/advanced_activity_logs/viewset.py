@@ -131,6 +131,12 @@ class ActivityLogPagination(BasePagination):
         self.page_number_pagination.page_size_query_param = "page_size"
         self.page_number_pagination.max_page_size = 1000
         self.cursor_pagination.page_size = 100
+        # Honor `page_size` on the cursor path too. Without this, cursor pagination
+        # (the default, used when no `page` param is sent — e.g. by MCP tools and
+        # ad-hoc API clients) ignores `page_size` entirely and always returns 100
+        # full entries, which can serialize into a huge response.
+        self.cursor_pagination.page_size_query_param = "page_size"
+        self.cursor_pagination.max_page_size = 1000
         self.cursor_pagination.ordering = "-created_at"
 
     def paginate_queryset(self, queryset, request, view=None):
@@ -184,7 +190,7 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         min_value=1,
         max_value=1000,
         default=100,
-        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+        help_text="Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.",
     )
 
 
@@ -355,7 +361,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         min_value=1,
         max_value=1000,
         default=100,
-        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+        help_text="Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.",
     )
 
 
