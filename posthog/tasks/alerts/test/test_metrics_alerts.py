@@ -14,9 +14,17 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.tasks.alerts.metrics_investigation import MAX_SUMMARY_LENGTH
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.metrics.backend.facade.contracts import (
+    InvestigationEvidence,
+    InvestigationResult,
+    MetricAnomalyDimension,
+    MetricAnomalyReport,
+    MetricSeries,
+)
 from products.metrics.backend.facade.testing import seed_metric
 
 # 08:55 — the 08:00 hourly bucket is still accumulating; 07:00 is the last complete one.
@@ -25,6 +33,41 @@ FROZEN_TIME = dateutil.parser.parse("2026-07-01T08:55:00.000Z")
 
 def _metrics_flag_only(flag: str, *args: Any, **kwargs: Any) -> bool:
     return flag == "metrics"
+
+
+def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> InvestigationResult:
+    symptom = MetricAnomalyReport(
+        metric_name=metric_name,
+        aggregation="avg",
+        interval="1 minute",
+        baseline_from="2026-07-01T05:00:00+00:00",
+        baseline_to="2026-07-01T06:00:00+00:00",
+        anomaly_from="2026-07-01T06:00:00+00:00",
+        anomaly_to="2026-07-01T07:00:00+00:00",
+        baseline_mean=5.0,
+        baseline_stddev=0.5,
+        anomaly_mean=50.0,
+        anomaly_peak=60.0,
+        change_ratio=10.0,
+        direction="up",
+        onset_time=None,
+        top_movers=(
+            MetricAnomalyDimension(
+                key="pod", label=mover_label, baseline_value=5.0, anomaly_value=50.0, change_ratio=10.0
+            ),
+        ),
+        series=MetricSeries(labels={}, points=()),
+    )
+    return InvestigationResult(
+        metric_name=metric_name,
+        symptom=symptom,
+        blast_radius="localized",
+        companions=(),
+        chart_specs=(),
+        evidence=InvestigationEvidence(service_name=None),
+        confidence="high",
+        narrative="",
+    )
 
 
 @freeze_time(FROZEN_TIME)
@@ -40,11 +83,15 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         # metrics1 is not truncated between tests, so a per-test metric name keeps tests isolated.
         self.metric_name = f"queue.depth.{self._testMethodName}"
 
-    def create_metrics_insight(self, group_by: Optional[list[str]] = None) -> dict:
-        clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
-        if group_by:
-            clause["groupBy"] = [{"key": key} for key in group_by]
-        query_dict = {"kind": "MetricsQuery", "clauses": [clause]}
+    def create_metrics_insight(
+        self, group_by: Optional[list[str]] = None, clauses: Optional[list[dict[str, Any]]] = None
+    ) -> dict:
+        if clauses is None:
+            clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
+            if group_by:
+                clause["groupBy"] = [{"key": key} for key in group_by]
+            clauses = [clause]
+        query_dict = {"kind": "MetricsQuery", "clauses": clauses}
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -340,3 +387,171 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         insight = self.create_metrics_insight()
         response = self.create_alert(insight, lower=1.0, config=config, expected_status=400, **alert_overrides)
         assert expected_fragment in str(response).lower(), response
+
+    def test_firing_metrics_alert_runs_investigation_and_persists_summary(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The roadmap loop: a firing metrics alert attaches an investigation to its
+        # check, so the alert page carries the why, not just the that.
+        self.seed_gauge(dict.fromkeys(range(0, 6), 5.0) | {6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        assert alert_check.investigation_status == "done"
+        assert alert_check.investigation_summary
+        assert self.metric_name in alert_check.investigation_summary
+
+    def test_investigation_only_runs_when_enabled(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.investigation_status is None
+        assert alert_check.investigation_summary is None
+
+    def test_investigation_failure_is_recorded_without_breaking_the_alert(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with patch(
+            "posthog.tasks.alerts.metrics_investigation._run_investigation",
+            side_effect=RuntimeError("boom"),
+        ):
+            run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        assert alert_check.investigation_status == "failed"
+        mock_send_breaches.assert_called_once()  # the alert still notifies
+
+    def test_multi_clause_alert_investigates_each_distinct_clause(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The check records one fired value with no pointer to the breaching
+        # clause, so an investigation pinned to clauses[0] could summarize the
+        # wrong metric; duplicate targets are investigated only once.
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight(
+            clauses=[
+                {"name": "a", "metricName": self.metric_name, "aggregation": "avg"},
+                {"name": "b", "metricName": "companion.metric", "aggregation": "avg"},
+                {"name": "c", "metricName": self.metric_name, "aggregation": "sum"},
+            ]
+        )
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with patch(
+            "products.metrics.backend.facade.api.investigate_incident",
+            side_effect=lambda *, team, context: _stub_investigation_result(context.metric_name),
+        ) as mock_investigate:
+            run_alert_check(alert["id"])
+
+        investigated = [call.kwargs["context"].metric_name for call in mock_investigate.call_args_list]
+        assert investigated == [self.metric_name, "companion.metric"]
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.investigation_status == "done"
+        assert alert_check.investigation_summary is not None
+        assert self.metric_name in alert_check.investigation_summary
+        assert "companion.metric" in alert_check.investigation_summary
+
+    @parameterized.expand(
+        [
+            # (name, service filter, service the investigation is scoped to, caveat expected)
+            ("eq_scopes_to_the_service", {"key": "service.name", "op": "eq", "value": "billing"}, "billing", False),
+            ("neq_cannot_derive_a_service", {"key": "service.name", "op": "neq", "value": "billing"}, None, True),
+            ("regex_cannot_derive_a_service", {"key": "service.name", "op": "regex", "value": "bill.*"}, None, True),
+        ]
+    )
+    def test_investigation_service_scope_from_clause_filters(
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+        _name: str,
+        service_filter: dict[str, str],
+        expected_service: Optional[str],
+        expects_caveat: bool,
+    ) -> None:
+        # The seeded first clause fires the alert; the second clause carries the
+        # service filter under test. A non-eq filter can't pin down one service,
+        # so the summary must say the investigation ran unscoped.
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight(
+            clauses=[
+                {"name": "a", "metricName": self.metric_name, "aggregation": "avg"},
+                {"name": "b", "metricName": "scoped.metric", "aggregation": "avg", "filters": [service_filter]},
+            ]
+        )
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with patch(
+            "products.metrics.backend.facade.api.investigate_incident",
+            side_effect=lambda *, team, context: _stub_investigation_result(context.metric_name),
+        ) as mock_investigate:
+            run_alert_check(alert["id"])
+
+        scoped_call = mock_investigate.call_args_list[1]
+        assert scoped_call.kwargs["context"].service_name == expected_service
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.investigation_summary is not None
+        assert ("ran across all services" in alert_check.investigation_summary) == expects_caveat
+
+    def test_investigation_summary_is_capped(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Mover labels come from ingested telemetry, so an oversized label must
+        # not persist an unbounded summary on the check.
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with patch(
+            "products.metrics.backend.facade.api.investigate_incident",
+            side_effect=lambda *, team, context: _stub_investigation_result(
+                context.metric_name, mover_label="x" * 10_000
+            ),
+        ):
+            run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.investigation_status == "done"
+        assert alert_check.investigation_summary is not None
+        assert len(alert_check.investigation_summary) == MAX_SUMMARY_LENGTH
+
+    def test_investigation_flag_still_rejected_for_trends_threshold_alerts(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Loosening the metrics gate must not loosen it for other kinds: a trends
+        # threshold alert without a detector still can't enable the agent.
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+        }
+        trends_insight = self.dashboard_api.create_insight(data={"name": "t", "query": trends_query})[1]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "trends alert",
+                "insight": trends_insight["id"],
+                "subscribed_users": [self.user.id],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1.0}}},
+                "investigation_agent_enabled": True,
+            },
+        )
+        assert response.status_code == 400
+        assert "anomaly detection" in str(response.json()).lower()
