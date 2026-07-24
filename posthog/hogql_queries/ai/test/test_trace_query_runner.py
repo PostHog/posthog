@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypedDict
 from uuid import UUID
 
@@ -574,6 +574,33 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 2)
+
+    def test_capture_range_includes_long_running_trace(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        # Trace anchored at date_from with spans spread over days; every span must land in the
+        # tree even though the later ones fall well past the backward capture buffer (#43310).
+        # The multi-day offset covers a chat resumed after the first day, which a sub-day forward
+        # bound truncates.
+        forward_offsets_minutes = [0, 45, 180, 720, 3 * 24 * 60]
+        for offset in forward_offsets_minutes:
+            _create_ai_generation_event(
+                distinct_id="person1",
+                trace_id="trace1",
+                team=self.team,
+                timestamp=datetime(2024, 12, 1, 0, 0) + timedelta(minutes=offset),
+            )
+
+        # The frontend anchors date_from/date_to on the trace's first event timestamp.
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), len(forward_offsets_minutes))
 
     def test_overlap_semantics_trace_started_before_window(self):
         _create_person(distinct_ids=["person1"], team=self.team)

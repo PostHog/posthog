@@ -49,11 +49,24 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
 
 class TraceQueryDateRange(QueryDateRange):
     """
-    Extends the QueryDateRange to include a capture range of 10 minutes before and after the date range.
-    It's a naive assumption that a trace finishes generating within 10 minutes of the first event so we can apply the date filters.
+    Extends the QueryDateRange with a capture range around the requested date range so we still
+    collect a trace's events when the caller anchors only on the trace's first event.
+
+    The window is asymmetric because a trace grows *forward* in time from its first event: the
+    backward buffer only needs to absorb minor clock skew, while the forward buffer must cover the
+    trace's full duration (e.g. one trace per chat, where the chat is resumed a day or two later).
+
+    The forward bound can be generous cheaply: `events` is `PARTITION BY toYYYYMM(timestamp)` and
+    ordered by `(team_id, toDate(timestamp), ...)`, and `trace_id` is not in the sort key, so
+    widening the bound does not move the scan. The reader hits the same team/day block either way,
+    and the selective predicate is the exact `trace_id`, not the timestamp.
     """
 
+    # Backward buffer: clock skew / the small negative anchor the frontend applies to date_from.
     CAPTURE_RANGE_MINUTES = 10
+    # Forward buffer: an upper bound on a single trace's duration. A trace that maps to a chat can
+    # stay open across days, so a sub-day bound silently truncates it.
+    FORWARD_CAPTURE_RANGE_MINUTES = 7 * 24 * 60
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
@@ -65,7 +78,7 @@ class TraceQueryDateRange(QueryDateRange):
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
     def date_to(self) -> datetime:
-        return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
+        return super().date_to() + timedelta(minutes=self.FORWARD_CAPTURE_RANGE_MINUTES)
 
 
 class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
@@ -207,7 +220,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
     @cached_property
     def _date_range(self):
-        # Minute-level precision for 10m capture range
+        # Minute-level precision for the capture range buffers
         return TraceQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
