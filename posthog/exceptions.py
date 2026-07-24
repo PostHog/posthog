@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, Throttled
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -13,6 +13,13 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
+
+# Shown to the user when a query concurrency limiter rejects a request. The raw limiter exception
+# embeds an internal Redis key + task id, so we surface this friendly message instead. Every DRF
+# endpoint that drives a query goes through the exception handler below, so converting the limiter
+# error to a Throttled (429) here means saturated-org rejections become a clean throttle everywhere
+# — not just on /query — and stop reaching error tracking as unhandled server exceptions.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
 
 class RequestParsingError(Exception):
@@ -143,8 +150,19 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     # manage.py bootstrap (before Django apps are loaded).
     from exceptions_hog import exception_handler as _exceptions_hog_handler
 
+    # Imported lazily: posthog.clickhouse.client.limit pulls in redis/celery/settings, which aren't
+    # available when this module is imported during manage.py bootstrap.
+    from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+
     # Imported lazily to avoid pulling settings into module import.
     from posthog.utils import absolute_uri
+
+    # A saturated query concurrency limiter is a benign rate-limit, not a server error. Convert it to
+    # a 429 Throttled so it renders as a clean throttle and isn't reported to error tracking (only
+    # non-APIException errors are captured). The raw detail (Redis key + task id) goes to logs only.
+    if isinstance(exc, ConcurrencyLimitExceeded):
+        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
+        exc = Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
     response = _exceptions_hog_handler(exc, context)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:

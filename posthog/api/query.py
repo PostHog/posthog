@@ -52,6 +52,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -75,11 +76,6 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
-
-# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
-# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
-# friendly message instead of leaking implementation details into the UI.
-CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
