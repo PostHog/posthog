@@ -1,4 +1,77 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "ee/hogai/chat_agent/query_planner/test/test_toolkit.py::TestTaxonomyAgentToolkit::test_retrieve_event_or_action_property_values",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "@team-self-driving",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/hogql/transforms/test/test_property_types.py::TestPropertyTypes::test_exception_array_property_extracted_for_array_membership_functions_0_has",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "@team-data-tools",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/hogql/transforms/test/test_property_types.py::TestPropertyTypes::test_exception_array_property_extracted_for_array_membership_functions_1_hasAny",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "@team-data-tools",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/hogql/transforms/test/test_property_types.py::TestPropertyTypes::test_exception_array_property_extracted_for_array_membership_functions_2_hasAll",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "@team-data-tools",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "(unowned)",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "(unowned)",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "(unowned)",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/test/test_startup_import_budget.py::test_setup_receivers_match_baseline",
+            "runner": "pytest",
+            "reason": "flaky on master; ported from Trunk quarantine",
+            "owner": "(unowned)",
+            "added": "2026-07-20",
+            "expires": "2026-08-19",
+            "mode": "run"
+        }
+    ]
 }
