@@ -1600,10 +1600,14 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
     const { featuredProducts } = useValues(quickstartLogic)
     const { openToolSetupModal } = useActions(quickstartLogic)
 
+    const isLocalRunActive = useLocalWizardRunActive()
     const offerCloud = cloudRunEnabled && isCloudOrDev
     const [mode, setMode] = useState<QuickstartInstallMode>(offerCloud ? 'cloud' : 'local')
     const cloudRunPinned = !!activeCloudRun
-    const effectiveMode: QuickstartInstallMode = cloudRunPinned ? 'cloud' : mode
+    // Once an installation is triggered, the choice is locked until it errors out (the
+    // failed-run fallbacks clear the run state, which unlocks the cards again)
+    const installationTriggered = cloudRunPinned || isLocalRunActive
+    const effectiveMode: QuickstartInstallMode = cloudRunPinned ? 'cloud' : isLocalRunActive ? 'local' : mode
     const runItYourself = (): void => {
         clearActiveCloudRun()
         setMode('local')
@@ -1618,7 +1622,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-2" role="radiogroup">
                     {cards.map((card) => {
                         const selected = effectiveMode === card.value
-                        const disabled = cloudRunPinned && card.value !== 'cloud'
+                        const disabled = installationTriggered && card.value !== effectiveMode
                         return (
                             <button
                                 key={card.value}
@@ -1626,7 +1630,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                                 role="radio"
                                 aria-checked={selected}
                                 disabled={disabled}
-                                title={disabled ? 'A cloud run is in progress.' : undefined}
+                                title={disabled ? 'Installation in progress.' : undefined}
                                 className={cn(
                                     'text-left rounded border p-3 bg-bg-light transition-colors flex flex-col justify-start gap-1',
                                     selected ? 'border-accent' : 'hover:border-secondary',
@@ -1654,13 +1658,23 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                 {effectiveMode !== 'manual' && (
                     <InstallPathTimeline
                         steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
-                        activeIndex={effectiveMode === 'cloud' && cloudRunPinned ? 2 : 0}
+                        activeIndex={
+                            effectiveMode === 'cloud' && cloudRunPinned
+                                ? 2
+                                : effectiveMode === 'local' && isLocalRunActive
+                                  ? 1
+                                  : 0
+                        }
                     />
                 )}
                 {effectiveMode === 'cloud' ? (
                     <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
                 ) : effectiveMode === 'local' ? (
-                    <WizardCommandBlock hideHog align="start" />
+                    isLocalRunActive ? (
+                        <InstallationProgressView mode="local" />
+                    ) : (
+                        <WizardCommandBlock hideHog align="start" />
+                    )
                 ) : (
                     <div className="flex flex-col gap-2">
                         <p className="text-secondary text-sm mb-0">
@@ -1705,9 +1719,6 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
 // methods live inline as a master-detail choice.
 function QuickstartFocusedInstall(): JSX.Element {
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const isLocalRunActive = useLocalWizardRunActive()
-
     const intro = (
         <div>
             <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
@@ -1718,14 +1729,6 @@ function QuickstartFocusedInstall(): JSX.Element {
         </div>
     )
 
-    if (isLocalRunActive && !activeCloudRun) {
-        return (
-            <section className="max-w-2xl flex flex-col gap-6">
-                {intro}
-                <InstallationProgressView mode="local" />
-            </section>
-        )
-    }
     return (
         <section>
             <QuickstartInstallSwitcher intro={intro} />
