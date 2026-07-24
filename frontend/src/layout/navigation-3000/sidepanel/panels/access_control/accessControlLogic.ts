@@ -320,6 +320,7 @@ export interface accessControlLogicMeta {
                 | 'cohort'
                 | 'comment'
                 | 'conversation'
+                | 'cookie_banner'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
@@ -535,6 +536,7 @@ export interface accessControlLogicMeta {
                 | 'cohort'
                 | 'comment'
                 | 'conversation'
+                | 'cookie_banner'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
@@ -647,6 +649,7 @@ export interface accessControlLogicMeta {
                 | 'cohort'
                 | 'comment'
                 | 'conversation'
+                | 'cookie_banner'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
@@ -1141,6 +1144,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     early_access_feature: 'early_access_feature',
                     heatmap: 'saved',
                     replay_scanner: 'vision/scanners',
+                    cookie_banner: 'cookie_banner', // singular route — one banner per project
                 }
                 const route = resourceToRoute[resource] ?? `${resource}s`
                 return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`

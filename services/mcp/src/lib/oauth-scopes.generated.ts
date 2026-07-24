@@ -222,6 +222,8 @@ export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
 export const OAUTH_SCOPES_HIDDEN = [
     'batch_import_support:read',
     'batch_import_support:write',
+    'cookie_banner:read',
+    'cookie_banner:write',
     'query_performance:read',
     'query_performance:write',
     'wizard_session:read',

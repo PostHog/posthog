@@ -31,6 +31,7 @@ export enum Scene {
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     Comments = 'Comments',
+    CookieBanner = 'CookieBanner',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
@@ -372,6 +373,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
+
+    // Cookie banner
+    [Scene.CookieBanner]: AccessControlResourceType.CookieBanner,
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,

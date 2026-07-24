@@ -1,0 +1,21 @@
+# Cookie banner
+
+## CookieBannerConfig (`system.cookie_banner_configs`)
+
+The project's cookie consent banner configuration. A project has at most one banner, so this table holds zero or one rows per team.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this banner belongs to
+`enabled` | boolean | NOT NULL | Whether the banner is served to the website via remote config
+`appearance` | jsonb | NOT NULL | Appearance overrides: `title`, `description`, `acceptButtonText`, `declineButtonText`, `preferencesButtonText`, `artStyle` (`none`, `posthog-logo`, `posthog-logomark-light`, `hedgehog-builder`, `hedgehog-business`, `hedgehog-hogzilla`, `hedgehog-robot`, `hedgehog-mobile`, `hedgehog-zen`, `hedgehog-lens`, `hedgehog-town-crier`, `hedgehog-wizard`, `hedgehog-legal`), `position` (`bottom-left`, `bottom-right`, `bottom-bar`), `backgroundColor`, `textColor`, `buttonColor`, `buttonTextColor`, `whiteLabel`, `showPreferences` (per-category consent panel), `cookielessFallback` (anonymous in-memory analytics on decline), `respectGpc` (auto-decline on the Global Privacy Control signal, default true), `translations` (per-language copy overrides keyed by ISO 639 code)
+`created_at` | timestamp with tz | NOT NULL | Creation timestamp
+`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+
+### Important Notes
+
+- `appearance` stores only user overrides; keys not present fall back to PostHog-styled defaults at delivery time
+- `whiteLabel: true` in `appearance` only takes effect when the organization has the `white_labelling` entitlement — the served banner re-checks this on every remote config rebuild
+- Use the `cookie-banner-create` / `cookie-banner-partial-update` MCP tools for writes

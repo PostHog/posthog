@@ -1990,6 +1990,51 @@
             "readOnlyHint": true
         }
     },
+    "cookie-banner-create": {
+        "description": "Create the project's cookie consent banner. A project has at most one banner — if one already exists the call fails, so check with cookie-banner-list first and use cookie-banner-partial-update instead. Pass enabled: true to start serving the banner immediately, and an appearance object to tailor copy, art (PostHog logo or hedgehog art), position, and colors. Omitted appearance keys use the PostHog-styled defaults. The site must initialize posthog-js with opt_in_site_apps: true for the banner to render.",
+        "category": "Cookie banner",
+        "feature": "cookie_banner",
+        "summary": "Create cookie banner",
+        "title": "Create cookie banner",
+        "required_scopes": ["cookie_banner:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cookie-banner"
+    },
+    "cookie-banner-list": {
+        "description": "Get the project's cookie consent banner configuration. A project has at most one banner, so this returns zero or one entries. Use it to check whether a banner exists (and its id) before creating or updating one.",
+        "category": "Cookie banner",
+        "feature": "cookie_banner",
+        "summary": "Get cookie banner config",
+        "title": "Get cookie banner config",
+        "required_scopes": ["cookie_banner:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cookie-banner"
+    },
+    "cookie-banner-partial-update": {
+        "description": "Update the project's cookie consent banner. Pass {\"enabled\": true} or {\"enabled\": false} to turn the banner on or off, and/or an appearance object to change copy, art, position, colors, or white labelling. The appearance object replaces the stored one entirely, so include every key you want to keep. Get the banner id from cookie-banner-list.",
+        "category": "Cookie banner",
+        "feature": "cookie_banner",
+        "summary": "Update cookie banner",
+        "title": "Update cookie banner",
+        "required_scopes": ["cookie_banner:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "cookie-banner"
+    },
     "create-feature-flag": {
         "description": "Create a feature flag in the current project.",
         "category": "Feature flags",

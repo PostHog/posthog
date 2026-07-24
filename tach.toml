@@ -90,6 +90,7 @@ depends_on = [
     "products.business_knowledge",
     "products.cdp",
     "products.conversations",
+    "products.cookie_banner",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_catalog",
@@ -1128,3 +1129,9 @@ expose = [
 from = [
     "products.data_catalog",
 ]
+
+[[modules]]
+path = "products.cookie_banner"
+depends_on = ["posthog"]
+layer = "modules"
+

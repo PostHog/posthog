@@ -21,6 +21,7 @@ from posthog.rbac.user_access_control import (
     model_to_resource,
 )
 
+from products.cookie_banner.backend.models import CookieBannerConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 
@@ -91,6 +92,12 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         # object-level access control and a per-action grant wouldn't be enforced.
         assert model_to_resource(VisionAction()) == "vision_action"
         assert model_to_resource(VisionActionRun()) == "vision_action"
+
+    def test_cookie_banner_config_maps_to_cookie_banner_resource(self):
+        # CookieBannerConfig's _meta.model_name (cookiebannerconfig) differs from the cookie_banner
+        # scope object; without the explicit mapping, AccessControlPermission.has_object_permission
+        # skips rule evaluation entirely and a restriction on the banner isn't enforced.
+        assert model_to_resource(CookieBannerConfig()) == "cookie_banner"
 
     def test_no_organization_id_passed(self):
         # Create a user without an organization

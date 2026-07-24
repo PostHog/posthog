@@ -905,6 +905,24 @@ surveys: PostgresTable = PostgresTable(
     },
 )
 
+cookie_banner_configs: PostgresTable = PostgresTable(
+    name="cookie_banner_configs",
+    postgres_table_name="cookie_banner_cookiebannerconfig",
+    access_scope="cookie_banner",
+    description="Cookie consent banner configuration; at most one row per project.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Cookie banner config id (UUID)."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "enabled": BooleanDatabaseField(name="enabled", description="Whether the banner is served to the website."),
+        "appearance": StringJSONDatabaseField(
+            name="appearance",
+            description="JSON appearance overrides: title, description, button texts, artStyle, position, colors, whiteLabel.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the banner config was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the banner config was last updated."),
+    },
+)
+
 teams: PostgresTable = PostgresTable(
     name="teams",
     postgres_table_name="posthog_team",
@@ -2041,6 +2059,7 @@ class SystemTables(TableNode):
         "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
+        "cookie_banner_configs": TableNode(name="cookie_banner_configs", table=cookie_banner_configs),
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),

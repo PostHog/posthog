@@ -88,6 +88,7 @@
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
+        "@posthog/products-cookie-banner": "workspace:*",
         "@posthog/products-customer-analytics": "workspace:*",
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-data-catalog": "workspace:*",
