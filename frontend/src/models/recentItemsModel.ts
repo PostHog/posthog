@@ -142,7 +142,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                             'loadSceneLogViews timed out'
                         )
                         const record: Record<string, string> = {}
-                        for (const { ref, viewed_at } of results) {
+                        for (const { ref, viewed_at } of Array.isArray(results) ? results : []) {
                             const current = record[ref]
                             if (!current || Date.parse(viewed_at) > Date.parse(current)) {
                                 record[ref] = viewed_at
