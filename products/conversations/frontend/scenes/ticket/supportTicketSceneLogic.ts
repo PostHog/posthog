@@ -766,8 +766,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             },
         ],
-        // Human-readable list of unsaved edits other than status, shown in the send-and-set-status
-        // confirmation. Status is excluded because that action overrides it anyway.
+        // Human-readable list of unsaved edits other than status, feeding hasUnsavedChanges and the
+        // beforeUnload guard. Status is excluded because the send-and-set-status action overrides it anyway.
         unsavedTicketChanges: [
             (s) => [s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket, s.resolveAssignee],
             (

@@ -85,7 +85,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
-        unsavedTicketChanges,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -224,7 +223,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftModeChange={setDraftModeEnabled}
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
-                        unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
