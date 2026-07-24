@@ -1220,7 +1220,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         publications = (
             ManagedWarehousePublishedTable.objects.for_team(self.team_id).filter(deleted=False).order_by("name")
         )
-        return Response({"results": [self._published_table_payload(publication) for publication in publications]})
+        return Response({"results": PublishedTableSerializer(publications, many=True).data})
 
     @validated_request(
         request_serializer=PublishModeledTableRequestSerializer,
@@ -1249,7 +1249,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise serializers.ValidationError(str(error)) from error
 
         managed_warehouse_publish.start_publish_workflow(publication)
-        return Response(self._published_table_payload(publication), status=status.HTTP_201_CREATED)
+        return Response(PublishedTableSerializer(publication).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
         request_serializer=PublishedTableIdSerializer,
@@ -1283,7 +1283,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"detail": "A publish for this table is already running."},
                 status=status.HTTP_409_CONFLICT,
             )
-        return Response(self._published_table_payload(publication))
+        return Response(PublishedTableSerializer(publication).data)
 
     @validated_request(
         query_serializer=PublishedTableIdSerializer,
@@ -1308,9 +1308,3 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         managed_warehouse_publish.delete_publication(publication)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def _published_table_payload(
-        self,
-        publication: ManagedWarehousePublishedTable,
-    ) -> dict[str, object]:
-        return dict(PublishedTableSerializer(publication).data)

@@ -1,15 +1,7 @@
-"""Helpers for publishing modeled duckgres tables into the ClickHouse-queryable warehouse.
+"""Publish modeled Duckgres tables as versioned parquet snapshots.
 
-A publish copies one modeled DuckLake table's current state into a versioned parquet
-folder under the org's own managed-warehouse bucket (DuckDB COPY TO, executed on the
-org's duckgres worker with its ambient credentials) and registers it as a
-DataWarehouseTable. Each publish writes a fresh version folder and repoints the
-table's url_pattern, so readers never see a half-written folder.
-
-Published data deliberately stays in the org's bucket: the worker needs no injected
-PostHog credentials to write it, and ClickHouse reads it cross-account through the
-duckling bucket policy (see the crossplane duckling composition in PostHog/charts),
-which is scoped to PUBLISHED_PREFIX.
+Each publish writes a fresh folder and repoints the warehouse table only after
+the copy completes.
 """
 
 from __future__ import annotations
@@ -26,11 +18,8 @@ from psycopg import sql as psql
 if TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
-# Top-level key prefix for published snapshots in the org bucket. Leading underscores
-# keep it collision-free: sanitize_ducklake_identifier strips them, so no DuckLake
-# schema directory can ever shadow it (same convention as storage.STAGING_PREFIX).
-# The duckling bucket policy's ClickHouse read grant is scoped to this prefix — the
-# charts crossplane composition must reference the same literal.
+# Leading underscores prevent collisions because sanitized DuckLake schema
+# directories cannot start with them. The bucket policy uses this same prefix.
 PUBLISHED_PREFIX = "__posthog_published"
 
 # Schemas that are posthog-managed or DuckDB-internal — never publish candidates.
@@ -56,9 +45,6 @@ def publish_s3_uri(bucket: str, folder: str, version: str) -> str:
 
 
 def publish_url_pattern(bucket: str, bucket_region: str, folder: str, version: str) -> str:
-    # ClickHouse reads the org bucket over https; its EC2 role is granted GetObject +
-    # prefix-scoped ListBucket by the duckling bucket policy, so no credentials are
-    # stored on the DataWarehouseTable.
     if settings.USE_LOCAL_SETUP:
         endpoint = settings.OBJECT_STORAGE_ENDPOINT.replace("http://", "").replace("https://", "")
         return f"http://{endpoint}/{bucket}/{PUBLISHED_PREFIX}/{folder}/{version}/**.parquet"
@@ -108,16 +94,10 @@ def _s3_client() -> Any:
 def delete_stale_publish_versions(
     bucket: str, folder: str, keep_versions: Collection[str], *, min_age_seconds: int = 0
 ) -> None:
-    """Best-effort removal of version folders under the publication's prefix.
+    """Delete objects outside kept versions once they are old enough.
 
-    Every object whose key is not inside one of keep_versions is deleted; an empty
-    keep set removes the whole folder (used once a publication is deleted). With
-    min_age_seconds, version folders younger than that are spared too — a reader
-    that resolved the table's url_pattern just before a repoint would otherwise
-    have its files deleted mid-query (same race S3_DELETE_TIME_BUFFER covers for
-    data-import query folders; version names are sortable timestamps). Runs with
-    the temporal worker's own AWS identity; cross-account delete on the org bucket
-    is granted (scoped to PUBLISHED_PREFIX) by the duckling bucket policy.
+    An empty keep set removes the whole publication folder. The age buffer
+    protects readers that resolved the old URL just before a repoint.
     """
     s3 = _s3_client()
 
@@ -145,7 +125,7 @@ def delete_stale_publish_versions(
 
 
 def sum_publish_version_size_bytes(bucket: str, folder: str, version: str) -> int:
-    """Total object size under one published version folder (temporal worker identity)."""
+    """Return the total object size under a published version folder."""
     s3 = _s3_client()
 
     total = 0

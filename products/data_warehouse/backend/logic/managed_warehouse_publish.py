@@ -115,28 +115,29 @@ def create_publication(
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.") from error
 
 
-def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
+def _start_workflow(
+    workflow_name: str,
+    workflow_id: str,
+    inputs: PublishTableInputs | PrunePublishedSnapshotInputs,
+) -> None:
     temporal = sync_connect()
-    inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
     start_workflow = cast(Callable[..., Any], async_to_sync(temporal.start_workflow))
     start_workflow(
-        "duckgres-publish-table",
+        workflow_name,
         inputs,
-        id=f"duckgres-publish-{publication.id}",
+        id=workflow_id,
         task_queue=str(settings.DUCKLAKE_TASK_QUEUE),
     )
+
+
+def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
+    inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
+    _start_workflow("duckgres-publish-table", f"duckgres-publish-{publication.id}", inputs)
 
 
 def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTable) -> None:
-    temporal = sync_connect()
     inputs = PrunePublishedSnapshotInputs(team_id=publication.team_id, publication_id=str(publication.id))
-    start_workflow = cast(Callable[..., Any], async_to_sync(temporal.start_workflow))
-    start_workflow(
-        "duckgres-prune-published-snapshot",
-        inputs,
-        id=f"duckgres-prune-published-{publication.id}",
-        task_queue=str(settings.DUCKLAKE_TASK_QUEUE),
-    )
+    _start_workflow("duckgres-prune-published-snapshot", f"duckgres-prune-published-{publication.id}", inputs)
 
 
 def delete_publication(publication: ManagedWarehousePublishedTable) -> None:

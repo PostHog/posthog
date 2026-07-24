@@ -253,6 +253,18 @@ def publish_table_mark_failed_activity(inputs: PublishMarkFailedInputs) -> None:
     )
 
 
+async def _prune_published_snapshot_best_effort(inputs: PrunePublishedSnapshotInputs, warning_message: str) -> None:
+    try:
+        await temporalio.workflow.execute_activity(
+            prune_published_snapshot_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    except Exception:
+        temporalio.workflow.logger.warning(warning_message)
+
+
 @temporalio.workflow.defn(name="duckgres-publish-table")
 class DuckgresPublishTableWorkflow(PostHogWorkflow):
     # TODO: Reap publications left in PUBLISHING when Temporal terminates or cancels a workflow.
@@ -285,42 +297,32 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
             )
-            try:
-                await temporalio.workflow.execute_activity(
-                    prune_published_snapshot_activity,
-                    PrunePublishedSnapshotInputs(
-                        team_id=inputs.team_id,
-                        publication_id=inputs.publication_id,
-                        completed_version=copy_result.folder_version,
-                        superseded_version=superseded_version,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            except Exception:
-                temporalio.workflow.logger.warning("Publish cleanup failed; stale version folders remain")
+            await _prune_published_snapshot_best_effort(
+                PrunePublishedSnapshotInputs(
+                    team_id=inputs.team_id,
+                    publication_id=inputs.publication_id,
+                    completed_version=copy_result.folder_version,
+                    superseded_version=superseded_version,
+                ),
+                "Publish cleanup failed; stale version folders remain",
+            )
         except Exception as error:
             # Prune whatever the failed run wrote: partial COPY folders always, the
             # whole folder if the publication was deleted mid-publish.
-            try:
-                await temporalio.workflow.execute_activity(
-                    prune_published_snapshot_activity,
-                    PrunePublishedSnapshotInputs(
-                        team_id=inputs.team_id,
-                        publication_id=inputs.publication_id,
-                        completed_version=copy_result.folder_version if copy_result else None,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            except Exception:
-                temporalio.workflow.logger.warning("Publish failure prune failed; stale files may remain")
+            await _prune_published_snapshot_best_effort(
+                PrunePublishedSnapshotInputs(
+                    team_id=inputs.team_id,
+                    publication_id=inputs.publication_id,
+                    completed_version=copy_result.folder_version if copy_result else None,
+                ),
+                "Publish failure prune failed; stale files may remain",
+            )
             await temporalio.workflow.execute_activity(
                 publish_table_mark_failed_activity,
                 PublishMarkFailedInputs(
                     team_id=inputs.team_id,
                     publication_id=inputs.publication_id,
-                    error=str(error)[:512],
+                    error=str(error),
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
