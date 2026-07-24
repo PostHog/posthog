@@ -136,13 +136,13 @@ export function SubscriptionsScene(): JSX.Element {
     const emptyStateAction = aiSubscriptionsAvailable ? (
         <span className="italic">
             <Link to={urls.subscriptionNew()}>Create an AI prompt subscription</Link>, or open a{' '}
-            <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> and click{' '}
-            &quot;Subscribe&quot; in the side panel.
+            <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to schedule
+            a snapshot.
         </span>
     ) : (
         <span className="italic">
-            Open a <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link>,
-            open the side panel, and click &quot;Subscribe&quot; to configure the options.
+            Open a <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to
+            schedule a snapshot.
         </span>
     )
 
