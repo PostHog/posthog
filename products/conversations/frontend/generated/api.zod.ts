@@ -154,6 +154,290 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const conversationsQuickActionsCreateBodyNameMax = 200
+
+export const conversationsQuickActionsCreateBodyDescriptionMax = 400
+
+export const conversationsQuickActionsCreateBodyContentMax = 50000
+
+export const ConversationsQuickActionsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsQuickActionsCreateBodyNameMax)
+        .describe('Display name shown in the quick action picker.'),
+    description: zod
+        .string()
+        .max(conversationsQuickActionsCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this quick action.'),
+    content: zod
+        .string()
+        .max(conversationsQuickActionsCreateBodyContentMax)
+        .optional()
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the quick action is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the quick action is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the quick action is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a quick action assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the quick action is applied.'),
+        })
+        .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
+        .optional()
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
+export const conversationsQuickActionsUpdateBodyNameMax = 200
+
+export const conversationsQuickActionsUpdateBodyDescriptionMax = 400
+
+export const conversationsQuickActionsUpdateBodyContentMax = 50000
+
+export const ConversationsQuickActionsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsQuickActionsUpdateBodyNameMax)
+        .describe('Display name shown in the quick action picker.'),
+    description: zod
+        .string()
+        .max(conversationsQuickActionsUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this quick action.'),
+    content: zod
+        .string()
+        .max(conversationsQuickActionsUpdateBodyContentMax)
+        .optional()
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the quick action is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the quick action is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the quick action is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a quick action assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the quick action is applied.'),
+        })
+        .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
+        .optional()
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
+export const conversationsQuickActionsPartialUpdateBodyNameMax = 200
+
+export const conversationsQuickActionsPartialUpdateBodyDescriptionMax = 400
+
+export const conversationsQuickActionsPartialUpdateBodyContentMax = 50000
+
+export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsQuickActionsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name shown in the quick action picker.'),
+    description: zod
+        .string()
+        .max(conversationsQuickActionsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this quick action.'),
+    content: zod
+        .string()
+        .max(conversationsQuickActionsPartialUpdateBodyContentMax)
+        .optional()
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the quick action is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the quick action is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the quick action is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a quick action assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the quick action is applied.'),
+        })
+        .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
+        .optional()
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
+/**
+ * Run a workflow quick action against a ticket, synthesizing the ticket's event context.
+ */
+export const ConversationsQuickActionsRunCreateBody = /* @__PURE__ */ zod.object({
+    ticket_id: zod.uuid().describe('Ticket to run the workflow against.'),
+})
+
 /**
  * Handle ticket updates including assignee changes.
  */

@@ -18,18 +18,23 @@ import type {
     ComposeTicketResponseApi,
     ConversationApi,
     ConversationsListParams,
+    ConversationsQuickActionsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
+    PaginatedQuickActionListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
+    PatchedQuickActionApi,
     PatchedTicketApi,
     PatchedTicketViewApi,
+    QuickActionApi,
+    QuickActionRunRequestApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
@@ -288,6 +293,140 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsQuickActionsListUrl = (
+    projectId: string,
+    params?: ConversationsQuickActionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/quick_actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/quick_actions/`
+}
+
+export const conversationsQuickActionsList = async (
+    projectId: string,
+    params?: ConversationsQuickActionsListParams,
+    options?: RequestInit
+): Promise<PaginatedQuickActionListApi> => {
+    return apiMutator<PaginatedQuickActionListApi>(getConversationsQuickActionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsQuickActionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/`
+}
+
+export const conversationsQuickActionsCreate = async (
+    projectId: string,
+    quickActionApi: NonReadonly<QuickActionApi>,
+    options?: RequestInit
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActionApi),
+    })
+}
+
+export const getConversationsQuickActionsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
+}
+
+export const conversationsQuickActionsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsQuickActionsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
+}
+
+export const conversationsQuickActionsUpdate = async (
+    projectId: string,
+    shortId: string,
+    quickActionApi: NonReadonly<QuickActionApi>,
+    options?: RequestInit
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActionApi),
+    })
+}
+
+export const getConversationsQuickActionsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
+}
+
+export const conversationsQuickActionsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedQuickActionApi?: NonReadonly<PatchedQuickActionApi>,
+    options?: RequestInit
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedQuickActionApi),
+    })
+}
+
+export const getConversationsQuickActionsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
+}
+
+export const conversationsQuickActionsDestroy = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsQuickActionsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getConversationsQuickActionsRunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/run/`
+}
+
+/**
+ * Run a workflow quick action against a ticket, synthesizing the ticket's event context.
+ */
+export const conversationsQuickActionsRunCreate = async (
+    projectId: string,
+    shortId: string,
+    quickActionRunRequestApi: QuickActionRunRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsQuickActionsRunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActionRunRequestApi),
     })
 }
 

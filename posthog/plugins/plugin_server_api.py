@@ -111,6 +111,20 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def create_hog_flow_manual_invocation(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Run a full HogFlow graph on demand against a caller-synthesized event (any active workflow,
+    regardless of trigger type). `payload` is {globals: {event, person?, groups?}, variables?}."""
+    logger.info(f"Creating manual hog flow invocation for hog flow {hog_flow_id} on workers")
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
+        json=payload,
+        headers=get_internal_api_headers(),
+        # This runs on a synchronous, user-facing request path (a support agent clicking a quick
+        # action), so bound the wait rather than hang the request if the CDP service is slow.
+        timeout=5,
+    )
+
+
 def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
     # The count scans every in-flight row for the flow, which can be slow on a very large flow with
     # a cold visibility map. The timeout keeps a slow scan from pinning the calling request thread —

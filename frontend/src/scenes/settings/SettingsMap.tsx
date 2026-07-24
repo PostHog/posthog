@@ -45,6 +45,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { QuickActionsSection } from 'products/conversations/frontend/scenes/settings/QuickActionsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -1197,6 +1198,26 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'workflow',
                     'email',
                     'browser',
+                ],
+            },
+            {
+                id: 'conversations-quick-actions',
+                title: 'Quick actions',
+                description:
+                    'Reusable actions your team can trigger in a conversation with / or the quick action button. A quick action can insert a saved reply (and set the ticket status, priority, or tags) or run one of your workflows against the ticket.',
+                component: <QuickActionsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'quick action',
+                    'macro',
+                    'canned',
+                    'saved',
+                    'reply',
+                    'template',
+                    'snippet',
+                    'workflow',
+                    'support',
+                    'conversation',
                 ],
             },
             {

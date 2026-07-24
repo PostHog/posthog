@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -44,6 +45,9 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { TemplateVariableValues } from '../../components/Editor/templateVariables'
+import { conversationsQuickActionsRunCreate } from '../../generated/api'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -203,6 +207,7 @@ export interface supportTicketSceneLogicValues {
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
+    templateVariables: TemplateVariableValues
     ticket: Ticket | null
     ticketLoading: boolean
     ticketUpdating: boolean
@@ -214,6 +219,9 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    applyTicketActions: (ticketActions: QuickActionActionsApi) => {
+        ticketActions: QuickActionActionsApi
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -298,6 +306,9 @@ export interface supportTicketSceneLogicActions {
     ) => {
         messageId: string
         rating: AiReplyFeedbackRating
+    }
+    runWorkflowQuickAction: (quickAction: QuickActionApi) => {
+        quickAction: QuickActionApi
     }
     sendMessage: (
         content: string,
@@ -387,6 +398,11 @@ export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (id: number | string) => Breadcrumb[]
+        templateVariables: (
+            ticket: Ticket | null,
+            person: PersonType | null,
+            user: UserType | null
+        ) => TemplateVariableValues
         emailReplyBlockedReason: (
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
@@ -473,6 +489,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
+        applyTicketActions: (ticketActions: QuickActionActionsApi) => ({ ticketActions }),
+        runWorkflowQuickAction: (quickAction: QuickActionApi) => ({ quickAction }),
         setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
 
         // Session context actions
@@ -732,6 +750,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
         ],
+        templateVariables: [
+            (s) => [s.ticket, s.person, s.user],
+            (ticket: Ticket | null, person: PersonType | null, user: UserType | null): TemplateVariableValues => {
+                // Mirror the customer-name resolution used for message display: prefer the loaded
+                // person, fall back to the ticket's own person, then anonymous traits, then email.
+                const customerName =
+                    person?.properties?.name ||
+                    person?.properties?.email ||
+                    ticket?.person?.properties?.name ||
+                    ticket?.person?.properties?.email ||
+                    ticket?.anonymous_traits?.name ||
+                    ticket?.anonymous_traits?.email ||
+                    ticket?.email_from ||
+                    ''
+                const agentName = [user?.first_name, user?.last_name].filter(Boolean).join(' ')
+                return {
+                    'customer.name': customerName,
+                    'ticket.number': ticket?.ticket_number != null ? String(ticket.ticket_number) : '',
+                    'agent.name': agentName || user?.first_name || '',
+                    'agent.first_name': user?.first_name || '',
+                }
+            },
+        ],
         emailReplyBlockedReason: [
             (s) => [s.ticket, s.currentTeam],
             (
@@ -914,6 +955,70 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        applyTicketActions: ({ ticketActions }) => {
+            let changed = false
+            if (ticketActions.status) {
+                actions.setStatus(ticketActions.status as TicketStatus)
+                changed = true
+            }
+            if (ticketActions.priority) {
+                actions.setPriority(ticketActions.priority as TicketPriority)
+                changed = true
+            }
+            if (ticketActions.tags) {
+                actions.setTags(ticketActions.tags)
+                changed = true
+            }
+            if (ticketActions.assignee !== undefined) {
+                const assignee = ticketActions.assignee
+                if (assignee && assignee.id != null) {
+                    const type = assignee.type === 'role' ? 'role' : 'user'
+                    actions.setAssignee({ type, id: type === 'user' ? Number(assignee.id) : assignee.id })
+                } else {
+                    actions.setAssignee(null)
+                }
+                changed = true
+            }
+            // Persist the field changes; text insertion into the composer is handled separately.
+            // Publish a settle promise so a workflow run from the same quick action waits for the
+            // PATCH to commit before the backend reads the ticket (otherwise it sees stale fields).
+            if (changed) {
+                cache.ticketUpdateSettled = new Promise<void>((resolve) => {
+                    cache.resolveTicketUpdate = resolve
+                })
+                actions.updateTicket()
+            }
+        },
+        runWorkflowQuickAction: async ({ quickAction }) => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+            // Guard against a double-fire kicking off the (non-idempotent) workflow run twice.
+            if (cache.runningWorkflowQuickAction) {
+                return
+            }
+            cache.runningWorkflowQuickAction = true
+            try {
+                // Wait out any ticket-field update from the same quick action so the workflow runs
+                // against the updated ticket, not the pre-update state.
+                if (cache.ticketUpdateSettled) {
+                    await cache.ticketUpdateSettled
+                }
+                await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
+                    ticket_id: ticket.id,
+                })
+                lemonToast.success(`Running "${quickAction.name}"`)
+                // The workflow may change the ticket server-side; refresh so a later local edit
+                // doesn't PATCH over its changes with stale state.
+                actions.loadTicket()
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error('Failed to run workflow')
+            } finally {
+                cache.runningWorkflowQuickAction = false
+            }
+        },
         loadTicket: async () => {
             if (props.id === 'new') {
                 actions.setTicket(null)
@@ -1011,6 +1116,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
+                // Release any quick-action workflow run waiting on this PATCH to settle.
+                cache.resolveTicketUpdate?.()
+                cache.resolveTicketUpdate = undefined
+                cache.ticketUpdateSettled = undefined
             }
         },
         loadMessages: async () => {

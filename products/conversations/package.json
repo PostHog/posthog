@@ -35,6 +35,7 @@
         "@tiptap/pm": "*",
         "@tiptap/react": "*",
         "@tiptap/starter-kit": "*",
+        "@tiptap/suggestion": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

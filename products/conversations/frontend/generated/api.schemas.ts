@@ -573,6 +573,188 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
+ * * `new` - New
+ * * `open` - Open
+ * * `pending` - Pending
+ * * `on_hold` - On hold
+ * * `resolved` - Resolved
+ */
+export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
+
+export const TicketStatusEnumApi = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * * `low` - Low
+ * * `medium` - Medium
+ * * `high` - High
+ * * `critical` - Critical
+ */
+export type SupportPriorityEnumApi = (typeof SupportPriorityEnumApi)[keyof typeof SupportPriorityEnumApi]
+
+export const SupportPriorityEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * * `user` - user
+ * * `role` - role
+ */
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
+
+export const AssigneeTypeEnumApi = {
+    User: 'user',
+    Role: 'role',
+} as const
+
+/**
+ * Who a quick action assigns the ticket to when applied.
+ */
+export interface QuickActionAssigneeApi {
+    /** Assignee kind: "user" or "role".
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
+    /**
+     * User id (for type=user) or role id (for type=role). Null clears the assignee.
+     * @nullable
+     */
+    id: string | null
+}
+
+/**
+ * Optional ticket changes applied when a response quick action is used. Omit for text-only.
+ */
+export interface QuickActionActionsApi {
+    /** Set the ticket status when the quick action is applied.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status?: TicketStatusEnumApi | null
+    /** Set the ticket priority when the quick action is applied.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    priority?: SupportPriorityEnumApi | null
+    /** Replace the ticket's tags with this list when the quick action is applied. */
+    tags?: string[]
+    /** Assign the ticket to this user or role when the quick action is applied. */
+    assignee?: QuickActionAssigneeApi | null
+}
+
+/**
+ * * `team` - Team
+ * * `personal` - Personal
+ */
+export type QuickActionVisibilityEnumApi =
+    (typeof QuickActionVisibilityEnumApi)[keyof typeof QuickActionVisibilityEnumApi]
+
+export const QuickActionVisibilityEnumApi = {
+    Team: 'team',
+    Personal: 'personal',
+} as const
+
+export interface QuickActionApi {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * Display name shown in the quick action picker.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Optional short description of when to use this quick action.
+     * @maxLength 400
+     */
+    description?: string
+    /**
+     * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+     * @maxLength 50000
+     */
+    content?: string
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    rich_content?: unknown
+    /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
+    actions?: QuickActionActionsApi
+    /**
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
+     * @nullable
+     */
+    workflow_id?: string | null
+    /** "team" shares with everyone on the team; "personal" keeps it private to you.
+     *
+     * * `team` - Team
+     * * `personal` - Personal */
+    visibility?: QuickActionVisibilityEnumApi
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedQuickActionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuickActionApi[]
+}
+
+export interface PatchedQuickActionApi {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * Display name shown in the quick action picker.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * Optional short description of when to use this quick action.
+     * @maxLength 400
+     */
+    description?: string
+    /**
+     * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+     * @maxLength 50000
+     */
+    content?: string
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    rich_content?: unknown
+    /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
+    actions?: QuickActionActionsApi
+    /**
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
+     * @nullable
+     */
+    workflow_id?: string | null
+    /** "team" shares with everyone on the team; "personal" keeps it private to you.
+     *
+     * * `team` - Team
+     * * `personal` - Personal */
+    visibility?: QuickActionVisibilityEnumApi
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+export interface QuickActionRunRequestApi {
+    /** Ticket to run the workflow against. */
+    ticket_id: string
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -610,38 +792,6 @@ export const ChannelDetailEnumApi = {
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
     GithubIssue: 'github_issue',
-} as const
-
-/**
- * * `new` - New
- * * `open` - Open
- * * `pending` - Pending
- * * `on_hold` - On hold
- * * `resolved` - Resolved
- */
-export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
-
-export const TicketStatusEnumApi = {
-    New: 'new',
-    Open: 'open',
-    Pending: 'pending',
-    OnHold: 'on_hold',
-    Resolved: 'resolved',
-} as const
-
-/**
- * * `low` - Low
- * * `medium` - Medium
- * * `high` - High
- * * `critical` - Critical
- */
-export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
-
-export const TicketPriorityEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
 } as const
 
 /**
@@ -704,7 +854,7 @@ export interface TicketApi {
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
-    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    priority?: SupportPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -802,7 +952,7 @@ export interface PatchedTicketApi {
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
-    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    priority?: SupportPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -1181,6 +1331,17 @@ export interface ZendeskImportErrorApi {
 }
 
 export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsQuickActionsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -2902,6 +2902,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: 3.20.6
         version: 3.20.6
+      '@tiptap/suggestion':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
