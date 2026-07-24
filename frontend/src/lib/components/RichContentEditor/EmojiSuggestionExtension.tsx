@@ -1,4 +1,4 @@
-import { PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion, { exitSuggestion } from '@tiptap/suggestion'
@@ -91,6 +91,11 @@ export const EmojiSuggestionExtension = Extension.create({
     name: 'emojiSuggestion',
 
     addProseMirrorPlugins() {
+        // Position of a colon whose picker was Escaped. Suppresses the re-match that returning
+        // focus to the editor would otherwise trigger; cleared once the caret leaves the token
+        // (see the reset plugin below).
+        let suppressedFrom: number | null = null
+
         return [
             Suggestion({
                 pluginKey: EmojiSuggestionPluginKey,
@@ -99,19 +104,32 @@ export const EmojiSuggestionExtension = Extension.create({
                 startOfLine: false,
                 // A space ends the match, so `: ` never opens the picker.
                 allowSpaces: false,
-                // Only treat the colon as a trigger when it starts a word — avoids `https://`,
-                // `12:30`, `foo:bar`, etc.
-                allow: ({ state, range }) => {
+                allow: ({ state, range, isActive }) => {
+                    // Only trigger when the colon starts a word — avoids `https://`, `12:30`, `foo:bar`.
                     const before = state.doc.textBetween(Math.max(0, range.from - 1), range.from)
-                    return before === '' || /\s/.test(before)
+                    if (before !== '' && !/\s/.test(before)) {
+                        return false
+                    }
+                    if (isActive) {
+                        return true
+                    }
+                    if (suppressedFrom === range.from) {
+                        return false
+                    }
+                    suppressedFrom = null
+                    return true
                 },
                 render: () => {
                     let renderer: ReactRenderer<unknown, EmojiSuggestionPopoverProps> | null = null
 
-                    const dismiss = (view: EditorView): void => {
+                    const dismiss = (view: EditorView, from: number): void => {
+                        suppressedFrom = from
                         exitSuggestion(view, EmojiSuggestionPluginKey)
                         renderer?.destroy()
                         renderer = null
+                        // Hand focus back to the editor (it moved into the picker's search box) so
+                        // the caret returns after the typed `:query` and typing continues.
+                        view.focus()
                     }
 
                     const buildProps = (props: {
@@ -125,7 +143,7 @@ export const EmojiSuggestionExtension = Extension.create({
                         query: props.query,
                         decorationNode: (props.decorationNode as HTMLElement) ?? null,
                         visible: props.query.length >= 1,
-                        onClose: () => dismiss(props.editor.view),
+                        onClose: () => dismiss(props.editor.view, props.range.from),
                     })
 
                     return {
@@ -140,10 +158,13 @@ export const EmojiSuggestionExtension = Extension.create({
                             renderer?.updateProps(buildProps(props))
                         },
 
-                        onKeyDown() {
-                            // While the popover is hidden focus is still in the editor; let those
-                            // keystrokes through. Once it's open focus is in the picker, so this
-                            // handler no longer fires and the picker owns navigation/Escape.
+                        onKeyDown(props) {
+                            // Escape only reaches here while focus is still in the editor (bare `:`,
+                            // or before autofocus lands); once open, the panel owns Escape.
+                            if (props.event.key === 'Escape') {
+                                dismiss(props.view, props.range.from)
+                                return true
+                            }
                             return false
                         },
 
@@ -153,6 +174,26 @@ export const EmojiSuggestionExtension = Extension.create({
                         },
                     }
                 },
+            }),
+            // Clear the dismissal memory once the caret leaves the Escaped token, so a fresh `:`
+            // at (or returning to) that spot can reopen the picker.
+            new Plugin({
+                key: new PluginKey('emojiSuggestionSuppressionReset'),
+                view: () => ({
+                    update: (view) => {
+                        if (suppressedFrom === null) {
+                            return
+                        }
+                        const { doc, selection } = view.state
+                        const stillOnToken =
+                            selection.empty &&
+                            selection.from > suppressedFrom &&
+                            /^:\S*$/.test(doc.textBetween(suppressedFrom, selection.from))
+                        if (!stillOnToken) {
+                            suppressedFrom = null
+                        }
+                    },
+                }),
             }),
         ]
     },
