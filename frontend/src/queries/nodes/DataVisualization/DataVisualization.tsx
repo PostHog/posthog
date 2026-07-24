@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,7 +25,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { isHogQLQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
@@ -293,6 +294,27 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <HogQLBoldNumber />
     }
 
+    const showDateRangePicker =
+        sourceFeatures.has(QueryFeature.dateRangePicker) && !router.values.location.pathname.includes(urls.sqlEditor()) // SQL editor renders DateRange in QueryFiltersMenu
+
+    const showViewModeDateRangePicker =
+        showDateRangePicker && (!isHogQLQuery(query.source) || queryUsesFiltersPlaceholder(query.source.query))
+
+    const dateRangeControl = showDateRangePicker ? (
+        <DateRange
+            key="date-range"
+            query={query.source}
+            setQuery={(query) => {
+                if (query.kind === NodeKind.HogQLQuery) {
+                    setQuerySource(query)
+                }
+            }}
+        />
+    ) : null
+
+    const showEditingResultControls = !readOnly && showResultControls
+    const showViewModeResultControls = readOnly && showResultControls && showViewModeDateRangePicker
+
     if (props.embedded) {
         return <div className="DataVisualization InsightCard__viz">{component}</div>
     }
@@ -304,7 +326,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                {!readOnly && showResultControls && (
+                {showViewModeResultControls && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex gap-4 flex-wrap px-px">{dateRangeControl}</div>
+                    </>
+                )}
+                {showEditingResultControls && (
                     <>
                         <LemonDivider className="my-0" />
                         <div className="flex gap-4 justify-between flex-wrap px-px">
@@ -316,18 +344,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 <div className="flex gap-4 items-center flex-wrap">
                                     <AddVariableButton />
 
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
+                                    {dateRangeControl}
 
                                     <TableDisplay />
 
