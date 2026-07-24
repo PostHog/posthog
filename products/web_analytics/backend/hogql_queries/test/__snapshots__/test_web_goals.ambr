@@ -8,19 +8,19 @@
          uniqIf(web_goals_person_id, 0) AS previous_total_people,
          'Test Action 1' AS action_name_0,
          tuple(sum(action_current_count_0), NULL) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), NULL) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), NULL) AS action_uniques_0,
          'Test Action 2' AS action_name_1,
          tuple(sum(action_current_count_1), NULL) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), NULL) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), NULL) AS action_uniques_1,
          'Test Action 3' AS action_name_2,
          tuple(sum(action_current_count_2), NULL) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), NULL) AS action_uniques_2,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), NULL) AS action_uniques_2,
          'Test Action 4' AS action_name_3,
          tuple(sum(action_current_count_3), NULL) AS action_total_3,
-         tuple(uniq(action_current_person_id_3), NULL) AS action_uniques_3,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_3, 0)), NULL) AS action_uniques_3,
          'Test Action 5' AS action_name_4,
          tuple(sum(action_current_count_4), NULL) AS action_total_4,
-         tuple(uniq(action_current_person_id_4), NULL) AS action_uniques_4
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_4, 0)), NULL) AS action_uniques_4
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -31,24 +31,14 @@
                                                                                                                                                                                                                                                                                                                                                                             GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                             HAVING greater(sum(cohortpeople.sign), 0)))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(0) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%https://teest.com%'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(0) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;).*?\\.ant\\-input([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%https://teest.com%'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
             countIf(0) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;).*?\\.ant\\-btn\\..*?text\\-white([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'), arrayExists(x -> ifNull(equals(x, 'text page'), 0), events.elements_chain_texts), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://teest.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_3,
             countIf(0) AS action_previous_count_3,
-            if(greater(action_current_count_3, 0), web_goals_person_id, NULL) AS action_current_person_id_3,
-            if(greater(action_previous_count_3, 0), web_goals_person_id, NULL) AS action_previous_person_id_3,
             countIf(and(and(equals(events.event, '$autocapture'), and(match(events.elements_chain, '(^|;)a([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*?\\.ant\\-btn([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'), greater(arrayCount(x -> in(x, ['a']), events.elements_chain_elements), 0)), arrayExists(x -> ifNull(equals(x, 'text'), 0), events.elements_chain_texts), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://teest.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_4,
-            countIf(0) AS action_previous_count_4,
-            if(greater(action_current_count_4, 0), web_goals_person_id, NULL) AS action_current_person_id_4,
-            if(greater(action_previous_count_4, 0), web_goals_person_id, NULL) AS action_previous_person_id_4
+            countIf(0) AS action_previous_count_4
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -91,23 +81,19 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
-                                                                      and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1
+                                                                      and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -146,30 +132,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -208,29 +188,23 @@
          uniqIf(web_goals_person_id, 0) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), NULL) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), NULL) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), NULL) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), NULL) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), NULL) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), NULL) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), NULL) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), NULL) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), NULL) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(0) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(0) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(0) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(0) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -269,30 +243,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -331,30 +299,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -393,30 +355,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -455,30 +411,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -517,30 +467,24 @@
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
          tuple(sum(action_current_count_0), sum(action_previous_count_0)) AS action_total_0,
-         tuple(uniq(action_current_person_id_0), uniq(action_previous_person_id_0)) AS action_uniques_0,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_0, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_0, 0))) AS action_uniques_0,
          'Visited Web Analytics' AS action_name_1,
          tuple(sum(action_current_count_1), sum(action_previous_count_1)) AS action_total_1,
-         tuple(uniq(action_current_person_id_1), uniq(action_previous_person_id_1)) AS action_uniques_1,
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_1, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_1, 0))) AS action_uniques_1,
          'Clicked Pay' AS action_name_2,
          tuple(sum(action_current_count_2), sum(action_previous_count_2)) AS action_total_2,
-         tuple(uniq(action_current_person_id_2), uniq(action_previous_person_id_2)) AS action_uniques_2
+         tuple(uniqIf(web_goals_person_id, greater(action_current_count_2, 0)), uniqIf(web_goals_person_id, greater(action_previous_count_2, 0))) AS action_uniques_2
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS web_goals_person_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_0,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Contacted Sales'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_0,
-            if(greater(action_current_count_0, 0), web_goals_person_id, NULL) AS action_current_person_id_0,
-            if(greater(action_previous_count_0, 0), web_goals_person_id, NULL) AS action_previous_person_id_0,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_1,
             countIf(and(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                       and isNull('https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*'))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_1,
-            if(greater(action_current_count_1, 0), web_goals_person_id, NULL) AS action_current_person_id_1,
-            if(greater(action_previous_count_1, 0), web_goals_person_id, NULL) AS action_previous_person_id_1,
             countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))))) AS action_current_count_2,
-            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2,
-            if(greater(action_current_count_2, 0), web_goals_person_id, NULL) AS action_current_person_id_2,
-            if(greater(action_previous_count_2, 0), web_goals_person_id, NULL) AS action_previous_person_id_2
+            countIf(and(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC')))))) AS action_previous_count_2
      FROM events
      LEFT JOIN
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
