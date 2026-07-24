@@ -6,5 +6,7 @@ pub mod row;
 pub mod scanner;
 pub mod sql;
 
-pub use client::{build_client, ClickHouseEndpoint, ClickHouseJoinAlgorithm};
+pub use client::{
+    build_client, ClickHouseClientError, ClickHouseEndpoint, ClickHouseJoinAlgorithm,
+};
 pub use scanner::{ChunkScanner, ScanError};

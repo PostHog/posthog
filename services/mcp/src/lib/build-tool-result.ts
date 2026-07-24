@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
+import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -178,6 +179,14 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
         if (suppressStructuredContent && hasUiResource) {
             payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
+        }
+    }
+    // `-prepare` tools have no UI resource, so UI apps driving a confirmed action
+    // read the hash from the app-only `_meta` channel instead of structuredContent.
+    if (isPrepareConfirmedActionResult(handlerResult)) {
+        payload._meta = {
+            ...payload._meta,
+            [APP_DATA_META_KEY]: rawResult as Record<string, unknown>,
         }
     }
     return payload

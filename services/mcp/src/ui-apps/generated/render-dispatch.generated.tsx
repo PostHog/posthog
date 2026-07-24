@@ -2,61 +2,21 @@
 import type { App } from '@modelcontextprotocol/ext-apps'
 import { useCallback } from 'react'
 
+import { Component } from '../components/Component'
 import { ActionListView, ActionView, type ActionData, type ActionListData } from 'products/actions/mcp/apps'
 import { LLMCostsView, type LLMCostsData } from 'products/ai_observability/mcp/apps'
 import { CohortListView, CohortView, type CohortData, type CohortListData } from 'products/cohorts/mcp/apps'
-import {
-    ErrorDetailsView,
-    ErrorIssueListView,
-    ErrorIssueView,
-    type ErrorDetailsData,
-    type ErrorIssueData,
-    type ErrorIssueListData,
-} from 'products/error_tracking/mcp/apps'
-import {
-    ExperimentListView,
-    ExperimentResultsView,
-    ExperimentView,
-    type ExperimentData,
-    type ExperimentListData,
-    type ExperimentResultsData,
-} from 'products/experiments/mcp/apps'
-import {
-    FeatureFlagListView,
-    FeatureFlagTestingView,
-    FeatureFlagView,
-    type FeatureFlagData,
-    type FeatureFlagListData,
-    type FeatureFlagTestingData,
-} from 'products/feature_flags/mcp/apps'
+import { ErrorDetailsView, ErrorIssueListView, ErrorIssueView, type ErrorDetailsData, type ErrorIssueData, type ErrorIssueListData } from 'products/error_tracking/mcp/apps'
+import { ExperimentListView, ExperimentResultsView, ExperimentView, type ExperimentData, type ExperimentListData, type ExperimentResultsData } from 'products/experiments/mcp/apps'
+import { FeatureFlagListView, FeatureFlagTestingView, FeatureFlagView, type FeatureFlagData, type FeatureFlagListData, type FeatureFlagTestingData } from 'products/feature_flags/mcp/apps'
 import { InsightActorsView, type InsightActorsData } from 'products/product_analytics/mcp/apps'
-import {
-    SessionRecordingView,
-    SessionSummaryView,
-    type SessionRecordingData,
-    type SessionSummaryData,
-} from 'products/replay/mcp/apps'
-import {
-    SurveyListView,
-    SurveyStatsView,
-    SurveyView,
-    type SurveyData,
-    type SurveyListData,
-    type SurveyStatsData,
-} from 'products/surveys/mcp/apps'
+import { SessionRecordingView, SessionSummaryView, type SessionRecordingData, type SessionSummaryData } from 'products/replay/mcp/apps'
+import { SurveyListView, SurveyStatsView, SurveyView, type SurveyData, type SurveyListData, type SurveyStatsData } from 'products/surveys/mcp/apps'
 import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
 import { InviteEmailPreviewView, type InviteEmailPreviewData } from 'products/user_interviews/mcp/apps'
-import {
-    EmailTemplateView,
-    WorkflowListView,
-    WorkflowView,
-    type EmailTemplateData,
-    type WorkflowData,
-    type WorkflowListData,
-} from 'products/workflows/mcp/apps'
+import { EmailTemplateView, WorkflowListView, WorkflowView, type EmailTemplateData, type WorkflowData, type WorkflowListData } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
-import { Component } from '../components/Component'
 
 export interface RenderDispatchProps {
     data: unknown
@@ -369,34 +329,32 @@ function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App |
 }
 
 export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchProps) => JSX.Element>> = {
-    action: ({ data }) => <ActionView action={data as ActionData} />,
+    'action': ({ data }) => <ActionView action={data as ActionData} />,
     'action-list': ({ data, app }) => <ActionListContent data={data as ActionListData} app={app} />,
-    cohort: ({ data }) => <CohortView cohort={data as CohortData} />,
+    'cohort': ({ data }) => <CohortView cohort={data as CohortData} />,
     'cohort-list': ({ data, app }) => <CohortListContent data={data as CohortListData} app={app} />,
     'email-template': ({ data }) => <EmailTemplateView template={data as EmailTemplateData} />,
     'error-details': ({ data }) => <ErrorDetailsView data={data as ErrorDetailsData} />,
     'error-issue': ({ data }) => <ErrorIssueView issue={data as ErrorIssueData} />,
     'error-issue-list': ({ data, app }) => <ErrorIssueListContent data={data as ErrorIssueListData} app={app} />,
-    experiment: ({ data }) => <ExperimentView experiment={data as ExperimentData} />,
+    'experiment': ({ data }) => <ExperimentView experiment={data as ExperimentData} />,
     'experiment-list': ({ data, app }) => <ExperimentListContent data={data as ExperimentListData} app={app} />,
     'experiment-results': ({ data }) => <ExperimentResultsView data={data as ExperimentResultsData} />,
     'feature-flag': ({ data }) => <FeatureFlagView flag={data as FeatureFlagData} />,
     'feature-flag-list': ({ data, app }) => <FeatureFlagListContent data={data as FeatureFlagListData} app={app} />,
     'feature-flag-testing': ({ data }) => <FeatureFlagTestingView flag={data as FeatureFlagTestingData} />,
-    'insight-actors': ({ data, openLink }) => (
-        <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
-    ),
+    'insight-actors': ({ data, openLink }) => <InsightActorsView data={data as InsightActorsData} openLink={openLink} />,
     'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'query-results': ({ data }) => <Component data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
     'session-summary': ({ data }) => <SessionSummaryView data={data as SessionSummaryData} />,
-    survey: ({ data }) => <SurveyView survey={data as SurveyData} />,
+    'survey': ({ data }) => <SurveyView survey={data as SurveyData} />,
     'survey-global-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />,
     'survey-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'trace-span': ({ data }) => <TraceSpanView data={data as TraceSpanData} />,
     'trace-span-list': ({ data, app }) => <TraceSpanListContent data={data as TraceSpanListData} app={app} />,
-    workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
+    'workflow': ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
 }

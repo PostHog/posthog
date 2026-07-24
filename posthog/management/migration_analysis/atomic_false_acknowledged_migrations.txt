@@ -1,0 +1,18 @@
+# Migrations acknowledged to run with atomic=False and no CONCURRENTLY op (AtomicFalsePolicy).
+#
+# atomic=False drops per-migration transaction rollback safety, so a failure midway leaves
+# partial changes committed and a bin/migrate retry re-runs the whole migration. That is only
+# safe when the migration's operations are idempotent (a re-run is a no-op on already-applied
+# rows). The usual reason to want it is a long-running data migration that commits in batches
+# so it never holds locks or bloats WAL for one giant transaction.
+#
+# Before adding a line here, prefer keeping the migration atomic (the default) if the data
+# volume is small, or moving a genuinely large backfill to an async migration.
+#
+# Adding a line means: I understand this migration runs without transaction rollback safety,
+# and its operations are idempotent so a bin/migrate retry after a partial failure is safe.
+#
+# Format: one "<app_label>.<migration_name>" per line, e.g.
+# posthog.1234_backfill_something_in_batches
+posthog.1264_delete_revenue_analytics_user_product_list
+product_analytics.0004_delete_revenue_analytics_insights

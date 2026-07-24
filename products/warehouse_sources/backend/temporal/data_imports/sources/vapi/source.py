@@ -96,6 +96,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = VAPI_ENDPOINTS[endpoint]
@@ -115,7 +116,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         return schemas
 
     def validate_credentials(
-        self, config: VapiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: VapiSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_vapi_credentials(config.api_key):
             return True, None

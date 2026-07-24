@@ -349,11 +349,9 @@ DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
 )
 
 
-# Access methods that are our own surfaces (web app, shared/exporter frontend) rather than
-# external integrations. Unresolved auth ("no_authenticator") comes from the web app too. These
-# keep receiving the deprecated `dashboards` field until the frontend fully migrates to
-# dashboard_tiles, regardless of opt-in enforcement.
-_FIRST_PARTY_ACCESS_METHODS = frozenset({"no_authenticator", "session", "sharing_token"})
+# Access methods that still need the deprecated field without opting in. Shared/exporter views
+# have their own frontend lifecycle, and unresolved auth is not a caller we can migrate safely.
+_DEPRECATED_DASHBOARDS_FIELD_EXEMPT_ACCESS_METHODS = frozenset({"no_authenticator", "sharing_token"})
 
 
 def _dashboards_field_access_method(request: Request | None) -> str:
@@ -377,24 +375,24 @@ def _is_internal_serialization_context(context: dict) -> bool:
     return context.get("request") is None
 
 
-def _is_first_party_request(request: Request | None) -> bool:
-    return _dashboards_field_access_method(request) in _FIRST_PARTY_ACCESS_METHODS
-
-
 def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     """
     The insight `dashboards` field is deprecated in favor of `dashboard_tiles`. Removal is
     two-phase: while INSIGHT_DASHBOARDS_OPT_IN_ENFORCED is off, every caller still receives the
     field and reads are metered by access method so remaining usage can drain; once enforced,
-    non-first-party callers must opt in with `?include_dashboards=true`.
+    token callers must opt in with `?include_dashboards=true`. Session-authenticated requests
+    already require the opt-in because the web app has migrated to `dashboard_tiles`.
     """
     if _is_internal_serialization_context(context):
         return True
     request = context["request"]
-    if _is_first_party_request(request):
-        return True
     query_params = getattr(request, "query_params", None)
     if query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0")):
+        return True
+    access_method = _dashboards_field_access_method(request)
+    if access_method == "session":
+        return False
+    if access_method in _DEPRECATED_DASHBOARDS_FIELD_EXEMPT_ACCESS_METHODS:
         return True
     return not settings.INSIGHT_DASHBOARDS_OPT_IN_ENFORCED
 
@@ -548,11 +546,27 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
+# Bare query sources that only render inside an InsightVizNode. The UI (Query.tsx) routes
+# wrapper nodes and a few standalone kinds (e.g. WebOverviewQuery) to real renderers; the
+# kinds below have no bare renderer and fall through to a JSON-dump fallback that paints
+# ~0px inside a dashboard tile, so they are safe (and necessary) to auto-wrap on save.
+AUTO_WRAPPED_INSIGHT_QUERY_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+)
+
+
 class InsightFilterOverrideContext(BaseModel):
     dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters that remain active after applying tile precedence."
     )
-    tile: schema.DashboardFilter | None = PydanticField(
+    tile: schema.TileFilters | None = PydanticField(
         default=None, description="Tile filters applied above the dashboard filters."
     )
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
@@ -596,9 +610,9 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
-        This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-        callers (personal API keys, OAuth) only receive it when passing the
-        `include_dashboards=true` query parameter. Do not rely on it being present.
+        This field is omitted from session-authenticated responses unless `include_dashboards=true`
+        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+        must opt in the same way. Do not rely on it being present.
         """,
         many=True,
         required=False,
@@ -712,6 +726,30 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
         return super().validate(attrs)
+
+    def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Auto-wrap bare query sources in the wrapper node the UI renders.
+
+        Bare sources save and execute fine, but the UI only routes wrapper nodes to chart
+        renderers, so unwrapped queries show up as blank tiles. Everything else passes
+        through untouched: already-wrapped nodes must round-trip verbatim, and payloads we
+        don't positively recognize keep today's accept-as-is behavior — hard rejection
+        stays MCP-only (see MCPInsightSerializer).
+        """
+        if not value:
+            return value
+        try:
+            if value.get("kind") == "HogQLQuery":
+                return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+                    exclude_none=True, mode="json"
+                )
+            if value.get("kind") in AUTO_WRAPPED_INSIGHT_QUERY_KINDS:
+                return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
+                    exclude_none=True, mode="json"
+                )
+        except PydanticValidationError:
+            pass
+        return value
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -1010,6 +1048,10 @@ class InsightSerializer(InsightBasicSerializer):
                     request=self.context["request"],
                 )
 
+        # Dashboard membership is mutated through separate querysets above, so the instance's
+        # prefetched relation no longer reflects what was persisted. The response serializer must
+        # reload it because session callers now derive membership exclusively from dashboard_tiles.
+        getattr(instance, "_prefetched_objects_cache", {}).pop("dashboard_tiles", None)
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     @extend_schema_field(OpenApiTypes.ANY)
@@ -1152,10 +1194,9 @@ class InsightSerializer(InsightBasicSerializer):
         # and avoid refreshing from the DB
         #
         # `after_dashboard_changes` is only set (even to an empty list) when this request itself
-        # wrote `dashboards` (see _update_insight_dashboards), so a caller that isn't opted into
-        # the deprecated field for reads still needs to see the corrected value for the write it
-        # just made — including the "removed from all dashboards" case.
-        if "after_dashboard_changes" in self.context:
+        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
+        # that opted into receiving the deprecated field.
+        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
@@ -1438,7 +1479,7 @@ class MCPInsightSerializer(InsightSerializer):
             raise serializers.ValidationError({"query": "This field is required."})
         return super().validate(attrs)
 
-    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
+    def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
@@ -2341,7 +2382,7 @@ When set, the specified dashboard's filters and date range override will be appl
     ) -> dict[str, Any]:
         """Convert Filter-style params to a query and run via process_query_dict.
 
-        Uses the unified QueryRunner cache instead of the legacy @cached_by_filters system.
+        Uses the unified QueryRunner cache instead of the removed legacy filter-based cache.
         """
         team = self.team
         filter = Filter(request=request, team=team)

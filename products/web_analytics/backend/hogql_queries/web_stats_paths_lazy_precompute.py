@@ -639,6 +639,8 @@ def ensure_web_stats_paths_precomputed(
     else:
         wait_timeout = PATHS_USER_ENSURE_WAIT_SECONDS
     return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
         insert_query=insert_query,
         time_range_start=time_range_start,
