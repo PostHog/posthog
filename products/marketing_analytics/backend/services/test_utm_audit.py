@@ -51,8 +51,9 @@ class TestCrossReference:
         assert results[0].issues[0].severity == UtmIssueSeverity.ERROR
 
     def test_campaign_with_source_mismatch(self):
+        # 'bing' is another integration's alias, not one of Google's default sources.
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
-        utm_events = {("brand campaign", "adwords"): 30}
+        utm_events = {("brand campaign", "bing"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
@@ -101,6 +102,37 @@ class TestCrossReference:
     def test_empty_campaigns(self):
         results = _cross_reference([], {}, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
         assert len(results) == 0
+
+    @pytest.mark.parametrize(
+        "primary_source,alias_utm_source",
+        [
+            # Default-allowlisted aliases the attribution join (get_source_identifier_mapping)
+            # accepts — these must count as an exact source match, not a "Source mismatch".
+            ("meta", "facebook"),
+            ("meta", "instagram"),
+            ("meta", "fb"),
+            ("bing", "microsoft"),
+        ],
+    )
+    def test_default_allowlist_alias_counts_as_exact_source_match(self, primary_source, alias_utm_source):
+        campaigns = [Campaign("Spring Sale", "123", primary_source, 100.0, 50, 1000)]
+        utm_events = {("spring sale", alias_utm_source): 42}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert results[0].has_utm_events is True
+        assert results[0].event_count == 42
+        assert len(results[0].issues) == 0
+
+    def test_alias_of_a_different_integration_still_flags_mismatch(self):
+        # 'google' is a default alias for Google Ads, not Meta — it must NOT satisfy a Meta campaign.
+        campaigns = [Campaign("Spring Sale", "123", "meta", 100.0, 50, 1000)]
+        utm_events = {("spring sale", "google"): 42}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert results[0].has_utm_events is False
+        assert len(results[0].issues) == 1
 
     def test_custom_source_mapping_resolves_match(self):
         campaigns = [Campaign("brand_campaign", "1", "google", 500.0, 100, 5000)]
@@ -417,8 +449,9 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign is None
 
     def test_campaign_auto_source_none(self):
+        # 'bing' is another integration's alias, not one of Google's default sources.
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
-        utm_events = {("brand", "adwords"): 30}
+        utm_events = {("brand", "bing"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
 
@@ -453,6 +486,18 @@ class TestBuildAllUtmEvents:
         assert result[0].campaign_match == "mapped"
         assert result[0].source_match == "mapped"
         assert result[0].matched_campaign == "brand_campaign"
+
+    def test_default_allowlist_alias_source_is_auto_matched(self):
+        # utm_source=facebook on a Meta campaign is exact-matched via the default allowlist,
+        # so the UTM-events panel shows an 'auto' source match rather than 'none'.
+        campaigns = [Campaign("brand", "1", "meta", 0, 0, 0)]
+        utm_events = {("brand", "facebook"): 100}
+
+        result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
+
+        assert len(result) == 1
+        assert result[0].campaign_match == "auto"
+        assert result[0].source_match == "auto"
 
     def test_field_preference_affects_matching(self):
         campaigns = [Campaign("Brand Campaign", "abc123", "google", 0, 0, 0)]
