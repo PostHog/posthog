@@ -9,7 +9,7 @@ from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 ACCESS_TOKEN = "gho_secret_user_token"
 
@@ -61,20 +61,13 @@ REPOSITORIES_RESPONSE = _github_response(
 class TestGitHubGrants(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
-        self.partner = OAuthApplication.objects.create(
-            name="Drop Partner",
-            client_id="drop_partner_client_id",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://posthog.com/api/wizard/oauth-callback",
-            algorithm="RS256",
-            provisioning_auth_method="hmac",
-            provisioning_signing_secret=HMAC_SECRET,
-            provisioning_partner_type="posthog_website",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-        )
+        self.bearer = self._get_bearer_token()
+
+    def _post_grants(self, body: dict):
+        return self._post_with_bearer("/api/agentic/provisioning/github/grants", body, token=self.bearer)
+
+    def _get_grants(self, url: str):
+        return self._get_with_bearer(url, self.bearer)
 
     def _create_grant_via_api(self):
         with (
@@ -84,8 +77,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
         ):
-            return self._post_signed(
-                "/api/agentic/provisioning/github/grants",
+            return self._post_grants(
                 {"code": "gh_code", "redirect_uri": "https://posthog.com/api/wizard/github/callback"},
             )
 
@@ -97,8 +89,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             ) as mock_exchange,
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
         ):
-            response = self._post_signed(
-                "/api/agentic/provisioning/github/grants",
+            response = self._post_grants(
                 {"code": "gh_code", "redirect_uri": "https://posthog.com/api/wizard/github/callback"},
             )
 
@@ -126,7 +117,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         ]
     )
     def test_create_grant_requires_code(self, _name, body, expected_status, expected_code):
-        response = self._post_signed("/api/agentic/provisioning/github/grants", body)
+        response = self._post_grants(body)
         assert response.status_code == expected_status
         assert response.json()["error"]["code"] == expected_code
 
@@ -135,7 +126,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
             return_value=None,
         ):
-            response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "bad_code"})
+            response = self._post_grants({"code": "bad_code"})
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "github_exchange_failed"
 
@@ -144,7 +135,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
             side_effect=requests.RequestException("boom"),
         ):
-            response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "gh_code"})
+            response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "github_unavailable"
 
@@ -167,7 +158,6 @@ class TestGitHubGrants(ProvisioningTestBase):
             "/api/agentic/provisioning/github/grants",
             data={"client_id": pkce_partner.client_id, "code": "gh_code"},
             format="json",
-            HTTP_API_VERSION="0.1d",
         )
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
@@ -181,7 +171,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=no_verified),
         ):
-            response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "gh_code"})
+            response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 200, response.json()
         body = response.json()
         assert body["email"] is None
@@ -198,7 +188,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=denied),
         ):
-            response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "gh_code"})
+            response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "email_unavailable"
 
@@ -207,14 +197,13 @@ class TestGitHubGrants(ProvisioningTestBase):
             "/api/agentic/provisioning/github/grants",
             data={"code": "gh_code"},
             format="json",
-            HTTP_API_VERSION="0.1d",
         )
         assert response.status_code == 401
 
     def test_create_grant_requires_account_creation_permission(self):
         self.partner.provisioning_can_create_accounts = False
         self.partner.save()
-        response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "gh_code"})
+        response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
 
@@ -242,7 +231,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             return REPOSITORIES_RESPONSE
 
         with patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request):
-            response = self._get_signed(f"{base_url}/{grant.grant_id}/repositories")
+            response = self._get_grants(f"{base_url}/{grant.grant_id}/repositories")
 
         assert response.status_code == 200, response.json()
         body = response.json()
@@ -258,7 +247,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         ]
 
     def test_repositories_unknown_grant_returns_404(self):
-        response = self._get_signed("/api/agentic/provisioning/github/grants/nonexistent/repositories")
+        response = self._get_grants("/api/agentic/provisioning/github/grants/nonexistent/repositories")
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
@@ -276,7 +265,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             provisioning_can_create_accounts=True,
         )
         grant = github_grants.create_grant(other_partner, AUTHORIZATION, "octocat@example.com")
-        response = self._get_signed(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
+        response = self._get_grants(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
@@ -293,8 +282,8 @@ class TestGitHubGrants(ProvisioningTestBase):
             patch("ee.api.agentic_provisioning.views.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
-            first = self._get_signed(url)
-            second = self._get_signed(url)
+            first = self._get_grants(url)
+            second = self._get_grants(url)
         assert first.status_code == 200
         assert second.status_code == 429
         assert second["Retry-After"]
@@ -305,6 +294,6 @@ class TestGitHubGrants(ProvisioningTestBase):
             "ee.api.agentic_provisioning.github_grants.github_request",
             return_value=_github_response(500, {}),
         ):
-            response = self._get_signed(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
+            response = self._get_grants(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "github_unavailable"

@@ -1,19 +1,17 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
 
 from parameterized import parameterized
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestDeepLinks(ProvisioningTestBase):
     def test_deep_link_returns_url(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
             token=token,
@@ -27,7 +25,7 @@ class TestDeepLinks(ProvisioningTestBase):
 
     def test_deep_link_url_contains_team_id(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
             token=token,
@@ -38,7 +36,7 @@ class TestDeepLinks(ProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
     def test_deep_link_capture_attributes_client(self, mock_capture_event):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
             token=token,
@@ -51,22 +49,17 @@ class TestDeepLinks(ProvisioningTestBase):
         assert len(success_calls) == 1
         partner = success_calls[0].kwargs["partner"]
         assert partner is not None
-        assert partner.name == "PostHog Stripe App"
+        assert partner.name == "Test Provisioning Partner"
 
     def test_deep_link_missing_bearer_returns_401(self):
-        res = self._post_signed("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})
+        res = self._post_api("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})
         assert res.status_code == 401
 
     def test_deep_link_denied_when_partner_not_allowed(self):
-        from posthog.models.oauth import OAuthApplication
-
-        from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID
-
         token = self._get_bearer_token()
-        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(
-            provisioning_can_issue_deep_links=False
-        )
-        res = self._post_signed_with_bearer(
+        self.partner.provisioning_can_issue_deep_links = False
+        self.partner.save(update_fields=["provisioning_can_issue_deep_links"])
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
             token=token,
@@ -74,10 +67,21 @@ class TestDeepLinks(ProvisioningTestBase):
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "deep_links_not_enabled"
 
+    def test_outstanding_token_of_hmac_configured_partner_rejected(self):
+        token = self._get_bearer_token()
+        self.partner.provisioning_auth_method = "hmac"
+        self.partner.save(update_fields=["provisioning_auth_method"])
+        res = self._post_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            token=token,
+        )
+        assert res.status_code == 401
+
     def test_deep_link_with_path_redirects_there(self):
         token = self._get_bearer_token()
         target = f"/project/{self.team.id}/replay/019e6d10-c3b0-7000-8000-000000000000"
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"path": target},
             token=token,
@@ -108,7 +112,7 @@ class TestDeepLinks(ProvisioningTestBase):
     )
     def test_deep_link_rejects_unsafe_path(self, _name: str, path: str):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"path": path},
             token=token,
@@ -116,29 +120,7 @@ class TestDeepLinks(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_path"
 
-    def test_deep_link_requires_hmac_signature_for_hmac_partner(self):
-        from posthog.models.oauth import OAuthApplication
 
-        from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID
-
-        token = self._get_bearer_token()
-        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(
-            provisioning_auth_method="hmac",
-            provisioning_active=True,
-            provisioning_can_provision_resources=True,
-        )
-        res = self.client.post(
-            "/api/agentic/provisioning/deep_links",
-            data={"purpose": "dashboard"},
-            content_type="application/json",
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert res.status_code == 401
-        assert res.json()["error"]["code"] == "hmac_signature_required"
-
-
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAgenticLogin(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
