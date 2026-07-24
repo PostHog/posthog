@@ -47,8 +47,6 @@ export interface MessageInputProps {
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
-    /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
-    unsavedTicketChanges?: string[]
 }
 
 export function MessageInput({
@@ -69,7 +67,6 @@ export function MessageInput({
     onDraftModeChange,
     sendConfirmationMessage,
     sendAndSetStatusOptions,
-    unsavedTicketChanges,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -117,29 +114,7 @@ export function MessageInput({
                     statusAfterSend
                 )
             }
-            // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
-            if (statusAfterSend && unsavedTicketChanges && unsavedTicketChanges.length > 0) {
-                LemonDialog.open({
-                    title: `${sendVerb} and save other changes?`,
-                    description: (
-                        <>
-                            <p>
-                                {isPrivate ? 'Attaching' : 'Sending'} will also save your other unsaved ticket changes:
-                            </p>
-                            <ul className="list-disc pl-5">
-                                {unsavedTicketChanges.map((change) => (
-                                    <li key={change}>{change}</li>
-                                ))}
-                            </ul>
-                            {draftMode && !isPrivate && sendConfirmationMessage ? (
-                                <p>{sendConfirmationMessage}</p>
-                            ) : null}
-                        </>
-                    ),
-                    primaryButton: { children: `${sendVerb} and save`, type: 'primary', onClick: doSend },
-                    secondaryButton: { children: 'Cancel' },
-                })
-            } else if (draftMode && !isPrivate && sendConfirmationMessage) {
+            if (draftMode && !isPrivate && sendConfirmationMessage) {
                 // Private notes are never sent externally, so they skip the draft-mode confirmation.
                 LemonDialog.open({
                     title: 'Ready to send?',

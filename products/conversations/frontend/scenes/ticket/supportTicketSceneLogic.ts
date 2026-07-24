@@ -58,6 +58,8 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+// Collapse rapid successive field edits (and the send-and-set-status path) into a single PATCH.
+const AUTOSAVE_DEBOUNCE_MS = 500
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -214,6 +216,9 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    autosaveTicket: () => {
+        value: true
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -443,6 +448,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setTicketLoading: (loading: boolean) => ({ loading }),
         incrementUnreadCustomerCount: true,
         updateTicket: true,
+        autosaveTicket: true,
         setTicketUpdating: (updating: boolean) => ({ updating }),
 
         loadMessages: true,
@@ -760,8 +766,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             },
         ],
-        // Human-readable list of unsaved edits other than status, shown in the send-and-set-status
-        // confirmation. Status is excluded because that action overrides it anyway.
+        // Human-readable list of unsaved edits other than status, feeding hasUnsavedChanges and the
+        // beforeUnload guard. Status is excluded because the send-and-set-status action overrides it anyway.
         unsavedTicketChanges: [
             (s) => [s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket, s.resolveAssignee],
             (
@@ -963,6 +969,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
         },
+        setStatus: () => actions.autosaveTicket(),
+        setPriority: () => actions.autosaveTicket(),
+        setAssignee: () => actions.autosaveTicket(),
+        setTags: () => actions.autosaveTicket(),
+        setSnoozedUntil: () => actions.autosaveTicket(),
+        autosaveTicket: async (_, breakpoint) => {
+            await breakpoint(AUTOSAVE_DEBOUNCE_MS)
+            // Skip when there is nothing to persist yet, or when an explicit save (e.g. send-and-set
+            // status) already flushed these edits — hasUnsavedChanges settles to false once it lands.
+            if (props.id === 'new' || !values.ticket || !values.hasUnsavedChanges) {
+                return
+            }
+            actions.updateTicket()
+        },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {
                 actions.setTicketUpdating(false)
@@ -1006,7 +1026,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                // The edit stays in local state (hasUnsavedChanges), so offer an explicit retry —
+                // without the removed Save button a failed autosave would otherwise have no way back.
+                lemonToast.error('Failed to update ticket', {
+                    button: { label: 'Retry', action: () => actions.updateTicket() },
+                })
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null

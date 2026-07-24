@@ -322,6 +322,34 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
+    // A field edit must persist on its own (debounced), with no explicit "Save changes" click.
+    it('autosaves a field edit through the same PATCH', async () => {
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), priority: 'high' })
+
+        await expectLogic(logic, () => {
+            logic.actions.setPriority('high')
+        }).toDispatchActions(['autosaveTicket', 'updateTicket', 'setTicket'])
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith('42', expect.objectContaining({ priority: 'high' }))
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    // A failed autosave must not silently drop the edit: it stays unsaved (so the beforeUnload guard
+    // and the toast's Retry can recover it) and the loading state resets.
+    it('keeps the edit unsaved when the autosave fails', async () => {
+        ticketUpdateMock.mockRejectedValue(new Error('boom'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setPriority('high')
+        })
+            .toDispatchActions(['autosaveTicket', 'updateTicket'])
+            .toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalled()
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+        expect(logic.values.ticketUpdating).toBe(false)
+    })
+
     it('does not update the ticket when the send fails', async () => {
         commentsCreateMock.mockRejectedValue(new Error('request failed'))
 
