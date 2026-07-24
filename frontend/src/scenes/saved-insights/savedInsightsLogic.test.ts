@@ -16,7 +16,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { QueryBasedInsightModel } from '~/types'
 
-import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, InsightsResult, cleanFilters, savedInsightsLogic } from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
@@ -293,6 +293,50 @@ describe('savedInsightsLogic', () => {
             insights: partial({
                 results: partial([partial({ name: 'fresh 1' })]),
             }),
+        })
+    })
+
+    describe('notOnAnyDashboard filter', () => {
+        it.each([
+            [undefined, false],
+            [true, true],
+            [false, false],
+        ])('cleanFilters({ notOnAnyDashboard: %s }).notOnAnyDashboard === %s', (input, expected) => {
+            expect(cleanFilters({ notOnAnyDashboard: input as boolean | undefined }).notOnAnyDashboard).toBe(expected)
+        })
+
+        it('sends not_on_any_dashboard=true query param when filter is enabled', async () => {
+            let lastSearchParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': (req) => {
+                        lastSearchParams = req.url.searchParams
+                        return [200, createSavedInsights('', 0)]
+                    },
+                },
+            })
+
+            logic.actions.setSavedInsightsFilters({ notOnAnyDashboard: true })
+            await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            expect(lastSearchParams?.get('not_on_any_dashboard')).toBe('true')
+        })
+
+        it('omits not_on_any_dashboard query param when filter is disabled', async () => {
+            let lastSearchParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': (req) => {
+                        lastSearchParams = req.url.searchParams
+                        return [200, createSavedInsights('', 0)]
+                    },
+                },
+            })
+
+            logic.actions.setSavedInsightsFilters({ search: 'noop' })
+            await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            expect(lastSearchParams?.has('not_on_any_dashboard')).toBe(false)
         })
     })
 

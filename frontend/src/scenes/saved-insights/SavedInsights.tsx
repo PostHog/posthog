@@ -353,7 +353,7 @@ export function SavedInsights(): JSX.Element {
                         setFilters={setSavedInsightsFilters}
                         quickFilters={
                             tab === SavedInsightsTabs.Yours
-                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
+                                ? ['insightType', 'tags', 'favorites', 'featureFlags', 'notOnAnyDashboard']
                                 : undefined
                         }
                     />
