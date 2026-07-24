@@ -31,6 +31,20 @@ describe('createAiConsumer', () => {
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
             EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
             CDP_HOG_WATCHER_SAMPLE_RATE: 1,
+            // Read eagerly by createAiConsumer (not deferred like the scope-builder services
+            // below), so these need real fail-closed values rather than the cast-away pattern.
+            AI_BLOB_S3_BUCKET: '',
+            AI_BLOB_S3_PREFIX: '',
+            AI_BLOB_S3_ENDPOINT: '',
+            AI_BLOB_S3_REGION: 'us-east-1',
+            AI_BLOB_S3_ACCESS_KEY_ID: '',
+            AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+            AI_BLOB_S3_TIMEOUT_MS: 30000,
+            AI_BLOB_OFFLOAD_TEAMS: '',
+            AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
+            AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+            AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
+            AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
             ...({} as Pick<
                 IngestionConsumerConfig,
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
