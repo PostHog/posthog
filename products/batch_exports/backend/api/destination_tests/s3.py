@@ -30,10 +30,14 @@ class S3AssumeRoleTestStep(DestinationTestStep):
         self,
         aws_role_arn: str | None = None,
         organization_id: str | None = None,
+        max_attempts: int = 1,
     ) -> None:
         super().__init__()
         self.aws_role_arn = aws_role_arn
         self.organization_id = organization_id
+        # This test verifies user-provided config, where failures are expected, so
+        # default to a single attempt and report promptly rather than retrying.
+        self.max_attempts = max_attempts
 
     def _is_configured(self) -> bool:
         # Always considered configured: when there is no role ARN to assume (e.g.
@@ -56,9 +60,7 @@ class S3AssumeRoleTestStep(DestinationTestStep):
                 policy_statements=[
                     PolicyStatement(Effect="Allow", Action=["s3:ListBucket"], Resource="arn:aws:s3:::*")
                 ],
-                # This test verifies user-provided config, where failures are expected, so
-                # report them promptly rather than retrying.
-                max_attempts=1,
+                max_attempts=self.max_attempts,
             )
         except InvalidCredentialsError as err:
             return DestinationTestStepResult(
@@ -115,6 +117,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
         aws_secret_access_key: str | None = None,
         aws_role_arn: str | None = None,
         organization_id: str | None = None,
+        max_attempts: int = 1,
     ) -> None:
         super().__init__()
         self.bucket_name = bucket_name
@@ -124,6 +127,9 @@ class S3EnsureBucketTestStep(DestinationTestStep):
         self.aws_secret_access_key = aws_secret_access_key
         self.aws_role_arn = aws_role_arn
         self.organization_id = organization_id
+        # This test verifies user-provided config, where failures are expected, so
+        # default to a single attempt and report promptly rather than retrying.
+        self.max_attempts = max_attempts
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
@@ -160,9 +166,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
                         Effect="Allow", Action=["s3:ListBucket"], Resource=f"arn:aws:s3:::{self.bucket_name}"
                     )
                 ],
-                # This test verifies user-provided config, where failures are expected, so
-                # report them promptly rather than retrying.
-                max_attempts=1,
+                max_attempts=self.max_attempts,
             )
 
             aws_access_key_id, aws_secret_access_key, aws_session_token = (

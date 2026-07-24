@@ -17,6 +17,11 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_c
 
 TEST_ROOT_BUCKET = "test-destination-tests"
 
+# Production destination tests use a single attempt (fast failure for users verifying
+# config). These tests create a role and immediately assume it, so they need extra
+# attempts to absorb IAM's eventual consistency.
+ROLE_PROPAGATION_ATTEMPTS = 5
+
 
 @pytest.fixture
 def bucket_name(request) -> str:
@@ -149,7 +154,11 @@ async def test_assume_role_step_passes_with_assumable_role(
     aorganization,
 ):
     """The assume role step passes when the role is assumable with the right external id."""
-    test_step = S3AssumeRoleTestStep(aws_role_arn=destination_aws_role_arn, organization_id=aorganization.id)
+    test_step = S3AssumeRoleTestStep(
+        aws_role_arn=destination_aws_role_arn,
+        organization_id=aorganization.id,
+        max_attempts=ROLE_PROPAGATION_ATTEMPTS,
+    )
 
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
         result = await test_step.run()
@@ -184,7 +193,11 @@ async def test_assume_role_step_fails_without_external_id_condition(
     aorganization,
 ):
     """A role whose trust policy omits the external id condition is rejected."""
-    test_step = S3AssumeRoleTestStep(aws_role_arn=destination_aws_role_arn, organization_id=aorganization.id)
+    test_step = S3AssumeRoleTestStep(
+        aws_role_arn=destination_aws_role_arn,
+        organization_id=aorganization.id,
+        max_attempts=ROLE_PROPAGATION_ATTEMPTS,
+    )
 
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
         result = await test_step.run()
@@ -207,6 +220,7 @@ async def test_ensure_bucket_step_passes_with_role_assumption(
         region=region,
         aws_role_arn=destination_aws_role_arn,
         organization_id=aorganization.id,
+        max_attempts=ROLE_PROPAGATION_ATTEMPTS,
     )
 
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
