@@ -1249,6 +1249,29 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
+        def test_concurrent_team_patches_do_not_clobber_each_other(self) -> None:
+            # Simulates two racing PATCHes: the second request loaded the team before the
+            # first one committed. With a full-row save, the second write reverts the first
+            # request's onboarding-completion fields; with update_fields it must not.
+            stale_team = Team.objects.get(pk=self.team.pk)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"completed_snippet_onboarding": True, "has_completed_onboarding_for": {"product_analytics": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            with patch.object(Project, "passthrough_team", property(lambda _self: stale_team)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"session_recording_opt_in": True},
+                )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.team.refresh_from_db()
+            assert self.team.completed_snippet_onboarding is True
+            assert self.team.has_completed_onboarding_for == {"product_analytics": True}
+            assert self.team.session_recording_opt_in is True
+
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
