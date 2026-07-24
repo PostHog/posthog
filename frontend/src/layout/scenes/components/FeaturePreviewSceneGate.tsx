@@ -4,7 +4,9 @@ import { useEffect } from 'react'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -34,6 +36,8 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
     const { activeSceneId } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     useEffect(() => {
         loadEarlyAccessFeatures()
@@ -70,9 +74,25 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                             <span className="font-semibold">Enable feature preview</span>
                         </label>
                     ) : (
-                        <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
-                            Open feature previews
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
+                                Open feature previews
+                            </LemonButton>
+                            {config.supportTargetArea && preflight?.cloud && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() =>
+                                        openSupportForm({
+                                            kind: 'support',
+                                            target_area: config.supportTargetArea as SupportTicketTargetArea,
+                                            message: `I'd like to request access to ${config.title}.`,
+                                        })
+                                    }
+                                >
+                                    Request access
+                                </LemonButton>
+                            )}
+                        </div>
                     )
                 }
                 docsURL={config.docsURL}
