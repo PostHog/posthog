@@ -40,6 +40,8 @@ import type {
     PatchedLogsMetricRuleApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
+    PatchedTeamLogsConfigApi,
+    TeamLogsConfigApi,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -78,6 +80,84 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Logs product configuration for this project, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
+ */
+export const organizationsProjectsLogsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Logs product configuration for this project, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
+ */
+export const organizationsProjectsLogsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamLogsConfigApi),
+    })
+}
+
+export const getEnvironmentsLogsConfigRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/logs_config/`
+}
+
+/**
+ * Logs product configuration for this environment, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
+ */
+export const environmentsLogsConfigRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getEnvironmentsLogsConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsLogsConfigPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/logs_config/`
+}
+
+/**
+ * Logs product configuration for this environment, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
+ */
+export const environmentsLogsConfigPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getEnvironmentsLogsConfigPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamLogsConfigApi),
+    })
+}
 
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()

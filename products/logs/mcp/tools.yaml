@@ -9,6 +9,12 @@ feature: logs
 url_prefix: /logs
 ui_apps: {}
 tools:
+    environments-logs-config-partial-update:
+        operation: environments_logs_config_partial_update
+        enabled: false
+    environments-logs-config-retrieve:
+        operation: environments_logs_config_retrieve
+        enabled: false
     logs-alerts-create:
         operation: logs_alerts_create
         enabled: true
@@ -319,6 +325,27 @@ tools:
             include:
                 - results
                 - count
+    logs-config-get:
+        operation: organizations_projects_logs_config_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get logs correlation config
+        description: >
+            Read the project's logs correlation configuration: which log attribute keys carry cross-product identity, so
+            log queries can pivot to and from other products. `logs_distinct_id_attribute_keys` (ordered list, default
+            `["posthogDistinctId"]`) holds a PostHog person's distinct ID — filter on any of these keys (operator
+            `exact`, type `log_attribute`) to scope logs to a person. `logs_session_id_attribute_keys` (ordered list,
+            default `["posthogSessionId"]`) holds the PostHog session ID — filter on any of these keys (OR across the
+            list, operator `exact`, type `log_attribute`) to scope logs to one session, e.g. the `$session_id` of an
+            error tracking exception or a session replay recording. Traces don't need this config: log rows carry native
+            `trace_id`/`span_id` columns. Call this before building any person- or session-scoped log filter; never
+            guess the attribute keys.
+        system_prompt_hint: Attribute keys linking logs to persons, sessions, errors, and replay
     logs-count:
         operation: logs_count_create
         enabled: true
@@ -503,6 +530,9 @@ tools:
         enabled: false
     logs-views-update:
         operation: logs_views_update
+        enabled: false
+    organizations-projects-logs-config-partial-update:
+        operation: organizations_projects_logs_config_partial_update
         enabled: false
     query-logs:
         operation: logs_query_create

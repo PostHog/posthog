@@ -2172,6 +2172,15 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
+    @extend_schema(
+        request=TeamLogsConfigSerializer,
+        responses=TeamLogsConfigSerializer,
+        description=(
+            "Logs product configuration for this environment, including the attribute keys "
+            "that correlate logs with other products (person distinct ID and session ID)."
+        ),
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
