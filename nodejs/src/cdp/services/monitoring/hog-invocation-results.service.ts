@@ -243,16 +243,19 @@ const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string 
 
 const gunzipAsync = promisify(gunzip)
 
+// Level 3 (the library default) compresses our payloads ~4x faster than the
+// gzip codec it replaced at a near-identical ratio (within ~4%, measured on
+// production samples), so the metered-bytes savings hold while the CPU cost
+// per row drops.
+const ZSTD_COMPRESSION_LEVEL = 3
+
 // `invocation_globals` is the bulk of every lifecycle row. Warpstream meters
 // the uncompressed message bytes, so compressing this one field before produce
 // directly cuts cyclotron throughput. The row envelope stays plain JSON — only
 // this field is opaque — so the ClickHouse Kafka engine still parses the
-// message as JSONEachRow. Zstd level 3 compresses our payloads ~4x faster than
-// the gzip codec it replaced at a near-identical ratio (within ~4%, measured
-// on production samples), so the metered-bytes savings hold while the CPU cost
-// per row drops. `decodeInvocationGlobals` is the inverse.
+// message as JSONEachRow. `decodeInvocationGlobals` is the inverse.
 const compressInvocationGlobals = async (globalsJson: string): Promise<string> => {
-    return (await zstdCompress(Buffer.from(globalsJson), 3)).toString('base64')
+    return (await zstdCompress(Buffer.from(globalsJson), ZSTD_COMPRESSION_LEVEL)).toString('base64')
 }
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
