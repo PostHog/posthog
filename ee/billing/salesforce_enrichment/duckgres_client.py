@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from typing import cast
 
 import psycopg
-from psycopg import sql
 from psycopg.rows import DictRow, dict_row
 
 _CONNECT_TIMEOUT_SECONDS = 15
@@ -21,8 +20,13 @@ class DuckgresNotConfiguredError(RuntimeError):
 def duckgres_cursor() -> Iterator[psycopg.Cursor[DictRow]]:
     """Yield a dict-row cursor bound to a short-lived duckgres connection.
 
-    A per-session statement timeout is set so a runaway analytics query cannot
-    pin the worker — the caller is expected to paginate large result sets.
+    The connection runs in autocommit mode so each statement stands alone: the
+    duckgres/ducklake backend doesn't honor a transaction-scoped ``SET LOCAL``
+    the way real Postgres does, and running one inside an implicit transaction
+    left it aborted so the following query failed with "current transaction is
+    aborted". The statement timeout is instead requested at connection startup
+    via libpq ``options`` so a runaway analytics query can't pin the worker —
+    the caller is expected to paginate large result sets.
     """
     pg_url = os.environ.get("DUCKGRES_PG_URL")
     if not pg_url:
@@ -32,7 +36,8 @@ def duckgres_cursor() -> Iterator[psycopg.Cursor[DictRow]]:
         pg_url,
         connect_timeout=_CONNECT_TIMEOUT_SECONDS,
         row_factory=dict_row,
+        autocommit=True,
+        options=f"-c statement_timeout={_STATEMENT_TIMEOUT_MS}",
     ) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(_STATEMENT_TIMEOUT_MS)))
             yield cast(psycopg.Cursor[DictRow], cur)
