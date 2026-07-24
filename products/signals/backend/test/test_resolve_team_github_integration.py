@@ -1,6 +1,7 @@
 import datetime
 
 import pytest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -10,7 +11,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.select_repo import (
+    RepoSelectionResult,
+    implicit_repository_for_report_action,
+    resolve_team_github_integration,
+    select_repository,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -383,3 +390,91 @@ def test_prefers_oldest_among_same_account_type(organization, team):
 
     assert isinstance(resolved, GitHubIntegration)
     assert resolved.integration.id == older.id
+
+
+@pytest.mark.django_db
+def test_cascade_uses_single_connected_repo(team):
+    # A single connected repo is picked directly (lowercased), no explicit mention needed —
+    # this is the case that unblocks single-repo self-driving teams.
+    _create_team_integration(team, repository_cache=[{"full_name": "Acme/Web", "name": "Web", "id": 1}])
+
+    assert tasks_facade.cascade_select_repository(team.id, None, "") == "acme/web"
+
+
+@pytest.mark.django_db
+def test_cascade_returns_none_without_integration(team):
+    assert tasks_facade.cascade_select_repository(team.id, None, "fix acme/web") is None
+
+
+@pytest.mark.django_db
+def test_cascade_uses_explicit_mention_when_multiple_repos(team):
+    _create_team_integration(
+        team,
+        repository_cache=[
+            {"full_name": "Acme/Web", "name": "Web", "id": 1},
+            {"full_name": "Acme/Api", "name": "Api", "id": 2},
+        ],
+    )
+
+    assert tasks_facade.cascade_select_repository(team.id, None, "please fix Acme/Api today") == "acme/api"
+
+
+@pytest.mark.django_db
+def test_cascade_returns_none_when_multiple_repos_and_no_mention(team):
+    # Ambiguous multi-repo with no explicit mention stays repo-less rather than paying for the agent.
+    _create_team_integration(
+        team,
+        repository_cache=[
+            {"full_name": "Acme/Web", "name": "Web", "id": 1},
+            {"full_name": "Acme/Api", "name": "Api", "id": 2},
+        ],
+    )
+
+    assert tasks_facade.cascade_select_repository(team.id, None, "fix the bug") is None
+
+
+def _write_repo_selection(report: SignalReport, repository: str | None) -> None:
+    SignalReportArtefact.objects.create(
+        team=report.team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        content=RepoSelectionResult(repository=repository, reason="test").model_dump_json(),
+    )
+
+
+@pytest.mark.django_db
+def test_implicit_repo_reuses_persisted_selection(team):
+    report = SignalReport.objects.create(team=team)
+    _write_repo_selection(report, "acme/web")
+
+    with patch("products.tasks.backend.facade.api.cascade_select_repository") as mock_cascade:
+        result = implicit_repository_for_report_action(team.id, None, str(report.id), "irrelevant")
+
+    assert result == "acme/web"
+    mock_cascade.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_implicit_repo_respects_no_repo_selection(team):
+    # A scout's explicit NO_REPO (persisted as repository=None) must not be overridden by the cascade.
+    report = SignalReport.objects.create(team=team)
+    _write_repo_selection(report, None)
+
+    with patch("products.tasks.backend.facade.api.cascade_select_repository") as mock_cascade:
+        result = implicit_repository_for_report_action(team.id, None, str(report.id), "irrelevant")
+
+    assert result is None
+    mock_cascade.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_implicit_repo_cascades_when_no_artefact(team):
+    report = SignalReport.objects.create(team=team)
+
+    with patch(
+        "products.tasks.backend.facade.api.cascade_select_repository", return_value="picked/repo"
+    ) as mock_cascade:
+        result = implicit_repository_for_report_action(team.id, 7, str(report.id), "some prompt")
+
+    assert result == "picked/repo"
+    mock_cascade.assert_called_once_with(team.id, 7, "some prompt")

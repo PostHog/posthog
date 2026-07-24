@@ -21,11 +21,6 @@ import {
 // NOT a live chat surface. The created task carries the SignalReport linkage so the
 // backend's agent pipeline can pick it up.
 
-// Report artefacts are paginated newest-first (default page size 100); `repo_selection` is
-// written early in a research run, so a generous limit keeps it on the fetched page even for
-// reports with many findings.
-const REPO_SELECTION_ARTEFACT_FETCH_LIMIT = 1000
-
 function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
         report.summary ? `\n\nReport summary:\n${report.summary}` : ''
@@ -47,41 +42,17 @@ async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,
     prompt: string,
-    fallbackTitle: string,
-    requireRepository = false
+    fallbackTitle: string
 ): Promise<void> {
-    // Use the repository the signals pipeline already selected for this report (its
-    // `repo_selection` artefact), matching the desktop app and the auto-start flow. Never fall
-    // back to an arbitrary project repo — `repositories[0]` previously leaked whichever repo
-    // sorted first (e.g. a personal repo) and pinned the task to the wrong codebase.
-    // Artefacts are paginated newest-first and `repo_selection` is written early in the run, so
-    // fetch a high limit to keep it on the page even for reports with many findings.
-    let repository: string | undefined
-    try {
-        const { results } = await api.signalReports.artefacts(report.id, { limit: REPO_SELECTION_ARTEFACT_FETCH_LIMIT })
-        const selected = results.find((a) => a.type === 'repo_selection')?.content?.repository
-        repository = typeof selected === 'string' && selected ? selected : undefined
-    } catch (e) {
-        // A genuine fetch failure must not masquerade as "no repository selected" — when a repo
-        // is required, surface the real error so the user retries instead of waiting on analysis.
-        if (requireRepository) {
-            throw e
-        }
-        repository = undefined
-    }
-
-    // Opening a PR needs a concrete target repo. If selection hasn't resolved one (e.g. a
-    // pending-input report), fail with a clear message instead of creating a task pinned to no
-    // repository that can never open a PR. Discuss doesn't require a repo.
-    if (requireRepository && !repository) {
-        throw new Error('No repository has been selected for this report yet — try again once analysis finishes.')
-    }
-
+    // The backend resolves the target repository for signal-report tasks: it reuses the report's
+    // `repo_selection` when one exists, otherwise runs the same cheap cascade Slack mentions use
+    // (a single connected repo, or an explicit `owner/repo` in the prompt). So the client no longer
+    // fetches the artefact or blocks when none is set — "Create PR" and "Discuss" both just create
+    // the task and let selection happen server-side.
     const task = await api.tasks.create({
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
         origin_product: OriginProduct.SIGNAL_REPORT,
-        repository,
         // Linkage fields accepted by the tasks backend for the signal_report origin.
         signal_report: report.id,
         signal_report_task_relationship: relationship,
@@ -190,8 +161,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix',
-                    true
+                    'Implement report fix'
                 )
                 actions.createPrSuccess()
             } catch (error: any) {
