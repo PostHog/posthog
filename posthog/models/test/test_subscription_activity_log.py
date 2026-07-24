@@ -32,7 +32,8 @@ class TestSubscriptionActivityLog(BaseTest):
         return Subscription.objects.create(**params)
 
     def _subscription_logs(self):
-        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at")
+        # freeze_time makes created_at tie, so break the tie on activity ("created" < "updated") to keep [0]/[1] deterministic.
+        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at", "activity")
 
     @parameterized.expand(
         [
