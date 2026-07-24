@@ -1266,6 +1266,174 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        // Wait conditions authored as HogQL expressions must be woken by the streams, not only by the
+        // 10-minute poll — otherwise removing the poll would silently strand them. These three cover
+        // the distinct HogQL condition shapes real production flows use; each bytecode is exactly what
+        // the Django serializer compiles for that expression (verified via compile_filters_bytecode).
+        // If HogQL compilation changes, or a stream stops carrying what the bytecode reads (e.g. the
+        // person wake dropping properties), one of these fails.
+        it('wakes a HogQL event-name wait condition via the events stream', async () => {
+            // HogQL: event = 'billing_added'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'billing_added', 32, 'event', 1, 1, 11],
+                        properties: [{ type: 'hogql', key: "event = 'billing_added'" }],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            await matcher.processBatch([createGlobals({ event: 'billing_added', properties: {} })])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL event+property wait condition only on the matching event and property', async () => {
+            // HogQL: event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'cal_booking',
+                            32,
+                            'event',
+                            1,
+                            1,
+                            11,
+                            32,
+                            'BOOKING_CREATED',
+                            32,
+                            'trigger_event',
+                            32,
+                            'properties',
+                            1,
+                            2,
+                            11,
+                            3,
+                            2,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            // Right event, wrong property — must not wake.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
+            ])
+            await new Promise((r) => setTimeout(r, 500))
+            expect(mockFetch).not.toHaveBeenCalled()
+            // Right event and property — wakes.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'BOOKING_CREATED' } }),
+            ])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL dynamic-key person-property wait condition via the person stream', async () => {
+            // HogQL: person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'active',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            2,
+                            32,
+                            'shop_id',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            3,
+                            2,
+                            'toString',
+                            1,
+                            32,
+                            '_billing_status',
+                            2,
+                            'concat',
+                            2,
+                            45,
+                            11,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            // Parked person has shop_id but no billing status yet, so the condition is false and it parks.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { shop_id: '42' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            // clickhouse_person mutation sets 42_billing_status = 'active' with no analytics event.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ shop_id: '42', '42_billing_status': 'active' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         // A parked wait keyed on an anonymous person can't be woken by the survivor's updates after a
         // merge — the survivor's person/event updates arrive under a new person_id the wait doesn't
         // reference. The matcher re-keys the wait off the clickhouse_person_distinct_id repoint so it
