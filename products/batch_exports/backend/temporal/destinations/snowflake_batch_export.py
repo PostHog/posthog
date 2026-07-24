@@ -492,45 +492,37 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     role: str | None = None
 
 
-def _pem_private_key_is_encrypted(private_key: str) -> bool:
-    """Return whether a PEM private key is encrypted, without needing its passphrase."""
-    try:
-        serialization.load_pem_private_key(private_key.encode("utf-8"), password=None, backend=default_backend())
-    except (ValueError, TypeError) as e:
-        return "Password was not given but private key is encrypted" in str(e)
-    return False
+def _pem_is_encrypted(private_key: str) -> bool:
+    """PEM declares encryption in the clear: PKCS#8 labels the block ENCRYPTED, legacy OpenSSL adds Proc-Type."""
+    return "ENCRYPTED PRIVATE KEY" in private_key or "Proc-Type: 4,ENCRYPTED" in private_key
 
 
 def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    # paramiko cannot write a passphrase shorter than one byte, so an empty one means no passphrase.
+    password = passphrase.encode("utf-8") if passphrase else None
+
     try:
         p_key = serialization.load_pem_private_key(
             private_key.encode("utf-8"),
-            password=passphrase.encode() if passphrase is not None else None,
+            password=password,
             backend=default_backend(),
         )
-    except (ValueError, TypeError) as e:
-        msg = "Invalid private key"
-
-        if passphrase is not None and _pem_private_key_is_encrypted(private_key):
-            # A passphrase was supplied for an encrypted key but decryption failed: the passphrase is
-            # wrong. We classify on the key's encryption status rather than the underlying error string
-            # because ~1 in 250 wrong passphrases decrypt to bytes with valid PKCS#7 padding and then
-            # surface as an ASN.1 parse error instead of "Bad decrypt. Incorrect password?".
-            msg = "Could not load private key: incorrect passphrase?"
-        elif "Password was not given but private key is encrypted" in str(e):
-            msg = "Could not load private key: passphrase was not given but private key is encrypted"
-        elif "Password was given but private key is not encrypted" in str(e):
-            if passphrase == "":
-                try:
-                    loaded = load_private_key(private_key, None)
-                except (ValueError, TypeError):
-                    # Proceed with top level handling
-                    pass
-                else:
-                    return loaded
-            msg = "Could not load private key: passphrase was given but private key is not encrypted"
-
-        raise InvalidPrivateKeyError(msg)
+    except TypeError as e:
+        # cryptography raises TypeError only when the passphrase and the key's encryption disagree.
+        if password is None:
+            raise InvalidPrivateKeyError(
+                "Could not load private key: passphrase was not given but private key is encrypted"
+            ) from e
+        raise InvalidPrivateKeyError(
+            "Could not load private key: passphrase was given but private key is not encrypted"
+        ) from e
+    except ValueError as e:
+        # Decrypt or parse failure. Roughly 1 in 250 wrong passphrases decrypt to validly padded
+        # garbage and report an ASN.1 parse error instead of "Incorrect password", so read the key's
+        # own encryption marker rather than the error text.
+        if password is not None and _pem_is_encrypted(private_key):
+            raise InvalidPrivateKeyError("Could not load private key: incorrect passphrase?") from e
+        raise InvalidPrivateKeyError("Invalid private key") from e
 
     return p_key.private_bytes(
         encoding=serialization.Encoding.DER,
