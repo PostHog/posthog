@@ -29,7 +29,13 @@ describe('isChunkLoadError', () => {
             { name: 'Error', message: 'Importing a module script failed.' },
             true,
         ],
+        [
+            'WebKit stale-binding SyntaxError',
+            { name: 'SyntaxError', message: "Importing binding name 'c' is not found." },
+            true,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
+        ['generic SyntaxError', { name: 'SyntaxError', message: 'Unexpected token' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],
     ])('classifies %s', (_label, error, expected) => {
