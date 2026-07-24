@@ -59,17 +59,26 @@ export const manifest: ProductManifest = {
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },
+    setupProbe: {
+        productKey: ProductKey.MCP_ANALYTICS,
+        hasDataEvents: ['$mcp_tool_call'],
+        waitingEvents: ['$mcp_initialize'],
+        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
+    },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'MCP analytics',
-            intents: [ProductKey.AI_OBSERVABILITY],
+            intents: [ProductKey.MCP_ANALYTICS],
             category: ProductItemCategory.AI_ENGINEERING,
             visualOrder: 2,
             type: 'mcp_analytics',
             iconType: 'mcp_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-mcp-analytics-light)',
+                'var(--color-product-mcp-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.mcpAnalyticsDashboard(),
             flag: FEATURE_FLAGS.MCP_ANALYTICS,
             tags: ['beta'],

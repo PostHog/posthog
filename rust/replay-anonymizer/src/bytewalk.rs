@@ -14,7 +14,7 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -22,9 +22,10 @@ use crate::dom::{
     ParentKind, TagKind,
 };
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
+use crate::images::ImageFallback;
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
-use crate::url::{scrub_url, scrub_url_opts};
+use crate::url::scrub_url;
 
 // rrweb NodeType (mirrors dom.rs).
 const NODE_DOCUMENT: u8 = 0;
@@ -218,15 +219,19 @@ fn scrub_cv_snapshot_value(
         return None;
     }
     let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
-    let decompressed = ctx.gunzip_cv(&raw).ok()?;
+    let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
+    let decompressed = ctx.decompress_cv(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
-    // Unchanged payloads re-emit too: the whole output is zstd, never mixed-format blocks.
-    let content = if scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
-        &walked
-    } else {
-        &decompressed
-    };
-    let zs = crate::gzip::compress_cv(content).ok()?;
+    let changed = scrub_cv_snapshot(ctx, &decompressed, &mut walked)?;
+    // An unchanged zstd payload keeps its original bytes (safe: the walk proved it duplicate-key
+    // free), so re-scrubbing already-anonymized data is a no-op. Unchanged gzip payloads re-emit
+    // anyway: the whole output is zstd, never mixed-format blocks.
+    if !changed && was_zstd {
+        out.extend_from_slice(&bytes[data.0..data.1]);
+        return Some(false);
+    }
+    let content = if changed { &walked } else { &decompressed };
+    let zs = crate::compression::compress_cv(content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -833,7 +838,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         if !is_image_data_uri(s) {
                             return None;
                         }
-                        Some(w.ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri))
+                        Some(w.ctx.scrub_image(s, ImageFallback::Blank))
                     });
                 }
                 if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
@@ -891,14 +896,10 @@ impl<'c, 'a> Walker<'c, 'a> {
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
         if is_image_data_uri(&existing) {
-            let blurred = self
-                .ctx
-                .blur_data_uri(&existing)
-                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
@@ -959,8 +960,9 @@ impl<'c, 'a> Walker<'c, 'a> {
         })
     }
 
-    /// One cv-marked mutation sub-field from the wire: a gzipped string is decoded/walked, a plain
-    /// array walks uncompressed, `null`/empty-string keep verbatim, anything else declines.
+    /// One cv-marked mutation sub-field from the wire: a compressed string (gzip or zstd) is
+    /// decoded/walked, a plain array walks uncompressed, `null`/empty-string keep verbatim,
+    /// anything else declines.
     fn walk_cv_sub(
         &mut self,
         field: CvMutationField,
@@ -982,15 +984,18 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let raw = latin1_from_wire(wire)?;
-                let decompressed = self.ctx.gunzip_cv(&raw).ok()?;
+                let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
+                let decompressed = self.ctx.decompress_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
-                let content =
-                    if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
-                        &walked
-                    } else {
-                        &decompressed
-                    };
-                let zs = crate::gzip::compress_cv(content).ok()?;
+                let changed = scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;
+                // Unchanged zstd sub-fields keep their original bytes (the walk proved them
+                // duplicate-key free), so a re-scrub is a no-op; gzip always re-emits as zstd.
+                if !changed && was_zstd {
+                    out.extend_from_slice(&self.bytes[vstart..send]);
+                    return Some(send);
+                }
+                let content = if changed { &walked } else { &decompressed };
+                let zs = crate::compression::compress_cv(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

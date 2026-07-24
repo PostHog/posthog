@@ -136,14 +136,28 @@ from posthog.models.person.sql import (
 )
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
+    DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
     DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
+    PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     PRECALCULATED_EVENTS_MV_SQL,
     PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+)
+from posthog.models.precalculated_person_properties.sql import (
+    DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
+    KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
 from posthog.models.raw_sessions.sessions_v2 import (
@@ -1527,6 +1541,24 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
+def reset_unusable_db_connections() -> None:
+    """Close any DB connection whose underlying handle is dead or left in an errored state
+    by an earlier test, so Django transparently reconnects on next use.
+
+    A prior test in the same pytest process can sever the shared connection without Django
+    noticing — notably transaction=True suites whose code under test calls
+    close_old_connections() on the main thread (e.g. the warehouse duckgres backfill). The
+    next test to touch the stale wrapper then fails with "the connection is closed", and
+    in-process reruns reuse the same dead wrapper, so they never recover on their own.
+
+    Checking errors_occurred first is cheap and catches a connection left broken without a
+    round-trip; is_usable() confirms liveness for the rest.
+    """
+    for conn in connections.all():
+        if conn.connection is not None and (conn.errors_occurred or not conn.is_usable()):
+            conn.close()
+
+
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
@@ -1540,7 +1572,19 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Reset dead/errored connections before the class setup machinery starts, so a
+        # connection an earlier test left broken doesn't carry into this class.
+        reset_unusable_db_connections()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
+
     def setUp(self):
+        # In-process reruns (pytest --reruns) re-enter setUp without setUpClass, and a
+        # connection can also drop after class setup, so reset again here — otherwise the
+        # dead wrapper is reused and the test can never recover.
+        reset_unusable_db_connections()
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )
@@ -1550,6 +1594,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
+        self._flush_deferred_constraint_triggers()
         executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
@@ -1558,12 +1603,22 @@ class BaseTestMigrations(QueryMatchingTest):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
 
+        self._flush_deferred_constraint_triggers()
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
             executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
+
+    @staticmethod
+    def _flush_deferred_constraint_triggers() -> None:
+        # Fixture inserts (e.g. BaseTest teams) queue deferred FK checks in the open test
+        # transaction; (un)applying a migration that adds or drops an FK on those tables then
+        # fails with "cannot ALTER TABLE ... because it has pending trigger events". Firing
+        # the checks now clears the queue.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
@@ -1945,9 +2000,15 @@ def reset_clickhouse_database() -> None:
             DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
             DROP_COHORT_MEMBERSHIP_MV_SQL(),
             DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_MV_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -1984,6 +2045,7 @@ def reset_clickhouse_database() -> None:
             SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
         ]
     )
@@ -2007,8 +2069,12 @@ def reset_clickhouse_database() -> None:
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2027,6 +2093,7 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             QUERY_LOG_ARCHIVE_OPS_MV_SQL(
                 view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
             ),

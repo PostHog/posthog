@@ -58,7 +58,7 @@ const Settings = ({
 
     return (
         <BindLogic logic={supportTicketsSceneLogic} props={logicProps}>
-            <SupportTicketsTableFilters />
+            <SupportTicketsTableFilters embedded />
         </BindLogic>
     )
 }

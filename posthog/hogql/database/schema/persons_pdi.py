@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     LazyTableToAdd,
     StringDatabaseField,
+    UUIDDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 
@@ -100,7 +101,7 @@ class PersonsPDITable(LazyTable):
             nullable=False,
             description="Client-side distinct_id sent with events; maps to a single person_id.",
         ),
-        "person_id": StringDatabaseField(
+        "person_id": UUIDDatabaseField(
             name="person_id",
             nullable=False,
             description="Resolved person this distinct_id belongs to; matches `persons.id`.",

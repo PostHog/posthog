@@ -84,6 +84,21 @@ def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str,
     assert report_test_timings.derive_suite_segment_and_group(dir_name) == expected
 
 
+@pytest.mark.parametrize(
+    "dir_name,expected",
+    [
+        # A suffix folded into the segment would mis-key the shard and break recovery pairing.
+        ("junit-results-backend-core-29-attempt2", ("junit-results-backend-core-29", 2)),
+        ("junit-results-backend-core-29-attempt10", ("junit-results-backend-core-29", 10)),
+        ("junit-results-backend-core-29", ("junit-results-backend-core-29", 1)),
+        # No digits is not an attempt suffix: a segment could legitimately end in a word.
+        ("junit-results-backend-core-attempt", ("junit-results-backend-core-attempt", 1)),
+    ],
+)
+def test_split_attempt_suffix(dir_name: str, expected: tuple[str, int]) -> None:
+    assert report_test_timings.split_attempt_suffix(dir_name) == expected
+
+
 # ---------- shard parsing end-to-end ----------
 
 
@@ -129,7 +144,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             <testcase classname="pkg.test_a.TestA" name="test_fast" time="0.1"/>
             <testcase classname="pkg.test_a.TestA" name="test_slow" time="2.0"/>
             <testcase classname="pkg.test_a.TestA" name="test_rerun" time="0.2">
-              <rerunFailure message="x"/>
+              <flakyFailure message="x" time="0.3"/>
             </testcase>
             <testcase classname="pkg.test_a.TestA" name="test_fail" time="0.1"><failure message="x"/></testcase>
         """,
@@ -145,8 +160,8 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.info.total == 7
     assert shard.start == datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     assert (shard.end - shard.start).total_seconds() == pytest.approx(10.0)
-    assert shard.testcase_seconds == pytest.approx(2.4)
-    assert shard.overhead_seconds == pytest.approx(7.6)
+    assert shard.testcase_seconds == pytest.approx(2.7)
+    assert shard.overhead_seconds == pytest.approx(7.3)
     assert shard.junit_filename == "junit-core.xml"
     assert [t.name for t in shard.tests] == ["test_fast", "test_slow", "test_rerun", "test_fail"]
     assert shard.tests[0].nodeid == "pkg/test_a/TestA::test_fast"
@@ -154,6 +169,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[0].end == datetime(2026, 5, 4, 10, 0, 0, 100000, tzinfo=UTC)
     assert shard.tests[1].start == shard.tests[0].end
     assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
+    assert shard.tests[2].duration_seconds == pytest.approx(0.5)
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
@@ -182,9 +198,13 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             '<testcase name="t"><properties><property name="posthog.reruns" value="garbage"/></properties></testcase>',
             ("passed", 1),
         ),
+        # Playwright's JUnit reporter uses flakyFailure/flakyError for attempts
+        # that failed before the final successful retry.
+        ('<testcase name="t"><flakyFailure message="x"/></testcase>', ("rerun_passed", 2)),
+        ('<testcase name="t"><flakyError message="x"/></testcase>', ("rerun_passed", 2)),
     ],
 )
-def test_classify_testcase_reads_rerun_property(testcase_xml: str, expected: tuple[str, int]) -> None:
+def test_classify_testcase_reads_retry_attempts(testcase_xml: str, expected: tuple[str, int]) -> None:
     assert report_test_timings.classify_testcase(ElementTree.fromstring(testcase_xml)) == expected
 
 
@@ -311,6 +331,61 @@ def test_filter_shards_preserves_parse_time_test_windows(tmp_path: Path) -> None
     assert filtered[0].tests[0].end == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
     assert filtered[0].tests[1].start == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
     assert filtered[0].tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 300000, tzinfo=UTC)
+
+
+# ---------- re-run attempts ----------
+
+
+def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(tmp_path: Path) -> None:
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"><failure message="x"/></testcase>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # Not re-executed on attempt 2: must not be re-reported under the new attempt.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_other" time="0.1"><failure message="x"/></testcase>',
+    )
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # A pass in a different leg runs a different config and must not read as recovery.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-3-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>',
+    )
+
+    current, prior_failed = report_test_timings.partition_run_attempt(report_test_timings.collect_shards(tmp_path), 2)
+    filtered = report_test_timings.filter_shards(current, 0.5, prior_failed)
+
+    assert [(s.info.group, s.info.attempt) for s in filtered] == [(1, 2), (3, 2)]
+    assert prior_failed == {
+        "backend:core:1": frozenset({"pkg/t/T::test_flaky"}),
+        "backend:core:2": frozenset({"pkg/t/T::test_other"}),
+    }
+    # Only the same-leg recovery pass survives the threshold filter; the fast pass that never
+    # failed and the cross-leg pass are dropped.
+    assert [test.name for test in filtered[0].tests] == ["test_flaky"]
+    assert filtered[1].tests == []
 
 
 class _FakeSpan:
@@ -456,6 +531,47 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
     assert "test.owner_team" not in tracer.spans[2].attributes
 
 
+def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Products run pytest with `--rootdir ../..`, so real product JUnit `file`/`classname`
+    # are already repo-relative; the span must carry them through, not double-prefix them.
+    _write_shard_xml(
+        tmp_path / "product-junit-results-1",
+        filename="junit-product-warehouse_sources.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="products.warehouse_sources.backend.migrations.test.test_migration_0075.TestBackfillApiVersion" '
+            'file="products/warehouse_sources/backend/migrations/test/test_migration_0075.py" name="test_backfill" time="1.0"/>'
+        ),
+    )
+    shard = report_test_timings.collect_shards(tmp_path)[0]
+    assert shard.info.suite == "product"
+    assert shard.info.segment == "warehouse_sources"
+    assert report_test_timings.job_trace_name("Backend CI", shard.info) == "Backend CI / warehouse_sources (1)"
+
+    tracer = _FakeTracer()
+    owner_paths: list[str] = []
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    def owner_of(file: str) -> str:
+        owner_paths.append(file)
+        return "team-data-warehouse"
+
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / warehouse_sources (1)", owner_of)
+
+    test_span = tracer.spans[1]
+    expected_file = "products/warehouse_sources/backend/migrations/test/test_migration_0075.py"
+    assert (
+        test_span.name
+        == "products/warehouse_sources/backend/migrations/test/test_migration_0075/TestBackfillApiVersion::test_backfill"
+    )
+    assert test_span.attributes["test.selector"] == f"{expected_file}::TestBackfillApiVersion::test_backfill"
+    assert test_span.attributes["test.owner_team"] == "team-data-warehouse"
+    assert owner_paths == [expected_file]
+
+
 # ---------- workflow context ----------
 
 
@@ -535,3 +651,18 @@ def test_job_trace_key_distinguishes_jobs() -> None:
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "core", 2))
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "temporal", 1))
     assert key(_artifact("backend", "core", 1)) == key(_artifact("backend", "core", 1))
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_a", "phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "", "POSTHOG_CI_TRACES_EXTRA_TOKEN": ""}, []),
+        ({}, []),
+    ],
+)
+def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
+    assert report_test_timings.emission_tokens(env) == expected

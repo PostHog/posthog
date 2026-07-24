@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustCallSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justcall import (
+    JustCallSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall import JustCallResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import (
     ENDPOINTS,

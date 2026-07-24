@@ -11,41 +11,136 @@ use std::collections::HashMap;
 use anyhow::{bail, Result};
 
 use crate::allow_lists::AllowLists;
-use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
+use crate::assets::PLACEHOLDER_SRC;
+use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
+use crate::collect::{collectable_data_uri_bytes, CollectedImage, ImageCollection, ImageCollector};
+use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
+use crate::timings::PhaseTimings;
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
-/// `gzip::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
+/// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
+/// Scrub context: the allow lists, the cv decompression budget, the blur memo, the image scrub
+/// policy (inline blur, or deferred onto the shared worker pool), and the optional collection lane.
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Registrable-domain patterns (computed TS-side from the team's recording domains);
-    /// matching hosts and their subdomains collapse to example.com in the URL scrub.
-    pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
-    // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
+    // value: the replacement — a content ref (collection lane), a blurred data URI — or `None`
+    // when neither could be produced (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
+    timings: Option<&'a PhaseTimings>,
+    image_policy: ImagePolicy,
+    images: ImageQueue,
+    // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
+    collector: Option<RefCell<ImageCollector>>,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_first_party_hosts(allow, Vec::new())
+        Self::with_options(allow, None, ImagePolicy::Inline, None)
     }
 
-    pub fn with_first_party_hosts(allow: &'a AllowLists, first_party_hosts: Vec<String>) -> Self {
+    pub fn with_timings(allow: &'a AllowLists, timings: Option<&'a PhaseTimings>) -> Self {
+        Self::with_options(allow, timings, ImagePolicy::Inline, None)
+    }
+
+    pub fn with_image_collection(
+        allow: &'a AllowLists,
+        image_collection: Option<ImageCollection>,
+    ) -> Self {
+        Self::with_options(allow, None, ImagePolicy::Inline, image_collection)
+    }
+
+    // pub(crate): the token-patch barriers live only in the kafka snapshot pipeline, so a
+    // caller-built Parallel Ctx on the other entry points would emit unresolved tokens.
+    pub(crate) fn with_options(
+        allow: &'a AllowLists,
+        timings: Option<&'a PhaseTimings>,
+        image_policy: ImagePolicy,
+        image_collection: Option<ImageCollection>,
+    ) -> Self {
         Self {
             allow,
-            first_party_hosts,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
+            timings,
+            image_policy,
+            images: ImageQueue::default(),
+            collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
         }
     }
 
-    /// The only budgeted cv decompression path — cv code must not call `gzip::gunzip` directly.
-    pub fn gunzip_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
-        let out = crate::gzip::gunzip(raw)?;
+    /// Scrub one image data URI: the collection lane's content ref when it takes the image (no blur
+    /// work at all — the original bytes ride back to the caller for the out-of-band scrub), else
+    /// per the policy — the blurred URI (inline), or a token the patch pass later replaces
+    /// (parallel). Failures resolve to `fallback` either way. A message that exhausts the
+    /// queued-bytes budget degrades to inline for the remainder — bounded memory, identical output.
+    pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
+        if let Some(collected) = self.collect_image(original) {
+            return collected;
+        }
+        if self.image_policy == ImagePolicy::Parallel {
+            if let Some(token) = self.images.submit(
+                original,
+                fallback,
+                true,
+                crate::images::MAX_QUEUED_URI_BYTES,
+            ) {
+                return token;
+            }
+        }
+        match (self.blur_data_uri(original), fallback) {
+            (Some(blurred), _) => blurred,
+            (None, ImageFallback::Blank) => blank_image_data_uri(),
+            (None, ImageFallback::Placeholder) => PLACEHOLDER_SRC.to_string(),
+        }
+    }
+
+    pub(crate) fn has_pending_images(&self) -> bool {
+        self.images.has_pending()
+    }
+
+    /// Replace any outstanding image tokens in serialized output, waiting for their jobs. Must run
+    /// wherever bytes become immutable: before a cv payload compresses, and on the final lines.
+    /// Worker-side blur time lands in the timings sink here, as jobs are claimed.
+    pub(crate) fn patch_pending_images(&self, buf: Vec<u8>) -> Vec<u8> {
+        let out = self.images.patch(buf);
+        if let Some(t) = self.timings {
+            self.images.drain_blur_time_into(t);
+        }
+        out
+    }
+
+    fn timed<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
+        match self.timings {
+            Some(t) => t.time_op(op, f),
+            None => f(),
+        }
+    }
+
+    /// Drain the collected images (hash-sorted). Empty when collection was off.
+    pub fn into_collected_images(self) -> Vec<CollectedImage> {
+        match self.collector {
+            Some(collector) => collector.into_inner().into_images(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Restore the full cv decompression budget. The budget bounds one message; per-line callers
+    /// ([`crate::event::anonymize_line_with_ctx`]) reset it each call so a long session file
+    /// cannot exhaust it, while the blur memo keeps spanning the whole `Ctx`.
+    pub fn reset_cv_budget(&self) {
+        self.cv_budget.set(CV_MESSAGE_DECOMPRESSION_BUDGET);
+    }
+
+    /// The only budgeted cv decompression path — cv code must not call the [`crate::compression`]
+    /// codecs directly. Magic-byte dispatch (gzip or zstd, unknown fails closed) lives in
+    /// [`crate::compression::decompress_by_magic`]; this layers the cumulative budget on top.
+    pub fn decompress_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
+        let out = self.timed("cv", || crate::compression::decompress_by_magic(raw))?;
         match self.cv_budget.get().checked_sub(out.len()) {
             Some(rest) => self.cv_budget.set(rest),
             None => bail!("message exceeds the cumulative cv decompression budget"),
@@ -56,16 +151,33 @@ impl<'a> Ctx<'a> {
     // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs
     // borrow-free, so a future blur helper that re-entered `Ctx` still couldn't double-borrow-panic.
 
-    /// Blur a data-image URI, memoized on the URI. `None` → caller falls back to a blank/placeholder.
+    /// Blur a data-image URI inline, memoized on the URI. `None` → caller falls back to a
+    /// blank/placeholder.
     pub fn blur_data_uri(&self, original: &str) -> Option<String> {
         if let Some(hit) = self.blur_cache.borrow().get(original) {
             return hit.clone();
         }
-        let result = blur_image_data_uri(original);
+        let result = self.timed("blur", || blur_image_data_uri(original));
         self.blur_cache
             .borrow_mut()
             .insert(original.to_string(), result.clone());
         result
+    }
+
+    /// The collection lane's ref for a data URI, or `None` (collection off, non-collectable URI,
+    /// or a cap hit) — the caller then blurs per the policy as before. Refs are memoized in the
+    /// blur cache so a sprite recurring thousands of times hashes once.
+    fn collect_image(&self, original: &str) -> Option<String> {
+        let collector = self.collector.as_ref()?;
+        if let Some(Some(hit)) = self.blur_cache.borrow().get(original) {
+            return Some(hit.clone());
+        }
+        let bytes = collectable_data_uri_bytes(original)?;
+        let collected = collector.borrow_mut().collect(bytes)?;
+        self.blur_cache
+            .borrow_mut()
+            .insert(original.to_string(), Some(collected.clone()));
+        Some(collected)
     }
 
     /// Pixelate raw RGBA pixels, memoized on dimensions + bytes.
@@ -74,7 +186,7 @@ impl<'a> Ctx<'a> {
         if let Some(hit) = self.blur_cache.borrow().get(&key) {
             return hit.clone();
         }
-        let result = pixelate_raw_rgba(rgba_base64, width, height);
+        let result = self.timed("blur", || pixelate_raw_rgba(rgba_base64, width, height));
         self.blur_cache.borrow_mut().insert(key, result.clone());
         result
     }
@@ -84,6 +196,33 @@ impl<'a> Ctx<'a> {
 mod tests {
     use super::*;
     use crate::testkit::png_data_uri;
+
+    #[test]
+    fn decompress_cv_dispatches_on_magic_and_budgets_both_codecs() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let payload = b"x".repeat(1000);
+        let gz = crate::compression::gzip(&payload).unwrap();
+        let zs = crate::compression::compress_cv(&payload).unwrap();
+        for compressed in [&gz, &zs] {
+            let ctx = Ctx::new(&allow);
+            assert_eq!(ctx.decompress_cv(compressed).unwrap(), payload);
+
+            let ctx = Ctx::new(&allow);
+            ctx.cv_budget.set(10);
+            let err = ctx.decompress_cv(compressed).unwrap_err().to_string();
+            assert!(err.contains("budget"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn decompress_cv_fails_closed_on_unknown_magic() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        assert!(ctx
+            .decompress_cv(b"plainly not a compressed stream")
+            .is_err());
+        assert!(ctx.decompress_cv(b"").is_err());
+    }
 
     #[test]
     fn blur_memo_is_stable_and_keyed_per_image() {

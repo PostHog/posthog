@@ -22,17 +22,21 @@
 #   failure" step owns the pass/fail verdict. The shadow strips all of it — no
 #   Trunk posting from a non-blocking timing trial — and so also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
-#   exit code be the verdict directly. Canonical now also gates each quarantine
-#   gate on the TRUNK_UPLOAD_ENABLED repo variable as a kill-switch; since the
-#   shadow strips the gate entirely, that variable is a no-op here and there is
-#   nothing to mirror)
+#   exit code be the verdict directly. Canonical gates each quarantine gate on the
+#   TRUNK_UPLOAD_ENABLED repo variable as an upload kill-switch, and its verdict step
+#   on TRUNK_QUARANTINE_ENABLED to decide whether known flakes are masked; since the
+#   shadow strips both the gate and the verdict step entirely, both variables are
+#   no-ops here and there is nothing to mirror)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
 #   dependency-result table — depot-exempt for the same reason as the other uploads.
 # - report-test-timings: canonical emits per-test OTLP spans from the uploaded JUnit. The shadow
 #   strips artifact uploads (above) and posts no telemetry, so the whole job is depot-exempt —
-#   changes confined to it (script deps, the reporter's availability guard) need no depot bump.
+#   changes confined to it (script deps, the reporter's availability guard, emission secret
+#   plumbing such as dual-project tokens, the JUnit-artifact download pattern, re-run attempt
+#   handling — including the attempt-suffixed junit artifact names canonical uploads so the
+#   reporter can pair re-run recoveries with attempt-1 failures) need no depot bump.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
@@ -55,7 +59,7 @@
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). PRs/merge_group/dispatch
+#   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens
 # - check-migrations timeout widened to 60m because it also runs the folded OpenAPI generation
 
@@ -69,7 +73,7 @@ name: '[optional, does not block merge] Backend CI'
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
 # master switch and the pull_request sample rate: when >0, pull_request runs are sampled at
 # that percent; master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch and merge_group always run. The `sample` job rolls a deterministic
+# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls a deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
 # whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
@@ -90,9 +94,9 @@ on:
         # still skip drafts. Ready PRs run the full matrices — the merge gate —
         # and ready_for_review re-triggers them when a PR leaves draft. Add the
         # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft. Mirrors canonical.
+        # matrices on a draft; the `no-ci` label silences the workflow on a draft
+        # entirely. Mirrors canonical.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -150,7 +154,7 @@ jobs:
     # — hence the rest of the graph — only runs when it is true.
     sample:
         if: vars.CI_DEPOT_SHADOW_PERCENT != '' && vars.CI_DEPOT_SHADOW_PERCENT != '0'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: '[optional, does not block merge] Sample run'
         outputs:
@@ -164,7 +168,7 @@ jobs:
                   EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Only pull_request is sampled; push/workflow_dispatch/merge_group always run
+                  # Only pull_request is sampled; push and workflow_dispatch always run
                   # when enabled (sampling them would skip cache priming or no-op a dispatch).
                   if [ "$EVENT" != "pull_request" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
@@ -185,10 +189,15 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
-        # at percent 0/unset), which cascades the whole workflow off.
+        # at percent 0/unset), which cascades the whole workflow off. Also skipped on
+        # draft PRs labeled `no-ci`, mirroring canonical.
         needs: sample
-        if: needs.sample.outputs.sampled == 'true'
-        runs-on: depot-ubuntu-latest
+        if: >-
+            needs.sample.outputs.sampled == 'true'
+            && (github.event_name != 'pull_request'
+                || github.event.pull_request.draft != true
+                || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -404,7 +413,7 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -444,7 +453,7 @@ jobs:
         needs: changes
         # Not on master push: master only primes the schema cache; this cascades the matrices off.
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
         outputs:
@@ -545,8 +554,8 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
-        # merge_group) always run full, which build_django_matrix falls back to
+        # Only draft PRs do selective runs; ready PRs and pushes always run full,
+        # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
         if: |
@@ -554,7 +563,7 @@ jobs:
             github.event.pull_request.draft == true &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -572,6 +581,8 @@ jobs:
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
+            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -602,6 +613,10 @@ jobs:
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                  # Surface the inputs behind an untrusted skip so the telemetry can
+                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select
@@ -728,7 +743,7 @@ jobs:
         needs: [turbo-discover]
         if: >-
             !cancelled() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -757,7 +772,7 @@ jobs:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
             !cancelled() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
@@ -907,8 +922,8 @@ jobs:
         permissions:
             contents: read
             pull-requests: read # list PR files for the deleted-migration check
-        name: Repo checks (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Repo checks (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Set up Python
@@ -960,8 +975,8 @@ jobs:
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
-        name: Validate product.yaml owners (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Validate product.yaml owners (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Get app token
@@ -1015,7 +1030,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 60
         name: Validate migrations and OpenAPI types
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -1244,7 +1259,7 @@ jobs:
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -1524,7 +1539,7 @@ jobs:
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         strategy:
             fail-fast: false
             matrix:
@@ -1932,7 +1947,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
-        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         outputs:
             # Oldest supported version as plain string (for comparisons)
@@ -2031,7 +2046,7 @@ jobs:
                 repo-checks,
             ]
         name: '[optional, does not block merge] Django Tests Pass'
-        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         # always() collates skipped/failed matrix jobs; gated on the sampling result so it
         # doesn't spin up a lone runner when this run was sampled out (or the shadow is off).

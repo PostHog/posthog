@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from cachetools import cached
-from celery import shared_task
+from celery import Task, shared_task
 from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
@@ -92,7 +92,6 @@ class TeamMetrics:
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
     ai_is_error_count: int = 0
-    ai_trial_evaluation_count: int = 0
     ai_llm_judge_evaluation_count: int = 0
     ai_hog_evaluation_count: int = 0
     ai_sentiment_evaluation_count: int = 0
@@ -341,13 +340,10 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             # Error count (index 26)
             metrics.ai_is_error_count += row[26] or 0
 
-            # Trial evaluation count (index 27)
-            metrics.ai_trial_evaluation_count += row[27] or 0
-
-            # Evaluation runtime counts (indices 28-30)
-            metrics.ai_llm_judge_evaluation_count += row[28] or 0
-            metrics.ai_hog_evaluation_count += row[29] or 0
-            metrics.ai_sentiment_evaluation_count += row[30] or 0
+            # Evaluation runtime counts (indices 27-29)
+            metrics.ai_llm_judge_evaluation_count += row[27] or 0
+            metrics.ai_hog_evaluation_count += row[28] or 0
+            metrics.ai_sentiment_evaluation_count += row[29] or 0
 
     return team_metrics
 
@@ -408,7 +404,6 @@ def get_all_ai_metrics(
             -- Error count
             countIf({prop("$ai_is_error")} = 'true') as ai_is_error_count,
             -- Evaluation counts
-            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_key_type")} = 'posthog') as ai_trial_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
@@ -681,6 +676,14 @@ def get_llm_feedback_survey_metrics(
     )
 
 
+def _is_final_attempt(task: Task) -> bool:
+    """Whether a failure now is permanent: a direct (synchronous) call never retries, and the
+    last autoretry attempt runs with retries >= max_retries."""
+    if task.request.called_directly:
+        return True
+    return task.max_retries is not None and task.request.retries >= task.max_retries
+
+
 # Celery task configuration
 AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
@@ -716,8 +719,11 @@ def _get_all_ai_observability_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] teams query failed",
+            phase="teams",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -733,8 +739,11 @@ def _get_all_ai_observability_reports(
     try:
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] metrics query failed",
+            phase="metrics",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -747,7 +756,9 @@ def _get_all_ai_observability_reports(
         llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
         logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
     except Exception as err:
-        logger.exception("Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics")
+        logger.warning(
+            "Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics", exc_info=True
+        )
         capture_exception(err)
 
     # Phase 4: Get all dimension breakdowns in a single combined query
@@ -755,10 +766,11 @@ def _get_all_ai_observability_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
+        logger.warning(
             "[AIO Usage Error] breakdowns query failed",
             phase="breakdowns",
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -769,8 +781,11 @@ def _get_all_ai_observability_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] surveys query failed",
+            phase="surveys",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -799,7 +814,6 @@ def _get_all_ai_observability_reports(
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
                 "ai_is_error_count": 0,
-                "ai_trial_evaluation_count": 0,
                 "ai_llm_judge_evaluation_count": 0,
                 "ai_hog_evaluation_count": 0,
                 "ai_sentiment_evaluation_count": 0,
@@ -847,7 +861,6 @@ def _get_all_ai_observability_reports(
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
-            report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
             report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
             report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count
             report["ai_sentiment_evaluation_count"] += metrics.ai_sentiment_evaluation_count
@@ -916,9 +929,11 @@ def _get_all_ai_observability_reports(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def capture_ai_observability_report(
+    self: Task,
     *,
     organization_id: str | None = None,
     report_dict: dict[str, Any],
@@ -947,11 +962,13 @@ def capture_ai_observability_report(
         )
         logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
-        logger.exception(
+        log = logger.error if _is_final_attempt(self) else logger.warning
+        log(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
 
         try:
@@ -963,11 +980,12 @@ def capture_ai_observability_report(
                 properties={"error": str(err)},
             )
         except Exception as capture_err:
-            logger.exception(
+            log(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
                 event_source="ai_observability_usage_report",
+                exc_info=True,
             )
 
         raise
@@ -976,9 +994,11 @@ def capture_ai_observability_report(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def send_ai_observability_usage_reports(
+    self: Task,
     dry_run: bool = False,
     at: str | None = None,
     organization_ids: list[str] | None = None,
@@ -1016,7 +1036,22 @@ def send_ai_observability_usage_reports(
     logger.info("Gathering AI observability usage data")
     query_time_start = datetime.now(UTC)
 
-    org_reports = _get_all_ai_observability_reports(period_start, period_end)
+    try:
+        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+    except Exception as err:
+        # The log alert keys on error severity: retryable attempts stay warnings, only the
+        # exhausted final attempt may page.
+        if _is_final_attempt(self):
+            logger.error(
+                "[AIO Usage Error] usage report run failed permanently",
+                error=str(err),
+                period_start=period_start.isoformat(),
+                period_end=period_end.isoformat(),
+                retries=self.request.retries,
+                event_source="ai_observability_usage_report",
+                exc_info=True,
+            )
+        raise
 
     if organization_ids:
         original_count = len(org_reports)
@@ -1043,14 +1078,19 @@ def send_ai_observability_usage_reports(
 
     logger.info("Sending AI observability usage reports")
 
-    at_date_str = at_date.isoformat() if at_date else None
+    # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
+    # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
+    # Actual arrival time remains queryable via events.created_at.
+    report_timestamp = (period_start + timedelta(days=1)).isoformat()
+    triggered_by = "manual" if (at or organization_ids) else "scheduled"
 
     for org_id, report in org_reports.items():
+        report["triggered_by"] = triggered_by
         try:
             capture_ai_observability_report.delay(
                 organization_id=org_id,
                 report_dict=report,
-                at_date=at_date_str,
+                at_date=report_timestamp,
             )
             total_orgs_sent += 1
 

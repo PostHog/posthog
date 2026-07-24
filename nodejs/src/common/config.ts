@@ -50,6 +50,7 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
 }
 

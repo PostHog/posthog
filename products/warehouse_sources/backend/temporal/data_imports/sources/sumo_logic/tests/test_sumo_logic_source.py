@@ -7,7 +7,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SumoLogicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sumologic import (
+    SumoLogicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.source import SumoLogicSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.sumo_logic import SumoLogicResumeConfig

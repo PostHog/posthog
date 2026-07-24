@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     _parse_connection_string,
@@ -149,6 +151,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+        # MongoClient constructor, before any of our own connectivity handling runs. dnspython
+        # already retries across nameservers for the whole resolution lifetime before giving up
+        # with a ConfigurationError wrapping its LifetimeTimeout — a momentary DNS blip on the
+        # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
+        # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
+        # not the variable timeout duration or nameserver address it's followed by.
+        return {"The resolution lifetime expired"}
+
     def get_schemas(
         self,
         config: MongoDBSourceConfig,
@@ -156,6 +168,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
@@ -194,7 +207,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         ]
 
     def validate_credentials(
-        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 

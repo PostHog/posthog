@@ -55,6 +55,7 @@ import {
     scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
+    validateFeatureFlagVariantKey,
 } from './featureFlagLogic'
 import { featureFlagsLogic } from './featureFlagsLogic'
 
@@ -2268,6 +2269,27 @@ describe('validateFeatureFlagKey', () => {
 
     it('accepts key at exactly 400 characters', () => {
         expect(validateFeatureFlagKey('a'.repeat(400))).toBeUndefined()
+    })
+})
+
+describe('validateFeatureFlagVariantKey', () => {
+    it.each([
+        { key: 'control', desc: 'plain key' },
+        { key: 'provider/model-1.2', desc: 'slashes and dots (model-id style)' },
+        { key: '0.85', desc: 'dotted number' },
+        { key: 'a/b/c.d_e-f', desc: 'mixed dots, slashes, hyphens, underscores' },
+    ])('accepts valid variant key: $desc', ({ key }) => {
+        expect(validateFeatureFlagVariantKey(key)).toBeUndefined()
+    })
+
+    it.each([
+        { key: 'foo bar', error: 'Only letters', desc: 'spaces' },
+        { key: 'foo,bar', error: 'Only letters', desc: 'commas' },
+        { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
+        { key: '', error: 'Please set a key', desc: 'empty key' },
+        { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
+    ])('rejects variant key with $desc', ({ key, error }) => {
+        expect(validateFeatureFlagVariantKey(key)).toContain(error)
     })
 })
 

@@ -1,19 +1,20 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import (
-    WRIKE_ENDPOINTS,
-    WrikeEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import WRIKE_ENDPOINTS
 
 # Wrike serves each account from a region-specific host (www.wrike.com, app-us2.wrike.com,
 # app-eu.wrike.com, ...). The user supplies their host; we only ever send the token to a
@@ -22,12 +23,8 @@ WRIKE_HOST_SUFFIX = "wrike.com"
 API_PATH = "/api/v4"
 # Wrike caps paginated list pages at 1000 items.
 PAGE_SIZE = 1000
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class WrikeRetryableError(Exception):
-    pass
+# Paginated endpoints carry a `nextPageToken` in the body; the same token is sent back as a query param.
+NEXT_PAGE_TOKEN = "nextPageToken"
 
 
 @dataclasses.dataclass
@@ -70,13 +67,6 @@ def _build_url(host: str, path: str, params: dict[str, Any]) -> str:
     return f"{base}?{urlencode(clean_params)}"
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-    }
-
-
 def validate_credentials(access_token: str, host: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine. `/contacts?me=true` is a cheap authenticated probe
     that returns the current user."""
@@ -84,100 +74,89 @@ def validate_credentials(access_token: str, host: str) -> tuple[bool, str | None
         return False, "Host must be a Wrike domain (e.g. www.wrike.com or app-us2.wrike.com)"
 
     url = _build_url(host, "/contacts", {"me": "true"})
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,)),
+        url,
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Wrike access token"
-    if response.status_code == 403:
+    if status == 403:
         return False, "Wrike access token is missing the required permissions"
 
-    return False, f"Wrike API error: status={response.status_code}"
-
-
-def _initial_params(config: WrikeEndpointConfig) -> dict[str, Any]:
-    return {"pageSize": PAGE_SIZE} if config.paginated else {}
-
-
-def get_rows(
-    access_token: str,
-    host: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[WrikeResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = WRIKE_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
-
-    if not is_host_valid(host):
-        raise ValueError(f"Refusing to send Wrike credentials to non-Wrike host: {host}")
-
-    resume_config = (
-        resumable_source_manager.load_state() if config.paginated and resumable_source_manager.can_resume() else None
-    )
-    if resume_config is not None:
-        url = _build_url(host, config.path, {"nextPageToken": resume_config.next_page_token})
-        logger.debug(f"Wrike: resuming {endpoint} from saved nextPageToken")
-    else:
-        url = _build_url(host, config.path, _initial_params(config))
-
-    @retry(
-        retry=retry_if_exception_type((WrikeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # Wrike rate-limits around 400 req/min; 429s and transient 5xx are retried with backoff.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise WrikeRetryableError(f"Wrike API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Wrike API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-        items = data.get("data", []) or []
-
-        if items:
-            yield items
-
-        # Only the paginated endpoints return a nextPageToken; everything else is a single page.
-        next_page_token = data.get("nextPageToken") if config.paginated else None
-        if not next_page_token:
-            break
-
-        resumable_source_manager.save_state(WrikeResumeConfig(next_page_token=next_page_token))
-        url = _build_url(host, config.path, {"nextPageToken": next_page_token})
+    return False, f"Wrike API error: status={status}"
 
 
 def wrike_source(
     access_token: str,
     host: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[WrikeResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = WRIKE_ENDPOINTS[endpoint]
 
+    if not is_host_valid(host):
+        raise ValueError(f"Refusing to send Wrike credentials to non-Wrike host: {host}")
+
+    params: dict[str, Any] = {"pageSize": PAGE_SIZE} if config.paginated else {}
+    paginator = (
+        JSONResponseCursorPaginator(cursor_path=NEXT_PAGE_TOKEN, cursor_param=NEXT_PAGE_TOKEN)
+        if config.paginated
+        else SinglePagePaginator()
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(host),
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": access_token},
+            # Pin every request (base and paginated) to the validated Wrike host so a tampered
+            # response can't retarget the credential off-host.
+            "allowed_hosts": [],
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "data",
+                    "paginator": paginator,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"cursor": resume.next_page_token}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded, only while a next-page token remains, so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(WrikeResumeConfig(next_page_token=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            access_token=access_token,
-            host=host,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         sort_mode="asc",
         partition_count=1,
@@ -185,4 +164,5 @@ def wrike_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function HeatmapHeader(): JSX.Element {
     const {
@@ -19,9 +22,10 @@ export function HeatmapHeader(): JSX.Element {
         displayUrl,
         displayUrlIsPattern,
         type,
+        userAccessLevel,
     } = useValues(heatmapLogic)
     const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
-    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot } = useActions(heatmapLogic)
+    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
     const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
@@ -41,15 +45,21 @@ export function HeatmapHeader(): JSX.Element {
                                 onPressEnter={applyPageUrlDraft}
                                 fullWidth={true}
                             />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={applyPageUrlDraft}
-                                loading={loading}
-                                disabledReason={disabledReason}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Heatmap}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel ?? undefined}
                             >
-                                Regenerate
-                            </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={applyPageUrlDraft}
+                                    loading={loading}
+                                    disabledReason={disabledReason}
+                                >
+                                    Regenerate
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                         <div className="text-xs text-muted mt-1">
                             The page we load in the iframe or capture as a screenshot.
@@ -84,8 +94,15 @@ export function HeatmapHeader(): JSX.Element {
                     )}
                     {type === 'iframe' && iframeBanner?.level === 'error' && (
                         <div className="flex flex-col gap-2">
-                            <LemonBanner type="error">
-                                The page failed to load in an iframe (or is very slow). Some sites block being embedded.
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Switch to screenshot',
+                                    onClick: () => changeCaptureMethod('screenshot'),
+                                }}
+                            >
+                                This page didn't load in the live preview. It may block embedding. If it is public,
+                                switch to Screenshot. If it requires login, use a session recording below.
                             </LemonBanner>
                             {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>

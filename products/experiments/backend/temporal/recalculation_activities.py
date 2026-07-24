@@ -55,7 +55,8 @@ async def calculate_experiment_metric_for_recalculation(
     attempt a transient failure is persisted rather than re-raised silently, so the row reflects the real
     outcome once Temporal stops retrying.
     """
-    is_final_attempt = temporalio.activity.info().attempt >= MAX_METRIC_ATTEMPTS
+    attempt = temporalio.activity.info().attempt
+    is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
     return await _calculate_experiment_metric_for_recalculation_sync(
-        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt
+        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
     )

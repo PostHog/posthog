@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.source import EConomicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EConomicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
+    EConomicSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"customers", "products", "invoices_booked"}

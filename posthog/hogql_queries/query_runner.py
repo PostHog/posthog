@@ -45,10 +45,15 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCategoriesQuery,
+    MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
     MCPToolNeighborsQuery,
+    MCPToolQualityDailyStatsQuery,
+    MCPToolQualityRowsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
@@ -352,8 +357,13 @@ RunnableQueryNode = Union[
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
+    MCPToolQualityRowsQuery,
+    MCPToolQualityDailyStatsQuery,
+    MCPToolCategoryCountsQuery,
+    MCPToolCategoriesQuery,
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
@@ -730,104 +740,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "RevenueAnalyticsGrossRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-            RevenueAnalyticsGrossRevenueQueryRunner,
-        )
-
-        return RevenueAnalyticsGrossRevenueQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMetricsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
-            RevenueAnalyticsMetricsQueryRunner,
-        )
-
-        return RevenueAnalyticsMetricsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMRRQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
-            RevenueAnalyticsMRRQueryRunner,
-        )
-
-        return RevenueAnalyticsMRRQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
-        )
-
-        return RevenueAnalyticsOverviewQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsTopCustomersQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
-            RevenueAnalyticsTopCustomersQueryRunner,
-        )
-
-        return RevenueAnalyticsTopCustomersQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleEventsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
-            RevenueExampleEventsQueryRunner,
-        )
-
-        return RevenueExampleEventsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
-            RevenueExampleDataWarehouseTablesQueryRunner,
-        )
-
-        return RevenueExampleDataWarehouseTablesQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "ErrorTrackingQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
@@ -1030,6 +942,17 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPToolFailureOccurrencesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailureOccurrencesQueryRunner
+
+        return MCPToolFailureOccurrencesQueryRunner(
+            query=cast(MCPToolFailureOccurrencesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "MCPToolStatsQuery":
         from products.mcp_analytics.backend.facade.queries import MCPToolStatsQueryRunner
 
@@ -1046,6 +969,50 @@ def get_query_runner(
 
         return MCPToolDailyStatsQueryRunner(
             query=cast(MCPToolDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolQualityRowsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolQualityRowsQueryRunner
+
+        return MCPToolQualityRowsQueryRunner(
+            query=cast(MCPToolQualityRowsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolQualityDailyStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolQualityDailyStatsQueryRunner
+
+        return MCPToolQualityDailyStatsQueryRunner(
+            query=cast(MCPToolQualityDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoryCountsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoryCountsQueryRunner
+
+        return MCPToolCategoryCountsQueryRunner(
+            query=cast(MCPToolCategoryCountsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoriesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoriesQueryRunner
+
+        return MCPToolCategoriesQueryRunner(
+            query=cast(MCPToolCategoriesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1682,6 +1649,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
+        # Some queries read live, mutable state that must never be served stale — e.g. HogQL against
+        # system.information_schema.*, which mirrors data-catalog approval/certification status, so a
+        # cached row keeps reporting the pre-change value after a catalog write. Such runners force a
+        # blocking recompute here so every entry point (SQL editor, insights, PostHog AI, MCP) sees the
+        # current state. Async-only and cache-only modes are left as requested — they explicitly opt
+        # out of returning a fresh synchronous result.
+        if (
+            execution_mode not in (ExecutionMode.CALCULATE_ASYNC_ALWAYS, ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            and self.requires_fresh_calculation()
+        ):
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
         # capture_exceptions=False: we capture explicitly at the except boundary below, so benign
         # user-input query errors (USER_ERROR / cancelled / rate-limited) are returned to the user
         # as 4xx without also polluting error tracking with server-side exception noise.
@@ -2305,6 +2284,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
+
+    def requires_fresh_calculation(self) -> bool:
+        """Runners whose results reflect live, mutable state that must never be served stale
+        override this to force a blocking recompute, bypassing cached results. See
+        `HogQLQueryRunner` for the `system.information_schema.*` (data-catalog) case."""
+        return False
 
     def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
         """Irreversibly update self.query with provided variable overrides."""

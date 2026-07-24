@@ -244,11 +244,9 @@ export interface inboxReportDetailLogicActions {
         taskId: string
     }
     updateReviewers: (
-        artefactId: string,
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[]
     ) => {
-        artefactId: string
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
     }
@@ -303,9 +301,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     actions({
         setReport: (report: SignalReport | null) => ({ report }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
+        // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
-        updateReviewers: (artefactId: string, content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
-            artefactId,
+        updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
             content,
             optimistic,
         }),
@@ -636,9 +634,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ artefactId, content }) => {
+        updateReviewers: async ({ content }) => {
             try {
-                await api.signalReports.updateArtefact(props.reportId, artefactId, content)
+                await api.signalReports.setReviewers(props.reportId, content)
                 await actions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')

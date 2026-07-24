@@ -25,7 +25,7 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
                 <>
                     When enabled, events from test accounts will be excluded from Revenue analytics. You can configure
                     these test accounts{' '}
-                    <Link to={urls.settings('project-product-analytics', 'internal-user-filtering')}>here</Link>.
+                    <Link to={urls.settings('environment-customization', 'internal-user-filtering')}>here</Link>.
                 </>
             }
         >

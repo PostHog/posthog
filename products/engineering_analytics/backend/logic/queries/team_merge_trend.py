@@ -3,13 +3,13 @@
 Attributes merged PRs to a team through the ``team_members`` warehouse snapshot (PR author
 login → GitHub team slug), the one sanctioned place member data feeds a team surface. Only
 team-level aggregates leave this module (the daily median and average of the team's own
-merges): no per-member figures, no cross-team rankings (SPEC §2/§7). Bots are excluded per
+merges): no per-member figures, no cross-team rankings (SPEC §2/§6). Bots are excluded per
 the default bot rule.
 
 The GitHub team slug and the ownership-map slug (``test.owner_team``) are two namespaces
 matched by exact slug. A team whose GitHub slug differs from its ownership slug gets no
 membership rows (an empty series), never another team's data. Time-to-merge is the coarse
-``open_to_merge_seconds`` (SPEC §7).
+``open_to_merge_seconds`` (SPEC §6).
 """
 
 from datetime import datetime

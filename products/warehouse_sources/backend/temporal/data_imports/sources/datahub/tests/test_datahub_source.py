@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.ca
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import DatahubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DatahubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
+    DatahubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -29,13 +29,19 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    LazyComputationTable,
-    ensure_precomputed,
-)
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CHANNEL_SESSIONS_CTE_NAME,
     DRILL_DOWN_LEVEL_CONFIG,
+    TOTAL_SESSIONS_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    UNKNOWN_CHANNEL,
+)
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    BACKGROUND_WARMING_TRIGGERS,
+    handle_stale_served,
+    marketing_ensure_precomputed,
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -44,7 +50,7 @@ from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .utils import convert_team_conversion_goals_to_objects
+from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +66,16 @@ COMPARE_PERIOD_PREVIOUS = "previous"
 # warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
 # SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
 COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
+
+def _session_start_day(expr: ast.Expr) -> ast.Expr:
+    """Truncate to the day, via a function the sessions timestamp pushdown recognizes.
+
+    `toStartOfDay` is on the allowlist in posthog/hogql/helpers/timestamp_visitor.py — `toDate` is
+    NOT, and using it silently drops the inner `raw_sessions` WHERE, making the CTE aggregate the
+    team's entire session history on every load.
+    """
+    return ast.Call(name="toStartOfDay", args=[expr])
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -78,6 +94,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used: bool = False
         self._costs_sources_materialized: int = 0
         self._costs_grain: Optional[str] = None
+        # Set when any read-path ensure (costs, touchpoints, conversions) was served from
+        # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
+        self._precompute_stale: bool = False
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -153,6 +172,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         filtering). Built with the runner's user+modifiers so it's valid for resolving the final
         query, not just the factory's warehouse-name lookup."""
         modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        # Background materialization (Dagster warmer, stale-while-revalidate task) runs userless, so under
+        # warehouse access control a userless database fails closed and hides every warehouse table — the
+        # cost adapters then enumerate empty and the ensure never fires, so warehouse-backed costs would
+        # never refresh. Bypass access control for these background writers exactly as the warmer does
+        # (the materialization INSERT is printed userless either way); user-facing reads keep self.user and
+        # the access-controlled path.
+        bypass_access_control = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
         # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
         # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
         # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
@@ -163,6 +189,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             modifiers=modifiers,
             timings=self.timings,
             build_postgres_foreign_keys=False,
+            bypass_warehouse_access_control=bypass_access_control,
         )
 
     @cached_property
@@ -269,7 +296,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 s3_fallback_adapters.append(adapter)
                 continue
             with self.timings.measure("ma_precompute_ensure"):
-                result = ensure_precomputed(
+                result = marketing_ensure_precomputed(
                     team=self.team,
                     insert_query=insert_query,
                     time_range_start=date_range.date_from(),
@@ -277,6 +304,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     ttl_seconds=ttl_seconds,
                     table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 )
+            if result.stale:
+                self._precompute_stale = True
             if not result.ready:
                 logger.info(
                     "marketing_costs_precompute",
@@ -428,6 +457,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     [
                         ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
                         ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+                # Repurpose campaign_name to hold the channel, but keep the real source
+                # so each channel breaks down into its sources.
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Field(chain=[self.config.source_field])),
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
@@ -812,6 +852,72 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             now=datetime.now(),
         )
 
+    def _build_sessions_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+        """Session counts per channel x source, straight off the sessions table.
+
+        This is the only side of the query that sees untagged traffic: costs come from ad platforms
+        and conversions from UTM-tagged events, so without this a team with no connected ad source
+        sees an empty table. `$channel_type` is already derived on the sessions table, and the source
+        is normalized the same way the conversion side normalizes it so both sides agree on a row key.
+        """
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
+            team_config=self.team.marketing_analytics_config
+        )
+        source_expr = build_source_normalization_expr(
+            ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="notEmpty", args=[ast.Field(chain=["sessions", "$entry_utm_source"])]),
+                    ast.Field(chain=["sessions", "$entry_utm_source"]),
+                    ast.Constant(value=self.config.organic_source),
+                ],
+            ),
+            source_mappings,
+        )
+        channel_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="notEmpty", args=[ast.Field(chain=["sessions", "$channel_type"])]),
+                ast.Field(chain=["sessions", "$channel_type"]),
+                ast.Constant(value=UNKNOWN_CHANNEL),
+            ],
+        )
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias=self.config.campaign_field, expr=channel_expr),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=TOTAL_SESSIONS_FIELD,
+                    expr=ast.Call(name="uniq", args=[ast.Field(chain=["sessions", "session_id"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+            # Bounded by day, not by datetime: `$start_timestamp` is an aggregate (min of the
+            # session's timestamps), and a raw datetime upper bound gets pushed down to the raw rows
+            # in a way that prunes the whole bucket the session lives in — the session silently
+            # disappears. Marketing date ranges are day-granular anyway.
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=_session_start_day(ast.Field(chain=["sessions", "$start_timestamp"])),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=_session_start_day(
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        left=_session_start_day(ast.Field(chain=["sessions", "$start_timestamp"])),
+                        op=ast.CompareOperationOp.LtEq,
+                        right=_session_start_day(
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
+                        ),
+                    ),
+                ]
+            ),
+            group_by=[channel_expr, source_expr],
+        )
+
     def _build_complete_query_ast(
         self,
         union_subquery: ast.SelectQuery | ast.SelectSetQuery,
@@ -855,12 +961,23 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     # For table queries, use the normal conversion goals CTE
                     unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
 
-            # The per-goal pool has joined, so folding each processor's cloned timings back in is safe here.
+            # The per-goal pool has joined, so folding each processor's cloned timings — and whether its
+            # precompute was served stale — back in is safe here.
             for processor in processors:
                 self.timings.timings.update(processor.timings.timings)
+                if processor.precompute_stale:
+                    self._precompute_stale = True
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
+
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            with self.timings.measure("ma_channel_sessions_cte"):
+                ctes[CHANNEL_SESSIONS_CTE_NAME] = ast.CTE(
+                    name=CHANNEL_SESSIONS_CTE_NAME,
+                    expr=self._build_sessions_select(date_range),
+                    cte_type="subquery",
+                )
 
         # Add CTEs to the main query
         main_query.ctes = ctes
@@ -913,6 +1030,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
+            # Reset per build. Any read-path ensure served from expired-within-grace rows flips this, and
+            # the read schedules exactly one background revalidation once the query is built.
+            self._precompute_stale = False
+
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
 
@@ -958,7 +1079,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
             # Build the complete query with CTEs using AST
             with self.timings.measure("ma_build_complete_query"):
-                return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+                query = self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+
+        # One revalidation per read, not per stale ensure: costs, touchpoints and conversions all expire
+        # together, and rebuilding the query refreshes every one of them.
+        if self._precompute_stale:
+            handle_stale_served(team=self.team, query=self.query)
+        return query
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
@@ -1032,6 +1159,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
             # channel is a computed alias, so GROUP BY the same expression
             return [self._build_channel_type_expr()]
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            return [self._build_channel_type_expr(), ast.Field(chain=[self.config.source_field])]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
     def _build_compare_pivot(

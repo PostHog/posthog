@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.drata import DrataResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DrataSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

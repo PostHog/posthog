@@ -1451,10 +1451,16 @@ export interface ExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1564,10 +1570,16 @@ export interface ExperimentApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1673,10 +1685,16 @@ export interface PatchedExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1693,6 +1711,73 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 export interface ArchiveExperimentApi {
@@ -1724,7 +1809,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
 }
 
@@ -1748,7 +1833,7 @@ export const RunStatusEnumApi = {
 } as const
 
 export interface ExperimentFlagCleanupTaskApi {
-    /** ID of the flag-cleanup Code task. */
+    /** ID of the flag-cleanup Desktop task. */
     task_id: string
     /** Status of the task's latest run.
      *
@@ -1766,6 +1851,8 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
+    /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    can_view_task: boolean
 }
 
 /**
@@ -1814,15 +1901,30 @@ export interface RecalculateMetricsRequestApi {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type ExperimentMetricsRecalculationStatusEnumApi =
-    (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
+export type MetricsRecalculationStatusEnumApi =
+    (typeof MetricsRecalculationStatusEnumApi)[keyof typeof MetricsRecalculationStatusEnumApi]
 
-export const ExperimentMetricsRecalculationStatusEnumApi = {
+export const MetricsRecalculationStatusEnumApi = {
     Pending: 'pending',
     InProgress: 'in_progress',
     Completed: 'completed',
     Failed: 'failed',
 } as const
+
+/**
+ * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ */
+export interface ActiveRecalculationRunApi {
+    /** Identifier of the run that is still executing */
+    readonly id: string
+    /** Status of the executing run (pending or in_progress)
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+}
 
 /**
  * * `recalculation` - recalculation
@@ -1884,7 +1986,7 @@ export interface ExperimentMetricsRecalculationApi {
      * * `in_progress` - In Progress
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: ExperimentMetricsRecalculationStatusEnumApi
+    readonly status: MetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
     /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
@@ -1893,6 +1995,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly failed_metrics: number
     /** Map of metric_uuid to error details */
     readonly metric_errors: unknown
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
     /** What triggered this recalculation
      *
      * * `manual` - Manual
@@ -1923,6 +2027,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
+    /** Run currently executing for this experiment, if any; poll it by id for live progress */
+    readonly active_run: ActiveRecalculationRunApi | null
     /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
      *
      * * `recalculation` - recalculation
@@ -1957,7 +2063,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
@@ -2123,6 +2229,70 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * * `source` - source
+ * * `step` - step
+ * * `numerator` - numerator
+ * * `denominator` - denominator
+ * * `retention_start` - retention_start
+ * * `retention_completion` - retention_completion
+ */
+export type SourceRoleEnumApi = (typeof SourceRoleEnumApi)[keyof typeof SourceRoleEnumApi]
+
+export const SourceRoleEnumApi = {
+    Source: 'source',
+    Step: 'step',
+    Numerator: 'numerator',
+    Denominator: 'denominator',
+    RetentionStart: 'retention_start',
+    RetentionCompletion: 'retention_completion',
+} as const
+
+/**
+ * One event/action source of a metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricSourceHitApi {
+    /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+     *
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion */
+    source_role: SourceRoleEnumApi
+    /** Display name of the source event or action. */
+    source_name: string
+    /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+    source_index: number
+    /** Total number of sources the metric is defined over. */
+    source_total: number
+    /** Number of events in the session matching this source. */
+    event_count: number
+    /** Timestamp of the first event in the session matching this source. */
+    first_timestamp: string
+    /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+}
+
+/**
+ * One experiment metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricHitApi {
+    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+    metric_uuid: string
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+    metric_name: string
+    /** Total number of events in the session matching any of the metric's event/action sources. */
+    event_count: number
+    /** Timestamp of the first event in the session matching the metric. */
+    first_timestamp: string
+    /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+    /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+    sources: ExperimentSessionMetricSourceHitApi[]
+}
+
+/**
  * One experiment whose feature flag a session recording saw.
  */
 export interface ExperimentSessionContextItemApi {
@@ -2153,6 +2323,8 @@ export interface ExperimentSessionContextItemApi {
      * @nullable
      */
     experiment_end_date: string | null
+    /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+    metrics_in_session: ExperimentSessionMetricHitApi[]
 }
 
 /**
@@ -2249,6 +2421,19 @@ export const ExperimentsListStatus = {
     Running: 'running',
     Stopped: 'stopped',
 } as const
+
+export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**

@@ -358,7 +358,7 @@ export const TriggerSchema = z.discriminatedUnion('type', [
  *     uuid == the session principal), NOT a PostHog-authority check, so it works
  *     for a Slack or embedded-app asker with no PostHog account. Decided via the
  *     lightweight ingress decision API (a Slack button, a client tool, or the
- *     PostHog Code approval card).
+ *     PostHog Desktop approval card).
  *   - `agent` — the agent's owning-team admins (org-membership ADMIN level on
  *     the owning team; see Django `_require_team_admin`). The one intrinsically-
  *     PostHog authority; decided only in the authenticated console / approvals

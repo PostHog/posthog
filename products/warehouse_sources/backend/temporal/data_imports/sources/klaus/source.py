@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KlausSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus import (
     KlausResumeConfig,
     klaus_source,
@@ -107,6 +107,7 @@ Note that the Zendesk QA public API is heavily rate limited, so large initial sy
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -123,7 +124,7 @@ Note that the Zendesk QA public API is heavily rate limited, so large initial sy
         return schemas
 
     def validate_credentials(
-        self, config: KlausSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: KlausSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_klaus_credentials(config.subdomain, config.api_token)
 
