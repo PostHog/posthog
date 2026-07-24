@@ -5743,6 +5743,7 @@ export enum DefaultChannelTypes {
     OrganicSocial = 'Organic Social',
     OrganicVideo = 'Organic Video',
     OrganicShopping = 'Organic Shopping',
+    AI = 'AI',
     Push = 'Push',
     SMS = 'SMS',
     Audio = 'Audio',
