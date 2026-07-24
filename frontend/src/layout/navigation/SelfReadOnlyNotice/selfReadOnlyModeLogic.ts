@@ -18,6 +18,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
 
+import { EXCEPTION_AUTOCAPTURE_NOISE_FILTERS } from '~/exceptionAutocaptureFilters'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 
 export const ESCALATION_OPTIONS = [
@@ -157,9 +159,10 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
 
         // Central error-tracking filter — drops any `$exception` event whose
         // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). This logic
+        // owns the `before_send` slot while mounted, so it composes the always-on
+        // noise filters (set at init) rather than clobbering them.
+        posthog.set_config({ before_send: [...EXCEPTION_AUTOCAPTURE_NOISE_FILTERS, dropReadOnlyExceptions] })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
@@ -171,8 +174,8 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     beforeUnmount(() => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
-        // Releasing ownership of `before_send` — if PostHog adds another filter
-        // here in the future, it should compose rather than be clobbered.
-        posthog.set_config({ before_send: undefined })
+        // Releasing ownership of `before_send`, but leave the always-on noise
+        // filters in place — they're not read-only specific.
+        posthog.set_config({ before_send: [...EXCEPTION_AUTOCAPTURE_NOISE_FILTERS] })
     }),
 ])
