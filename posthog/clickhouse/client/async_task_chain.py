@@ -70,11 +70,21 @@ def add_task_to_on_commit(task_signature: Signature, manager: "QueryStatusManage
         transaction.on_commit(partial(kick_off_task, manager, query_status, task_signature))
 
 
+def drain_task_chain() -> list[tuple[Signature, "QueryStatusManager", QueryStatus]]:
+    """
+    Returns and clears the current thread's task chain. Lets worker threads hand
+    their queued tasks back to the request thread that owns the chain context.
+    """
+    task_chain = get_task_chain()
+    _thread_locals.task_chain = []
+    return task_chain
+
+
 def execute_task_chain() -> None:
     """
     Executes the task chain after the transaction is committed.
     """
-    task_chain = get_task_chain()
+    task_chain = drain_task_chain()
     if task_chain:
         chained_tasks = chain(*[args[0] for args in task_chain])
         result = chained_tasks.apply_async()
@@ -83,8 +93,6 @@ def execute_task_chain() -> None:
             args[2].task_id = result.id
             args[2].labels = ["chained", *(args[2].labels or [])]
             args[1].store_query_status(args[2])
-
-        _thread_locals.task_chain = []
 
 
 @contextmanager

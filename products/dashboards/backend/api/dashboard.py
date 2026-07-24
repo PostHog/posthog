@@ -4,8 +4,10 @@ import re
 import json
 import uuid
 import builtins
+import threading
+import contextvars
 from collections.abc import AsyncGenerator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from contextlib import nullcontext
 from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
@@ -13,7 +15,7 @@ from typing import Any, Optional, TypedDict, cast
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models import (
     CharField,
     Count,
@@ -56,7 +58,12 @@ from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_das
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.clickhouse.client.async_task_chain import (
+    drain_task_chain,
+    get_task_chain,
+    set_in_context,
+    task_chain_context,
+)
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -86,6 +93,7 @@ from posthog.rbac.user_access_control import (
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
+from posthog.settings.utils import get_from_env
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
@@ -204,6 +212,66 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
+# Conservative default: tiles can trigger synchronous ClickHouse computation, and this pool is
+# the per-process ceiling across all concurrent dashboard GETs, so size it like the widget-query
+# pool rather than "tiles per dashboard". Env-tunable so it can be resized without a deploy.
+DASHBOARD_TILE_SERIALIZE_CONCURRENCY = max(1, get_from_env("DASHBOARD_TILE_SERIALIZE_CONCURRENCY", 8, type_cast=int))
+# Ceiling on how long one dashboard GET waits for its tile futures — keeps a slow tenant from
+# holding request threads and pool slots until the gunicorn timeout kills the worker.
+DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS = max(
+    1.0, get_from_env("DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS", 90.0, type_cast=float)
+)
+
+# The pool is shared across requests and therefore across tenants. Without a per-team ceiling, one
+# team repeatedly loading an expensive force-refresh dashboard could occupy every worker for up to
+# the collection timeout and starve other teams' dashboards on this process. Tiles submitted beyond
+# the team's quota run inline on the request thread instead, so a greedy tenant degrades toward
+# sequential serialization while other tenants keep pool headroom.
+DASHBOARD_TILE_SERIALIZE_TEAM_SLOTS = max(
+    1,
+    get_from_env(
+        "DASHBOARD_TILE_SERIALIZE_TEAM_SLOTS", max(1, DASHBOARD_TILE_SERIALIZE_CONCURRENCY // 2), type_cast=int
+    ),
+)
+
+# Shared across requests: spawning OS threads per dashboard GET is measurable overhead,
+# and a process-wide pool also caps how many tile queries this worker runs at once.
+_tile_serialize_executor = ThreadPoolExecutor(
+    max_workers=DASHBOARD_TILE_SERIALIZE_CONCURRENCY, thread_name_prefix="dashboard-tile-serialize"
+)
+
+_team_pool_slots: dict[int, int] = {}
+_team_pool_slots_lock = threading.Lock()
+
+
+def try_acquire_tile_pool_slot(team_id: int) -> bool:
+    """Reserve one pool slot for this team, respecting its process-wide quota. Non-blocking:
+    a False return means the caller should do the work on its own thread instead of waiting,
+    so a team at quota never parks pool or request threads."""
+    with _team_pool_slots_lock:
+        if _team_pool_slots.get(team_id, 0) >= DASHBOARD_TILE_SERIALIZE_TEAM_SLOTS:
+            return False
+        _team_pool_slots[team_id] = _team_pool_slots.get(team_id, 0) + 1
+        return True
+
+
+def release_tile_pool_slot(team_id: int) -> None:
+    with _team_pool_slots_lock:
+        remaining = _team_pool_slots.get(team_id, 0) - 1
+        if remaining > 0:
+            _team_pool_slots[team_id] = remaining
+        else:
+            _team_pool_slots.pop(team_id, None)
+
+
+def _tile_serialize_pool_allowed() -> bool:
+    """
+    Pool threads use separate DB connections, invisible to the test transaction and to
+    assertNumQueries, so the pool defaults off under tests; a test that commits its data
+    can opt in via the override setting.
+    """
+    return not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False)
+
 
 # One subscribe-nudge notification per (user, dashboard) within this window.
 SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -352,6 +420,107 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
             tile_data = {"id": tile.id}
         tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
+
+
+def collect_tile_futures(
+    futures: list[Future], timeout: float
+) -> tuple[list[tuple[int, dict, list]], BaseException | None]:
+    """
+    Wait for all tile futures with a single deadline, cancelling whatever hasn't started once it
+    passes. Returns the results of every future that completed successfully (in submission order)
+    plus the first failure, if any — the caller re-queues completed tiles' chained tasks before
+    surfacing the failure, so successful refreshes aren't ghosted by a failing sibling.
+    A future that is already running when the deadline passes cannot be cancelled; its eventual
+    chained tasks are returned to nobody, which is the residual ghost-status window we accept.
+    wait() blocks until the slowest tile finishes or the deadline passes — even if an earlier
+    tile already failed — so that tile's chained tasks are collected rather than ghosted too.
+    """
+    _done, not_done = wait(futures, timeout=timeout)
+    for future in not_done:
+        future.cancel()
+
+    tile_results: list[tuple[int, dict, list]] = []
+    timeout_failure: BaseException | None = None
+    real_failure: BaseException | None = None
+    for future in futures:
+        if future.cancelled() or not future.done():
+            timeout_failure = timeout_failure or TimeoutError(
+                f"Dashboard tile serialization timed out after {timeout}s"
+            )
+            continue
+        exception = future.exception()
+        if exception is not None:
+            real_failure = real_failure or exception
+            continue
+        tile_results.append(future.result())
+    # A genuine exception is always more useful than the synthetic timeout, even if a tile
+    # that never started (and so only produced the timeout) was submitted earlier.
+    return tile_results, real_failure or timeout_failure
+
+
+def fail_chained_tasks(chained_tasks: list) -> None:
+    """
+    A drained-but-never-dispatched refresh task already has an incomplete QueryStatus in Redis
+    (written by enqueue_process_query_task before the task reached the chain), so clients would
+    poll it until the TTL. Mark each one failed so pollers error out immediately instead.
+    """
+    for _signature, manager, query_status in chained_tasks:
+        try:
+            query_status.complete = True
+            query_status.error = True
+            query_status.error_message = "Dashboard tile serialization failed before the refresh task was scheduled"
+            query_status.end_time = now()
+            manager.store_query_status(query_status)
+        except Exception:
+            # Best effort — never mask the failure that got us here.
+            logger.exception("dashboard_tile_serialization_fail_chained_task_status_failed")
+
+
+def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> tuple[int, dict, list]:
+    """
+    Pool-worker wrapper around serialize_tile_with_context. The task-chain context is a
+    thread-local flag on the request thread, so when chained refresh is enabled we re-raise
+    the flag on the worker and hand any queued tasks back for the request thread to chain.
+
+    Only used on the parallel-serialization pool path — the inline path calls
+    serialize_tile_with_context directly since that thread's connection is already managed
+    by Django's normal per-request lifecycle.
+    """
+    # Pool threads outlive the request, so Django's request_finished cleanup never runs here;
+    # discard stale/errored connections on entry and exit like DatabaseSyncToAsync does, since
+    # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used. Tests that
+    # opt into the pool via DASHBOARD_TILE_PARALLEL_IN_TESTS still need this cleanup, since the
+    # override doesn't change that pool threads use separate, real DB connections.
+    if _tile_serialize_pool_allowed():
+        close_old_connections()
+    try:
+        if not chained:
+            order, tile_data = serialize_tile_with_context(tile, order, context)
+            return order, tile_data, []
+
+        set_in_context(True)
+        try:
+            order, tile_data = serialize_tile_with_context(tile, order, context)
+        except BaseException:
+            # Drain even on failure: pool threads are reused across requests, so any task queued
+            # via add_task_to_on_commit must not linger on this thread's chain and leak into the
+            # next chained request it happens to serve. Nobody will dispatch these tasks now, so
+            # fail their query statuses rather than leaving pollers hanging until the Redis TTL.
+            # Either way the flag must be cleared so the thread doesn't stay stuck in "chained"
+            # mode for whatever request reuses it next.
+            try:
+                fail_chained_tasks(drain_task_chain())
+            finally:
+                set_in_context(False)
+            raise
+        try:
+            chained_tasks = drain_task_chain()
+        finally:
+            set_in_context(False)
+        return order, tile_data, chained_tasks
+    finally:
+        if _tile_serialize_pool_allowed():
+            close_old_connections()
 
 
 class ReorderLayout(StrEnum):
@@ -2076,8 +2245,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles: list[ReturnDict] = []
-
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
             Prefetch(
                 "insight__tagged_items",
@@ -2093,16 +2260,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 ),
                 to_attr="_prefetched_alerts",
             ),
+            # The nested InsightSerializer reads insight.dashboard_tiles.all() per tile — without
+            # this prefetch that's extra Postgres queries per tile on renders (sharing/streaming)
+            # that don't come through the viewset queryset. Must stay the exact string the viewset
+            # queryset already prefetches: dashboard.tiles.all() carries those lookups along, and a
+            # Prefetch() with a custom queryset on the same path raises "lookup was already seen".
+            "insight__dashboard_tiles__dashboard",
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
-
-        team = self.context["get_team"]()
-        chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
-            "chained_dashboard_tile_refresh",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-        )
 
         layout_size = "sm"  # default layout size
 
@@ -2110,29 +2275,128 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
+        # Handle case where there are no tiles, skipping flag lookups for an outcome that's moot
+        if not sorted_tiles:
+            return []
+
+        team = self.context["get_team"]()
+        org_id = str(team.organization_id)
+
+        def _org_flag_enabled(flag_key: str) -> bool:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    flag_key,
+                    org_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                )
+            )
+
+        chained_tile_refresh_enabled = _org_flag_enabled("chained_dashboard_tile_refresh")
+        parallel_serialization_enabled = _tile_serialize_pool_allowed() and _org_flag_enabled(
+            "parallel_dashboard_tile_serialization"
+        )
+
+        span = trace.get_current_span()
+        span.set_attribute("dashboard.tile_serialize.parallel", parallel_serialization_enabled)
+        span.set_attribute("dashboard.tile_serialize.tile_count", len(sorted_tiles))
+
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
-            # Handle case where there are no tiles
-            if not sorted_tiles:
-                return []
+            tile_results: list[tuple[int, dict, list]]
+            if not parallel_serialization_enabled:
+                # No pool involved, so there are no worker-thread chained tasks to hand back —
+                # everything queued via add_task_to_on_commit lands directly on this thread's chain.
+                # One serializer reused across tiles: constructing DashboardTileSerializer per tile
+                # deep-copies every declared field of the tile + nested insight serializers, which
+                # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
+                # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
+                # lru_cache never leaks a result from one tile to another.
+                tile_context = self.context.copy()
+                reused_serializer = DashboardTileSerializer(context=tile_context)
+                tile_results = []
+                for order, tile in enumerate(sorted_tiles):
+                    tile_context.update({"dashboard_tile": tile, "order": order})
 
-            # One serializer reused across tiles: constructing DashboardTileSerializer per tile
-            # deep-copies every declared field of the tile + nested insight serializers, which
-            # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
-            # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
-            # lru_cache never leaks a result from one tile to another.
-            tile_context = self.context.copy()
-            reused_serializer = DashboardTileSerializer(context=tile_context)
-            for order, tile in enumerate(sorted_tiles):
-                tile_context.update({"dashboard_tile": tile, "order": order})
+                    if isinstance(tile.layouts, str):
+                        tile.layouts = json.loads(tile.layouts)
 
-                if isinstance(tile.layouts, str):
-                    tile.layouts = json.loads(tile.layouts)
+                    try:
+                        tile_data = reused_serializer.to_representation(tile)
+                    except Exception:
+                        order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                    tile_results.append((order, cast(dict, tile_data), []))
+            else:
+                # UserPermissions caches are lazily populated check-then-set dicts shared through
+                # self.context; warm them on the request thread so pool workers only read them
+                # and never race the population. Skip on shared/embedded renders: those build
+                # UserPermissions with an AnonymousUser, and the underlying org-membership lookup
+                # raises for it, so the serializer getters short-circuit on `is_shared` instead.
+                if not self.context.get("is_shared"):
+                    dashboard_permissions = self.user_permissions.dashboard(dashboard)
+                    _ = dashboard_permissions.effective_restriction_level
+                    _ = dashboard_permissions.effective_privilege_level
+                    for tile in sorted_tiles:
+                        if tile.insight is not None:
+                            insight_permissions = self.user_permissions.insight(tile.insight)
+                            _ = insight_permissions.effective_restriction_level
+                            _ = insight_permissions.effective_privilege_level
 
-                try:
-                    tile_data = reused_serializer.to_representation(tile)
-                except Exception:
-                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                # All tiles are needed before returning, so collect in submission (layout) order —
+                # wall-clock is the slowest tile either way, without as_completed's waiter machinery.
+                # Each task runs in a copy of this thread's contextvars context so the OTel trace
+                # (and other contextvars-based request state) propagates to the pool workers.
+                # Pool slots are quota'd per team; tiles beyond the quota run inline below.
+                futures = []
+                inline_tiles = []
+                team_id = team.id
+                for order, tile in enumerate(sorted_tiles):
+                    if try_acquire_tile_pool_slot(team_id):
+                        future = _tile_serialize_executor.submit(
+                            contextvars.copy_context().run,
+                            serialize_tile_in_worker,
+                            tile,
+                            order,
+                            self.context,
+                            chained_tile_refresh_enabled,
+                        )
+                        # done callbacks fire on cancellation too, so a slot can't leak when the
+                        # collection deadline cancels unstarted work.
+                        future.add_done_callback(lambda _future: release_tile_pool_slot(team_id))
+                        futures.append(future)
+                    else:
+                        inline_tiles.append((order, tile))
+                span.set_attribute("dashboard.tile_serialize.inline_overflow", len(inline_tiles))
+
+                # Over-quota tiles run here while the pool works. Chained tasks they queue land
+                # directly on this thread's chain, exactly like the fully-inline path above.
+                inline_failure: BaseException | None = None
+                inline_results: list[tuple[int, dict, list]] = []
+                for order, tile in inline_tiles:
+                    try:
+                        order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                    except BaseException as exc:
+                        # Still collect the pool futures below so completed tiles' chained tasks
+                        # are re-queued rather than ghosted before this failure surfaces.
+                        inline_failure = exc
+                        break
+                    inline_results.append((order, tile_data, []))
+
+                tile_results, failure = collect_tile_futures(futures, DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS)
+                tile_results = sorted(tile_results + inline_results, key=lambda result: result[0])
+                failure = failure or inline_failure
+                if failure is not None:
+                    # Tiles that completed already enqueued refresh work; chain it so their query
+                    # statuses resolve instead of ghosting, then surface the failure.
+                    get_task_chain().extend(task for _, _, chained_tasks in tile_results for task in chained_tasks)
+                    raise failure
+
+            serialized_tiles = []
+            # Re-queue worker-thread tasks on the request thread's chain, in dashboard layout
+            # order, so task_chain_context() executes them as one chain on commit as before.
+            request_thread_chain = get_task_chain()
+            for _, tile_data, chained_tasks in tile_results:
                 serialized_tiles.append(cast(ReturnDict, tile_data))
+                request_thread_chain.extend(chained_tasks)
 
         return serialized_tiles
 
