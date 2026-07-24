@@ -18,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -27,6 +28,16 @@ from ee.models import Role, RoleMembership
 from ee.models.rbac.access_control import AccessControl
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
+
+
+def _enable_domain_enforcement(organization: Organization, domain: str) -> None:
+    organization.enforce_verified_domains = True
+    organization.save()
+    OrganizationDomain.objects.create(
+        domain=domain,
+        organization=organization,
+        verified_at=timezone.now(),
+    )
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
@@ -530,6 +541,24 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("blocks_unverified_domain", "newperson@gmail.com", status.HTTP_400_BAD_REQUEST),
+            ("allows_verified_domain", "newperson@hogflix.com", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_invite_restricted_to_verified_domain_when_enforcement_on(self, _name, email, expected_status):
+        _enable_domain_enforcement(self.organization, "hogflix.com")
+
+        response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "verified_domain_required")
+            self.assertFalse(OrganizationInvite.objects.filter(target_email=email).exists())
+        else:
+            self.assertTrue(OrganizationInvite.objects.filter(target_email=email).exists())
 
     # Bulk create invites
 
@@ -1557,6 +1586,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
         self.assertIsNotNone(self.user.onboarding_skipped_at)
         self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+    def test_delegate_rejects_email_outside_enforced_verified_domain(self):
+        # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
+        _enable_domain_enforcement(self.organization, "hogflix.com")
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@gmail.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="engineer@gmail.com").exists())
 
     def test_delegate_requires_target_email(self):
         response = self.client.post(self._delegate_url(), {})

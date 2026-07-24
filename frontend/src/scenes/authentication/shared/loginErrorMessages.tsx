@@ -32,6 +32,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
+    verified_domain_required:
+        'Your organization requires a verified email domain to log in. Please contact your administrator for access.',
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
