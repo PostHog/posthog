@@ -15,7 +15,6 @@ from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Prefetch
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -35,7 +34,7 @@ from posthog.rate_limit import MCPProxyBurstThrottle, MCPProxySustainedThrottle
 
 from ..agents import resolve_gateway_agent_token
 from ..gateway import installation_for_agent_access
-from ..models import MCPServerInstallation, MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
+from ..models import MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
 from ..policy import GatewayCaller, PolicyContext
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from .views import MCPProxyRenderer
@@ -102,23 +101,13 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account)
             .select_related("gateway_server__template", "installation")
-            .prefetch_related(
-                Prefetch(
-                    "gateway_server__installations",
-                    queryset=MCPServerInstallation.objects.filter(
-                        team_id=account.team_id,
-                        scope="shared",
-                    ).order_by("created_at"),
-                    to_attr="agent_shared_installations",
-                )
-            )
             .order_by("gateway_server__name")
         )
 
     def _touch(self, account: MCPServiceAccount) -> None:
         now = timezone.now()
         if account.last_active_at is None or now - account.last_active_at > timedelta(hours=1):
-            MCPServiceAccount.objects.unscoped().filter(pk=account.pk).update(last_active_at=now)
+            MCPServiceAccount.objects.for_team(account.team_id).filter(pk=account.pk).update(last_active_at=now)
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The agent's server catalog: every enabled server it has access to,

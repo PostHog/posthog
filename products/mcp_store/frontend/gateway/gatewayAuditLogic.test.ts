@@ -1,6 +1,5 @@
-import { expectLogic } from 'kea-test-utils'
-
 import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
 
 import { mcpGatewayAuditCountsRetrieve, mcpGatewayAuditList } from '../generated/api'
 import type { MCPAuditEventApi } from '../generated/api.schemas'

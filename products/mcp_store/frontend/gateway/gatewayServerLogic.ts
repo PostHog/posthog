@@ -91,8 +91,26 @@ export interface gatewayServerLogicActions {
         toolPolicies: ResolvedToolPolicyApi[]
         payload?: any
     }
-    setAllTools: (state: MCPToolApprovalStateEnumApi) => {
+    setAllTools: ({ state }: { state: MCPToolApprovalStateEnumApi }) => {
         state: MCPToolApprovalStateEnumApi
+    }
+    setAllToolsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setAllToolsSuccess: (
+        toolPolicies: ResolvedToolPolicyApi[],
+        payload?: {
+            state: MCPToolApprovalStateEnumApi
+        }
+    ) => {
+        toolPolicies: ResolvedToolPolicyApi[]
+        payload?: {
+            state: MCPToolApprovalStateEnumApi
+        }
     }
     setRequestedAgentScopeId: (accountId: string | null) => {
         accountId: string | null
@@ -100,12 +118,29 @@ export interface gatewayServerLogicActions {
     setScope: (scope: PolicyScope) => {
         scope: PolicyScope
     }
-    setToolPolicy: (
-        toolName: string,
-        state: MCPToolApprovalStateEnumApi
-    ) => {
-        state: MCPToolApprovalStateEnumApi
+    setToolPolicy: ({ toolName, state }: { state: MCPToolApprovalStateEnumApi; toolName: string }) => {
         toolName: string
+        state: MCPToolApprovalStateEnumApi
+    }
+    setToolPolicyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setToolPolicySuccess: (
+        toolPolicies: ResolvedToolPolicyApi[],
+        payload?: {
+            toolName: string
+            state: MCPToolApprovalStateEnumApi
+        }
+    ) => {
+        toolPolicies: ResolvedToolPolicyApi[]
+        payload?: {
+            toolName: string
+            state: MCPToolApprovalStateEnumApi
+        }
     }
 }
 
@@ -158,8 +193,6 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
     actions({
         setScope: (scope: PolicyScope) => ({ scope }),
         setRequestedAgentScopeId: (accountId: string | null) => ({ accountId }),
-        setToolPolicy: (toolName: string, state: MCPToolApprovalStateEnumApi) => ({ toolName, state }),
-        setAllTools: (state: MCPToolApprovalStateEnumApi) => ({ state }),
     }),
 
     loaders(({ props, values }) => ({
@@ -173,6 +206,45 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                         scope_user_id: scope.scopeUserId,
                         scope_service_account_id: scope.scopeServiceAccountId,
                     })
+                    return response.results
+                },
+                setToolPolicy: async ({
+                    toolName,
+                    state,
+                }: {
+                    toolName: string
+                    state: MCPToolApprovalStateEnumApi
+                }) => {
+                    const scope = values.scope
+                    const response = await mcpGatewayServersPoliciesCreate(currentProjectId(), props.id, {
+                        scope_type: scope.scopeType,
+                        scope_user_id: scope.scopeUserId,
+                        scope_service_account_id: scope.scopeServiceAccountId,
+                        policies: [{ tool_name: toolName, policy_state: state }],
+                    })
+                    return response.results
+                },
+                setAllTools: async ({ state }: { state: MCPToolApprovalStateEnumApi }) => {
+                    const editable = values.toolPolicies.filter(
+                        (policy) =>
+                            !policy.locked &&
+                            (values.scope.scopeType === 'team' ||
+                                isPolicyStateAllowedByCeiling(state, policy.team_state))
+                    )
+                    if (!editable.length) {
+                        return values.toolPolicies
+                    }
+                    const scope = values.scope
+                    const response = await mcpGatewayServersPoliciesCreate(currentProjectId(), props.id, {
+                        scope_type: scope.scopeType,
+                        scope_user_id: scope.scopeUserId,
+                        scope_service_account_id: scope.scopeServiceAccountId,
+                        policies: editable.map((policy) => ({
+                            tool_name: policy.tool_name,
+                            policy_state: state,
+                        })),
+                    })
+                    lemonToast.success(`Updated ${editable.length} ${editable.length === 1 ? 'tool' : 'tools'}`)
                     return response.results
                 },
             },
@@ -257,7 +329,7 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         setRequestedAgentScopeId: () => {
             const accountId = values.requestedAgentScopeId
             if (!accountId) {
@@ -297,35 +369,6 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
         },
         setScope: () => {
             actions.loadToolPolicies()
-        },
-        setToolPolicy: async ({ toolName, state }) => {
-            const scope = values.scope
-            await mcpGatewayServersPoliciesCreate(currentProjectId(), props.id, {
-                scope_type: scope.scopeType,
-                scope_user_id: scope.scopeUserId,
-                scope_service_account_id: scope.scopeServiceAccountId,
-                policies: [{ tool_name: toolName, policy_state: state }],
-            })
-            actions.loadToolPolicies()
-        },
-        setAllTools: async ({ state }) => {
-            const editable = values.toolPolicies.filter(
-                (policy) =>
-                    !policy.locked &&
-                    (values.scope.scopeType === 'team' || isPolicyStateAllowedByCeiling(state, policy.team_state))
-            )
-            if (!editable.length) {
-                return
-            }
-            const scope = values.scope
-            await mcpGatewayServersPoliciesCreate(currentProjectId(), props.id, {
-                scope_type: scope.scopeType,
-                scope_user_id: scope.scopeUserId,
-                scope_service_account_id: scope.scopeServiceAccountId,
-                policies: editable.map((policy) => ({ tool_name: policy.tool_name, policy_state: state })),
-            })
-            actions.loadToolPolicies()
-            lemonToast.success('Updated every tool for this scope')
         },
     })),
 

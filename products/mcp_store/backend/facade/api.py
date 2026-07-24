@@ -187,21 +187,11 @@ def get_installations_for_sandbox(
                     for installation_id, gateway_server_id in access_rows
                     if installation_id is not None
                 }
-                legacy_server_ids = {
-                    gateway_server_id for installation_id, gateway_server_id in access_rows if installation_id is None
-                }
-                candidates = list(
-                    base_queryset.filter(
-                        Q(id__in=bound_servers) | Q(scope="shared", gateway_server_id__in=legacy_server_ids)
-                    )
-                )
+                candidates = list(base_queryset.filter(id__in=bound_servers))
                 installations = [
                     installation
                     for installation in candidates
-                    if (
-                        bound_servers.get(installation.id) == installation.gateway_server_id
-                        or (installation.scope == "shared" and installation.gateway_server_id in legacy_server_ids)
-                    )
+                    if bound_servers.get(installation.id) == installation.gateway_server_id
                 ]
         else:
             shared_queryset = base_queryset.filter(scope="shared")

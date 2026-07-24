@@ -25,6 +25,7 @@ import type {
     MCPServiceAccountApi,
     MCPServiceAccountUpdateApi,
     McpGatewayAuditListParams,
+    McpGatewayMembersListParams,
     McpGatewayRulesListParams,
     McpGatewayServersListParams,
     McpGatewayServersToolsRetrieveParams,
@@ -34,6 +35,7 @@ import type {
     McpServersListParams,
     MemberAccessUpdateApi,
     OAuthRedirectResponseApi,
+    PaginatedGatewayMemberSummaryListApi,
     PaginatedMCPAuditEventListApi,
     PaginatedMCPGatewayServerListApi,
     PaginatedMCPOrgRuleListApi,
@@ -192,8 +194,20 @@ export const mcpGatewayConfigUpdateSettingsCreate = async (
     })
 }
 
-export const getMcpGatewayMembersListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/members/`
+export const getMcpGatewayMembersListUrl = (projectId: string, params?: McpGatewayMembersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_gateway/members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_gateway/members/`
 }
 
 /**
@@ -202,9 +216,29 @@ export const getMcpGatewayMembersListUrl = (projectId: string) => {
  */
 export const mcpGatewayMembersList = async (
     projectId: string,
+    params?: McpGatewayMembersListParams,
     options?: RequestInit
-): Promise<GatewayMemberSummaryApi[]> => {
-    return apiMutator<GatewayMemberSummaryApi[]>(getMcpGatewayMembersListUrl(projectId), {
+): Promise<PaginatedGatewayMemberSummaryListApi> => {
+    return apiMutator<PaginatedGatewayMemberSummaryListApi>(getMcpGatewayMembersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpGatewayMembersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_gateway/members/${id}/`
+}
+
+/**
+ * Admin overview of each member's gateway posture, plus the per-member
+ * server kill switch.
+ */
+export const mcpGatewayMembersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<GatewayMemberSummaryApi> => {
+    return apiMutator<GatewayMemberSummaryApi>(getMcpGatewayMembersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -7,12 +7,20 @@ import { LemonSwitch, LemonTable, LemonTag, ProfilePicture, Spinner } from '@pos
 import { urls } from 'scenes/urls'
 
 import { toProfileUser } from './gatewayUtils'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function GatewayTeamAndAgents(): JSX.Element {
-    const { serviceAccounts, members, serviceAccountsLoading, membersLoading, accountStatusLoadingIds } =
-        useValues(mcpGatewayLogic)
-    const { toggleAccountStatus } = useActions(mcpGatewayLogic)
+    const {
+        serviceAccounts,
+        members,
+        memberCount,
+        membersOffset,
+        serviceAccountsLoading,
+        membersLoading,
+        accountStatusLoadingIds,
+    } = useValues(mcpGatewayLogic)
+    const { setMembersOffset, toggleAccountStatus } = useActions(mcpGatewayLogic)
+    const membersPage = Math.floor(membersOffset / GATEWAY_MEMBERS_PAGE_SIZE) + 1
 
     return (
         <div className="flex flex-col gap-6">
@@ -70,11 +78,20 @@ export function GatewayTeamAndAgents(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Members · {members.length}</h3>
+                <h3 className="mb-0">Members · {memberCount}</h3>
                 <LemonTable
                     loading={membersLoading}
                     dataSource={members}
                     emptyState="No members found."
+                    pagination={{
+                        controlled: true,
+                        currentPage: membersPage,
+                        entryCount: memberCount,
+                        pageSize: GATEWAY_MEMBERS_PAGE_SIZE,
+                        onForward: () => setMembersOffset(membersOffset + GATEWAY_MEMBERS_PAGE_SIZE),
+                        onBackward: () => setMembersOffset(membersOffset - GATEWAY_MEMBERS_PAGE_SIZE),
+                        useUrl: false,
+                    }}
                     onRow={(member) => ({
                         onClick: () => router.actions.push(urls.mcpGatewayMember(member.user.id)),
                         className: 'cursor-pointer',

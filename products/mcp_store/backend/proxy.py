@@ -335,6 +335,8 @@ def enforce_tool_approval(
         # items like tools/list have no per-item approval concept, so signaling
         # "approval needed" on them would mislead client retry logic.
         if any_blocked and any_passthrough:
+            if audit_entries is not None:
+                audit_entries[:] = [entry for entry in audit_entries if entry[1] in ("blocked", "pending")]
             return HttpResponse(
                 json.dumps(
                     [

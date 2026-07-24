@@ -29,40 +29,92 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPToolPolicy, TeamMCPGatewayConfig
 
-# Verbs that indicate a tool mutates or destroys state. Deliberately the
-# strong set only — an over-broad heuristic would make the "ask"/"block"
+# Exact verb forms that indicate a tool mutates or destroys state. Deliberately
+# the strong set only: an over-broad heuristic would make the "ask"/"block"
 # presets gate nearly every tool.
-_DESTRUCTIVE_MARKERS = (
-    "delete",
-    "remove",
-    "drop",
-    "destroy",
-    "purge",
-    "wipe",
-    "erase",
-    "truncate",
-    "terminate",
-    "revoke",
-    "reset",
-    "overwrite",
-    "cancel",
-    "archive",
-    "ban",
-    "suspend",
+_DESTRUCTIVE_TOKENS = frozenset(
+    {
+        "archive",
+        "archived",
+        "archives",
+        "archiving",
+        "ban",
+        "banned",
+        "banning",
+        "bans",
+        "cancel",
+        "canceled",
+        "canceling",
+        "cancelled",
+        "cancelling",
+        "cancels",
+        "delete",
+        "deleted",
+        "deletes",
+        "deleting",
+        "destroy",
+        "destroyed",
+        "destroying",
+        "destroys",
+        "drop",
+        "dropped",
+        "dropping",
+        "drops",
+        "erase",
+        "erased",
+        "erases",
+        "erasing",
+        "overwrite",
+        "overwritten",
+        "overwrites",
+        "overwriting",
+        "overwrote",
+        "purge",
+        "purged",
+        "purges",
+        "purging",
+        "remove",
+        "removed",
+        "removes",
+        "removing",
+        "reset",
+        "resets",
+        "resetting",
+        "revoke",
+        "revoked",
+        "revokes",
+        "revoking",
+        "suspend",
+        "suspended",
+        "suspending",
+        "suspends",
+        "terminate",
+        "terminated",
+        "terminates",
+        "terminating",
+        "truncate",
+        "truncated",
+        "truncates",
+        "truncating",
+        "wipe",
+        "wiped",
+        "wipes",
+        "wiping",
+    }
 )
 
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD_SPLIT = re.compile(r"[^a-z0-9]+")
+
+
+def _word_tokens(value: str) -> set[str]:
+    normalized = _CAMEL_CASE_BOUNDARY.sub(" ", value).lower()
+    return {token for token in _WORD_SPLIT.split(normalized) if token}
 
 
 def is_destructive_tool(tool_name: str, description: str = "") -> bool:
     """Heuristic used by presets and pattern-less org rules."""
-    words = set(_WORD_SPLIT.split(tool_name.lower()))
-    # camelCase names don't split on the regex; fall back to substring checks.
-    lowered = tool_name.lower()
-    if any(marker in words or marker in lowered for marker in _DESTRUCTIVE_MARKERS):
-        return True
-    description_words = set(_WORD_SPLIT.split(description.lower()))
-    return any(marker in description_words for marker in _DESTRUCTIVE_MARKERS)
+    return bool((_word_tokens(tool_name) | _word_tokens(description)) & _DESTRUCTIVE_TOKENS)
 
 
 def member_preset_team_state(preset: str, tool_name: str, description: str = "") -> str | None:

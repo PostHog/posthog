@@ -315,6 +315,51 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         assert mismatched_results == []
 
+    def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"ai_suggestions_enabled": True}
+        self.team.save(update_fields=["conversations_enabled", "conversations_settings"])
+        server = self._create_gateway_server(
+            name="Delegated",
+            url="https://delegated.example.com/mcp",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=server,
+            url=server.url,
+            display_name="Shared",
+        )
+        delegated = self._create_installation(
+            scope="personal",
+            gateway_server=server,
+            url=server.url,
+            display_name="Delegated",
+        )
+        account = get_built_in_agent(self.team.id, "support")
+        assert account is not None
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        delegated.delete()
+
+        access.refresh_from_db()
+        assert access.installation_id is None
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
     def test_other_users_personal_not_returned(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         self._create_installation(scope="personal", user=other_user)

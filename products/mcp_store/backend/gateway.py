@@ -18,6 +18,8 @@ from .models import (
 
 logger = structlog.get_logger(__name__)
 
+_GATEWAY_SERVER_NAME_MAX_LENGTH = 200
+
 
 def members_can_manage_agent_access(team_id: int) -> bool:
     """Whether regular members may grant MCP access to agents and tune it."""
@@ -75,7 +77,9 @@ def link_installation_to_gateway(installation: MCPServerInstallation, created_by
         url=installation.url,
         defaults={
             "team_id": installation.team_id,
-            "name": installation.display_name or (template.name if template else installation.url),
+            "name": (installation.display_name or (template.name if template else installation.url))[
+                :_GATEWAY_SERVER_NAME_MAX_LENGTH
+            ],
             "description": installation.description,
             "template": template,
             "category": template.category if template else "dev",
@@ -146,28 +150,15 @@ def installation_for_agent_grant(
 
 
 def installation_for_agent_access(access: MCPServiceAccountServerAccess) -> MCPServerInstallation | None:
-    """Resolve an access row's credential, with a legacy shared-row fallback."""
+    """Resolve the exact credential bound to an access row."""
     installation = access.installation
-    if installation is not None:
-        if installation.team_id != access.team_id or installation.gateway_server_id != access.gateway_server_id:
-            logger.warning(
-                "Refusing mismatched agent MCP credential",
-                access_id=str(access.id),
-                installation_id=str(installation.id),
-            )
-            return None
-        return installation
-
-    prefetched_shared = getattr(access.gateway_server, "agent_shared_installations", None)
-    if prefetched_shared is not None:
-        return prefetched_shared[0] if prefetched_shared else None
-
-    return (
-        MCPServerInstallation.objects.filter(
-            team_id=access.team_id,
-            gateway_server_id=access.gateway_server_id,
-            scope="shared",
+    if installation is None:
+        return None
+    if installation.team_id != access.team_id or installation.gateway_server_id != access.gateway_server_id:
+        logger.warning(
+            "Refusing mismatched agent MCP credential",
+            access_id=str(access.id),
+            installation_id=str(installation.id),
         )
-        .order_by("created_at")
-        .first()
-    )
+        return None
+    return installation

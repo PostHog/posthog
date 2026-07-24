@@ -136,7 +136,6 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
     changed: list[MCPServiceAccount] = []
 
     for spec in BUILT_IN_AGENTS:
-        availability = get_agent_product_availability(team, spec.key)
         token_hash = hash_key_value(f"built-in-mcp-agent:{team.id}:{spec.key}")
         account, created = MCPServiceAccount.objects.for_team(team.id).get_or_create(
             team_id=team.id,
@@ -145,7 +144,7 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
                 "name": spec.name,
                 "description": spec.description,
                 "handle": spec.handle,
-                "status": "active" if availability.enabled else "paused",
+                "status": "active",
             },
         )
         if not created:
@@ -159,9 +158,6 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
             if account.description != spec.description:
                 account.description = spec.description
                 account_changed = True
-            if not availability.enabled and account.status != "paused":
-                account.status = "paused"
-                account_changed = True
             if account_changed:
                 account.updated_at = timezone.now()
                 changed.append(account)
@@ -170,7 +166,7 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
     if changed:
         MCPServiceAccount.objects.for_team(team.id).bulk_update(
             changed,
-            ["name", "description", "handle", "status", "updated_at"],
+            ["name", "description", "handle", "updated_at"],
         )
 
     return accounts
@@ -212,11 +208,10 @@ def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
         return None
     try:
         account = (
-            MCPServiceAccount.objects.unscoped()
+            MCPServiceAccount.objects.for_team(team_id)
             .select_related("team__organization")
             .get(
                 id=account_id,
-                team_id=team_id,
                 handle__in=built_in_agent_handles(),
             )
         )

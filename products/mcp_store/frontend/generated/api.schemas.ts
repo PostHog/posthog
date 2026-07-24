@@ -231,6 +231,15 @@ export interface GatewayMemberSummaryApi {
     revoked_server_ids: string[]
 }
 
+export interface PaginatedGatewayMemberSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GatewayMemberSummaryApi[]
+}
+
 export interface MemberAccessUpdateApi {
     /** Gateway server to toggle for the member. */
     gateway_server_id: string
@@ -1068,6 +1077,17 @@ export const McpGatewayAuditListQuickFilter = {
     Approvals: 'approvals',
     Blocked: 'blocked',
 } as const
+
+export type McpGatewayMembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type McpGatewayRulesListParams = {
     /**

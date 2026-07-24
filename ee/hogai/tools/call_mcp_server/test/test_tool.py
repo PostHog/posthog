@@ -10,12 +10,21 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    TeamMCPGatewayConfig,
+)
 from products.mcp_store.backend.oauth import TokenRefreshError
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.call_mcp_server.installations import _build_server_headers, _get_installations
+from ee.hogai.tools.call_mcp_server.installations import (
+    _build_server_headers,
+    _get_installations,
+    _get_tool_approval_states,
+)
 from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
@@ -313,6 +322,36 @@ class TestCallTool(TestCallMCPServerTool):
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.down.com", tool_name="some_tool", arguments={})
             self.assertIn("Failed to connect", str(ctx.exception))
+
+
+class TestGetToolApprovalStates(BaseTest):
+    def test_gateway_policy_uses_cached_tool_description(self) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Issue server",
+            url="https://mcp.issue-policy.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="manage_issue",
+            description="Deletes an issue permanently.",
+            last_seen_at=timezone.now(),
+        )
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            member_default_preset="block",
+        )
+
+        states = _get_tool_approval_states(str(installation.id), self.user)
+
+        assert states == {"manage_issue": "do_not_use"}
 
 
 class TestGetInstallations(TestCallMCPServerTool):

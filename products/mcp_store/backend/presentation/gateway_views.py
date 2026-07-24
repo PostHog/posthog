@@ -6,6 +6,7 @@ rules, and the audit log. Personal/shared credentials stay on
 `MCPServerInstallation` (see views.py); this module only adds the team layer.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Any, cast
 
@@ -16,6 +17,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -841,7 +843,8 @@ class MCPGatewayServerViewSet(
         sync_catalog_templates_to_gateway(self.team_id)
         servers = MCPGatewayServer.objects.for_team(self.team_id)
         if not self._is_project_admin():
-            servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=self.request.user.id)
+            user_id = cast(int, self.request.user.id)
+            servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
         return (
             servers.select_related("template", "created_by")
             .prefetch_related(
@@ -868,7 +871,7 @@ class MCPGatewayServerViewSet(
         )
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        if self.action == "policies":
+        if self.action == "policies" and isinstance(request.successful_authenticator, SessionAuthentication):
             return ["project:read"]
         return None
 
@@ -1085,15 +1088,6 @@ class MCPServiceAccountViewSet(
             "server_access",
             queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
             .select_related("gateway_server__template", "installation")
-            .prefetch_related(
-                Prefetch(
-                    "gateway_server__installations",
-                    queryset=MCPServerInstallation.objects.filter(team_id=self.team_id, scope="shared").order_by(
-                        "created_at"
-                    ),
-                    to_attr="agent_shared_installations",
-                )
-            )
             .order_by("gateway_server__name"),
         )
 
@@ -1112,7 +1106,7 @@ class MCPServiceAccountViewSet(
         return accounts_queryset.order_by(catalog_order)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        if self.action == "access":
+        if self.action == "access" and isinstance(request.successful_authenticator, SessionAuthentication):
             return ["project:read"]
         return None
 
@@ -1306,14 +1300,13 @@ class MCPAuditEventViewSet(
     def counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Totals backing the quick-filter chips."""
         self._require_project_admin()
-        queryset = MCPAuditEvent.objects.for_team(self.team_id)
         return Response(
-            {
-                "all": queryset.count(),
-                "agents": queryset.filter(actor_service_account__isnull=False).count(),
-                "approvals": queryset.filter(decision__in=["approved", "pending"]).count(),
-                "blocked": queryset.filter(decision="blocked").count(),
-            }
+            MCPAuditEvent.objects.for_team(self.team_id).aggregate(
+                all=Count("id"),
+                agents=Count("id", filter=Q(actor_service_account__isnull=False)),
+                approvals=Count("id", filter=Q(decision__in=["approved", "pending"])),
+                blocked=Count("id", filter=Q(decision="blocked")),
+            )
         )
 
 
@@ -1395,39 +1388,43 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
         return Response(self._serialize_config(config))
 
 
-class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Admin overview of each member's gateway posture, plus the per-member
     server kill switch."""
 
     scope_object = "project"
-    scope_object_read_actions = ["list"]
+    scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["set_access"]
     permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
-    pagination_class = None
     serializer_class = GatewayMemberSummarySerializer
 
-    @extend_schema(responses={200: OpenApiResponse(response=GatewayMemberSummarySerializer(many=True))})
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._require_project_admin()
-        memberships = (
+    def _memberships(self) -> QuerySet[OrganizationMembership]:
+        return (
             OrganizationMembership.objects.filter(organization_id=self.team.organization_id)
             .select_related("user")
             .order_by("user__first_name", "user__email")
         )
 
+    def _member_rows(self, memberships: Sequence[OrganizationMembership]) -> list[dict[str, Any]]:
+        user_ids = [membership.user_id for membership in memberships]
         connected: dict[int, list[str]] = {}
         for user_id, server_id in MCPServerInstallation.objects.filter(
-            team_id=self.team_id, scope="personal", gateway_server__isnull=False
+            team_id=self.team_id,
+            user_id__in=user_ids,
+            scope="personal",
+            gateway_server__isnull=False,
         ).values_list("user_id", "gateway_server_id"):
             connected.setdefault(user_id, []).append(str(server_id))
 
         revoked: dict[int, list[str]] = {}
-        for user_id, server_id in MCPMemberServerRevocation.objects.for_team(self.team_id).values_list(
-            "user_id", "gateway_server_id"
+        for user_id, server_id in (
+            MCPMemberServerRevocation.objects.for_team(self.team_id)
+            .filter(user_id__in=user_ids)
+            .values_list("user_id", "gateway_server_id")
         ):
             revoked.setdefault(user_id, []).append(str(server_id))
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         for membership in memberships:
             rows.append(
                 {
@@ -1437,7 +1434,25 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
                     "revoked_server_ids": revoked.get(membership.user_id, []),
                 }
             )
-        return Response(rows)
+        return rows
+
+    @extend_schema(responses={200: GatewayMemberSummarySerializer(many=True)})
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_project_admin()
+        memberships = self.paginate_queryset(self._memberships())
+        if memberships is None:
+            return Response(self._member_rows(list(self._memberships())))
+        return self.get_paginated_response(self._member_rows(memberships))
+
+    @extend_schema(responses={200: GatewayMemberSummarySerializer})
+    def retrieve(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        self._require_project_admin()
+        try:
+            user_id = int(pk or "")
+            membership = self._memberships().get(user_id=user_id)
+        except (OrganizationMembership.DoesNotExist, ValueError):
+            raise NotFound("Member not found.")
+        return Response(self._member_rows([membership])[0])
 
     @validated_request(
         request_serializer=MemberAccessUpdateSerializer,

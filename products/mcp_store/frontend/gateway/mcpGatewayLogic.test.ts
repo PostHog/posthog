@@ -12,8 +12,8 @@ import {
     mcpServerInstallationsInstallCustomCreate,
     mcpServerInstallationsInstallTemplateCreate,
 } from '../generated/api'
-import type { MCPGatewayServerApi } from '../generated/api.schemas'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import type { GatewayMemberSummaryApi, MCPGatewayServerApi } from '../generated/api.schemas'
+import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 jest.mock('../generated/api', () => ({
     mcpGatewayConfigList: jest.fn(),
@@ -83,6 +83,22 @@ function gatewayServer(overrides: Partial<MCPGatewayServerApi>): MCPGatewayServe
     }
 }
 
+function gatewayMember(userId: number): GatewayMemberSummaryApi {
+    return {
+        user: {
+            id: userId,
+            uuid: `user-${userId}`,
+            first_name: 'Test',
+            last_name: 'Member',
+            email: `member-${userId}@example.com`,
+            hedgehog_config: null,
+        },
+        is_org_admin: false,
+        connected_server_ids: [],
+        revoked_server_ids: [],
+    }
+}
+
 describe('mcpGatewayLogic', () => {
     let logic: ReturnType<typeof mcpGatewayLogic.build>
 
@@ -90,7 +106,7 @@ describe('mcpGatewayLogic', () => {
         initKeaTests()
         jest.resetAllMocks()
         mockConfigList.mockResolvedValue({ is_admin: true, allow_custom_servers: true })
-        mockMembersList.mockResolvedValue([])
+        mockMembersList.mockResolvedValue({ count: 0, results: [] })
         mockRulesList.mockResolvedValue({ count: 0, results: [] })
         mockServersList.mockResolvedValue({ count: 0, results: [] })
         mockServiceAccountsList.mockResolvedValue({ count: 0, results: [] })
@@ -182,5 +198,21 @@ describe('mcpGatewayLogic', () => {
 
         pendingInstall.resolve({ redirect_url: '' })
         await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('loads members one server-controlled page at a time', async () => {
+        const secondPageMember = gatewayMember(101)
+        mockMembersList.mockResolvedValue({ count: 101, results: [secondPageMember] })
+
+        await expectLogic(logic, () => {
+            logic.actions.setMembersOffset(GATEWAY_MEMBERS_PAGE_SIZE)
+        }).toFinishAllListeners()
+
+        expect(mockMembersList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: GATEWAY_MEMBERS_PAGE_SIZE,
+            offset: GATEWAY_MEMBERS_PAGE_SIZE,
+        })
+        expect(logic.values.memberCount).toBe(101)
+        expect(logic.values.members).toEqual([secondPageMember])
     })
 })

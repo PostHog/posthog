@@ -13,7 +13,13 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPAuditEvent,
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    MCPToolPolicy,
+)
 from products.mcp_store.backend.proxy import _build_sse_response
 
 
@@ -714,16 +720,40 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_rejects_whole_request_with_batch_code(self, mock_client_cls):
-        """Mixed batches are rejected atomically with a batch-level code, not a per-item code."""
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Audited batch",
+            url="https://mcp.audited-batch.example.com/mcp",
+        )
         installation = self._installation()
+        installation.gateway_server = server
+        installation.save(update_fields=["gateway_server", "updated_at"])
         self._tool(installation, "approved-tool", "approved")
+        self._tool(installation, "auto-tool", "approved")
         self._tool(installation, "unapproved-tool", "needs_approval")
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="approved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="approved",
+        )
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="unapproved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="needs_approval",
+        )
 
         response = self.client.post(
             self._proxy_url(installation.id),
             data=[
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "approved-tool"}},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unapproved-tool"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "auto-tool"}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "unapproved-tool"}},
             ],
             format="json",
         )
@@ -735,6 +765,13 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         for entry in body:
             assert entry["error"]["code"] == -32000
         mock_client_cls.assert_not_called()
+        assert list(
+            MCPAuditEvent.objects.for_team(self.team.id)
+            .filter(gateway_server=server)
+            .values_list("tool_name", "decision")
+        ) == [("unapproved-tool", "pending")]
+        installation.refresh_from_db()
+        assert installation.last_used_at is None
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_with_tools_list_sibling_uses_batch_code(self, mock_client_cls):

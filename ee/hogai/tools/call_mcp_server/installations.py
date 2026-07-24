@@ -89,7 +89,7 @@ def _get_tool_approval_states(installation_id: str, user: User | None = None) ->
     treated as `needs_approval` by the caller (explicit opt-in for freshly
     discovered tools)."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "approval_state", "removed_at"
+        "tool_name", "description", "approval_state", "removed_at"
     )
     legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
 
@@ -109,7 +109,7 @@ def _get_tool_approval_states(installation_id: str, user: User | None = None) ->
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"]).state
+            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["description"] or "").state
     return resolved
 
 

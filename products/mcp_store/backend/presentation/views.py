@@ -615,10 +615,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _tool_serializer_context(self, installation: MCPServerInstallation) -> dict[str, Any]:
         if not installation.gateway_server_id:
             return {}
+        gateway_server = installation.gateway_server
+        if gateway_server is None:
+            return {}
         policy_context = PolicyContext(
             team_id=self.team_id,
             caller=GatewayCaller(kind="member", user_id=cast(User, self.request.user).id),
-            gateway_server=installation.gateway_server,
+            gateway_server=gateway_server,
             installation=installation,
         )
         return {

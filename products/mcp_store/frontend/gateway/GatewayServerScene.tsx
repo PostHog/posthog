@@ -83,10 +83,6 @@ function ToolPoliciesSection(): JSX.Element {
     const { setScope, setAllTools } = useActions(gatewayServerLogic)
     const canEditScope =
         isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
-    const policyOptions =
-        scope.scopeType === 'agent'
-            ? POLICY_OPTIONS.filter((option) => option.value !== 'needs_approval')
-            : POLICY_OPTIONS
 
     if (scopeIsResolving) {
         return (
@@ -106,13 +102,14 @@ function ToolPoliciesSection(): JSX.Element {
                 {canEditScope && (
                     <div className="flex items-center gap-1">
                         <span className="text-xs text-secondary mr-1">Set all</span>
-                        {policyOptions.map((option) => (
+                        {POLICY_OPTIONS.map((option) => (
                             <LemonButton
                                 key={option.value}
                                 size="xsmall"
                                 icon={option.icon}
                                 tooltip={option.label}
-                                onClick={() => setAllTools(option.value)}
+                                loading={toolPoliciesLoading}
+                                onClick={() => setAllTools({ state: option.value })}
                             />
                         ))}
                     </div>
@@ -129,6 +126,7 @@ function ToolPoliciesSection(): JSX.Element {
                             value: candidate.scopeServiceAccountId ?? candidate.scopeType,
                             label: candidate.label,
                         }))}
+                        disabledReason={toolPoliciesLoading ? 'Updating tool policies…' : undefined}
                         onChange={(value) => {
                             const next = availableScopes.find(
                                 (candidate) => (candidate.scopeServiceAccountId ?? candidate.scopeType) === value
@@ -157,7 +155,7 @@ function ToolPoliciesSection(): JSX.Element {
 }
 
 function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Element {
-    const { server, scope, isAdmin, canManageAgentAccess } = useValues(gatewayServerLogic)
+    const { server, scope, isAdmin, canManageAgentAccess, toolPoliciesLoading } = useValues(gatewayServerLogic)
     const { setToolPolicy } = useActions(gatewayServerLogic)
 
     const fqName = `${server?.name ?? ''}.${policy.tool_name}`
@@ -166,9 +164,7 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
         scope.scopeType !== 'team' && (policy.decided_by === 'team' || policy.decided_by === 'preset')
     const canEditScope =
         isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
-    const options = POLICY_OPTIONS.filter(
-        (option) => scope.scopeType !== 'agent' || option.value !== 'needs_approval'
-    ).map((option) => ({
+    const options = POLICY_OPTIONS.map((option) => ({
         ...option,
         disabledReason:
             scope.scopeType === 'team' || isPolicyStateAllowedByCeiling(option.value, policy.team_state)
@@ -233,9 +229,15 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
                                             value={policy.policy_state}
                                             options={options}
                                             disabledReason={
-                                                policy.locked ? 'The team admin ceiling is Blocked.' : undefined
+                                                toolPoliciesLoading
+                                                    ? 'Updating tool policies…'
+                                                    : policy.locked
+                                                      ? 'The team admin ceiling is Blocked.'
+                                                      : undefined
                                             }
-                                            onChange={(value) => setToolPolicy(policy.tool_name, value)}
+                                            onChange={(value) =>
+                                                setToolPolicy({ toolName: policy.tool_name, state: value })
+                                            }
                                         />
                                     </div>
                                 )}

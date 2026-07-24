@@ -17,7 +17,7 @@ from parameterized import parameterized
 from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
-from posthog.models import Team
+from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -748,6 +748,150 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         )
 
 
+class TestMCPGatewayMemberAPI(APIBaseTest):
+    def _api_url(self, suffix: str = "") -> str:
+        base = f"/api/projects/{self.team.id}/mcp_gateway/members/"
+        return f"{base}{suffix}" if suffix else base
+
+    def _make_admin(self) -> None:
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def test_list_paginates_organization_members(self) -> None:
+        self._make_admin()
+        self._create_user("alice-gateway-member@posthog.com", first_name="Alice")
+        self._create_user("zoe-gateway-member@posthog.com", first_name="Zoe")
+
+        first_response = self.client.get(self._api_url(), {"limit": 1})
+
+        assert first_response.status_code == status.HTTP_200_OK
+        first_page = first_response.json()
+        assert first_page["count"] == 3
+        assert len(first_page["results"]) == 1
+        assert first_page["next"] is not None
+
+        second_response = self.client.get(first_page["next"])
+
+        assert second_response.status_code == status.HTTP_200_OK
+        second_page = second_response.json()
+        assert len(second_page["results"]) == 1
+        assert second_page["results"][0]["user"]["id"] != first_page["results"][0]["user"]["id"]
+
+    def test_retrieve_returns_one_members_connections_and_revocations(self) -> None:
+        self._make_admin()
+        member = self._create_user("gateway-member-detail@posthog.com")
+        connected_server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Connected",
+            url="https://mcp.connected-member.example.com/mcp",
+        )
+        revoked_server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Revoked",
+            url="https://mcp.revoked-member.example.com/mcp",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=member,
+            display_name=connected_server.name,
+            url=connected_server.url,
+            auth_type="api_key",
+            scope="personal",
+            gateway_server=connected_server,
+        )
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=revoked_server,
+            user=member,
+            revoked_by=self.user,
+        )
+
+        response = self.client.get(self._api_url(f"{member.id}/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["user"]["id"] == member.id
+        assert response.json()["connected_server_ids"] == [str(connected_server.id)]
+        assert response.json()["revoked_server_ids"] == [str(revoked_server.id)]
+
+    def test_retrieve_does_not_expose_members_from_another_organization(self) -> None:
+        self._make_admin()
+        other_organization = Organization.objects.create(name="Other organization")
+        other_member = User.objects.create_and_join(
+            other_organization,
+            "other-organization-gateway-member@posthog.com",
+            "password",
+        )
+
+        response = self.client.get(self._api_url(f"{other_member.id}/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestMCPGatewayWriteScopeAPI(APIBaseTest):
+    def _make_admin(self) -> None:
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def _read_only_oauth_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Read-only MCP gateway",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_read_only_mcp_gateway",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="project:read",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    @parameterized.expand([("policies",), ("agent_access",)])
+    def test_read_only_oauth_token_cannot_mutate_gateway(self, action_name: str) -> None:
+        self._make_admin()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Scope protected",
+            url="https://mcp.scope-protected.example.com/mcp",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            scope="personal",
+            gateway_server=server,
+        )
+        account = sync_built_in_agents(self.team)[0]
+        data: dict[str, object]
+        if action_name == "policies":
+            url = f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/"
+            data = {
+                "scope_type": "team",
+                "policies": [{"tool_name": "search", "policy_state": "approved"}],
+            }
+        else:
+            url = f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/{account.id}/access/"
+            data = {"gateway_server_id": str(server.id), "enabled": True}
+
+        response = self._read_only_oauth_client().post(url, data=data, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPToolPolicy.objects.for_team(self.team.id).filter(gateway_server=server).exists()
+        assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(gateway_server=server).exists()
+
+
 class TestMCPServiceAccountAPI(APIBaseTest):
     def _api_url(self, suffix: str = "") -> str:
         base = f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/"
@@ -811,7 +955,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert [agent["agent_key"] for agent in results] == ["support", "scout", "posthog_ai"]
         assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout", "posthog-ai"]
         assert all(agent["product_enabled"] is False for agent in results)
-        assert all(agent["status"] == "paused" for agent in results)
+        assert all(agent["status"] == "active" for agent in results)
         assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_list_reconciles_legacy_built_in_agent_handles(self) -> None:
@@ -1132,8 +1276,52 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             }
         ]
 
+    def test_deleting_delegated_credential_preserves_grant_without_switching_credentials(self) -> None:
+        account = sync_built_in_agents(self.team)[1]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Delegated Notion",
+            url="https://mcp.deleted-agent-credential.example.com/mcp",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Shared Notion",
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "shared-secret"},
+            scope="shared",
+            gateway_server=server,
+        )
+        personal_installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Personal Notion",
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "personal-secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            service_account=account,
+            gateway_server=server,
+            installation=personal_installation,
+            granted_by=self.user,
+        )
+
+        personal_installation.delete()
+        access.refresh_from_db()
+        response = self.client.get(self._api_url())
+
+        assert access.installation_id is None
+        assert response.status_code == status.HTTP_200_OK
+        scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        assert scout["servers"][0]["connection_state"] == "missing_credential"
+
     @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
-    def test_product_becoming_unavailable_pauses_agent_and_prevents_resume(self, _mock_is_limited) -> None:
+    def test_product_availability_does_not_mutate_manual_pause_state(self, _mock_is_limited) -> None:
         self._make_admin()
         account = self._active_posthog_ai_account()
         assert account.status == "active"
@@ -1143,18 +1331,25 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         list_response = self.client.get(self._api_url())
         account_row = next(row for row in list_response.json()["results"] if row["id"] == str(account.id))
-        resume_response = self.client.patch(
-            self._api_url(f"{account.id}/"),
-            data={"status": "active"},
-            format="json",
-        )
 
         account.refresh_from_db()
         assert list_response.status_code == status.HTTP_200_OK
         assert account_row["product_enabled"] is False
-        assert account_row["status"] == "paused"
+        assert account_row["status"] == "active"
+        assert account.status == "active"
+
+        account.status = "paused"
+        account.save(update_fields=["status", "updated_at"])
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        recovered_response = self.client.get(self._api_url())
+        recovered_row = next(row for row in recovered_response.json()["results"] if row["id"] == str(account.id))
+        account.refresh_from_db()
+
+        assert recovered_row["product_enabled"] is True
+        assert recovered_row["status"] == "paused"
         assert account.status == "paused"
-        assert resume_response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("products.mcp_store.backend.agents.is_team_limited")
     def test_agent_token_stops_resolving_when_billing_quota_is_reached(self, mock_is_limited) -> None:
@@ -1168,6 +1363,10 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         mock_is_limited.return_value = True
 
         assert resolve_gateway_agent_token(token) is None
+
+        mock_is_limited.return_value = False
+
+        assert resolve_gateway_agent_token(token) == account
 
     @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
     def test_agent_endpoint_rejects_tampered_signed_token(self, _mock_is_limited) -> None:
@@ -1344,6 +1543,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             team=self.team,
             service_account=account,
             gateway_server=server,
+            installation=installation,
             granted_by=self.user,
         )
         MCPToolPolicy.objects.for_team(self.team.id).create(
@@ -1490,6 +1690,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 team=self.team,
                 service_account=account,
                 gateway_server=server,
+                installation=installation,
                 granted_by=self.user,
             )
             MCPToolPolicy.objects.for_team(self.team.id).create(

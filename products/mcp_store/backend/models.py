@@ -389,11 +389,11 @@ class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     service_account = models.ForeignKey(MCPServiceAccount, on_delete=models.CASCADE, related_name="server_access")
     gateway_server = models.ForeignKey(MCPGatewayServer, on_delete=models.CASCADE, related_name="agent_access")
-    # Null preserves grants created before credentials were bound explicitly.
-    # Those rows continue to resolve the server's shared installation.
+    # Null preserves the grant when its exact credential is deleted, so the UI
+    # can surface that the agent needs a new connection.
     installation = models.ForeignKey(
         MCPServerInstallation,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="agent_grants",
         null=True,
         blank=True,

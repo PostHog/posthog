@@ -42219,6 +42219,15 @@ export namespace Schemas {
       results: FolderInstructionsVersion[];
     }
 
+    export interface PaginatedGatewayMemberSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: GatewayMemberSummary[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -79068,6 +79077,17 @@ export namespace Schemas {
       Approvals: 'approvals',
       Blocked: 'blocked',
     } as const;
+
+    export type McpGatewayMembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type McpGatewayRulesListParams = {
     /**

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonDivider, LemonSwitch, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,9 +20,25 @@ export const scene: SceneExport<(typeof gatewayMemberLogic)['props']> = {
 }
 
 export function GatewayMemberScene(): JSX.Element {
-    const { allServers, member, memberServerAccessLoadingKeys } = useValues(gatewayMemberLogic)
+    const {
+        allServers,
+        allServersInitialized,
+        member,
+        memberInitialized,
+        memberLoading,
+        memberServerAccessLoadingKeys,
+    } = useValues(gatewayMemberLogic)
     const { setMemberServerAccess } = useActions(gatewayMemberLogic)
 
+    if (!allServersInitialized || (!member && (!memberInitialized || memberLoading))) {
+        return (
+            <SceneContent>
+                <div className="flex items-center gap-2 text-secondary">
+                    <Spinner /> Loading member…
+                </div>
+            </SceneContent>
+        )
+    }
     if (!member) {
         return <SceneContent>Member not found.</SceneContent>
     }
