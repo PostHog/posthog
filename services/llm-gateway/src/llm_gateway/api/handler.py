@@ -2,7 +2,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import structlog
 from fastapi import HTTPException
@@ -197,6 +197,45 @@ FORBIDDEN_REQUEST_PARAMS = frozenset(
     {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
 )
 
+# Worst-case output throughput the Anthropic SDKs assume (128K tokens/hour) when refusing
+# non-streaming requests that would outlive their 10-minute timeout. We apply the same
+# policy scaled to the gateway's request_timeout: a non-streaming request whose max_tokens
+# can't complete within the budget would only ever burn the full timeout and 504.
+NON_STREAMING_TOKENS_PER_SECOND: Final[float] = 128_000 / 3600
+
+_MAX_TOKENS_KEYS: Final = ("max_tokens", "max_completion_tokens", "max_output_tokens")
+
+
+def _requested_max_tokens(request_data: dict[str, Any]) -> int | None:
+    for key in _MAX_TOKENS_KEYS:
+        value = request_data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return None
+
+
+def _raise_if_exceeds_non_streaming_budget(request_data: dict[str, Any], timeout: float) -> None:
+    max_tokens = _requested_max_tokens(request_data)
+    if max_tokens is None:
+        return
+    ceiling = int(timeout * NON_STREAMING_TOKENS_PER_SECOND)
+    if max_tokens > ceiling:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": (
+                        f"max_tokens={max_tokens} may not complete within the gateway's "
+                        f"{timeout:.0f}s non-streaming limit (at most {ceiling} tokens). "
+                        "Use streaming for long requests; SDKs can accumulate the stream "
+                        "into a complete response."
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "streaming_required",
+                }
+            },
+        )
+
 
 def _sanitize_request_value(value: Any) -> Any:
     # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
@@ -259,6 +298,8 @@ async def handle_llm_request(
             timeout=settings.streaming_timeout,
             product=product,
         )
+
+    _raise_if_exceeds_non_streaming_budget(request_data, settings.request_timeout)
 
     CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
     try:

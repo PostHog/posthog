@@ -212,6 +212,72 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 422
         assert expected_field in str(response.json())
 
+    @pytest.mark.parametrize(
+        "max_tokens,expected_status",
+        [
+            pytest.param(32000, 400, id="over_budget_rejected"),
+            pytest.param(8000, 200, id="within_budget_allowed"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_non_streaming_max_tokens_budget(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+        max_tokens: int,
+        expected_status: int,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 400:
+            assert response.json()["error"]["code"] == "streaming_required"
+            mock_anthropic.assert_not_called()
+        else:
+            mock_anthropic.assert_called_once()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages", new_callable=AsyncMock)
+    def test_streaming_request_exempt_from_max_tokens_budget(
+        self,
+        mock_anthropic: AsyncMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        async def fake_stream():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        mock_anthropic.return_value = fake_stream()
+
+        with authenticated_client.stream(
+            "POST",
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 128000,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert "message_stop" in body
+        mock_anthropic.assert_called_once()
+
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_successful_request(
         self,
