@@ -550,6 +550,77 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         )
         assert legacy_above_ceiling_response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_member_policy_ceiling_uses_latest_known_description_across_installations(self) -> None:
+        self._make_admin()
+        server, _installation, latest_tool = self._server_with_personal_tool()
+        now = timezone.now()
+        latest_tool.tool_name = "manage_issue"
+        latest_tool.description = "Permanently delete the issue"
+        latest_tool.last_seen_at = now
+        latest_tool.save(update_fields=["tool_name", "description", "last_seen_at", "updated_at"])
+        older_installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "shared-secret"},
+            scope="shared",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=older_installation,
+            tool_name=latest_tool.tool_name,
+            description="Inspect issue details",
+            approval_state="approved",
+            last_seen_at=now - timedelta(hours=1),
+        )
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            member_default_preset="block",
+        )
+        request_data = {
+            "scope_type": "member",
+            "policies": [{"tool_name": latest_tool.tool_name, "policy_state": "approved"}],
+        }
+
+        tools_response = self.client.get(
+            self._api_url(f"{server.id}/tools/"),
+            {"scope_type": "member"},
+        )
+        active_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data=request_data,
+            format="json",
+        )
+
+        assert tools_response.status_code == status.HTTP_200_OK
+        assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
+        assert active_response.status_code == status.HTTP_400_BAD_REQUEST
+
+        MCPServerInstallationTool.objects.filter(
+            installation__gateway_server=server,
+            tool_name=latest_tool.tool_name,
+        ).update(removed_at=now)
+
+        removed_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data=request_data,
+            format="json",
+        )
+
+        assert removed_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            not MCPToolPolicy.objects.for_team(self.team.id)
+            .filter(
+                gateway_server=server,
+                scope_type="member",
+                scope_user=self.user,
+                tool_name=latest_tool.tool_name,
+            )
+            .exists()
+        )
+
     def test_legacy_tool_approval_updates_reuse_policy_for_child_environment(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
         server = MCPGatewayServer.objects.for_team(child.id).create(

@@ -81,6 +81,27 @@ def get_gateway_config(team_id: int) -> TeamMCPGatewayConfig | None:
     return TeamMCPGatewayConfig.objects.for_team(team_id).first()
 
 
+def _ordered_gateway_tool_rows(
+    server: MCPGatewayServer,
+    *,
+    tool_names: list[str] | None = None,
+    include_removed_fallback: bool = False,
+) -> QuerySet[MCPServerInstallationTool]:
+    """Order rows so the first per tool is the newest active row, then the newest removed row."""
+    queryset = MCPServerInstallationTool.objects.filter(installation__gateway_server=server)
+    if tool_names is not None:
+        queryset = queryset.filter(tool_name__in=tool_names)
+    if include_removed_fallback:
+        return queryset.annotate(
+            removed_rank=Case(
+                When(removed_at__isnull=True, then=0),
+                default=1,
+                output_field=IntegerField(),
+            )
+        ).order_by("tool_name", "removed_rank", "-last_seen_at", "-id")
+    return queryset.filter(removed_at__isnull=True).order_by("tool_name", "-last_seen_at", "-id")
+
+
 def policy_entries_above_team_ceiling(
     *,
     team_id: int,
@@ -90,13 +111,14 @@ def policy_entries_above_team_ceiling(
 ) -> list[str]:
     """Return entries that try to make a caller scope more permissive than its team ceiling."""
     context = PolicyContext(team_id=team_id, caller=caller, gateway_server=server)
-    descriptions = dict(
-        MCPServerInstallationTool.objects.filter(
-            installation__gateway_server=server,
-            tool_name__in=[entry["tool_name"] for entry in entries],
-            removed_at__isnull=True,
-        ).values_list("tool_name", "description")
-    )
+    descriptions: dict[str, str] = {}
+    tool_rows = _ordered_gateway_tool_rows(
+        server,
+        tool_names=[entry["tool_name"] for entry in entries],
+        include_removed_fallback=True,
+    ).values_list("tool_name", "description")
+    for tool_name, description in tool_rows:
+        descriptions.setdefault(tool_name, description or "")
     return [
         entry["tool_name"]
         for entry in entries
@@ -927,11 +949,7 @@ class MCPGatewayServerViewSet(
 
         tools: list[tuple[str, str, dict[str, Any]]] = []
         seen: set[str] = set()
-        tool_rows = (
-            MCPServerInstallationTool.objects.filter(installation__gateway_server=server, removed_at__isnull=True)
-            .order_by("tool_name", "-last_seen_at")
-            .values_list("tool_name", "description", "input_schema")
-        )
+        tool_rows = _ordered_gateway_tool_rows(server).values_list("tool_name", "description", "input_schema")
         for tool_name, description, input_schema in tool_rows:
             if tool_name in seen:
                 continue
