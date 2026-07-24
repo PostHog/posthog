@@ -12,8 +12,9 @@ Pull three signals first:
    A red SRM means there is a real assignment or capture problem; proceed below.
 2. **`$multiple` share.** If non-zero, identity fragmentation (A3/A4) is on the table.
 3. **Configured split.** Read `experiment-get`'s
-   `parameters.feature_flag_variants[].rollout_percentage` — uneven splits amplify whichever bias
-   source is present.
+   `feature_flag.filters.multivariate.variants[].rollout_percentage` (the flag filters are the source
+   of truth; `parameters.feature_flag_variants` is a deprecated projection) — uneven splits amplify
+   whichever bias source is present.
 
 If the symptom is "metric count is far smaller than exposures" (e.g. 10× or 100× gap), walk this
 file before `numbers-vs-sql.md` — that shape of divergence is most often a bucketing / identity
@@ -72,8 +73,9 @@ Open the Exposures tab. PostHog runs a chi-squared test once total exposures ≥
 _not_ what triggers SRM — it's that the visible variants don't match the configured rollout).
 
 **Verify directly.** The exposure-shape query from Step 1.5 already gives the counts. Compare observed
-vs expected (using `parameters.feature_flag_variants[].rollout_percentage`) and apply χ². Treat
-p < 0.001 as SRM.
+vs expected (using `feature_flag.filters.multivariate.variants[].rollout_percentage` — the flag
+filters are the source of truth, not the deprecated `parameters.feature_flag_variants`) and apply χ².
+Treat p < 0.001 as SRM.
 
 **What it means.** The actual variant distribution differs significantly from the configured split —
 something is biasing variant assignment or exposure capture. Note: low-volume variance can produce
