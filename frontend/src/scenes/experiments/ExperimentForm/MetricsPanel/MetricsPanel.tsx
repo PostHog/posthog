@@ -90,18 +90,18 @@ export const MetricsPanel = ({
             <ExperimentMetricModal
                 experiment={experiment}
                 exposureCriteria={experiment.exposure_criteria}
-                onSave={(metric, context) => {
+                onSave={async (metric, context) => {
                     onSaveMetric(metric, context)
                     closeExperimentMetricModal()
                 }}
-                onDelete={(metric, context) => {
+                onDelete={async (metric, context) => {
                     onDeleteMetric(metric, context)
                     closeExperimentMetricModal()
                 }}
             />
             <SharedMetricModal
                 experiment={experiment}
-                onSave={(metrics, context) => {
+                onSave={async (metrics, context) => {
                     const sharedMetrics = metrics.map(convertSharedMetricToExperimentMetric)
 
                     onSaveSharedMetrics(sharedMetrics, context)

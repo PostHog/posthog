@@ -22,7 +22,7 @@ export function SharedMetricModal({
     onSave,
 }: {
     experiment: Experiment
-    onSave: (metrics: SharedMetric[], context: MetricContext) => void | Promise<void>
+    onSave: (metrics: SharedMetric[], context: MetricContext) => Promise<void>
 }): JSX.Element | null {
     const {
         isModalOpen,
