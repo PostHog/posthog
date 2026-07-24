@@ -169,6 +169,22 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
+        it('creates EventMetadata filter from a bare recent item stored without an id', () => {
+            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventMetadata)!
+            logic.actions.selectItem(group, 'event', undefined, {
+                name: 'event',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.EventMetadata,
+                    sourceGroupName: 'Event metadata',
+                    sourceValue: 'event',
+                },
+            })
+            expect(setFilterSpy).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({ type: PropertyFilterType.EventMetadata, key: 'event' })
+            )
+        })
+
         it('closes the dropdown after selecting an item', () => {
             const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
             logic.actions.openDropdown()
