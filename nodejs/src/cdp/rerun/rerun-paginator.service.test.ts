@@ -189,16 +189,11 @@ describe('RerunPaginatorService integration', () => {
 
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
-        // Ensure every topic the ClickHouse Kafka engines subscribe to exists, idempotently and
-        // WITHOUT deleting anything. resetKafka() drops+recreates all topics, which forces the
-        // hog_invocation_results engine's consumer to reattach at auto.offset.reset=latest — rows
-        // produced during that reattach window are silently dropped, so the first seed loses a row
-        // and its count poll times out. Keeping the topics in place preserves the consumer's offset.
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse Kafka engine
+        // consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS, which this test's
+        // MV needs but the shared set does not cover.
         await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
-        // Prime the MV before any seeding: probe until a row lands so the engine's consumer is
-        // provably attached and reading. Without this, a cold consumer (e.g. after a sibling suite
-        // called resetKafka) drops the first seed's rows at offset=latest. Mirrors rerun-e2e.test.ts.
         await waitForHogInvocationResultsMvReady(clickhouse)
     })
 

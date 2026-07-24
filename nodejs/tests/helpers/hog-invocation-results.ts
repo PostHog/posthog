@@ -5,17 +5,14 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
-// The `~/common/kafka/producer` module is auto-mocked in these integration tests, so grab the
-// real wrapper to actually push probe rows through Kafka.
+// `~/common/kafka/producer` is auto-mocked in these tests; use the real wrapper to push probe rows.
 const ActualKafkaProducerWrapper: typeof KafkaProducerWrapper =
     jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 /**
- * Probe the ClickHouse Kafka MV for the hog_invocation_results topic in particular. With
- * `auto.offset.reset=latest` on the engine's consumer, anything produced before the MV's
- * internal consumer has attached is silently dropped — so a seed run right after topic
- * (re)creation can lose rows and never satisfy a row-count poll. Send probe rows until one
- * lands in ClickHouse so we know the MV is live before the test produces real rows.
+ * Probe hog_invocation_results until a row lands, proving the ClickHouse Kafka engine's consumer has
+ * attached. Its `auto.offset.reset=latest` drops rows produced before attach, so a seed right after
+ * topic (re)creation can lose rows and never satisfy a count poll. Mirrors waitForClickHouseKafkaConsumer.
  */
 export const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
     const producer = await ActualKafkaProducerWrapper.create(undefined)
