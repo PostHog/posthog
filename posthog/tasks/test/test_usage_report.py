@@ -1441,6 +1441,7 @@ class TestQueryUsageReportSQL:
         assert params["end"] == end
         assert params["event_time_end"] == end + timedelta(hours=6)
 
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report._execute_split_query")
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 4)])
     @patch("posthog.tasks.usage_report.get_property_string_expr")
@@ -1449,6 +1450,7 @@ class TestQueryUsageReportSQL:
         mock_get_property_string_expr: MagicMock,
         mock_sync_execute: MagicMock,
         mock_execute_split_query: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
     ) -> None:
         mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
         # 1st _execute_split_query call is the main per-$lib scan (node_events over-counts every
@@ -1492,8 +1494,17 @@ class TestQueryUsageReportSQL:
         assert result["openclaw_events"] == [(1, 3)]
         assert result["node_events"] == [(1, 5)]
 
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[])
-    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(self, mock_sync_execute: MagicMock) -> None:
+    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
 
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
@@ -1504,6 +1515,71 @@ class TestQueryUsageReportSQL:
         params = mock_sync_execute.call_args.args[1]
         assert "$conversations_loaded" not in params["ai_events"]
         assert "$conversations_widget_loaded" not in params["ai_events"]
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_get_teams_with_ai_event_count_skips_sponsorship_query_without_verified_relays(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+        mock_sync_execute.return_value = [(1, 150, 0), (2, 20, 0)]
+
+        result = get_teams_with_ai_event_count_in_period(begin, end)
+
+        assert result == [(1, 150), (2, 20)]
+        mock_sync_execute.assert_called_once()
+        base_query = mock_sync_execute.call_args.args[0]
+        assert "if(verified, property_expr, '') IN ('true', '1') AS relay" in base_query
+        assert "max(relay) AS has_verified_relay" in base_query
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_get_teams_with_ai_event_count_subtracts_bounded_gateway_sponsorship(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORSHIP_LOOKAROUND,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+        mock_sync_execute.side_effect = [[(1, 150, 1), (2, 20, 0)], [(1, 100)]]
+
+        result = get_teams_with_ai_event_count_in_period(begin, end)
+
+        assert result == [(1, 50), (2, 20)]
+        assert mock_sync_execute.call_count == 2
+        base_query = mock_sync_execute.call_args_list[0].args[0]
+        sponsor_query = mock_sync_execute.call_args_list[1].args[0]
+        sponsor_params = mock_sync_execute.call_args_list[1].args[1]
+        assert "max(relay) AS has_verified_relay" in base_query
+        assert "argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id" in sponsor_query
+        assert "sum(balance_delta) OVER" in sponsor_query
+        assert "min(cumulative_balance) OVER" in sponsor_query
+        assert "cumulative_balance >= least(ifNull(previous_minimum, 0), 0)" in sponsor_query
+        assert "UNION ALL" in sponsor_query
+        assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
+        assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
+        assert sponsor_params["relayed_team_ids"] == [1]
+        assert sponsor_params["sponsor_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -5808,6 +5884,267 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ai_count(),
             baseline_count + 8,
             "verified events with no request_id are not blanket-deduped; both stay counted",
+        )
+
+    def test_gateway_generation_sponsors_bounded_unique_relay_events(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "sponsored-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin - relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "gateway-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for request_id in ("gateway-request-2", "gateway-request-2"):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin - relativedelta(minutes=30),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+        for index in range(2 * GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"span-{index}",
+                },
+            )
+        for _ in range(2):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": "span-0",
+                },
+            )
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": "unsponsored-trace",
+                "$ai_span_id": "unsponsored-span",
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 4,
+            "one overage, two span replays, and one unmatched span stay billable",
+        )
+
+    def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        previous_begin = self.begin - relativedelta(days=1)
+
+        def ai_count(begin: datetime, end: datetime) -> int:
+            return dict(get_teams_with_ai_event_count_in_period(begin, end)).get(self.team.id, 0)
+
+        previous_baseline = ai_count(previous_begin, self.begin)
+        current_baseline = ai_count(self.begin, self.end)
+        trace_id = "cross-period-sponsored-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin - relativedelta(hours=2),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "cross-period-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for index in range(GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION):
+            for timestamp in (
+                self.begin - relativedelta(hours=1),
+                self.begin + relativedelta(hours=1),
+            ):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{timestamp.isoformat()}-{index}",
+                    },
+                )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(previous_begin, self.begin), previous_baseline)
+        self.assertEqual(
+            ai_count(self.begin, self.end),
+            current_baseline + GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+        )
+
+    def test_gateway_request_sponsors_only_one_trace(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        for trace_id in ("first-trace", "second-trace"):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": "replayed-request",
+                    "$ai_trace_id": trace_id,
+                },
+            )
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"{trace_id}-span",
+                },
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 2, "one generation replay and one unmatched span stay billable")
+
+    def test_gateway_generation_does_not_sponsor_earlier_relay(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "future-sponsored-trace"
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "early-span",
+            },
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=2),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "later-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 1, "the later generation cannot sponsor the earlier span")
+
+    def test_gateway_sponsorship_does_not_carry_relay_debt_forward(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "chronological-sponsored-trace"
+
+        def create_generation(request_id: str, timestamp: datetime) -> None:
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=timestamp,
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+
+        def create_relays(prefix: str, count: int, timestamp: datetime) -> None:
+            for index in range(count):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{prefix}-{index}",
+                    },
+                )
+
+        create_relays("before-sponsor", 1, self.begin + relativedelta(minutes=30))
+        create_generation("first-request", self.begin + relativedelta(hours=1))
+        create_relays(
+            "first-allowance",
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1,
+            self.begin + relativedelta(hours=2),
+        )
+        create_generation("second-request", self.begin + relativedelta(hours=3))
+        create_relays(
+            "second-allowance",
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            self.begin + relativedelta(hours=4),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 2,
+            "pre-sponsor and over-allowance relays stay billable without consuming later allowance",
         )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:
