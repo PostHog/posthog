@@ -147,6 +147,25 @@ describe('Projects', { concurrent: false }, () => {
     describe('property-definition-update tool', () => {
         const updateTool = updatePropertyDefinitionTool()
 
+        beforeAll(async () => {
+            // Ensure the $browser property definition exists before running update tests.
+            // In a fresh test environment no events have been ingested, so property
+            // definitions don't exist yet. We create one via the API if missing.
+            const searchResult = await context.api.request<{ results: { name: string }[] }>({
+                method: 'GET',
+                path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
+                query: { properties: '$browser', type: 'event' },
+            })
+            const exists = searchResult.results.some((def) => def.name === '$browser')
+            if (!exists) {
+                await context.api.request({
+                    method: 'POST',
+                    path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
+                    body: { name: '$browser', type: 1, is_numerical: false },
+                })
+            }
+        })
+
         it('should update property definition description', async () => {
             const testDescription = `Test description ${uuidv4()}`
             const result = await updateTool.handler(context, {
