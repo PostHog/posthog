@@ -99,7 +99,12 @@ class GoogleAdsSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "PERMISSION_DENIED": None,
+            # gRPC PERMISSION_DENIED ("The caller does not have permission") raised mid-sync when the
+            # connected Google login can no longer access this customer ID — access was revoked, the
+            # wrong manager (MCC) account is configured, or the account moved under a different MCC.
+            # Retrying cannot recover. Mirrors the validate-time USER_PERMISSION_DENIED message so the
+            # user gets actionable guidance instead of a raw GoogleAdsException.
+            "PERMISSION_DENIED": "PostHog no longer has permission to access this Google Ads account. Verify the customer ID (and manager account, if using an MCC) is accessible to the connected Google login, then reconnect your Google Ads account.",
             "UNAUTHENTICATED": None,
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,

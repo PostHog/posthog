@@ -296,6 +296,14 @@ class TestGoogleAdsNonRetryableErrors:
     def test_documented_patterns_present(self, pattern):
         assert pattern in self.non_retryable
 
+    def test_permission_denied_has_friendly_message(self):
+        # Sync-time PERMISSION_DENIED must surface an actionable message rather than letting the raw
+        # GoogleAdsException propagate to the user, mirroring the validate-time USER_PERMISSION_DENIED.
+        friendly = self.non_retryable["PERMISSION_DENIED"]
+        assert friendly is not None
+        assert "permission" in friendly.lower()
+        assert "reconnect" in friendly.lower()
+
     def test_requested_metrics_for_manager_has_user_facing_message(self):
         message = self.non_retryable["REQUESTED_METRICS_FOR_MANAGER"]
         assert message is not None
