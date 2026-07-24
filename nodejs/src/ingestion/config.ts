@@ -163,8 +163,8 @@ export type IngestionConsumerConfig = {
     // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
     // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
-    // merge operation (merge-storm mitigation). Master switch; when off, no prescan is wired and
-    // behavior is identical to sequential merges.
+    // merge operation (merge-storm mitigation). Master switch; when off, the planning step passes
+    // every event through unplanned and merges stay sequential.
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string

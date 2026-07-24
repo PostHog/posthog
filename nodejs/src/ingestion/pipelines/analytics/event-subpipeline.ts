@@ -52,7 +52,7 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
-    /** Fold plan attached by the merge-fold group prescan; absent when folding is off or the event is not part of a planned run. */
+    /** Fold plan attached by the merge-fold group chunk step; absent when folding is off or the event is not part of a planned run. */
     mergeFoldPlan?: MergeFoldPlan
 }
 
