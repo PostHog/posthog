@@ -227,17 +227,27 @@ class TestPandaDocClient(TestCase):
         [
             # 404 = envelope already gone on PandaDoc's side; that's the state
             # we wanted, so the helper treats it as success.
-            ("404_not_found_treated_as_success", 404, "not found", False),
+            ("404_not_found_treated_as_success", 404, {"type": "not_found"}, False),
+            # 403 permissions_error = the API key's user can't void this
+            # envelope (owner mismatch, or a terminal state we don't own).
+            # Nothing to do for a delete, so treat it as a no-op success.
+            ("403_permissions_error_treated_as_success", 403, {"type": "permissions_error"}, False),
+            # A generic 403 (bad/expired key, WAF block) is a real problem and
+            # must still surface rather than being silently swallowed.
+            ("403_generic_raises", 403, {"type": "authentication_error"}, True),
             # 423 = PandaDoc has the document locked for editing; surface to
             # the caller so it can decide whether to retry or log + move on.
-            ("423_locked_raises", 423, "Document is locked for editing", True),
+            ("423_locked_raises", 423, {"type": "locked"}, True),
         ]
     )
     @override_settings(PANDADOC_API_KEY="key")
-    def test_void_document_status_handling(self, _name: str, status_code: int, text: str, should_raise: bool) -> None:
+    def test_void_document_status_handling(
+        self, _name: str, status_code: int, body: dict[str, str], should_raise: bool
+    ) -> None:
         fake_response = MagicMock()
         fake_response.status_code = status_code
-        fake_response.text = text
+        fake_response.text = str(body)
+        fake_response.json.return_value = body
 
         with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
             if should_raise:
