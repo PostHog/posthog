@@ -2695,6 +2695,24 @@ class TestHogFlowAPI(APIBaseTest):
         # trigger edit racing the dispatch can't widen the confirmed audience.
         assert mock_create_invocation.call_args.kwargs["filters"] == trigger_filters
 
+        # Scheduling is a recurring dispatch - the same gate applies, or the batch_jobs token
+        # check could be sidestepped by scheduling the send instead.
+        schedule_body = {"rrule": "FREQ=DAILY;INTERVAL=1", "starts_at": "2026-08-01T00:00:00Z"}
+        no_token_schedule = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            schedule_body,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert no_token_schedule.status_code == 400, no_token_schedule.json()
+        assert "workflows-blast-radius" in no_token_schedule.json()["detail"]
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
         hog_flow, _ = self._create_hog_flow_with_action(

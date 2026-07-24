@@ -140,6 +140,13 @@ const ScheduleCreateSchema = z.object({
                 'confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it ' +
                 'no longer matches.'
         ),
+    confirm_token: z
+        .string()
+        .describe(
+            'The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. ' +
+                'The API rejects schedule creation without it, and it goes stale when the audience filters change ' +
+                'or after 15 minutes - re-preview to refresh.'
+        ),
     variables: z
         .record(z.string(), z.unknown())
         .optional()
@@ -180,6 +187,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
             body: {
                 rrule: params.rrule,
                 starts_at: params.starts_at,
+                confirm_token: params.confirm_token,
                 ...(params.timezone !== undefined ? { timezone: params.timezone } : {}),
                 ...(params.variables !== undefined ? { variables: params.variables } : {}),
             },

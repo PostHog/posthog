@@ -987,7 +987,9 @@ export class CdpApi {
                     // trigger here would let an edit landing after the confirm check widen the send.
                     // Fallback covers callers that predate the snapshot.
                     properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
-                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                    filter_test_accounts:
+                        req.body.filters?.filter_test_accounts ??
+                        (hogFlow.trigger.filters.filter_test_accounts || false),
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,

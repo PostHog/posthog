@@ -553,7 +553,9 @@ describe('Workflows', { concurrent: false }, () => {
             createdWorkflowIds.push(created.id)
             await enableTool.handler(context, { id: created.id })
 
-            const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
+            const { affected, confirm_token } = parseToolResponse(
+                await blastRadiusTool.handler(context, { workflow_id: created.id })
+            )
 
             const schedule = parseToolResponse(
                 await scheduleCreateTool.handler(context, {
@@ -562,6 +564,7 @@ describe('Workflows', { concurrent: false }, () => {
                     starts_at: new Date().toISOString(),
                     timezone: 'UTC',
                     acknowledged_affected_count: affected,
+                    confirm_token,
                 })
             )
             expect(schedule.id).toBeTypeOf('string')
@@ -590,11 +593,13 @@ describe('Workflows', { concurrent: false }, () => {
             const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
 
             await expect(
+                // Echo-back guard fires before the token is used, so any value works here.
                 scheduleCreateTool.handler(context, {
                     workflow_id: created.id,
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: new Date().toISOString(),
                     acknowledged_affected_count: affected + 1,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(String(affected))
         })

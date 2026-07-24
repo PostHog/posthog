@@ -217,6 +217,7 @@ describe('workflows batch handlers', () => {
                 starts_at: '2026-06-01T00:00:00Z',
                 timezone: 'UTC',
                 acknowledged_affected_count: 3,
+                confirm_token: 'tok-preview',
                 variables: { plan: 'pro' },
             })
 
@@ -228,6 +229,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     timezone: 'UTC',
+                    confirm_token: 'tok-preview',
                     variables: { plan: 'pro' },
                 },
             })
@@ -246,6 +248,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 3,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/50/)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
@@ -264,6 +267,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 3,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/active/i)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
@@ -281,6 +285,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 1,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/batch/)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)

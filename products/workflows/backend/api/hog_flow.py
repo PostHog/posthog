@@ -2890,6 +2890,12 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         if request.method == "POST":
+            # A schedule is a recurring batch dispatch - without this, a programmatic caller could
+            # sidestep the batch_jobs token gate by scheduling the send instead. Same rules: the
+            # web builder keeps its own confirm UI and stays token-free.
+            if get_event_source(request) != EventSource.WEB:
+                self._require_audience_confirm_token(request, hog_flow)
+
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             schedule = serializer.save(team=self.team, hog_flow=hog_flow)
