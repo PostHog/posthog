@@ -1,6 +1,6 @@
 ---
 name: querying-posthog-data
-description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
+description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Also the first stop for a governed business number (MRR, activation, revenue): check the semantic layer (canonical metrics in system.information_schema.metrics) for an approved definition before deriving from raw events. Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
 ---
 
 # Querying data in PostHog
@@ -25,6 +25,24 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 
 1. Look for a matching example under Analytics Query Examples. The list is not exhaustive — there may not be an example for every scenario. If one is a close fit (same domain, similar aggregation), read it; otherwise skip this step.
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
+
+### Answering a headline business number (semantic layer)
+
+When the user asks for a governed business number (MRR, activation rate, active users, ...), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
+
+1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). The table is usually empty; an empty result just means no governed definition exists, so derive the number normally.
+
+   ```sql
+   SELECT name, description, status, is_drifted, definition_kind, unit
+   FROM system.information_schema.metrics
+   WHERE name ILIKE '%mrr%' OR description ILIKE '%revenue%'
+   ```
+
+2. If an `approved`, non-drifted metric fits, run it with `posthog:data-catalog-metric-run` and cite the canonical definition instead of re-deriving. A result is canonical only when `status` is `approved` AND `is_drifted` is false — never present a `proposed` or drifted metric's result as authoritative. A `MarkdownDefinition` metric returns calculation steps in `instructions` (with `results` null) for you to follow.
+
+3. If none fits, derive it yourself, but derive it well: prefer `certified` tables/views and avoid `deprecated` ones (the `certification` column on `system.information_schema.tables`), and use accepted joins from `system.information_schema.relationships` rather than guessing join keys.
+
+Curating the catalog — creating or approving metrics, certifying sources, reviewing the proposal queue — is a separate job covered by the `setting-up-data-catalog` skill. If a derivation is worth reusing, or you notice a clearly load-bearing or stale table while deriving, that skill covers proposing it. Everything an agent proposes lands unapproved for a human to promote, so never present a proposal as canonical.
 
 ## Data Schema
 
