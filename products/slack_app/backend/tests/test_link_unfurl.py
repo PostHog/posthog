@@ -8,7 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -25,6 +27,8 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestParsePosthogResourceLink:
@@ -242,6 +246,43 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "Support Ticket #1" in text
         assert "Requested by:* john@example.com" in text
         assert "New" in text  # default status, humanized
+
+    @parameterized.expand([("resource",), ("object",)])
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_ticket_without_viewer_access(
+        self,
+        denied_scope: str,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "restricted-unfurl@posthog.com", "password")
+        ticket = Ticket.objects.create(team=self.team, ticket_number=5, widget_session_id="s5", distinct_id="d5")
+        if denied_scope == "resource":
+            AccessControl.objects.create(resource="ticket", team=self.team, access_level="none")
+        else:
+            AccessControl.objects.create(
+                resource="ticket",
+                resource_id=str(ticket.id),
+                organization_member=member.organization_memberships.get(organization=self.organization),
+                team=self.team,
+                access_level="none",
+            )
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/project/{self.team.pk}/support/tickets/{ticket.ticket_number}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        mock_client.chat_unfurl.assert_not_called()
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
