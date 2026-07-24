@@ -182,6 +182,38 @@ const PathValueWithHoverLink = ({
     )
 }
 
+// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
+// PathValueWithHoverLink affordance. The value is already a full external URL.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (typeof value !== 'string' || !value) {
+        return <>{value}</>
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{value}</>
+    }
+
+    const url = value.startsWith('http') ? value : `https://${value}`
+
+    return (
+        <span className="inline-flex items-center gap-1">
+            {value}
+            <Link
+                to={url}
+                target="_blank"
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
+            >
+                <Tooltip title="Open URL">
+                    <IconExternal className="text-base" />
+                </Tooltip>
+            </Link>
+        </span>
+    )
+}
+
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
     { isPercentage, reverseColors, isDuration }: VariationCellProps = {
@@ -605,6 +637,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
+        },
+        url: {
+            render: UrlValueCell,
         },
         action_name: {
             title: 'Action',
