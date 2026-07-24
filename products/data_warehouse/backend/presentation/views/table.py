@@ -605,7 +605,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # create_from_upload never sees Excel. Other formats stream to storage untouched.
         if file_format == FORMAT_XLSX:
             try:
-                stored_bytes: bytes | None = excel_to_parquet_bytes(file.read())
+                parquet_bytes = excel_to_parquet_bytes(file.read())
             except ExcelConversionError as e:
                 return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
             except Exception as e:
@@ -613,9 +613,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to convert the Excel file."}
                 )
+            stored_bytes: bytes | None = parquet_bytes
             stored_filename = excel_stored_filename(safe_filename)
             stored_format = FORMAT_PARQUET
-            stored_size = len(stored_bytes)
+            stored_size = len(parquet_bytes)
         else:
             stored_bytes = None
             stored_filename = safe_filename
