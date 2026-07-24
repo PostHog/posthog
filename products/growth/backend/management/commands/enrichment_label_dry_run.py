@@ -15,10 +15,10 @@ from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     classify_payload,
     get_active_config,
-    latest_fetches_qs,
+    recent_latest_fetches_qs,
     signup_email_for_organization,
 )
-from products.growth.backend.models import EnrichmentLabelResult, OrganizationEnrichmentFetch
+from products.growth.backend.models import EnrichmentLabelResult
 
 _COMPANY_WIDTH = 30
 _EMAIL_WIDTH = 28
@@ -67,19 +67,7 @@ class Command(BaseCommand):
 
         client = get_llm_client(product="growth")
 
-        # Sort in Python rather than a DB-side ORDER BY, since latest_fetches_qs is already
-        # ordered/distinct on organization_id for its own contract.
-        recent = sorted(
-            latest_fetches_qs().values_list("id", "fetched_at"),
-            key=lambda pair: pair[1],
-            reverse=True,
-        )[:sample]
-        fetch_ids = [fetch_id for fetch_id, _ in recent]
-        fetches_by_id = {
-            fetch.id: fetch
-            for fetch in OrganizationEnrichmentFetch.objects.filter(id__in=fetch_ids).select_related("organization")
-        }
-        ordered_fetches = [fetches_by_id[fetch_id] for fetch_id in fetch_ids if fetch_id in fetches_by_id]
+        ordered_fetches = list(recent_latest_fetches_qs().select_related("organization")[:sample])
 
         column_widths = [_COMPANY_WIDTH, _EMAIL_WIDTH, _VERDICT_WIDTH, _CONF_WIDTH, _REASONING_WIDTH]
         headers = ["Company", "Email", "Verdict", "Conf", "Reasoning"]

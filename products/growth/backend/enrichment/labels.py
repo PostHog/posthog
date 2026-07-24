@@ -119,5 +119,11 @@ def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
     )
 
 
+def recent_latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
+    """latest_fetches_qs, but orderable and sliceable: DISTINCT ON pins the inner
+    ORDER BY to organization_id, so callers wanting `-fetched_at` need this subquery wrapper."""
+    return OrganizationEnrichmentFetch.objects.filter(id__in=latest_fetches_qs().values("id")).order_by("-fetched_at")
+
+
 def get_active_config(label: str) -> EnrichmentPromptConfig | None:
     return EnrichmentPromptConfig.objects.filter(name=label, is_active=True).first()

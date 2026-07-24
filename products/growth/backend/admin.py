@@ -23,7 +23,7 @@ from posthog.schema_enums import ProductKey
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     classify_payload,
-    latest_fetches_qs,
+    recent_latest_fetches_qs,
     signup_email_for_organization,
 )
 from products.growth.backend.models import (
@@ -410,14 +410,12 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             sample = _DRY_RUN_SAMPLE
         contains = (request.POST.get("contains") or "").strip()
 
-        candidates = latest_fetches_qs()
+        candidates = recent_latest_fetches_qs()
         if contains:
             candidates = candidates.filter(
                 Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
             )
-        recent = sorted(candidates.values_list("id", "fetched_at"), key=lambda p: p[1], reverse=True)
-        fetch_ids = [fetch_id for fetch_id, _ in recent[:sample]]
-        fetches = list(OrganizationEnrichmentFetch.objects.filter(id__in=fetch_ids).select_related("organization"))
+        fetches = list(candidates.select_related("organization")[:sample])
 
         # All ORM work happens here on the request thread; workers only make LLM calls.
         inputs = [(fetch, signup_email_for_organization(fetch.organization)) for fetch in fetches]
