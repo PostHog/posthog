@@ -133,6 +133,10 @@ class EvalReportMetrics:
     previous_result_rates: dict[str, float] | None = None
     pass_rate: float = field(init=False, default=0.0)
     previous_pass_rate: float | None = None
+    # False when the metrics query failed (e.g. ClickHouse capacity) rather than
+    # the period being genuinely empty. Lets consumers avoid reporting a failed
+    # query as a real "0 runs" period. See _compute_metrics in graph.py.
+    metrics_available: bool = True
 
     def __post_init__(self) -> None:
         definition = get_outcome_definition(self.output_type)
@@ -185,6 +189,7 @@ class EvalReportMetrics:
             "previous_total_runs": self.previous_total_runs,
             "previous_result_counts": self.previous_result_counts,
             "previous_result_rates": self.previous_result_rates,
+            "metrics_available": self.metrics_available,
         }
         if self.output_type == "boolean":
             metrics.update(
@@ -221,6 +226,8 @@ class EvalReportMetrics:
                 dict(data["previous_result_rates"]) if data.get("previous_result_rates") is not None else None
             ),
             previous_pass_rate=data.get("previous_pass_rate"),
+            # Historical rows predate this field; treat their metrics as available.
+            metrics_available=bool(data.get("metrics_available", True)),
         )
         if metrics.output_type == "boolean" and data.get("pass_rate") is not None:
             metrics.pass_rate = float(data["pass_rate"])
@@ -244,6 +251,7 @@ _KNOWN_METRIC_FIELDS = {
     "previous_result_rates",
     "pass_rate",
     "previous_pass_rate",
+    "metrics_available",
 } | _LEGACY_BOOLEAN_COUNT_FIELDS
 
 

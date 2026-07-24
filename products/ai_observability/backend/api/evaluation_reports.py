@@ -438,6 +438,10 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Boolean pass percentage for the previous period, or null when unavailable.",
     )
+    metrics_available = serializers.BooleanField(
+        required=False,
+        help_text="False when the metrics query failed rather than the period being genuinely empty; counts and rates are then placeholders and must not be shown as real results. Absent on historical reports, which count as available.",
+    )
 
 
 class EvaluationReportRunContentSerializer(serializers.Serializer):

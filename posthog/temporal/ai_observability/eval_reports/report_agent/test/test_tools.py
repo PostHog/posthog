@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -21,6 +22,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _UUID_RE,
     _ch_ts,
+    _execute_ch_query_with_retry,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -763,6 +765,46 @@ class TestListAndGetReportRun(BaseTest):
         # Agent state is scoped to self.evaluation — other_run must not be visible
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
         self.assertIn("error", result)
+
+
+class TestExecuteChQueryWithRetry(SimpleTestCase):
+    """The query helpers must ride out transient ClickHouse errors instead of dropping analyses."""
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_retries_transient_error_then_succeeds(self, mock_sleep):
+        attempts = {"n": 0}
+
+        def run_query():
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise ClickHouseAtCapacity()
+            return "ok"
+
+        result = _execute_ch_query_with_retry(run_query, query_type="Test", base_delay=0.0)
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(attempts["n"], 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_reraises_after_exhausting_retries(self, mock_sleep):
+        def run_query():
+            raise ClickHouseAtCapacity()
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            _execute_ch_query_with_retry(run_query, query_type="Test", max_retries=2, base_delay=0.0)
+
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_does_not_retry_non_transient_error(self, mock_sleep):
+        def run_query():
+            raise ValueError("bug")
+
+        with self.assertRaises(ValueError):
+            _execute_ch_query_with_retry(run_query, query_type="Test", base_delay=0.0)
+
+        mock_sleep.assert_not_called()
 
 
 class TestToolsCoordinate(SimpleTestCase):

@@ -44,11 +44,19 @@ def _compute_metrics(
 ) -> EvalReportMetrics:
     """Compute report metrics directly via HogQL (independent of agent state).
 
-    Always returns a valid EvalReportMetrics — on query failure, returns one
-    with zero counts and logs the exception. The agent cannot fabricate numbers
-    because this function is the sole source of truth for `content.metrics`.
+    Always returns a valid EvalReportMetrics. On query failure (e.g. ClickHouse
+    at capacity, which the query helpers already retry with backoff before giving
+    up) it returns one flagged `metrics_available=False` and logs the exception —
+    a failed query must never be reported as a genuine "0 runs" period. The agent
+    cannot fabricate numbers because this function is the sole source of truth for
+    `content.metrics`.
     """
-    empty = EvalReportMetrics(output_type=output_type, period_start=period_start, period_end=period_end)
+    unavailable = EvalReportMetrics(
+        output_type=output_type,
+        period_start=period_start,
+        period_end=period_end,
+        metrics_available=False,
+    )
 
     try:
         ts_start = _ch_ts(period_start)
@@ -74,7 +82,7 @@ def _compute_metrics(
         )
     except Exception:
         logger.exception("llma_eval_reports_metrics_computation_failed")
-        return empty
+        return unavailable
 
 
 def _fallback_content(
@@ -89,7 +97,14 @@ def _fallback_content(
     the fallback report has real numbers. The single section describes what
     went wrong at the agent level so the user isn't left staring at an empty UI.
     """
-    if metrics.total_runs == 0:
+    if not metrics.metrics_available:
+        # A failed metrics query must not masquerade as a real "0 runs" period.
+        summary = (
+            f"Metrics for **{evaluation_name}** could not be computed for this period because the "
+            "analytics store was temporarily unavailable. This does not mean no evaluations ran — "
+            "the numbers will be picked up on the next scheduled report once load subsides."
+        )
+    elif metrics.total_runs == 0:
         ingestion_hint = (
             "trace evaluation results are being ingested"
             if evaluation_target == "trace"
@@ -224,6 +239,26 @@ def run_eval_report_agent(
         evaluation_target=evaluation_target,
     )
 
+    from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
+
+    # If the metrics query failed even after retries, ClickHouse is under sustained
+    # load — the agent's own query tools would fail the same way and produce a
+    # narrative built on missing data. Skip the (expensive) agent run and return a
+    # fallback that says metrics are unavailable rather than reporting a false "0 runs".
+    if not metrics.metrics_available:
+        increment_report_generated("fallback_metrics_unavailable")
+        logger.warning(
+            "llma_eval_reports_metrics_unavailable",
+            team_id=team_id,
+            evaluation_id=evaluation_id,
+        )
+        return _fallback_content(
+            evaluation_name,
+            metrics,
+            "metrics query failed after retries (ClickHouse unavailable)",
+            evaluation_target,
+        )
+
     llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
 
     system_prompt = build_eval_report_system_prompt(
@@ -265,8 +300,6 @@ def run_eval_report_agent(
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
         "trace_id_allowlist": [],
     }
-
-    from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
 
     # Skip in gateway mode: the Go gateway captures $ai_generation itself, so the
     # SDK callback would double-count. Same gate the model routing above reads.

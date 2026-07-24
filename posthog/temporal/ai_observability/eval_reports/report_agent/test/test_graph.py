@@ -87,6 +87,23 @@ class TestComputeMetrics(SimpleTestCase):
 
         self.assertEqual(metrics.result_rates, {"positive": 50.0, "neutral": 25.0, "negative": 25.0})
         self.assertEqual(metrics.previous_result_rates, {"positive": 50.0, "neutral": 50.0, "negative": 0.0})
+        self.assertTrue(metrics.metrics_available)
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_query_failure_flags_metrics_unavailable_not_zero_runs(self, mock_fetch):
+        # A failed query must not be reported as a genuine 0-run period.
+        mock_fetch.side_effect = Exception("ClickHouseAtCapacity")
+
+        metrics = graph._compute_metrics(
+            team_id=1,
+            evaluation_id="eval-id",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+
+        self.assertFalse(metrics.metrics_available)
+        self.assertEqual(metrics.total_runs, 0)
 
 
 class TestFallbackContent(SimpleTestCase):
@@ -103,6 +120,17 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("No evaluation runs", content.sections[0].content)
         self.assertIn("agent timed out", content.sections[0].content)
         self.assertEqual(content.metrics, metrics)
+
+    def test_unavailable_metrics_do_not_claim_no_runs(self):
+        # total_runs is 0 here, but the query failed rather than the period being empty.
+        metrics = EvalReportMetrics(total_runs=0, metrics_available=False)
+
+        content = _fallback_content("Relevance", metrics, "metrics query failed after retries")
+        body = content.sections[0].content
+
+        self.assertNotIn("No evaluation runs", body)
+        self.assertIn("could not be computed", body)
+        self.assertIn("does not mean no evaluations ran", body)
 
     def test_trace_zero_runs_uses_trace_specific_ingestion_hint(self):
         metrics = EvalReportMetrics(total_runs=0)
@@ -323,6 +351,41 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
+    """When metrics can't be computed, skip the agent and return an honest fallback.
+
+    Running the agent would burn an expensive LLM loop on query tools that fail the
+    same way, and could produce a narrative built on missing data.
+    """
+
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "_compute_metrics")
+    def test_metrics_unavailable_skips_agent_and_returns_fallback(
+        self, mock_metrics, mock_create_agent, mock_build_llm, mock_pha
+    ):
+        mock_pha.default_client = None
+        mock_metrics.return_value = EvalReportMetrics(metrics_available=False)
+
+        content = graph.run_eval_report_agent(
+            team_id=1,
+            evaluation_id="eval-1",
+            evaluation_name="Relevance",
+            evaluation_description="",
+            evaluation_prompt="",
+            evaluation_type="llm_judge",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+
+        mock_create_agent.assert_not_called()
+        mock_build_llm.assert_not_called()
+        self.assertFalse(content.metrics.metrics_available)
+        self.assertIn("could not be computed", content.sections[0].content)
 
 
 class TestRunEvalReportAgentCallbackGating(SimpleTestCase):

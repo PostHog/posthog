@@ -53,6 +53,7 @@ describe('EvaluationReportViewer', () => {
             'Pass rate 77.8% · Pass 7 · Fail 2 · N/A 1',
         ],
         ['partial boolean metrics', { pass_rate: 80 }, 'Pass rate 80.0%'],
+        ['unavailable metrics', { metrics_available: false }, 'Metrics unavailable'],
         [
             'partial sentiment metrics',
             {
@@ -83,6 +84,15 @@ describe('EvaluationReportViewer', () => {
         expect(screen.getByText('Fail').nextElementSibling?.classList.contains('text-danger')).toBe(true)
         expect(screen.getByText(/8.89pp vs previous/).classList.contains('text-success')).toBe(true)
         expect(screen.queryByText('(80.00%)')).toBeNull()
+    })
+
+    it('renders a metrics-unavailable notice instead of a zero-run table', () => {
+        const metrics = buildMetrics({ total_runs: 0, metrics_available: false })
+
+        render(<EvaluationReportViewer reportRun={buildReportRun(metrics)} compact />)
+
+        expect(screen.getByText(/could not be computed/)).toBeTruthy()
+        expect(screen.queryByText('Total runs')).toBeNull()
     })
 
     it('shows sentiment outcome distribution without boolean pass-rate framing', () => {
