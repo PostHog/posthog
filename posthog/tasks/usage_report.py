@@ -2325,40 +2325,34 @@ def get_teams_with_apm_tracing_usage_in_period(
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
     """
-    Returns Distributed Tracing (APM) span counts and ingested bytes per team for the period,
-    keyed by `spans` / `bytes`; each value is a list of `(team_id, count)` tuples ready for
+    Returns Distributed Tracing (APM) ingested bytes and span counts per team for the period,
+    keyed by `bytes` / `spans`; each value is a list of `(team_id, count)` tuples ready for
     `convert_team_usage_rows_to_dict`.
 
-    Unlike logs, tracing has no ingestion consumer emitting pre-aggregated `app_metrics2` counters
-    (spans go from capture straight into ClickHouse via the Kafka engine), so usage is aggregated
-    from `trace_spans_distributed` directly. The Kafka MV copies the batch-level
-    `bytes_uncompressed` / `record_count` headers verbatim onto every row of a batch, so bytes must
-    be divided by `_record_count` per row to avoid overcounting by the batch size.
-
-    NB: query the physical `trace_spans_distributed` table — raw `sync_execute` runs ClickHouse SQL
-    directly, where HogQL-only aliases don't resolve (same constraint as `logs_distributed` above).
+    The traces ingestion consumer subclasses the logs consumer, so it emits the same
+    pre-aggregated `app_metrics2` counters under `app_source='traces'`. A span is one record,
+    so `records_ingested` is the span count.
     """
     with tags_context(product=Product.TRACING, feature=Feature.USAGE_REPORT):
         rows = sync_execute(
             """
-            SELECT
-                team_id,
-                count() AS spans,
-                toUInt64(SUM(_bytes_uncompressed / _record_count)) AS bytes
-            FROM trace_spans_distributed
-            WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            GROUP BY team_id
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='traces'
+              AND metric_name IN ('bytes_ingested', 'records_ingested')
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
             """,
             {"begin": begin, "end": end},
-            # Trace spans live on the logs ClickHouse cluster, hence LOGS despite Product.TRACING.
-            workload=Workload.LOGS,
+            workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
-    usage: dict[str, list[tuple[int, int]]] = {"spans": [], "bytes": []}
-    for team_id, spans, bytes_ingested in rows:
-        usage["spans"].append((team_id, spans))
-        usage["bytes"].append((team_id, bytes_ingested))
+    key_by_metric = {"bytes_ingested": "bytes", "records_ingested": "spans"}
+    usage: dict[str, list[tuple[int, int]]] = {"bytes": [], "spans": []}
+    for team_id, metric_name, count in rows:
+        usage[key_by_metric[metric_name]].append((team_id, count))
     return usage
 
 

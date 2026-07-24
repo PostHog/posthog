@@ -1,4 +1,3 @@
-import re
 import gzip
 import json
 import base64
@@ -41,10 +40,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.traces.spans import (
-    KAFKA_TRACE_SPANS_AVRO_MV,
-    TABLE_NAME as TRACE_SPANS_LOCAL_TABLE,
-)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Project, Team
@@ -3262,63 +3257,25 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
 
-    def _trace_spans_json(self, team_id: int, span_count: int, batch_bytes: int) -> str:
-        # Every row of a batch carries the batch-level headers, as the Kafka MV writes them.
-        lines = ""
-        for _ in range(span_count):
-            lines += (
-                json.dumps(
-                    {
-                        "uuid": str(uuid4()),
-                        "team_id": team_id,
-                        "trace_id": str(uuid4()),
-                        "span_id": str(uuid4()),
-                        "timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                        "end_time": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                        "observed_timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                        # TTL is on original_expiry_timestamp against the real (unfrozen) clock;
-                        # rows born expired vanish, so pin it far in the future.
-                        "original_expiry_timestamp": "2999-01-01 00:00:00",
-                        "service_name": "test-service",
-                        "_bytes_uncompressed": batch_bytes,
-                        "_record_count": span_count,
-                    }
-                )
-                + "\n"
-            )
-        return lines
-
     @parameterized.expand(
         [
-            # One 4-span batch: a naive SUM(_bytes_uncompressed) would report 16000; dividing by
-            # _record_count per row must recover the true 4000.
-            (
-                "multi_span_batch_dedups_bytes",
-                [(4, 4_000)],
-                {
-                    "apm_tracing_bytes_in_period": 4_000,
-                    "apm_tracing_spans_in_period": 4,
-                    "apm_tracing_mb_in_period": 0,
-                },
-            ),
-            # Batches of one span each: bytes are simply summed.
-            (
-                "single_span_batches",
-                [(1, 500), (1, 500), (1, 500)],
-                {
-                    "apm_tracing_bytes_in_period": 1_500,
-                    "apm_tracing_spans_in_period": 3,
-                    "apm_tracing_mb_in_period": 0,
-                },
-            ),
             # MB is floored to whole decimal MB like logs_mb_in_period.
             (
-                "mb_floors_decimal_megabytes",
-                [(2, 2_500_000)],
+                "with_usage",
+                {"bytes_ingested": 2_500_000, "records_ingested": 40},
                 {
                     "apm_tracing_bytes_in_period": 2_500_000,
-                    "apm_tracing_spans_in_period": 2,
+                    "apm_tracing_spans_in_period": 40,
                     "apm_tracing_mb_in_period": 2,
+                },
+            ),
+            (
+                "sub_mb_floors_to_zero",
+                {"bytes_ingested": 999_999, "records_ingested": 5},
+                {
+                    "apm_tracing_bytes_in_period": 999_999,
+                    "apm_tracing_spans_in_period": 5,
+                    "apm_tracing_mb_in_period": 0,
                 },
             ),
         ]
@@ -3328,19 +3285,27 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_apm_tracing_usage_metrics(
         self,
         _name: str,
-        batches: list[tuple[int, int]],
+        metrics: dict[str, int],
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
     ) -> None:
         self._setup_teams()
 
-        sync_execute(f"TRUNCATE TABLE IF EXISTS {TRACE_SPANS_LOCAL_TABLE}")
-
-        lines = ""
-        for span_count, batch_bytes in batches:
-            lines += self._trace_spans_json(self.org_1_team_1.id, span_count, batch_bytes)
-        sync_execute(f"INSERT INTO trace_spans_distributed FORMAT JSONEachRow\n{lines}")
+        for metric_name, count in metrics.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="traces",
+                metric_name=metric_name,
+                count=count,
+            )
+        # Same metric names under the logs app_source must not leak into the tracing counters.
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=77_000_000,
+        )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -3350,29 +3315,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        # Only org_1_team_1 has spans, so the org-level rollup equals that single team's values.
+        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
             assert team_1_report[field] == value, field
-
-    @parameterized.expand(["_bytes_uncompressed", "_record_count"])
-    def test_trace_spans_mv_keeps_batch_level_headers(self, column: str) -> None:
-        # get_teams_with_apm_tracing_usage_in_period computes bytes as
-        # SUM(_bytes_uncompressed / _record_count), which is only correct while the trace spans
-        # Kafka MV copies the batch-level headers verbatim onto every row. If the MV is changed to
-        # divide at ingest (as the logs MV does), the billing query would double-divide and
-        # undercount from the cutover onward — and no data-backed test can catch that, because the
-        # two conventions are indistinguishable from row values alone. Change the MV and the billing
-        # query together, and account for historical rows still carrying batch-level values.
-        mv_sql = KAFKA_TRACE_SPANS_AVRO_MV()
-        expressions = re.findall(rf"^\s*(.+)\s+AS {column},?$", mv_sql, re.MULTILINE)
-        assert len(expressions) == 1, f"expected exactly one `AS {column}` in the trace spans Kafka MV"
-        assert f"'{column.removeprefix('_')}'" in expressions[0], f"{column} no longer read from the Kafka header"
-        assert "/" not in expressions[0], (
-            f"{column} is no longer the verbatim batch-level header; "
-            "update get_teams_with_apm_tracing_usage_in_period's bytes formula in the same change"
-        )
 
 
 @freeze_time("2022-01-10T10:00:00Z")
