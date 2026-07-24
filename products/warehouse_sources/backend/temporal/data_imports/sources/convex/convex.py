@@ -10,6 +10,7 @@ from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
+    ReadTimeout,
     RequestException,
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -110,16 +111,18 @@ _COMPONENT_TABLE_DELIMITER = "."
 
 
 @retry(
-    retry=retry_if_exception_type(ChunkedEncodingError),
+    # ChunkedEncodingError is a mid-stream connection break (after response headers, so
+    # _CONVEX_RETRY — a urllib3 Retry, which only covers pre-response failures — never sees it).
+    # ReadTimeout/ConnectionError can also reach here after _CONVEX_RETRY exhausts its own
+    # (much shorter) backoff; retrying them here too gives large snapshot/delta pages a longer
+    # backoff window before failing the whole sync. Every Convex read is an idempotent GET, so a
+    # fresh request safely re-fetches the page.
+    retry=retry_if_exception_type((ChunkedEncodingError, ReadTimeout, RequestsConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
 def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int) -> Response:
-    # requests reads the body eagerly (stream=False), so a connection broken mid-chunk surfaces
-    # here as ChunkedEncodingError — it happens after the response headers, so _CONVEX_RETRY (a
-    # urllib3 Retry, which only covers pre-response failures) never sees it. It's transient and
-    # every Convex read is an idempotent GET, so a fresh request re-fetches the page.
     return make_tracked_session(retry=_CONVEX_RETRY).get(
         url, headers=_headers(deploy_key), params=params, timeout=timeout
     )

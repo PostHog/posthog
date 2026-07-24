@@ -642,8 +642,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["POST"], detail=True)
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
-        real (billable) warehouse sync; the incremental person-property update runs off it."""
+        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
+        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+        off it."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -654,7 +655,7 @@ class CustomPropertySourceViewSet(
         except api.WarehouseSyncPausedError as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
-            raise ValidationError("This action is only available for enabled person-property sources.")
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
         return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
@@ -664,8 +665,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: start a backfill that reads the whole warehouse table and populates
-        person properties for historical rows. Coalesces if one is already running for the table."""
+        """Person and group sources only: start a backfill that reads the whole warehouse table and
+        populates person or group properties for historical rows. Coalesces if one is already running
+        for the table."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(
@@ -677,7 +679,7 @@ class CustomPropertySourceViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         if started is None:
-            raise ValidationError("This action is only available for enabled person-property sources.")
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
         return Response(
             {"status": "started" if started else "already_running", "already_running": not started},
             status=status.HTTP_202_ACCEPTED,
@@ -689,8 +691,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: the source's sync/backfill run history, newest first. Gated on the
-        caller's warehouse-source viewer access, since the runs expose its row counts and sync errors."""
+        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
+        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+        errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (

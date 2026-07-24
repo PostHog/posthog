@@ -24,6 +24,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
 from products.replay_vision.backend.scanner_access import readable_scanner_ids
@@ -75,11 +76,29 @@ same finding in different words, or invent themes, motivations, or opportunities
 not contain.
 
 A header line naming the scanner, the time window, and the recording count is added automatically above
-your output — do not restate that metadata; focus on the observations' content.
+your output — do not restate that metadata; focus on the observations' content. In particular, never state
+your own count of how many recordings, sessions, or observations this summary covers (e.g. "based on 59
+sessions") — the header already carries the authoritative count and any number you write will contradict it.
+Do not claim the observations are the complete set either — when a window holds more than fit, the header
+says the report covers only a sample, so never describe it as "all" or "every" session in the period.
 
 Ground every theme and claim in the observations: when a pattern rests on only one or two observations,
 or you are inferring beyond what they state, say so rather than overstating it — prefer hedging over a
 confident claim the observations do not support.
+
+Every observation you cite must itself support the specific claim it is attached to — a citation is a
+promise that a reader who opens that observation will find the thing you claimed. Each observation line
+carries explicit outcome signals: a summarizer line shows `outcome: …` and either `friction: none` or
+`friction: <specific problems>`; a monitor shows `verdict=`; a classifier shows `tags=`. Read those signals,
+do not just pattern-match the prose. This matters most for negative claims (errors, failures, friction,
+confusion, abandonment): only cite an observation for such a claim if its own signals report that same
+problem. An observation marked `friction: none` is a clean session — never cite it as evidence of an error,
+even if its topic is related. Do not turn a single real failure into a multi-observation trend by padding
+its citation list with sessions that did not hit it, and remember a classifier's tag can be coarse (a bare
+`abandoned` does not say what was abandoned) — only group it with a specific claim when its own text
+confirms that context. If only one observation shows the problem, cite only that one and say it happened
+once, rather than manufacturing a cluster. When counting how many observations share a pattern, count only
+the ones whose signals actually exhibit it.
 
 Each observation in the data is labeled with a bracketed reference like `[obs 3]`. When a theme or claim
 rests on particular observations, cite them by appending those exact labels at the end of that sentence
@@ -120,6 +139,119 @@ def _cap_citation_runs(markdown: str) -> str:
         return " ".join(markers[:_MAX_CITATIONS_PER_RUN])
 
     return _CITATION_RUN_RE.sub(_trim, markdown)
+
+
+# Words that mark a claim as being about a problem — an error, failure, or friction. Used to decide
+# whether a cited observation must itself report friction (see `_validate_citations`). Deliberately broad:
+# a false negative here just skips the check for that sentence, so over-including is safer than missing one.
+_NEGATIVE_CLAIM_RE = re.compile(
+    r"\b(error|errors|fail|failed|failure|failing|blocked?|blocking|broken|"
+    r"friction|frustrat\w*|confus\w*|abandon\w*|stuck|struggl\w*|drop[- ]?off|dropped|"
+    r"dead[- ]?click\w*|rage[- ]?click\w*|crash\w*|bug|bugs|issue|issues|problem|problems|"
+    r"unable|can'?t|cannot|couldn'?t|didn'?t work|not work\w*|timeout|timed out|unresponsive|"
+    r"invalid|expired|denied|reject\w*|missing|hang\w*|slow|buffering|glitch\w*)\b",
+    re.IGNORECASE,
+)
+
+
+class _ObsFacts(NamedTuple):
+    """The machine-readable outcome signals for one observation, kept alongside its `[obs N]` index so a
+    citation can be checked against what the observation actually concluded — not just its prose. Populated
+    from the scanner's structured output (summarizer `outcome`/`friction_points`, monitor `verdict`,
+    classifier `tags`), which is more reliable than re-reading the free-text body."""
+
+    # True when the observation itself reports a problem: summarizer friction_points is non-empty, a monitor
+    # verdict is `yes` (for a friction-detecting monitor), or a classifier carries an error/friction tag.
+    reports_friction: bool
+    # True when we could read a definite non-friction success signal (summarizer outcome present with empty
+    # friction_points). Distinguishes "confirmed clean" from "can't tell" so validation only drops a negative
+    # citation when the observation is affirmatively a success, never on missing data.
+    reports_success: bool
+
+
+# Classifier tags (fixed or freeform) whose presence means the session hit a problem. Matched
+# case-insensitively as substrings so `blocked_by_error`, `frustrated or confused`, etc. all count.
+_FRICTION_TAG_HINTS = ("error", "blocked", "fail", "friction", "frustrat", "confus", "abandon", "stuck", "rage")
+
+
+def _observation_facts(output: dict[str, Any]) -> _ObsFacts:
+    scanner_type = output.get("scanner_type")
+    if scanner_type == ScannerType.SUMMARIZER:
+        friction = output.get("friction_points") or []
+        has_friction = isinstance(friction, list) and len(friction) > 0
+        outcome = output.get("outcome")
+        # A summarizer with a written outcome and no friction points is an affirmative clean session.
+        clean = not has_friction and isinstance(outcome, str) and bool(outcome.strip())
+        return _ObsFacts(reports_friction=has_friction, reports_success=clean)
+    if scanner_type == ScannerType.MONITOR:
+        verdict = output.get("verdict")
+        return _ObsFacts(reports_friction=verdict == "yes", reports_success=verdict == "no")
+    if scanner_type == ScannerType.CLASSIFIER:
+        tags = [str(t).lower() for t in (*(output.get("tags") or []), *(output.get("tags_freeform") or []))]
+        has_friction = any(hint in tag for tag in tags for hint in _FRICTION_TAG_HINTS)
+        # Classifier tags are context-free (a bare `abandoned` doesn't say abandoned-what), so never treat a
+        # classifier as an affirmative success — only as "reports friction or not enough to judge".
+        return _ObsFacts(reports_friction=has_friction, reports_success=False)
+    return _ObsFacts(reports_friction=False, reports_success=False)
+
+
+def _synthesis_descriptor(output: dict[str, Any]) -> str | None:
+    """The per-line descriptor fed to synthesis. Extends the shared `describe_output` (verdict/score/tags/
+    title) with a summarizer's structured `outcome` and friction status, so the model reads an explicit
+    success-vs-friction signal on the line rather than inferring it from prose — the signal it was missing
+    when it cited clean sessions as errors."""
+    descriptor = describe_output(output)
+    if output.get("scanner_type") != ScannerType.SUMMARIZER:
+        return descriptor
+    facts = _observation_facts(output)
+    friction = output.get("friction_points") or []
+    if facts.reports_friction:
+        friction_note = f"friction: {', '.join(str(f) for f in friction)}"
+    else:
+        friction_note = "friction: none"
+    outcome = output.get("outcome")
+    outcome_note = f"outcome: {str(outcome).strip()}" if isinstance(outcome, str) and outcome.strip() else None
+    parts = [p for p in (descriptor, outcome_note, friction_note) if p]
+    return " — ".join(parts) if parts else None
+
+
+def _validate_citations(markdown: str, facts_by_index: dict[int, _ObsFacts]) -> tuple[str, int]:
+    """Drop `[obs N]` markers that cite an observation contradicting the claim they're attached to.
+
+    Conservative by design: a marker is removed only when the sentence it sits in makes a negative claim
+    (error/failure/friction) AND the cited observation affirmatively reports success with no friction. That
+    is the fabricated-cluster failure mode — a clean session cited as evidence of an error. Ambiguous cases
+    (no clear success signal, non-negative claims, out-of-range indices) are left untouched; out-of-range
+    markers are still resolved/dropped downstream by the link pass. Returns the cleaned markdown and the
+    number of markers dropped. Never rewrites prose — only removes false citations, mirroring how the Slack
+    pass already drops unresolved markers."""
+    dropped = 0
+
+    def _clean_sentence(sentence: str) -> str:
+        nonlocal dropped
+        if not _NEGATIVE_CLAIM_RE.search(sentence):
+            return sentence
+
+        def _check(match: "re.Match[str]") -> str:
+            n = int(match.group(1))
+            obs = facts_by_index.get(n)
+            # Drop only when the observation is an affirmative success with no friction — never on "can't tell".
+            if obs is not None and obs.reports_success and not obs.reports_friction:
+                nonlocal dropped
+                dropped += 1
+                return ""
+            return match.group(0)
+
+        return _OBS_CITATION_RE.sub(_check, sentence)
+
+    # Split on sentence boundaries so "negative claim" is scoped to the sentence a marker sits in, not the
+    # whole report. Keep the delimiters so the text reassembles verbatim apart from removed markers.
+    parts = re.split(r"(?<=[.!?\n])", markdown)
+    cleaned = "".join(_clean_sentence(p) for p in parts)
+    # Collapse any double spaces / stranded separators left where a marker was removed mid-run.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([.,;])", r"\1", cleaned)
+    return cleaned, dropped
 
 
 @activity.defn
@@ -166,6 +298,17 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         # read as "not done" to the idempotency guard above and re-bill the LLM on every retry.
         logger.warning("vision_action.synthesis.empty_output", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
+
+    # Drop citations that contradict the claim they're attached to (a clean session cited as an error)
+    # before capping — this is the fabricated-cluster guard the prompt alone can't guarantee.
+    markdown, dropped_citations = _validate_citations(markdown, batch.facts_by_index)
+    if dropped_citations:
+        logger.info(
+            "vision_action.synthesis.citations_dropped",
+            vision_action_id=str(action.id),
+            run_id=str(run.pk),
+            dropped=dropped_citations,
+        )
 
     # Trim runaway citation lists before persisting (see `_cap_citation_runs`).
     markdown = _cap_citation_runs(markdown)
@@ -272,6 +415,9 @@ class _ObservationBatch(NamedTuple):
     # Total SUCCEEDED observations in the window before the cap. When it exceeds the number summarized,
     # the report only covers a sample — surfaced in the header so the reader knows it isn't exhaustive.
     window_total: int
+    # Per 1-based `[obs N]` index, the observation's machine-readable outcome signals — so the citation
+    # validator can drop a negative-claim citation that points at an affirmatively clean session.
+    facts_by_index: dict[int, "_ObsFacts"]
 
 
 def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
@@ -297,7 +443,7 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
             readable=len(scanner_ids),
         )
     if not scanner_ids:
-        return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0)
+        return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0, facts_by_index={})
 
     window_start = _window_start(team, action, run)
     observations_qs = ReplayObservation.objects.filter(
@@ -339,6 +485,7 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
 
     lines: list[str] = []
     observation_ids: list[str] = []
+    facts_by_index: dict[int, _ObsFacts] = {}
     for observation_id, scanner_result, created_at in rows:
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
@@ -346,24 +493,30 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         # Summarizers emit `summary`; monitor/classifier/scorer emit only `reasoning`. Fall back to
         # reasoning (an empty summary counts as absent) so a group summary works on any scanner type —
         # otherwise a non-summarizer action skips as empty. Each line then leads with the scanner's
-        # outcome (verdict / score / tags, or the summarizer's title) so the model reads what the
-        # observation concluded rather than inferring it from the prose.
+        # outcome (verdict / score / tags, plus a summarizer's outcome + friction status) so the model
+        # reads what the observation concluded rather than inferring it from the prose.
         text = output.get("summary") or output.get("reasoning")
         if not isinstance(text, str) or not text.strip():
             continue
         # Collapse to a single line: keeps the feed one-observation-per-line and stops recording-derived
         # text from forging extra descriptor-bearing lines inside the untrusted fence.
         clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()
-        descriptor = describe_output(output)
+        descriptor = _synthesis_descriptor(output)
         # Label each line `[obs N]` (1-based) so the model can cite it; N tracks `observation_ids` order,
         # which the serializer mirrors as `index`.
-        label = f"[obs {len(observation_ids) + 1}]"
+        index = len(observation_ids) + 1
+        label = f"[obs {index}]"
         lines.append(f"- {label} ({created_at:%Y-%m-%d}) {f'{descriptor}: ' if descriptor else ''}{clean}")
         # Recorded in lockstep with `lines`: only observations whose summary was actually included.
         observation_ids.append(str(observation_id))
+        facts_by_index[index] = _observation_facts(output)
 
     return _ObservationBatch(
-        lines=lines, observation_ids=observation_ids, window_start=window_start, window_total=window_total
+        lines=lines,
+        observation_ids=observation_ids,
+        window_start=window_start,
+        window_total=window_total,
+        facts_by_index=facts_by_index,
     )
 
 
