@@ -90,6 +90,8 @@ describe('EmailService', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -106,7 +108,14 @@ describe('EmailService', () => {
     describe('when SES is not configured', () => {
         it('should not crash on construction and should fail explicitly on send', async () => {
             const serviceWithoutSES = new EmailService(
-                { sesAccessKeyId: '', sesSecretAccessKey: '', sesRegion: '', sesEndpoint: '' },
+                {
+                    sesAccessKeyId: '',
+                    sesSecretAccessKey: '',
+                    sesRegion: '',
+                    sesEndpoint: '',
+                    sesTrackedConfigurationSet: 'posthog-messaging',
+                    sesUntrackedConfigurationSet: '',
+                },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
@@ -671,6 +680,38 @@ describe('EmailService', () => {
             // The SES EmailTag carries a *different* (shorter, unsigned) code so it stays under the
             // 256-char tag-value limit even when distinct_id is long.
             expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
+        })
+
+        describe('per-send tracking gate (tracking_enabled)', () => {
+            // Would be tracked if the gate regressed: has an anchor to rewrite and a </body> to pixel.
+            const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
+
+            beforeEach(() => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
+                invocation.hogFunction.metadata = { tracking_enabled: false }
+            })
+
+            it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
+                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging-untracked')
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
+                // Delivery/bounce attribution must survive tracking-off: the untracked configuration
+                // set still emits delivery events, and the webhook needs this header to attribute them.
+                const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
+                expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            })
+
+            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
+            })
         })
 
         it('should report a missing message id', async () => {

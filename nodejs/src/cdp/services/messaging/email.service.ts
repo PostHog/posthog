@@ -12,6 +12,7 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { logger } from '~/common/utils/logger'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
@@ -80,6 +81,11 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
+    // Configuration set with ESP-level open/click tracking enabled.
+    sesTrackedConfigurationSet: string
+    // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
+    // sends fall back to the tracked set (with a warning) rather than failing.
+    sesUntrackedConfigurationSet: string
 }
 
 /**
@@ -330,6 +336,33 @@ export class EmailService {
         return `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`
     }
 
+    // Per-send engagement tracking gate, set via `tracking_enabled` on the workflow email step's
+    // config (flows here through `hogFunction.metadata`, same as `message_category_type`). Absent
+    // means tracked, so email destination hog functions (which have no such config) keep tracking.
+    private isTrackingEnabled(invocation: CyclotronJobInvocationHogFunction): boolean {
+        return invocation.hogFunction?.metadata?.tracking_enabled !== false
+    }
+
+    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
+    // destination (suppression and the Metrics tab depend on those events); they differ only in
+    // ESP-level open/click tracking.
+    private resolveConfigurationSetName(
+        trackingEnabled: boolean,
+        invocation: CyclotronJobInvocationHogFunction
+    ): string {
+        if (trackingEnabled) {
+            return this.sesConfig.sesTrackedConfigurationSet
+        }
+        if (this.sesConfig.sesUntrackedConfigurationSet) {
+            return this.sesConfig.sesUntrackedConfigurationSet
+        }
+        logger.warn(
+            'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
+            { teamId: invocation.teamId, functionId: invocation.functionId }
+        )
+        return this.sesConfig.sesTrackedConfigurationSet
+    }
+
     private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
@@ -350,13 +383,18 @@ export class EmailService {
         isTest = false
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const trackingEnabled = this.isTrackingEnabled(result.invocation)
         const mailOptions: SendMailOptions = {
             from: from.name ? `"${from.name}" <${from.email}>` : from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
             ...(params.html
-                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                ? {
+                      html: trackingEnabled
+                          ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                          : params.html,
+                  }
                 : {}),
         }
 
@@ -394,12 +432,15 @@ export class EmailService {
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
         const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
+        const trackingEnabled = this.isTrackingEnabled(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                          trackingEnabled
+                              ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                              : params.html,
                           params.preheader
                       ),
                       Charset: 'UTF-8',
@@ -427,7 +468,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: 'posthog-messaging',
+            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],

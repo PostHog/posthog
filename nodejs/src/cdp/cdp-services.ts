@@ -146,6 +146,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'SES_TRACKED_CONFIGURATION_SET'
+        | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
@@ -407,6 +409,8 @@ export function createCdpCoreServices(
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,

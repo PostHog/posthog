@@ -519,6 +519,8 @@ export function createHogTransformerService(
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
