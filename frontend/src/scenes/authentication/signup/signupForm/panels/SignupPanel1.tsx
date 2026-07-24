@@ -94,8 +94,10 @@ export function SignupPanel1(): JSX.Element | null {
                     // If we're in the demo environment, login is unified with signup and it's passwordless
                     // For now, if you're not on Cloud, you wouldn't see this page,
                     // but future-proofing this (with `preflight.initiated`) in case this changes
+                    // Bare text is span-wrapped: Chrome's in-page translation replaces text nodes with <font>
+                    // elements, which crashes React's sibling insert/remove operations (react#11538).
                     <div className="text-center mt-4">
-                        Already have an account?{' '}
+                        <span>Already have an account?</span>{' '}
                         <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
                             Log in
                         </Link>

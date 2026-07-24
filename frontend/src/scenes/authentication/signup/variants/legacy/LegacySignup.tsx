@@ -87,29 +87,31 @@ export function SignupLeftContainer(): JSX.Element {
                     </div>
                 ))}
             </div>
+            {/* Bare text nodes are span-wrapped: Chrome's in-page translation replaces text nodes with <font>
+                elements, which crashes React's sibling insert/remove operations (react#11538). */}
             <div className="BridgePage__cta border rounded p-4 mt-8 text-center">
-                Did you know?
+                <span>Did you know?</span>
                 {preflight?.cloud ? (
                     <span>
                         {' '}
-                        You can use our{' '}
+                        <span>You can use our</span>{' '}
                         <Link to={getRegionUrl(preflight?.region === Region.EU ? Region.US : Region.EU)}>
                             <strong>PostHog Cloud {preflight?.region === Region.EU ? 'US' : 'EU'}</strong>
                         </Link>
-                        {preflight?.region === Region.EU ? ', too' : ' for a GDPR-ready deployment'}.
+                        <span>{preflight?.region === Region.EU ? ', too' : ' for a GDPR-ready deployment'}.</span>
                     </span>
                 ) : (
                     <span>
                         {' '}
-                        You can use our{' '}
+                        <span>You can use our</span>{' '}
                         <Link to={getRegionUrl(Region.EU)}>
                             <strong>{Region.EU} cloud</strong>
                         </Link>{' '}
-                        or{' '}
+                        <span>or</span>{' '}
                         <Link to={getRegionUrl(Region.US)}>
                             <strong>{Region.US} cloud</strong>
                         </Link>{' '}
-                        and we'll take care of the hosting for you.
+                        <span>and we'll take care of the hosting for you.</span>
                     </span>
                 )}
             </div>
