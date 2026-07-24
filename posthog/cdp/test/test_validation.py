@@ -632,6 +632,27 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         expected = generate_template_bytecode("{event.properties.id}", set())
         assert validated["msg"]["bytecode"] == expected
 
+    @parameterized.expand(
+        [
+            ("shipped_distinct_id_default", "{{event.distinct_id}}", "{event.distinct_id}"),
+            ("nested", "hi {{event.distinct_id}}", "hi {event.distinct_id}"),
+            ("property", "{{person.properties.email}}", "{person.properties.email}"),
+        ]
+    )
+    def test_double_brace_placeholder_compiles_like_interpolation(self, _name, double_brace, single_brace):
+        # `{{ x }}` is the Liquid/Handlebars interpolation convention that users reach for on these
+        # inputs (Liquid is even a toggle here). It parses to a Placeholder, which the Hog compiler
+        # would otherwise reject with "Placeholders are not allowed in this context"; it must compile
+        # like the `{ x }` form instead.
+        assert generate_template_bytecode(double_brace, set()) == generate_template_bytecode(single_brace, set())
+
+    def test_double_brace_placeholder_accepted_through_inputs_serializer(self):
+        # Regression: saving the "Update person properties" distinct_id input with a placeholder-style
+        # value raised "Invalid template: Placeholders are not allowed in this context".
+        inputs_schema = [{"key": "distinct_id", "type": "string", "required": True}]
+        validated = validate_inputs(inputs_schema, {"distinct_id": {"value": "{{event.distinct_id}}"}})
+        assert validated["distinct_id"]["bytecode"] == generate_template_bytecode("{event.distinct_id}", set())
+
     def test_validate_boolean_input_with_bool_value(self):
         inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
         inputs = {"opt_out": {"value": True}}
