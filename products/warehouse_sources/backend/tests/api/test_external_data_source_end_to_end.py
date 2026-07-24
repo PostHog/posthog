@@ -159,6 +159,7 @@ def test_stripe_source_creation_and_sync_updates_managed_views(team, api_client,
                     "selection": "api_key",
                     "stripe_secret_key": "sk_test_123",
                 },
+                "stripe_api_version": "2026-02-25.clover",
                 "schemas": [
                     {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                 ],

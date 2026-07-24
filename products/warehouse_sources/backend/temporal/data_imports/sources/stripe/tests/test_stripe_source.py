@@ -407,8 +407,8 @@ class TestInvoiceListWithAllLines:
             return _list_object([{"id": "il_1"}])
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
-        client.invoices.line_items.list.side_effect = line_items_list
+        client.v1.invoices.list.return_value = _list_object(invoices)
+        client.v1.invoices.line_items.list.side_effect = line_items_list
 
         result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
 
@@ -426,8 +426,8 @@ class TestInvoiceListWithAllLines:
             raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
-        client.invoices.line_items.list.side_effect = line_items_list
+        client.v1.invoices.list.return_value = _list_object(invoices)
+        client.v1.invoices.line_items.list.side_effect = line_items_list
 
         with pytest.raises(stripe_lib.InvalidRequestError):
             list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())

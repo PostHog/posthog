@@ -1190,20 +1190,20 @@ def mock_stripe_client(
         mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
 
         instance = MockStripeClient.return_value
-        instance.balance_transactions.list.return_value = mock_balance_transaction_list
-        instance.charges.list.return_value = mock_charges_list
-        instance.customers.list.return_value = mock_customers_list
-        instance.disputes.list.return_value = mock_disputes_list
-        instance.invoice_items.list.return_value = mock_invoice_items_list
-        instance.invoices.list.return_value = mock_invoice_list
-        instance.payouts.list.return_value = mock_payouts_list
-        instance.prices.list.return_value = mock_price_list
-        instance.products.list.return_value = mock_product_list
-        instance.refunds.list.return_value = mock_refunds_list
-        instance.subscriptions.list.return_value = mock_subscription_list
-        instance.credit_notes.list.return_value = mock_credit_notes_list
-        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
-        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
+        instance.v1.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.v1.charges.list.return_value = mock_charges_list
+        instance.v1.customers.list.return_value = mock_customers_list
+        instance.v1.disputes.list.return_value = mock_disputes_list
+        instance.v1.invoice_items.list.return_value = mock_invoice_items_list
+        instance.v1.invoices.list.return_value = mock_invoice_list
+        instance.v1.payouts.list.return_value = mock_payouts_list
+        instance.v1.prices.list.return_value = mock_price_list
+        instance.v1.products.list.return_value = mock_product_list
+        instance.v1.refunds.list.return_value = mock_refunds_list
+        instance.v1.subscriptions.list.return_value = mock_subscription_list
+        instance.v1.credit_notes.list.return_value = mock_credit_notes_list
+        instance.v1.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.v1.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
 
         yield instance
 

@@ -102,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
+    STRIPE_VERSION_ACACIA_2025,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
@@ -356,6 +357,15 @@ async def _run(
     billable: Optional[bool] = None,
     ignore_assertions: Optional[bool] = False,
 ):
+    # Stripe sources default stripe_api_version to the newest (Clover) version in the generated config,
+    # which skips column hints and auto-infers the schema from data. The e2e assertion below runs
+    # `SELECT * FROM <table>` through HogQL, which expands to every column in external_table_definitions —
+    # including fields (e.g. stripe_invoice.rendering, stripe_price.tiers) that may not exist in the mock
+    # payloads. Pin tests to an acacia-generation version so column hints are applied and those columns
+    # are materialized even when the mock data omits them.
+    if source_type == "Stripe" and "stripe_api_version" not in job_inputs:
+        job_inputs = {**job_inputs, "stripe_api_version": STRIPE_VERSION_ACACIA_2025}
+
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),

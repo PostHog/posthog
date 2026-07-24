@@ -44,11 +44,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    DEFAULT_STRIPE_API_VERSION,
     INVOICE_RESOURCE_NAME,
+    LEGACY_STRIPE_API_VERSION,
     PRODUCT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
-    STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSIONS,
+    STRIPE_VERSION_ACACIA_2025,
+    STRIPE_VERSION_BASIL,
+    STRIPE_VERSION_CLOVER,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -106,8 +111,13 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    supported_versions = (
+        LEGACY_STRIPE_API_VERSION,
+        STRIPE_VERSION_ACACIA_2025,
+        STRIPE_VERSION_BASIL,
+        STRIPE_VERSION_CLOVER,
+    )
+    default_version = DEFAULT_STRIPE_API_VERSION
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
@@ -198,6 +208,16 @@ class StripeSource(
                         placeholder="acct_...",
                         caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="stripe_api_version",
+                        label="API version",
+                        required=False,
+                        defaultValue=DEFAULT_STRIPE_API_VERSION,
+                        options=[
+                            SourceFieldSelectConfigOption(label=label, value=version)
+                            for version, label in STRIPE_API_VERSIONS.items()
+                        ],
                     ),
                 ],
             ),
@@ -359,7 +379,12 @@ If automatic creation failed due to a permissions error and you're using a restr
         endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
+            if validate_stripe_credentials(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                stripe_api_version=config.stripe_api_version,
+            ):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -428,7 +453,12 @@ If automatic creation failed due to a permissions error and you're using a restr
             return dict.fromkeys(endpoints, "Stripe credentials are not available")
 
         try:
-            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+            return check_stripe_endpoint_permissions(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                stripe_api_version=config.stripe_api_version,
+            )
         except StripeAuthenticationError as e:
             return dict.fromkeys(endpoints, e.stripe_message)
 
@@ -442,7 +472,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
-        return create_webhook(api_key, config.stripe_account_id, webhook_url)
+        return create_webhook(api_key, config.stripe_account_id, config.stripe_api_version, webhook_url)
 
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]
@@ -461,19 +491,21 @@ If automatic creation failed due to a permissions error and you're using a restr
     ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
-        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
+        return update_webhook_events(
+            api_key, config.stripe_account_id, config.stripe_api_version, webhook_url, desired_events
+        )
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         api_key = self._get_api_key(config, team_id)
-        return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
+        return get_external_webhook_info(api_key, config.stripe_account_id, config.stripe_api_version, webhook_url)
 
     def delete_webhook(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
         api_key = self._get_api_key(config, team_id)
-        return delete_webhook(api_key, config.stripe_account_id, webhook_url)
+        return delete_webhook(api_key, config.stripe_account_id, config.stripe_api_version, webhook_url)
 
     def source_for_pipeline(
         self,
@@ -494,5 +526,7 @@ If automatic creation failed due to a permissions error and you're using a restr
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
-            api_version=self.resolve_api_version(inputs.api_version),
+            # The form's explicit choice wins; otherwise fall back to the framework's api_version pin
+            # (which resolve_api_version turns into default_version when unset).
+            api_version=config.stripe_api_version or self.resolve_api_version(inputs.api_version),
         )

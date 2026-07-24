@@ -16,9 +16,36 @@ CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
 COUPON_RESOURCE_NAME = "Coupon"
 DISCOUNT_RESOURCE_NAME = "Discount"
 
-# Vendor API version the sync pipeline pins by default. One constant so the source's version
-# declaration (`StripeSource.supported_versions`) and the request layer share a single label.
-STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+# Vendor API version labels — opaque Stripe date-versions, never parsed or ordered.
+# One set of constants so the source's version declaration (`StripeSource.supported_versions`),
+# the request layer, and the version picker all share the same labels.
+STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"  # legacy default before selectable versions
+STRIPE_VERSION_ACACIA_2025 = "2025-02-24.acacia"
+STRIPE_VERSION_BASIL = "2025-08-27.basil"
+STRIPE_VERSION_CLOVER = "2026-02-25.clover"
+
+LEGACY_STRIPE_API_VERSION = STRIPE_API_VERSION_ACACIA
+# New sources default to the newest version whose canonical column hints are still valid, so
+# Revenue analytics keeps working out of the box. basil/clover are opt-in until the canonical
+# schema/descriptions are version-aware (they reshape invoice.subscription, price.product, etc.).
+DEFAULT_STRIPE_API_VERSION = STRIPE_VERSION_ACACIA_2025
+
+# Selectable versions shown in the source's "API version" picker. Legacy is listed so sources
+# pinned to it (framework default / migration 0058) round-trip in the picker instead of rendering
+# blank; new sources default to DEFAULT_STRIPE_API_VERSION, not legacy.
+STRIPE_API_VERSIONS: dict[str, str] = {
+    STRIPE_VERSION_ACACIA_2025: "Acacia (2025-02-24)",
+    STRIPE_VERSION_BASIL: "Basil (2025-08-27)",
+    STRIPE_VERSION_CLOVER: "Clover (2026-02-25)",
+    LEGACY_STRIPE_API_VERSION: "Acacia (2024-09-30, legacy)",
+}
+
+# The external table definitions in external_table_definitions.py were built for these versions.
+# For other versions, schema is auto-inferred from the data.
+STRIPE_VERSIONS_WITH_EXTERNAL_TABLE_DEFINITIONS: set[str] = {
+    LEGACY_STRIPE_API_VERSION,
+    STRIPE_VERSION_ACACIA_2025,
+}
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
