@@ -42,6 +42,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
+from posthog.models.github_metadata import normalize_github_account_type
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -101,15 +102,6 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-
-def _github_account_type(owner_type: str | None) -> str | None:
-    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
-    if owner_type == "Organization":
-        return "organization"
-    if owner_type == "User":
-        return "personal"
-    return None
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -423,9 +415,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         if kind == "github":
             # Surface whether the connected GitHub account is an org or a personal one, mirroring the
             # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
-            owner_type = ((instance.config or {}).get("account") or {}).get("type")
+            config = instance.config or {}
+            owner_type = (config.get("account") or {}).get("type")
             report_properties["repo_owner_type"] = owner_type
-            report_properties["account_type"] = _github_account_type(owner_type)
+            report_properties["account_type"] = normalize_github_account_type(owner_type)
+            report_properties["repository_selection"] = config.get("repository_selection")
+            report_properties["repository_count"] = config.get("repository_count")
         report_user_action(
             self.context["request"].user,
             "integration created",
