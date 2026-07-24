@@ -3,19 +3,23 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { BaseChunkPipeline, ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import {
+    BaseChunkPipeline,
+    ChunkProcessingStep,
+    applyChunkStepToResults,
+} from '~/ingestion/framework/base-chunk-pipeline'
 import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { ConcurrentChunkProcessingPipeline } from '~/ingestion/framework/concurrent-chunk-pipeline'
 import {
     ConcurrentlyGroupingChunkPipeline,
-    GroupPrescanFunction,
+    GroupChunkProcessor,
     GroupingFunction,
+    processGroupChunkSequentially,
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
-import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { RetryOptions, withChunkRetry } from '~/ingestion/framework/retry'
 import { SequentialChunkPipeline } from '~/ingestion/framework/sequential-chunk-pipeline'
@@ -32,9 +36,11 @@ export interface TeamIdContext {
 }
 
 /**
- * Configures how items within a group are processed. Groups produced by
- * `concurrentlyPerGroup` run concurrently; this builder's `sequentially` method
- * defines how the items within a single group are processed.
+ * Composes how a group's queued chunk is processed, as a chain of group chunk
+ * stages: `pipeChunk` applies a chunk step to the whole chunk, `sequentially`
+ * runs each item through a per-item pipeline one at a time. Stages run in
+ * declaration order; `concurrentlyPerGroup` finalizes the chain into the
+ * single {@link GroupChunkProcessor} the grouping pipeline executes per chunk.
  */
 export class GroupProcessingBuilder<
     TInput,
@@ -49,21 +55,33 @@ export class GroupProcessingBuilder<
     // subpipeline callbacks (e.g. in newBatchingPipeline). In this closure's
     // signature TOutput only appears in variance-neutral positions.
     constructor(
-        private readonly buildGroupedPipeline: <U, R2 extends string>(
-            processor: Pipeline<TOutput, U, COutput, R2>,
-            prescan?: GroupPrescanFunction<TOutput, COutput>
-        ) => ChunkPipeline<TInput, U, CInput, COutput, R | R2>,
-        private readonly prescanFn?: GroupPrescanFunction<TOutput, COutput>
+        /** @internal Completes the group definition; called by concurrentlyPerGroup with the terminal stage. */
+        readonly buildGroupedPipeline: <U, R2 extends string>(
+            downstream: GroupChunkProcessor<TOutput, U, COutput, R2>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R | R2>
     ) {}
 
+    private stage<U, R2 extends string>(
+        stageProcessor: GroupChunkProcessor<TOutput, U, COutput, R2>
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2> {
+        const buildWithEarlierStages = this.buildGroupedPipeline
+        return new GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2>(
+            <V, R3 extends string>(downstream: GroupChunkProcessor<U, V, COutput, R3>) =>
+                buildWithEarlierStages<V, R2 | R3>(async (items) => await downstream(await stageProcessor(items)))
+        )
+    }
+
     /**
-     * Run a synchronous scan over each group's queued chunk before its items
-     * are processed. The scan sees the OK items in processing order and may
-     * attach group-scoped state by mutating item values (see
-     * {@link GroupPrescanFunction} for the exact contract).
+     * Apply a chunk step to each group's queued chunk. Same contract as the
+     * outer `pipeChunk`: the step sees the chunk's OK values in processing
+     * order and returns one result per value; non-OK results pass through.
+     * Runs once per started group chunk.
      */
-    prescan(fn: GroupPrescanFunction<TOutput, COutput>): GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new GroupProcessingBuilder(this.buildGroupedPipeline, fn)
+    pipeChunk<U, R2 extends string = never>(
+        step: ChunkProcessingStep<TOutput, U, R2>
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2> {
+        const stepName = step.name || 'anonymousChunkStep'
+        return this.stage((items) => applyChunkStepToResults(step, stepName, items))
     }
 
     /**
@@ -73,9 +91,9 @@ export class GroupProcessingBuilder<
      */
     sequentially<U, R2 extends string = never>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
-    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new ChunkPipelineBuilder(this.buildGroupedPipeline(processor, this.prescanFn))
+        return this.stage(processGroupChunkSequentially(processor))
     }
 }
 
@@ -155,9 +173,9 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
      * Group items by key and process the groups concurrently, optionally capped
      * by `maxConcurrency`. Results are returned unordered as each group completes.
      *
-     * The callback receives a group builder whose only method, `sequentially`,
-     * configures how items WITHIN a group are processed. Making that step explicit
-     * keeps within-group ordering visible at the call site.
+     * The callback composes how a group's queued chunk is processed from group
+     * chunk stages (`pipeChunk`, `sequentially`), keeping within-group ordering
+     * visible at the call site.
      *
      * @param options.maxConcurrency - Cap on how many groups process at once. Omitted means unbounded.
      */
@@ -165,24 +183,21 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         groupingFn: GroupingFunction<TOutput, TKey>,
         callback: (
             group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R>
-        ) => ChunkPipelineBuilder<TInput, U, CInput, COutput, ROut>,
+        ) => GroupProcessingBuilder<TInput, U, CInput, COutput, ROut>,
         options?: { maxConcurrency?: number }
     ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
-        return callback(
+        const group = callback(
             new GroupProcessingBuilder(
-                <U2, R2 extends string>(
-                    processor: Pipeline<TOutput, U2, COutput, R2>,
-                    prescan?: GroupPrescanFunction<TOutput, COutput>
-                ) =>
+                <U2, R2 extends string>(processGroupChunk: GroupChunkProcessor<TOutput, U2, COutput, R2>) =>
                     new ConcurrentlyGroupingChunkPipeline(
                         groupingFn,
-                        processor,
+                        processGroupChunk,
                         this.pipeline,
-                        options?.maxConcurrency,
-                        prescan
+                        options?.maxConcurrency
                     )
             )
         )
+        return new ChunkPipelineBuilder(group.buildGroupedPipeline((items) => Promise.resolve(items)))
     }
 
     handleSideEffects(
