@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -16,6 +17,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions import generate_exception_response
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -29,6 +31,8 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.role import Role
 
 from .models import EarlyAccessFeature
 
@@ -67,11 +71,16 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
     A more minimal serializer, intended specificaly for non-generally-available features to be provided
     to posthog-js via the /early_access_features/ endpoint. Sync with posthog-js's FeaturePreview interface!
+
+    The assignee only carries a display name (no user ID or email): the endpoint is public
+    (project-token auth), so consumers like posthog.com's roadmap can attribute a feature to
+    its owner without exposing anything else about the person or role.
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
     payload = serializers.SerializerMethodField()
+    assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -83,12 +92,30 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentationUrl",
             "flagKey",
             "payload",
+            "assignee",
         ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
+
+    @extend_schema_field(
+        serializers.DictField(
+            help_text="Display name of the person or role this feature is assigned to, e.g. "
+            '{"type": "user", "name": "Ada Lovelace"} or {"type": "role", "name": "Data Modeling"}.',
+            allow_null=True,
+        )
+    )
+    def get_assignee(self, obj):
+        # Callers serializing many features should select_related assigned_user/assigned_role;
+        # for unassigned features the *_id checks avoid touching the relations entirely.
+        if obj.assigned_user_id and obj.assigned_user:
+            name = f"{obj.assigned_user.first_name} {obj.assigned_user.last_name}".strip()
+            return {"type": "user", "name": name}
+        if obj.assigned_role_id and obj.assigned_role:
+            return {"type": "role", "name": obj.assigned_role.name}
+        return None
 
 
 class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -118,6 +145,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="The user who created this early access feature. Null for features created before creator tracking was added.",
     )
+    assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -131,6 +159,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
             "payload",
             "created_at",
             "created_by",
+            "assignee",
             "user_access_level",
         ]
         read_only_fields = ["id", "feature_flag", "created_at", "created_by"]
@@ -139,11 +168,57 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
+    @extend_schema_field(
+        serializers.DictField(
+            help_text='The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or '
+            '{"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.',
+            allow_null=True,
+        )
+    )
+    def get_assignee(self, obj):
+        if obj.assigned_user_id:
+            return {"type": "user", "id": obj.assigned_user_id}
+        if obj.assigned_role_id:
+            return {"type": "role", "id": str(obj.assigned_role_id)}
+        return None
+
+    def _validated_assignee_fields(self, assignee: Any) -> dict:
+        """Convert an assignee payload ({"type": "user"|"role", "id": ...} or None) into model field values,
+        validating that the referenced user/role belongs to this team's organization."""
+        if assignee is None:
+            return {"assigned_user_id": None, "assigned_role_id": None}
+        if (
+            not isinstance(assignee, dict)
+            or assignee.get("type") not in ("user", "role")
+            or assignee.get("id") in (None, "")
+        ):
+            raise serializers.ValidationError(
+                {"assignee": 'Expected null or an object of shape {"type": "user" | "role", "id": ...}.'}
+            )
+        organization = self.context["get_organization"]()
+        try:
+            if assignee["type"] == "user":
+                if not OrganizationMembership.objects.filter(
+                    user_id=assignee["id"], organization=organization
+                ).exists():
+                    raise serializers.ValidationError(
+                        {"assignee": "Assignee user does not belong to this organization."}
+                    )
+                return {"assigned_user_id": assignee["id"], "assigned_role_id": None}
+            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+                raise serializers.ValidationError({"assignee": "Assignee role does not belong to this organization."})
+            return {"assigned_user_id": None, "assigned_role_id": assignee["id"]}
+        except (ValueError, TypeError, DjangoValidationError):
+            raise serializers.ValidationError({"assignee": "Assignee ID is invalid."})
+
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         # Handle payload separately since SerializerMethodField is read-only
         if "payload" in self.initial_data:
             payload_value = self.initial_data.get("payload")
             validated_data["payload"] = payload_value if payload_value else {}
+        # Same for assignee, which also diverges from the model fields (assigned_user/assigned_role)
+        if "assignee" in self.initial_data:
+            validated_data.update(self._validated_assignee_fields(self.initial_data.get("assignee")))
         stage = validated_data.get("stage", None)
         rollout_to_all = self.initial_data.get("rollout_to_all", False)
 
@@ -269,6 +344,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "payload",
             "created_at",
             "created_by",
+            "assignee",
             "feature_flag_id",
             "feature_flag",
             "_create_in_folder",
@@ -308,6 +384,11 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         request = self.context["request"]
         validated_data["created_by"] = request.user if request.user.is_authenticated else None
+        if "assignee" in self.initial_data:
+            validated_data.update(self._validated_assignee_fields(self.initial_data.get("assignee")))
+        elif validated_data["created_by"] is not None:
+            # By default, the feature is assigned to whoever created it
+            validated_data["assigned_user_id"] = validated_data["created_by"].id
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
@@ -436,7 +517,7 @@ def early_access_features(request: Request):
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
         EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
-            "feature_flag"
+            "feature_flag", "assigned_user", "assigned_role"
         ),
         many=True,
     ).data
