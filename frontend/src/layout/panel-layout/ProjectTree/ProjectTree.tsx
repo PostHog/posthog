@@ -268,7 +268,7 @@ export function ProjectTree({
                 }
 
                 posthog.capture('project tree item clicked', {
-                    root: root ?? null,
+                    root: root ?? 'project://',
                     item_type: item?.type ?? null,
                     record_type: item?.record?.type ?? null,
                     has_href: !!item?.record?.href,
@@ -298,7 +298,7 @@ export function ProjectTree({
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     posthog.capture('project tree folder toggled', {
-                        root: root ?? null,
+                        root: root ?? 'project://',
                         is_expanded: isExpanded,
                         name: folder.name ?? null,
                     })
@@ -360,7 +360,7 @@ export function ProjectTree({
                     const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
                     if (isValidMove) {
                         posthog.capture('project tree item moved', {
-                            root: root ?? null,
+                            root: root ?? 'project://',
                             item_type: oldItem.type ?? null,
                             method: 'drag',
                         })
@@ -698,7 +698,7 @@ export function ProjectTree({
                             'data-attr': 'tree-panel-enable-multi-select-button',
                             onClick: () => {
                                 posthog.capture('project tree multi-select toggled', {
-                                    root: root ?? null,
+                                    root: root ?? 'project://',
                                     enabled: selectMode === 'default',
                                 })
                                 setSelectMode(selectMode === 'default' ? 'multi' : 'default')
