@@ -82,6 +82,15 @@ pub struct NotificationsConfig {
     #[envconfig(from = "ERROR_TRACKING_ISSUE_REOPENED_WORKFLOW_TEAM_IDS", default = "")]
     pub issue_reopened_workflow_team_ids: String,
 
+    #[envconfig(
+        from = "ERROR_TRACKING_ISSUE_SPIKING_WORKFLOW_ENABLED",
+        default = "false"
+    )]
+    pub issue_spiking_workflow_enabled: bool,
+
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_SPIKING_WORKFLOW_TEAM_IDS", default = "")]
+    pub issue_spiking_workflow_team_ids: String,
+
     #[envconfig(from = "TEMPORAL_HOST", default = "")]
     pub temporal_host: String,
 
