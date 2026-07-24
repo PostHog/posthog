@@ -4164,7 +4164,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {

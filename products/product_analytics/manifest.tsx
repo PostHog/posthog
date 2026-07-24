@@ -175,7 +175,6 @@ export const manifest: ProductManifest = {
             href: urls.insights(),
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],
-            searchKeywords: ['insights'],
             sceneKey: 'SavedInsights',
             sceneKeys: ['SavedInsights', 'Insight'],
         },
