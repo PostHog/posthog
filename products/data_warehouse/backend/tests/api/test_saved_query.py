@@ -418,6 +418,47 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
 
+    def test_create_referencing_inaccessible_table_surfaces_error_without_capturing(self):
+        with patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "no_access_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select * from table_the_user_cannot_access",
+                    },
+                },
+            )
+
+        assert response.status_code == 400, response.content
+        # The real resolver message (naming the offending table) is surfaced, not the generic one.
+        assert "table_the_user_cannot_access" in response.json()["detail"]
+        # User-facing query errors must not be reported to error tracking.
+        mock_capture.assert_not_called()
+
+    def test_update_referencing_inaccessible_table_surfaces_error_without_capturing(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+        )
+
+        with patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select * from table_the_user_cannot_access",
+                    },
+                },
+            )
+
+        assert response.status_code == 400, response.content
+        assert "table_the_user_cannot_access" in response.json()["detail"]
+        mock_capture.assert_not_called()
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
