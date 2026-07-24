@@ -2,6 +2,18 @@
 
 Use this path when a product needs alerting. Compose the existing platform before adding shared abstractions.
 
+## Contents
+
+- [1. Define the product contract](#1-define-the-product-contract)
+- [2. Add product persistence and isolation](#2-add-product-persistence-and-isolation)
+- [3. Build the lifecycle adapter](#3-build-the-lifecycle-adapter)
+- [4. Define notification content and destinations](#4-define-notification-content-and-destinations)
+- [5. Make delivery transactional with lifecycle state](#5-make-delivery-transactional-with-lifecycle-state)
+- [6. Add scheduling and due selection](#6-add-scheduling-and-due-selection)
+- [7. Add product orchestration](#7-add-product-orchestration)
+- [8. Add the frontend](#8-add-the-frontend)
+- [9. Verify the boundaries](#9-verify-the-boundaries)
+
 ## 1. Define the product contract
 
 Write down the product-specific inputs before coding:
