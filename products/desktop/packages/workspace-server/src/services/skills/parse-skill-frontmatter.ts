@@ -28,7 +28,13 @@ export function parseSkillFrontmatter(content: string): {
 
 /** YAML 1.2 core-schema booleans: `true`/`True`/`TRUE` (quoted forms too). */
 function parseYamlBoolean(value: string | null): boolean {
-  return value !== null && value.toLowerCase() === "true";
+  if (value === null) return false;
+  // extractYamlValue's plain-scalar path keeps trailing `# ...` comments
+  // (YAML only treats `#` as a comment after whitespace), so strip one here —
+  // otherwise `true  # manual only` misparses to false and a later manifest
+  // save would silently drop the field from disk.
+  const withoutComment = value.replace(/\s+#.*$/, "").trim();
+  return unquoteYamlScalar(withoutComment).toLowerCase() === "true";
 }
 
 /**
