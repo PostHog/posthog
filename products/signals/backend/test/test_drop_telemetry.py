@@ -66,7 +66,8 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     kwargs = capture.call_args.kwargs
     assert kwargs["event"] == "signal_dropped"
     assert kwargs["distinct_id"] == str(ateam.uuid)
-    assert kwargs["properties"]["reason"] == "grouping_processing_error"
+    # reason is a stage:error_type composite so the drop alert can tell failure modes apart
+    assert kwargs["properties"]["reason"] == "grouping_parallel:OperationalError"
     assert kwargs["properties"]["stage"] == "grouping_parallel"
     assert kwargs["properties"]["error_type"] == "OperationalError"
     assert kwargs["properties"]["error"] == "the connection is closed"
