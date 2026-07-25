@@ -306,12 +306,15 @@ function buildHealthAlertSubTemplates(
 // past provider message limits: Slack 3000/section, Discord 2000/message).
 //
 // Discord worst case: message (template text + 3 fields x 200 + intent 600, all post-escape,
-// ~1260) + link (base ~80 + encoded tool name 480: encodeURLComponent percent-encodes each
-// UTF-8 byte, so an astral emoji becomes 12 chars, x 40) = ~1820 < 2000.
+// ~1260) + link (base ~80 + encoded tool name up to 480) = ~1820 < 2000.
 const MCP_INTENT_MAX_LENGTH = 600
 const MCP_FIELD_MAX_LENGTH = 200
-// Truncated BEFORE encoding (truncating after could split a %XX escape); 12x expansion budgeted above.
-const MCP_URL_TOOL_MAX_LENGTH = 40
+// The tool name is never shortened for the link. Truncating changes the tool's identity — the
+// detail page exact-matches the full event property, so a shortened link resolves to nothing —
+// and cutting mid-character can leave a lone surrogate, which makes encodeURLComponent throw
+// and drops the notification entirely. A name whose encoded form exceeds this budget links to
+// the tool list instead: less specific, still correct.
+const MCP_URL_ENCODED_TOOL_BUDGET = 480
 
 type ChatEscaper = (expression: string, maxLength?: number) => string
 
@@ -332,31 +335,77 @@ function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MA
 const MCP_EFFECTIVE_TOOL_EXPR =
     'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
 
-function mcpMissingCapabilityMessage(escape: ChatEscaper, bold: string): string {
+/** The producer-controlled values a notification message interpolates. */
+export type MCPMessageField = 'clientName' | 'serverName' | 'intent' | 'toolName'
+type MCPFieldRenderer = (field: MCPMessageField) => string
+
+// Renders each field as an escaped, length-bounded Hog interpolation.
+function hogFieldRenderer(escape: ChatEscaper): MCPFieldRenderer {
+    return (field) => {
+        switch (field) {
+            case 'clientName':
+                return `{${escape('event.properties.$mcp_client_name')}}`
+            case 'serverName':
+                return `{${escape('event.properties.$mcp_server_name')}}`
+            case 'intent':
+                return `{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}`
+            case 'toolName':
+                return `{${escape(MCP_EFFECTIVE_TOOL_EXPR)}}`
+        }
+    }
+}
+
+// The message copy lives here once; the Hog templates and the in-app preview differ only in how
+// fields are rendered, so the preview can never drift from what actually gets delivered.
+function mcpMissingCapabilityMessage(field: MCPFieldRenderer, bold: string): string {
     return (
-        `An agent using ${bold}{${escape('event.properties.$mcp_client_name')}}${bold} looked for a capability your MCP server ` +
-        `${bold}{${escape('event.properties.$mcp_server_name')}}${bold} doesn't have: _{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}_`
+        `An agent using ${bold}${field('clientName')}${bold} looked for a capability your MCP server ` +
+        `${bold}${field('serverName')}${bold} doesn't have: _${field('intent')}_`
     )
 }
 
-function mcpToolErrorMessage(escape: ChatEscaper, bold: string): string {
+function mcpToolErrorMessage(field: MCPFieldRenderer, bold: string): string {
     return (
-        `${bold}{${escape(MCP_EFFECTIVE_TOOL_EXPR)}}${bold} failed on your MCP server ` +
-        `${bold}{${escape('event.properties.$mcp_server_name')}}${bold} ` +
-        `(client: {${escape('event.properties.$mcp_client_name')}}). ` +
-        `Agent intent: _{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}_`
+        `${bold}${field('toolName')}${bold} failed on your MCP server ` +
+        `${bold}${field('serverName')}${bold} ` +
+        `(client: ${field('clientName')}). ` +
+        `Agent intent: _${field('intent')}_`
     )
 }
 
-const MCP_MISSING_CAPABILITY_SLACK_MESSAGE = mcpMissingCapabilityMessage(slackEscapeExpr, '*')
-const MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE = mcpMissingCapabilityMessage(markdownEscapeExpr, '**')
+export const MCP_NOTIFICATION_BUTTON_LABELS = {
+    'mcp-missing-capability': 'View MCP activity',
+    'mcp-tool-error': 'View tool detail',
+} as const
+
+/**
+ * The Slack message a notification will post, rendered with sample values in place of the Hog
+ * expressions — for previewing the real copy before wiring a destination up.
+ */
+export function mcpNotificationPreviewMessage(
+    subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error',
+    values: Record<MCPMessageField, string>
+): string {
+    const field: MCPFieldRenderer = (name) => values[name]
+    return subTemplateId === 'mcp-missing-capability'
+        ? mcpMissingCapabilityMessage(field, '*')
+        : mcpToolErrorMessage(field, '*')
+}
+
+const MCP_MISSING_CAPABILITY_SLACK_MESSAGE = mcpMissingCapabilityMessage(hogFieldRenderer(slackEscapeExpr), '*')
+const MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE = mcpMissingCapabilityMessage(hogFieldRenderer(markdownEscapeExpr), '**')
 const MCP_MISSING_CAPABILITY_LINK = '{project.url}/mcp-analytics/activity'
 
-const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(slackEscapeExpr, '*')
-const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(markdownEscapeExpr, '**')
-// Bound the tool name before encoding: percent-encoding can triple the length, and the link
-// rides inside Teams/Discord bodies that must stay under provider message limits.
-const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(substring(concat(${MCP_EFFECTIVE_TOOL_EXPR}), 1, ${MCP_URL_TOOL_MAX_LENGTH}))}`
+const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(hogFieldRenderer(slackEscapeExpr), '*')
+const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(hogFieldRenderer(markdownEscapeExpr), '**')
+const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
+// Deep-links to the failing tool, falling back to the tool list when the encoded name would
+// blow the Discord budget (see MCP_URL_ENCODED_TOOL_BUDGET). project.url stays a plain
+// substitution so only the path suffix is conditional.
+const MCP_TOOL_ERROR_LINK =
+    `{project.url}/mcp-analytics/tool-quality` +
+    `{length(${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
+    ` ? concat('/', ${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) : ''}`
 
 interface MCPNotificationVariantsOptions {
     subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error'
@@ -442,7 +491,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackMessage: MCP_MISSING_CAPABILITY_SLACK_MESSAGE,
         slackFallbackText: 'An agent hit a missing capability on your MCP server',
         markdownMessage: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
-        slackButton: { url: MCP_MISSING_CAPABILITY_LINK, label: 'View MCP activity' },
+        slackButton: {
+            url: MCP_MISSING_CAPABILITY_LINK,
+            label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-missing-capability'],
+        },
     }),
     'mcp-tool-error': mcpNotificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -452,7 +504,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
-        slackButton: { url: MCP_TOOL_ERROR_LINK, label: 'View tool detail' },
+        slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
     }),
     'survey-response': [
         {

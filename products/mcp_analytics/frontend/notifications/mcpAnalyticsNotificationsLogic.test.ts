@@ -135,6 +135,27 @@ describe('mcpAnalyticsNotificationsLogic', () => {
             })
     })
 
+    it('keeps an in-flight reload visible when a toggle writes its confirmed row', async () => {
+        const pendingReload = createDeferred<Awaited<ReturnType<typeof api.hogFunctions.list>>>()
+        listSpy.mockReset().mockReturnValue(pendingReload.promise)
+
+        logic.actions.loadNotifications()
+        expect(logic.values.notificationsLoading).toBe(true)
+
+        logic.actions.setNotifications([makeNotification('toggle', { enabled: true })])
+
+        // Writing through the loader's own success action would clear notificationsLoading here,
+        // so the settling toggle below would skip the corrective reload and let the stale
+        // in-flight GET revert the confirmed value.
+        expect(logic.values.notificationsLoading).toBe(true)
+
+        logic.actions.toggleNotificationEnabledSettled('toggle')
+        expect(listSpy).toHaveBeenCalledTimes(2)
+
+        pendingReload.resolve({ count: 0, next: null, previous: null, results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('reloads server truth when an optimistic delete fails', async () => {
         const deletedNotification = makeNotification('delete')
         const concurrentlyUpdatedNotification = makeNotification('keep', { enabled: true })

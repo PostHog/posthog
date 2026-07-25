@@ -89,6 +89,9 @@ export interface mcpAnalyticsNotificationsLogicActions {
         notifications: HogFunctionType[]
         payload?: any
     }
+    setNotifications: (notifications: HogFunctionType[]) => {
+        notifications: HogFunctionType[]
+    }
     setNotificationsTruncated: (notificationsTruncated: boolean) => {
         notificationsTruncated: boolean
     }
@@ -125,6 +128,9 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         deleteNotificationStarted: (notificationId: string) => ({ notificationId }),
         deleteNotificationSettled: (notificationId: string) => ({ notificationId }),
         setNotificationsTruncated: (notificationsTruncated: boolean) => ({ notificationsTruncated }),
+        // Local (optimistic) writes go through this rather than the loader's success action, which
+        // would also clear `notificationsLoading` and hide a reload that is still in flight.
+        setNotifications: (notifications: HogFunctionType[]) => ({ notifications }),
     }),
     loaders(({ actions, values }) => ({
         notificationCount: [
@@ -176,6 +182,10 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         ],
     })),
     reducers({
+        notifications: {
+            setNotifications: (_: HogFunctionType[], { notifications }: { notifications: HogFunctionType[] }) =>
+                notifications,
+        },
         notificationsTruncated: [
             false,
             {
@@ -228,92 +238,97 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        // If a reload was already in flight when a mutation settled, that GET read pre-mutation
-        // state and its pending-id tombstone is now cleared — reload once more so the stale
-        // response can't revert a confirmed toggle or resurrect a confirmed delete.
-        toggleNotificationEnabledSettled: () => {
-            if (values.notificationsLoading) {
-                actions.loadNotifications()
-            }
-        },
-        deleteNotificationSettled: () => {
-            if (values.notificationsLoading) {
-                actions.loadNotifications()
-            }
-        },
-        loadNotificationsSuccess: ({ notifications }) => {
-            // Preserve the server total while the list is capped. Optimistic deletes can leave it
-            // slightly stale until the next count reload, which is more accurate than replacing it with 500.
+    listeners(({ actions, values }) => {
+        // Preserve the server total while the list is capped. Optimistic deletes can leave it
+        // slightly stale until the next count reload, which is more accurate than replacing it with 500.
+        const syncCountFromList = (notifications: HogFunctionType[]): void => {
             if (values.notificationsTruncated) {
                 return
             }
             actions.loadNotificationCountSuccess(notifications.length)
-        },
-        toggleNotificationEnabled: async ({ notificationId, enabled }) => {
-            if (values.pendingToggleIds[notificationId]) {
-                return
-            }
+        }
 
-            const target = values.notifications.find((notification) => notification.id === notificationId)
-            if (!target) {
-                return
-            }
-            actions.toggleNotificationEnabledStarted(notificationId)
-            const previousEnabled = target.enabled
+        return {
+            // If a reload was already in flight when a mutation settled, that GET read pre-mutation
+            // state and its pending-id tombstone is now cleared — reload once more so the stale
+            // response can't revert a confirmed toggle or resurrect a confirmed delete.
+            toggleNotificationEnabledSettled: () => {
+                if (values.notificationsLoading) {
+                    actions.loadNotifications()
+                }
+            },
+            deleteNotificationSettled: () => {
+                if (values.notificationsLoading) {
+                    actions.loadNotifications()
+                }
+            },
+            loadNotificationsSuccess: ({ notifications }) => syncCountFromList(notifications),
+            setNotifications: ({ notifications }) => syncCountFromList(notifications),
+            toggleNotificationEnabled: async ({ notificationId, enabled }) => {
+                if (values.pendingToggleIds[notificationId]) {
+                    return
+                }
 
-            const applyEnabled = (next: boolean): void => {
-                actions.loadNotificationsSuccess(
-                    values.notifications.map((notification) =>
-                        notification.id === notificationId ? { ...notification, enabled: next } : notification
+                const target = values.notifications.find((notification) => notification.id === notificationId)
+                if (!target) {
+                    return
+                }
+                actions.toggleNotificationEnabledStarted(notificationId)
+                const previousEnabled = target.enabled
+
+                const applyEnabled = (next: boolean): void => {
+                    actions.setNotifications(
+                        values.notifications.map((notification) =>
+                            notification.id === notificationId ? { ...notification, enabled: next } : notification
+                        )
                     )
-                )
-            }
+                }
 
-            applyEnabled(enabled)
+                applyEnabled(enabled)
 
-            try {
-                const updatedNotification = await api.hogFunctions.update(notificationId, { enabled })
-                actions.loadNotificationsSuccess(
-                    values.notifications.map((notification) =>
-                        notification.id === notificationId ? updatedNotification : notification
+                try {
+                    const updatedNotification = await api.hogFunctions.update(notificationId, { enabled })
+                    actions.setNotifications(
+                        values.notifications.map((notification) =>
+                            notification.id === notificationId ? updatedNotification : notification
+                        )
                     )
-                )
-            } catch (error) {
-                applyEnabled(previousEnabled)
-                lemonToast.error('Failed to update notification')
-                posthog.captureException(error, {
-                    action: 'toggle-mcp-analytics-notification',
-                    notification: notificationId,
+                } catch (error) {
+                    applyEnabled(previousEnabled)
+                    lemonToast.error('Failed to update notification')
+                    posthog.captureException(error, {
+                        action: 'toggle-mcp-analytics-notification',
+                        notification: notificationId,
+                    })
+                } finally {
+                    actions.toggleNotificationEnabledSettled(notificationId)
+                }
+            },
+            deleteNotification: async ({ notification }) => {
+                actions.deleteNotificationStarted(notification.id)
+                actions.setNotifications(values.notifications.filter((item) => item.id !== notification.id))
+
+                let callbackFired = false
+                await deleteWithUndo({
+                    endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                    object: { id: notification.id, name: notification.name },
+                    callback: (undo) => {
+                        callbackFired = true
+                        // Settle before reloading so the undone row isn't filtered back out
+                        actions.deleteNotificationSettled(notification.id)
+                        if (undo) {
+                            actions.loadNotifications()
+                        }
+                    },
                 })
-            } finally {
-                actions.toggleNotificationEnabledSettled(notificationId)
-            }
-        },
-        deleteNotification: async ({ notification }) => {
-            actions.deleteNotificationStarted(notification.id)
-            actions.loadNotificationsSuccess(values.notifications.filter((item) => item.id !== notification.id))
 
-            let callbackFired = false
-            await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/hog_functions`,
-                object: { id: notification.id, name: notification.name },
-                callback: (undo) => {
-                    callbackFired = true
-                    // Settle before reloading so the undone row isn't filtered back out
+                if (!callbackFired) {
                     actions.deleteNotificationSettled(notification.id)
-                    if (undo) {
-                        actions.loadNotifications()
-                    }
-                },
-            })
-
-            if (!callbackFired) {
-                actions.deleteNotificationSettled(notification.id)
-                actions.loadNotifications()
-            }
-        },
-    })),
+                    actions.loadNotifications()
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadNotificationCount()
     }),
