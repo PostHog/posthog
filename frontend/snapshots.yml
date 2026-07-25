@@ -28,6 +28,14 @@ snapshots:
         hash: v1.k794b7964.b0c1c0b0b8d1a0c77cd873a1cc0b391924cd64ff7de46b1b4d309a50d98eca8a.ddWvJC0f1_fBpYhfDKtUrKeuZSrY5xR8ViHWVdiIfqk
     components-account-project-switcher--with-pending-invite--light:
         hash: v1.k794b7964.769ba5491bf515d4c18234cbb1b0965e4af8f190b5823914c8955194bb28d356.5QmxWM1jcZVZCAYm6oCJrI2XXnzoIHP19CyfFNvmiog
+    components-action-step-description--step-variants--dark:
+        hash: v1.k794b7964.19f9bee33652dbf2425e6df03ae732ed625840c249efc00589e0a1c0457b45d4.rVZ9Ek86XyAHV2eXwI_PDDTdDVv0QnEup4nMHmBjRKk
+    components-action-step-description--step-variants--light:
+        hash: v1.k794b7964.f91bca5d0440119473c64efa27f00ee07963ff9b1b2d14a783c694e2df79fc5b.rD9GMhkLfFVt7B2KYgR2LByMfDeX50mrHrKyLgu-oFY
+    components-action-step-description--summary-with-tooltip--dark:
+        hash: v1.k794b7964.6c5cd88f5aa3d41c98e0eeeff971b922bbccf36f60403a84b580a61f9aa29afb.rEnc5arM9Mv69K2iPjoLgoW7dy7xruBpLLXaYMZlyb0
+    components-action-step-description--summary-with-tooltip--light:
+        hash: v1.k794b7964.3bce9d23f964dddb8aa880ac92507478730c02653598580c051d620f99eaaf65.HeFECSKIWtxNuvm1I3nU8WsJfXcgS2PMRcDfMf9eOZU
     components-activitylog--data-management-activity--dark:
         hash: v1.k794b7964.f0e992490f5c3f9da065c404b4a0223d3d199b59436e3b0d244bd2b35a6bbe8c.-KxR1O9wEFHCZHlP-QJYheStDn9cQgtzbea9o2fS3sY
     components-activitylog--data-management-activity--light:
@@ -5651,9 +5659,9 @@ snapshots:
     scenes-app-data-management-actions--action--light:
         hash: v1.k794b7964.beb09296b4cd231bcc6b8067b8976e50e541095f18ec43f4523349ca0efc89a4.dEJitejN7lJT0FU6gQAaF5ydaZd_RGES2jbQNI4WuDw
     scenes-app-data-management-actions--actions-list--dark:
-        hash: v1.k794b7964.ca9dc87e9b047b9517ae4b695afdd1a870dcdbe9a4236d3a338f28cbc5b6b0b2.aMImKzSqyTT0xMBsptP3VBcwhgJ70B-PycLb7JyBgOg
+        hash: v1.k794b7964.9f9b23bfb4431c3c1a5f881b171b8a25023f2dc0ef9e691e082984463a3c90f9.zRTh4Nciph_51htqF6G-W7dWAKfhZJieNI7gz5RnopI
     scenes-app-data-management-actions--actions-list--light:
-        hash: v1.k794b7964.fb167ebe3d37f3fe0edc13ee8dc9c7c3afa9aeceb909fe37c3a7e0823a0d99f8.K80gNN2Et9DhAoi3v2ojwsGNZtyXTppbS9XjdiUWR6A
+        hash: v1.k794b7964.4d0504ac873c3c206bbe5b25826e799db95d6d5135bdd0cadc2e90569978c7d3.E87ZnWHKbQXbovA8jqN1cp7GTqLVNZB74m6M2h-zxtU
     scenes-app-data-management-actions--new-action--dark:
         hash: v1.k794b7964.ba971e6b4e8a8e72c512b1edc53fc699eff7142f207aed6e1d22e4cc79d18c9c.WK1mMQL1L81fqQ7rDdXG0tr5I9kdtzLDkznyHOd7bN8
     scenes-app-data-management-actions--new-action--light:
