@@ -30,8 +30,15 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   opted into the report channel gets the report persona + report-authoring guidance
   (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
   to route the report); every other scout gets the signal persona that fires weak
-  `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
-  are shared between both. The report persona is further gated per-tool: it names only
+  `emit_signal` findings. The bootstrap, scratchpad, fleet-seams, recency, and close-out
+  sections are shared between both. Cross-scout discipline lives here rather than in each
+  SKILL.md, because a seam is bilateral: run step 2 sends every scout through the fleet-wide
+  `scout-runs-list` for the entities it is about to investigate (gated on a match, so a scout
+  doesn't spend its budget reading the fleet's whole output), the scratchpad section teaches
+  searching by entity identity rather than only the scout's own key prefix, and `_FLEET_SEAMS`
+  states the overlap rule in both directions — don't restate a sibling's finding, but don't
+  defer a finding you hold evidence for either, since an uncovered surface is invisible where
+  a duplicate is not. Skills keep their own domain ownership map. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
@@ -134,7 +141,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   - `builders.py` — deterministic builders that compute the inventory payload for
     `SignalProjectProfile`. Sections fall into three layers: capability / configured
     (sticky — `products_in_use`, `integrations`, `external_data_sources`,
-    `signal_source_configs`, …), aggregated recency (`recent_activity` — per-scope
+    `signal_source_configs`, `scout_fleet`, …), aggregated recency (`recent_activity` — per-scope
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
