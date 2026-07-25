@@ -194,33 +194,19 @@ async def run_investigation(
         if tool_calls_used >= MAX_TOOL_CALLS:
             # Budget exhausted — no tool_use block in flight so we can send a plain
             # HumanMessage rather than stubbing pending tool_result pairs.
-            messages.append(
-                HumanMessage(
-                    content=(
-                        "Tool call budget exhausted. Submit the final InvestigationReport "
-                        "now using whatever evidence you have."
-                    )
-                )
+            report = await _finalize_report(
+                llm_with_final_report,
+                messages,
+                config,
+                heartbeat,
+                nudge=(
+                    "Tool call budget exhausted. Submit the final InvestigationReport now by "
+                    f"calling {FINAL_REPORT_TOOL_NAME} with whatever evidence you have."
+                ),
             )
-            if heartbeat is not None:
-                heartbeat()
-            try:
-                final = await llm_with_final_report.ainvoke(messages, config=config)
-            except Exception as err:
-                # Swallow final-turn failures and return an inconclusive report rather than
-                # bouncing off Temporal retries — MaxChatAnthropic already exhausted its
-                # built-in retry budget, so another activity attempt is unlikely to help.
-                logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-                return InvestigationRunResult(
-                    report=_fallback_report(f"LLM finalize call failed: {err}"),
-                    tool_calls_used=tool_calls_used,
-                    model=AGENT_MODEL,
-                )
-            messages.append(final)
-            forced_report = _parse_report_message(final)
-            if forced_report is not None:
-                forced_report.tool_calls_used = tool_calls_used
-                return InvestigationRunResult(report=forced_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+            if report is not None:
+                report.tool_calls_used = tool_calls_used
+                return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
             break
 
         try:
@@ -240,6 +226,25 @@ async def run_investigation(
             structured_report.tool_calls_used = tool_calls_used
             return InvestigationRunResult(report=structured_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
         if not tool_calls:
+            # Model stopped without calling the report tool. Its message may already carry the
+            # report as plain-text JSON; if not (e.g. a Sonnet 5 thinking-only turn with no text
+            # and no tool call), nudge it once to call the tool before falling back — that empty
+            # turn is what otherwise becomes the "Agent returned no final message" inconclusive.
+            report = _parse_report_or_none(getattr(response, "content", ""))
+            if report is None:
+                report = await _finalize_report(
+                    llm_with_final_report,
+                    messages,
+                    config,
+                    heartbeat,
+                    nudge=(
+                        f"You stopped without calling {FINAL_REPORT_TOOL_NAME}. Call it now with "
+                        "your verdict and findings, using whatever evidence you have gathered."
+                    ),
+                )
+            if report is not None:
+                report.tool_calls_used = tool_calls_used
+                return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
             break
 
         for call in tool_calls:
@@ -298,6 +303,37 @@ def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[Ba
     return callbacks
 
 
+async def _finalize_report(
+    llm_with_final_report: Any,
+    messages: list[Any],
+    config: RunnableConfig,
+    heartbeat: Callable[[], None] | None,
+    *,
+    nudge: str,
+) -> InvestigationReport | None:
+    """Make one explicit finalize turn: append an imperative nudge, invoke the model with
+    only the final-report tool bound, and parse the response.
+
+    Sonnet 5's default thinking mode can't force tool choice, so a model that stops early
+    (or exhausts its tool budget) sometimes returns a thinking-only turn with no report —
+    the empty-output path that becomes "Agent returned no final message". Re-prompting with
+    only the report tool bound is the strongest reliable push to get the call without forcing
+    it. Returns the parsed report (from the tool call or plain-text JSON), or None when the
+    model still produced neither so the caller can fall back. A hard LLM failure returns an
+    error fallback report so the run ends rather than bouncing off the activity retry.
+    """
+    messages.append(HumanMessage(content=nudge))
+    if heartbeat is not None:
+        heartbeat()
+    try:
+        final = await llm_with_final_report.ainvoke(messages, config=config)
+    except Exception as err:
+        logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
+        return _fallback_report(f"LLM finalize call failed: {err}")
+    messages.append(final)
+    return _parse_report_message(final) or _parse_report_or_none(getattr(final, "content", ""))
+
+
 def _parse_report_message(message: Any) -> InvestigationReport | None:
     return _report_from_tool_calls(getattr(message, "tool_calls", None) or [])
 
@@ -314,17 +350,28 @@ def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationRe
 
 
 def _parse_report(content: Any) -> InvestigationReport:
+    report = _parse_report_or_none(content)
+    if report is not None:
+        return report
+    if not _stringify(content).strip():
+        return _fallback_report("Agent returned no final message.")
+    return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
+
+
+def _parse_report_or_none(content: Any) -> InvestigationReport | None:
+    """Recover a report from a plain-text assistant message — a JSON body, optionally wrapped
+    in prose — or None if the content is empty or not parseable. Lets callers distinguish "no
+    report yet, nudge again" from "unrecoverable, fall back"."""
     text = _stringify(content).strip()
     if not text:
-        return _fallback_report("Agent returned no final message.")
+        return None
     # Try direct JSON; else find first/last brace.
     for candidate in _json_candidates(text):
         try:
-            parsed = json.loads(candidate)
-            return InvestigationReport.model_validate(parsed)
+            return InvestigationReport.model_validate(json.loads(candidate))
         except (ValueError, TypeError, ValidationError):
             continue
-    return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
+    return None
 
 
 def _json_candidates(text: str) -> list[str]:

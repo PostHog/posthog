@@ -1,5 +1,7 @@
+from typing import Any
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
@@ -8,6 +10,7 @@ from posthog.temporal.ai.anomaly_investigation.runner import (
     _build_callbacks,
     _parse_report,
     _report_from_tool_calls,
+    run_investigation,
 )
 
 
@@ -212,3 +215,84 @@ def test_build_callbacks_skips_when_default_client_missing() -> None:
         callbacks = _build_callbacks(team=team, alert=None)
 
     assert callbacks == []
+
+
+class _StubMessage:
+    # Minimal stand-in for a LangChain AIMessage — the runner only reads .content and .tool_calls.
+    def __init__(self, *, content: Any = "", tool_calls: list[dict] | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+
+def _final_report_call(verdict: str) -> dict:
+    return {
+        "name": FINAL_REPORT_TOOL_NAME,
+        "args": {
+            "verdict": verdict,
+            "summary": "Recovered after an explicit finalize nudge.",
+            "hypotheses": [],
+            "recommendations": [],
+        },
+    }
+
+
+async def _run_with_scripted_llm(
+    tool_turn_responses: list[_StubMessage],
+    final_turn_responses: list[_StubMessage],
+) -> tuple[Any, AsyncMock]:
+    tools_runnable = MagicMock()
+    tools_runnable.ainvoke = AsyncMock(side_effect=tool_turn_responses)
+    final_runnable = MagicMock()
+    final_runnable.ainvoke = AsyncMock(side_effect=final_turn_responses)
+
+    llm = MagicMock()
+    # bind_tools is called twice: first for the tool-calling loop, then for the finalize turn.
+    llm.bind_tools.side_effect = [tools_runnable, final_runnable]
+
+    with (
+        patch("ee.hogai.llm.MaxChatAnthropic", return_value=llm),
+        patch("posthog.temporal.ai.anomaly_investigation.runner._build_callbacks", return_value=[]),
+    ):
+        result = await run_investigation(
+            team=MagicMock(id=1),
+            user=MagicMock(id=1),
+            anomaly_context="An hourly metric ticked up.",
+        )
+    return result, final_runnable.ainvoke
+
+
+@pytest.mark.asyncio
+async def test_run_investigation_nudges_for_report_when_model_stops_without_tool_call() -> None:
+    # Sonnet 5 thinking-only turn: a thinking block, no text, no tool call — the empty-output
+    # path that otherwise collapses to "Agent returned no final message". The finalize nudge
+    # should elicit the report tool call and recover a real verdict.
+    stop_turn = _StubMessage(content=[{"type": "thinking", "thinking": "the spike looks benign"}])
+    recovered = _StubMessage(tool_calls=[_final_report_call("false_positive")])
+
+    result, finalize_ainvoke = await _run_with_scripted_llm([stop_turn], [recovered])
+
+    assert result.report.verdict == "false_positive"
+    assert result.report.summary != "Agent returned no final message."
+    finalize_ainvoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_investigation_recovers_text_json_without_extra_finalize_call() -> None:
+    # When the stop turn already carries the report as plain-text JSON, recover it in place —
+    # no wasted second LLM round trip.
+    report_json = '{"verdict":"inconclusive","summary":"Within normal variance.","hypotheses":[],"recommendations":[]}'
+    result, finalize_ainvoke = await _run_with_scripted_llm([_StubMessage(content=report_json)], [])
+
+    assert result.report.verdict == "inconclusive"
+    assert result.report.summary == "Within normal variance."
+    finalize_ainvoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_investigation_falls_back_when_nudge_also_yields_no_report() -> None:
+    # The nudge is best-effort: if the model still returns nothing usable, degrade to the
+    # inconclusive fallback rather than looping or raising.
+    result, _ = await _run_with_scripted_llm([_StubMessage(content="")], [_StubMessage(content="")])
+
+    assert result.report.verdict == "inconclusive"
+    assert result.report.summary == "Agent returned no final message."
