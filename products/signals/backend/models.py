@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
@@ -1271,6 +1272,13 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+            # "which run authored this report?" is a jsonb containment lookup (`@>`) that
+            # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
+            # request. Without these the planner can only seq-scan the team's runs, and this table
+            # grows about one row per scout per run interval with no pruning, so the scan would get
+            # slower for the life of the project.
+            GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
+            GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
         ]
 
 
