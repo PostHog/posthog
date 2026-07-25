@@ -28,16 +28,25 @@ function statusLabel(status: string): string {
     return status.replace(/_/g, ' ')
 }
 
+/** Report summaries are long and sectioned (`## Problem`, `## Impact`). Stripping markdown across the
+ * whole thing runs the heading words into the prose, so preview the lead paragraph only. */
+function summaryPreview(summary: string): string {
+    return stripMarkdown(summary.split(/\n\s*\n/)[0] ?? '').trim()
+}
+
 export function LinkedReportsPanel({ linkedReports, linkedReportsLoading }: LinkedReportsPanelProps): JSX.Element {
     return (
         <LemonCollapse
             className="bg-surface-primary"
+            // Open when there is something to read, so a teammate sees the findings without a click.
+            // Stays shut when empty, where the header alone says all there is to say.
+            defaultActiveKey={linkedReports.length > 0 ? 'linked-reports' : undefined}
             panels={[
                 {
                     key: 'linked-reports',
                     header: (
                         <>
-                            What PostHog AI found
+                            What Self-driving found
                             {linkedReports.length > 0 && (
                                 <span className="text-muted-alt font-normal ml-1">({linkedReports.length})</span>
                             )}
@@ -49,7 +58,7 @@ export function LinkedReportsPanel({ linkedReports, linkedReportsLoading }: Link
                                 <div className="text-muted-alt text-xs">Looking for findings...</div>
                             ) : linkedReports.length === 0 ? (
                                 <div className="text-muted-alt text-xs">
-                                    Nothing investigated for this ticket yet. Findings appear here once PostHog AI has
+                                    Nothing investigated for this ticket yet. Findings appear here once Self-driving has
                                     looked into it.
                                 </div>
                             ) : (
@@ -72,7 +81,7 @@ export function LinkedReportsPanel({ linkedReports, linkedReportsLoading }: Link
                                             </div>
                                             {report.summary && (
                                                 <div className="text-xs text-muted line-clamp-3 mb-1">
-                                                    {stripMarkdown(report.summary)}
+                                                    {summaryPreview(report.summary)}
                                                 </div>
                                             )}
                                             {report.implementation_pr_url && (

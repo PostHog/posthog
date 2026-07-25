@@ -28,7 +28,7 @@ def _note_body(report: SignalReport, report_url: str, pr_url: str | None) -> str
     summary = (report.summary or "").strip()
     if len(summary) > MAX_SUMMARY_CHARS:
         summary = summary[:MAX_SUMMARY_CHARS].rstrip() + "…"
-    blocks = ["**PostHog AI looked into this ticket.** Internal note, not sent to the customer."]
+    blocks = ["**Self-driving looked into this ticket.** Internal note, not sent to the customer."]
     if report.title:
         blocks.append(f"**{report.title}**")
     if summary:

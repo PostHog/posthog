@@ -1,0 +1,83 @@
+import type { Meta, StoryObj } from '@storybook/react'
+
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { LinkedReportsPanel } from './LinkedReportsPanel'
+
+// The panel a support teammate reads on a ticket to see what Self-driving already found.
+// Stories cover the three states it can be in, since only one is reachable in a fresh workspace.
+
+const meta: Meta<typeof LinkedReportsPanel> = {
+    title: 'Scenes-App/Support/LinkedReportsPanel',
+    component: LinkedReportsPanel,
+    parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-07-25' },
+}
+export default meta
+
+type Story = StoryObj<typeof LinkedReportsPanel>
+
+function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
+    return {
+        id: '019f9582-93e7-77c1-8912-4f541d70cb13',
+        status: 'ready',
+        title: 'perf(agent): cut latency on formatting-only edits',
+        summary:
+            'Formatting-only edits re-run full query generation, so a one-line change costs the same as a new question.\n\n## Problem\n\nThe agent rebuilds its whole plan per turn, and a formatting edit takes the same path as a fresh query.',
+        implementation_pr_url: 'https://github.com/PostHog/posthog/pull/73646',
+        ...overrides,
+    } as SignalReportApi
+}
+
+function Panel({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="max-w-sm">{children}</div>
+}
+
+export const WithFindings: Story = {
+    render: () => (
+        <Panel>
+            <LinkedReportsPanel linkedReports={[makeReport({})]} />
+        </Panel>
+    ),
+}
+
+export const SeveralFindingsAcrossStatuses: Story = {
+    render: () => (
+        <Panel>
+            <LinkedReportsPanel
+                linkedReports={[
+                    makeReport({}),
+                    makeReport({
+                        id: '019f954a-8ed0-7a18-a198-3ffed1a2def0',
+                        status: 'in_progress',
+                        title: 'fix(agent): stop dropping chat history mid-run',
+                        summary: 'The session is re-keyed when a tool call times out, so the thread restarts empty.',
+                        implementation_pr_url: null,
+                    }),
+                    makeReport({
+                        id: '019f9569-5d45-780a-8b63-ecd0dc71148e',
+                        status: 'pending_input',
+                        title: null,
+                        summary: 'Needs a product call on whether this should be rate-limited per project.',
+                        implementation_pr_url: null,
+                    }),
+                ]}
+            />
+        </Panel>
+    ),
+}
+
+export const NothingFoundYet: Story = {
+    render: () => (
+        <Panel>
+            <LinkedReportsPanel linkedReports={[]} />
+        </Panel>
+    ),
+}
+
+export const Loading: Story = {
+    render: () => (
+        <Panel>
+            <LinkedReportsPanel linkedReports={[]} linkedReportsLoading />
+        </Panel>
+    ),
+}
