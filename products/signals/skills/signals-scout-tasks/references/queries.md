@@ -101,11 +101,17 @@ SELECT
     round(countIf(r.status = 'failed')
           / nullIf(uniqIf(r.task_id, r.status = 'failed'), 0), 1) AS failed_runs_per_task,
     round(100.0 * countIf(r.status = 'failed') / count(), 1)     AS fail_pct,
-    uniq(t.created_by_id)                                        AS users
+    -- Reach must be the creators who were *affected*. A plain uniq() mixes in everyone whose
+    -- runs succeeded, dressing a one-person failure up as broad reach.
+    uniqIf(t.created_by_id, r.status = 'failed')                 AS affected_users
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
+  -- Repo-less tasks are unrelated work that would group into one synthetic "repository";
+  -- that cluster can trip the total-failure exception with no shared repo behind it.
+  -- Query 3 owns cross-task failure classes that have no repository.
+  AND isNotNull(t.repository) AND t.repository != ''
 GROUP BY repo_fingerprint, repo
 -- The floor applies to *partial* failure rates. A repo where every run fails is a
 -- readiness break the body says to file at any volume, so it must survive the floor —
@@ -158,7 +164,10 @@ WHERE r.created_at > now() - interval 14 day
   -- without this the query 2 -> query 3 -> query 4 chain stalls with nothing to localize:
   -- AND cityHash64(t.repository) = 0000000000000000000  -- repo_fingerprint from query 2
 GROUP BY err_fingerprint, err_prefix
-ORDER BY runs DESC
+-- Rank by how many distinct tasks a class touches, not raw runs: one task retried 200 times
+-- would otherwise fill the page and push out a class that hit 30 tasks once each — the
+-- systemic shape this lens exists to find.
+ORDER BY tasks DESC, runs DESC
 LIMIT 20
 ```
 
@@ -220,18 +229,25 @@ WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
 GROUP BY repo
 HAVING runs > 20
-ORDER BY cancelled DESC
+-- Rate first: the guard above already handles volume, and a busy healthy repo would
+-- otherwise displace the low-volume repo whose cancellation rate actually spiked.
+ORDER BY cancel_pct DESC, cancelled DESC
 LIMIT 20
 ```
 
 **5b — aging backlog (deliberately unbounded).**
 A run stuck for longer than the analysis window is the _most_ interesting one, so this query must not carry the 14-day lower bound that 5a does — that bound would hide exactly the runs it exists to find.
 
+Apply the same runs-per-task discriminator here: `runs_per_stuck_task` ≫ 1 over few `stuck_tasks` is one task retrying, not a backlog.
+**Known gap:** archiving a task sets `Task.archived` without transitioning its runs, and `system.tasks` exposes no `archived` column — so an archived task's stuck run cannot be filtered out here and will persist as a finding. Before filing a backlog report, confirm the task is still live via `tasks-retrieve`; treat an archived one as noise and record it under `noise:tasks:`.
+
 ```sql
 SELECT
     t.repository                                                 AS repo,
     r.status                                                     AS status,
     count()                                                      AS stuck_runs,
+    uniq(r.task_id)                                              AS stuck_tasks,
+    round(count() / nullIf(uniq(r.task_id), 0), 1)               AS runs_per_stuck_task,
     min(r.created_at)                                            AS oldest,
     max(r.created_at)                                            AS newest
 FROM system.task_runs AS r
@@ -242,8 +258,14 @@ WHERE r.status IN ('not_started', 'queued', 'in_progress')
   -- `Task.soft_delete()` does not transition its runs, so without this a deleted task's
   -- stuck run stays "backlog" forever. This scan is unbounded, so that false finding never ages out.
   AND t.deleted = 0
+  -- A local (Desktop) run can sit `queued` by design while the local agent drives it, so the
+  -- cloud staleness rule doesn't apply to it. Restrict to cloud rather than reporting normal
+  -- long-lived local sessions as silent non-completion.
+  AND r.environment = 'cloud'
 GROUP BY repo, status
-ORDER BY stuck_runs DESC
+-- Oldest first: the point of an unbounded scan is the run stuck for months, which ranking by
+-- count would bury under several repos holding a few two-day-old runs.
+ORDER BY oldest ASC, stuck_runs DESC
 LIMIT 20
 ```
 
@@ -264,7 +286,9 @@ WHERE created_at > now() - interval 30 day
   AND deleted = 0
   AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
 GROUP BY origin, repo
-ORDER BY tasks DESC
+-- Requester spread first: the demand lens requires repetition across people, so one person's
+-- high-volume queue must not displace groups where several people asked for the same thing.
+ORDER BY requesters DESC, tasks DESC
 LIMIT 30
 ```
 
@@ -331,9 +355,12 @@ FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE t.origin_product != 'signals_scout'
   AND t.deleted = 0
-  -- Failure clusters: keep both lines. Backlog clusters (query 5b): swap the status list
-  -- for ('not_started', 'queued', 'in_progress') and drop the time bound entirely, since
-  -- the oldest stuck runs are the ones worth citing.
+  -- Failure clusters: keep both lines as written.
+  -- Backlog clusters (query 5b): swap the status list for
+  -- ('not_started', 'queued', 'in_progress') AND replace the recent-run bound with
+  -- `r.created_at < now() - interval 1 day`, then flip the ORDER BY to `r.created_at ASC`.
+  -- Dropping the age predicate entirely would return the *newest* active runs and let the
+  -- report cite a run that was never part of the backlog it claims to evidence.
   AND r.status = 'failed'
   AND r.created_at > now() - interval 14 day
   -- Narrow to the cluster you are filing, e.g.:
