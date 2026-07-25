@@ -1,9 +1,17 @@
 import { loadConfig } from './config.ts'
-import { ScrubMetrics } from './metrics.ts'
-import { advancedScrub, loadModels } from './scrub.ts'
-import { startServer } from './server.ts'
 
 const cfg = loadConfig()
+// One libuv thread per in-flight request, because every sharp operation the scrub performs is queued
+// onto that pool and a request that cannot get a thread simply waits. libuv sizes the pool the first
+// time work is queued onto it and never resizes, so this has to happen before sharp or the ONNX
+// binding load. The imports below are dynamic for exactly that reason: static ones are hoisted above
+// this line, and import sorting would then decide the ordering on our behalf.
+process.env.UV_THREADPOOL_SIZE ??= String(cfg.maxConcurrency)
+
+const { ScrubMetrics } = await import('./metrics.ts')
+const { advancedScrub, loadModels } = await import('./scrub.ts')
+const { startServer } = await import('./server.ts')
+
 // Models load before any listener exists, so the readiness probe can't pass until the scrub can run.
 const models = await loadModels()
 const { scrub, metrics } = startServer(

@@ -9,6 +9,7 @@
  */
 import * as ort from 'onnxruntime-node'
 
+import { containerCores } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box, roundTo32 } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
@@ -43,7 +44,7 @@ export interface DbnetModel {
 }
 
 // 1 intra-op thread by default so we scale by running many images in parallel (one core each).
-const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
+const ORT_THREADS = numFromEnv('ORT_THREADS', containerCores(), 1, 32)
 
 export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
     const session = await ort.InferenceSession.create(modelPath, {
