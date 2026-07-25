@@ -6,6 +6,11 @@ export interface Box {
 }
 
 // ONNX detectors need input dims on a 32-px grid; floor at 32.
-export function roundTo32(n: number): number {
-    return Math.max(32, Math.round(n / 32) * 32)
+/** The largest multiple of 32 that does not exceed n, for a model whose encoder strides by 32.
+ *
+ *  Floors rather than rounds: rounding to nearest resamples the frame UP by as much as 16px per axis
+ *  to reach the next multiple, which adds no information, costs a resample, and softens the very
+ *  glyph edges the detector scores. A 894x503 frame became 896x512 that way. */
+export function floorTo32(n: number): number {
+    return Math.max(32, Math.floor(n / 32) * 32)
 }

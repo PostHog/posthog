@@ -11,7 +11,7 @@ import * as ort from 'onnxruntime-node'
 
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
-import { type Box, roundTo32 } from './geometry.ts'
+import { type Box, floorTo32 } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 export interface DetectOpts {
@@ -78,8 +78,8 @@ async function preprocess(
     // Area budget (detLimit^2), aspect preserved: same tensor-size bound as a detLimit-square, but a
     // tall page keeps its native text size instead of being squashed below detectability.
     const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
-    const rw = roundTo32(W * ratio)
-    const rh = roundTo32(H * ratio)
+    const rw = floorTo32(W * ratio)
+    const rh = floorTo32(H * ratio)
     // A resample is a low-pass filter, and glyph edges are the high frequencies DB scores. Restoring
     // some of that edge contrast before the model sees it is the cheapest lever on small text.
     // Measured against the ORIGINAL rather than the decoded frame, because both downscales cost edge
