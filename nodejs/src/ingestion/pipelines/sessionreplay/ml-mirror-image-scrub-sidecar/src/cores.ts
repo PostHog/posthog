@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { availableParallelism } from 'node:os'
+import { availableParallelism, totalmem } from 'node:os'
 
 import { numFromEnv } from './env.ts'
 
@@ -13,15 +13,28 @@ const NO_QUOTA_CORES = 4
 const SCRUB_WORKERS_MAX = 32
 
 /**
- * Inference worker threads, one per core by default.
+ * Memory to assume each worker needs: its own V8 isolate, three ONNX sessions with their arenas, a
+ * zxing wasm instance, and the full-frame sharp buffers a scrub holds. Taken from the ratio the
+ * deployed pod already runs at (4 cores to 2Gi in
+ * charts/argocd/ingestion/config/ingestion-sessionreplay-ml-image-scrub.yaml), so on that shape it
+ * changes nothing and only binds where cores outrun memory.
+ */
+const WORKER_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
+
+/**
+ * Inference worker threads, one per core by default, capped by the memory limit.
  *
  * onnxruntime-node's `run` blocks the thread that calls it, so a single-threaded process can only
  * ever have one inference executing however many requests are in flight. A thread each is what
  * converts cores into concurrent scrubs.
+ *
+ * Cores alone would oversubscribe memory on a node whose CPU-to-memory ratio is higher than the
+ * pod's, and every worker's footprint is paid at startup while it loads its models: too many turns
+ * a healthy pod into an OOM crash loop that never serves a request.
  */
 export const SCRUB_WORKERS = numFromEnv(
     'SCRUB_WORKERS',
-    Math.min(SCRUB_WORKERS_MAX, containerCores()),
+    Math.min(SCRUB_WORKERS_MAX, containerCores(), memoryBoundedWorkers()),
     1,
     SCRUB_WORKERS_MAX
 )
@@ -33,9 +46,11 @@ export const SCRUB_WORKERS = numFromEnv(
  * an unclamped `containerCores()` above the ceiling would throw at module load and refuse to start
  * the sidecar, which is reachable whenever there is no quota to read and the host is large.
  *
- * Divided by the worker count because each worker runs its own inference concurrently with the
- * others, so the per-session pools multiply. Threads times workers is what has to fit the allotment:
- * exceeding it is paid back as CFS throttling, which is the cost this sizing exists to avoid.
+ * The default divides by the worker count because each worker runs its own inference concurrently
+ * with the others, so the per-session pools multiply. Threads times workers is what has to fit the
+ * allotment: exceeding it is paid back as CFS throttling, which is the cost this sizing exists to
+ * avoid. An ORT_THREADS override is per session and is not divided, so it is a total only when
+ * SCRUB_WORKERS is 1.
  */
 export const ORT_THREADS = numFromEnv(
     'ORT_THREADS',
@@ -62,6 +77,42 @@ export function containerCores(): number {
     // number this exists to avoid. Guessing small costs some throughput on an uncapped pod; guessing
     // the host's size costs an order of magnitude of oversubscription on a capped one.
     return Math.min(NO_QUOTA_CORES, availableParallelism())
+}
+
+/** Workers the memory limit can hold, or SCRUB_WORKERS_MAX when there is no limit to read: an
+ *  unreadable limit must not cap the pool below what the cores support. */
+export function memoryBoundedWorkers(): number {
+    const limit = memoryLimitBytes((path) => readFileSync(path, 'utf8'))
+    if (limit === null) {
+        return SCRUB_WORKERS_MAX
+    }
+    return Math.max(1, Math.floor(limit / WORKER_MEMORY_BUDGET_BYTES))
+}
+
+/**
+ * The container's memory limit in bytes, or null when the kernel reports no cap. Takes its reader
+ * for the same reason quotaCores does.
+ *
+ * cgroup v1 reports a sentinel near 2^63 rather than a word like `max` when uncapped, and that
+ * number divided by the per-worker budget is large enough to look like an unbounded allowance, so
+ * anything at or above the host's own memory is treated as no limit.
+ */
+export function memoryLimitBytes(read: (path: string) => string): number | null {
+    for (const path of ['/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes']) {
+        try {
+            const raw = read(path).trim()
+            if (raw === 'max') {
+                return null
+            }
+            const bytes = Number(raw)
+            if (Number.isFinite(bytes) && bytes > 0 && bytes < totalmem()) {
+                return bytes
+            }
+        } catch {
+            // not this cgroup version, or not containerised
+        }
+    }
+    return null
 }
 
 /**

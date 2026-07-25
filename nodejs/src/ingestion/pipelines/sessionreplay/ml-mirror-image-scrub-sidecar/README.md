@@ -57,7 +57,11 @@ Production never imports from `dev/`.
 
 ```text
 src/  (production — ships)
-  main.ts         entrypoint: load models -> start servers
+  main.ts         entrypoint: start the worker pool -> start servers
+  pool.ts         the inference workers: dispatch, per-job deadlines, replace the dead
+  scrub-worker.ts one worker thread: owns its ONNX sessions, scrubs one image at a time
+  worker-protocol.ts  the job/reply messages crossing the thread boundary
+  cores.ts        worker + ORT thread sizing from the cgroup CPU quota and memory limit
   server.ts       the /scrub + /metrics listeners; scrub implementation injected
   config.ts       env-driven runtime config
   blur.ts         baseline blur (kept in sync with rust/replay-anonymizer/src/blur.rs)

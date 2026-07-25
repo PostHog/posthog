@@ -47,6 +47,10 @@ export async function loadModels(
     return { safety, dbnet, yunet }
 }
 
+// For harnesses that load and drop models repeatedly (dev/bench.ts). The sidecar never calls it:
+// models live as long as the worker that loaded them, and every path that ends a worker has either
+// already lost the thread or cannot get a reply from it, so the isolate teardown after
+// worker.terminate() is what frees the sessions there.
 export async function disposeModels(m: Models): Promise<void> {
     await Promise.all([m.safety.session.release(), m.dbnet.session.release(), m.yunet.session.release()])
 }
