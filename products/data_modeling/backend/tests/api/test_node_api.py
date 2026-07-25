@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -9,6 +10,7 @@ from rest_framework import status
 from posthog.models import Team
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -233,6 +235,61 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_client.start_workflow.assert_called_once()
+
+    def _suspend(self, node: Node) -> None:
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
+        node.save()
+
+    def test_suspended_node_reports_its_state_and_can_be_resumed(self):
+        self._suspend(self.view_node)
+
+        detail = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        self.assertEqual(self.client.get(detail).json()["suspended"]["clickhouse"]["reason"], "boom")
+
+        response = self.client.post(f"{detail}resume/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(detail).json()["suspended"], {})
+
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
+        # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
+        mock_sync_connect.return_value = AsyncMock()
+        downstream = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="downstream_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=downstream)
+        self._suspend(self.view_node)
+        self._suspend(downstream)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
+            {"direction": "downstream"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.view_node.refresh_from_db()
+        downstream.refresh_from_db()
+        self.assertEqual(suspension_state(self.view_node), {})
+        self.assertEqual(suspension_state(downstream), {})
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_materialize_resumes_the_node(self, mock_sync_connect):
+        mock_sync_connect.return_value = AsyncMock()
+        self._suspend(self.view_node)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.view_node.refresh_from_db()
+        self.assertEqual(suspension_state(self.view_node), {})
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")

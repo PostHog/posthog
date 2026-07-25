@@ -12,6 +12,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
+from products.data_modeling.backend.logic.node_suspension import resume_nodes
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
@@ -24,6 +25,9 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
 
     Shared by node `materialize` and saved-query `run` so the v1/v2 dispatch lives in one place.
     """
+    # An explicit run is a request to try again, so lift any suspension: the node gets a fresh
+    # failure window, and its state stops reading as suspended while the run is under way.
+    resume_nodes([node], by="manual_run")
     if is_v2:
         inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
             team_id=node.team_id,

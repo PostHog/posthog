@@ -7,6 +7,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
@@ -160,6 +161,9 @@ def sync_saved_query_to_dag(
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
+    # Editing the query is the user's only way back from suspension: a suspended node is skipped by
+    # every scheduled run, so it can never succeed its way out. Persisted by target.save() below.
+    clear_suspension_if_query_changed(target, saved_query.query)
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
