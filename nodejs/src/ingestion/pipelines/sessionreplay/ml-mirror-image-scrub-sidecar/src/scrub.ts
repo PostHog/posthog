@@ -13,12 +13,12 @@
 import sharp from 'sharp'
 
 import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
-import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
+import { type DbnetModel, detectTextDbnet, loadDbnet, modelInputDims } from './dbnet.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
-import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp } from './src-image.ts'
+import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp, storedDimsFor } from './src-image.ts'
 import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
@@ -342,11 +342,14 @@ export async function compose(
     timings: StageTimings,
     outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
 ): Promise<Buffer> {
+    // What the text detector actually inspected, which is what the stored size is derived from: the
+    // guarantee is a ratio against the pixels a model saw, not against the pixels we decoded.
+    const modelDims = modelInputDims(W, H, adaptiveDetLimit(W, H))
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
         const tE0 = performance.now()
-        const out0 = await encodeStored(srcSharp(src), W, H, outMaxPixels, timings)
+        const out0 = await encodeStored(srcSharp(src), W, H, modelDims, outMaxPixels, timings)
         timings.encodeMs = performance.now() - tE0
         return out0
     }
@@ -403,7 +406,7 @@ export async function compose(
     const redacted = srcSharp(src).composite([
         { input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 },
     ])
-    const out = await encodeStored(redacted, W, H, outMaxPixels, timings)
+    const out = await encodeStored(redacted, W, H, modelDims, outMaxPixels, timings)
     timings.encodeMs = performance.now() - tE
     return out
 }
@@ -426,20 +429,16 @@ async function encodeStored(
     redacted: sharp.Sharp,
     W: number,
     H: number,
+    model: { cw: number; ch: number },
     outMaxPixels: number,
     timings?: StageTimings
 ): Promise<Buffer> {
-    if (W * H <= outMaxPixels) {
-        if (timings) {
-            timings.storedPixels = W * H
-        }
-        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
-    }
-    const scale = Math.sqrt(outMaxPixels / (W * H))
-    const outW = Math.max(1, Math.round(W * scale))
-    const outH = Math.max(1, Math.round(H * scale))
+    const { width: outW, height: outH } = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels)
     if (timings) {
         timings.storedPixels = outW * outH
+    }
+    if (outW >= W && outH >= H) {
+        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
     }
     const { data, info } = await redacted.raw().toBuffer({ resolveWithObject: true })
     return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })

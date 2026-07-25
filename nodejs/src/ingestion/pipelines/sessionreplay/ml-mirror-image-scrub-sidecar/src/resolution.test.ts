@@ -1,4 +1,5 @@
-import { assertResolutionInvariant } from './src-image.ts'
+import { modelInputDims } from './dbnet.ts'
+import { assertResolutionInvariant, storedDimsFor } from './src-image.ts'
 
 describe('assertResolutionInvariant', () => {
     // The guarantee is that anything still legible in the stored image was large enough at the model
@@ -18,7 +19,39 @@ describe('assertResolutionInvariant', () => {
         ['storing everything that was detected', 2_560_000, 2_560_000, 1],
         ['a ratio just under the floor', 1_000_000, 125_000, 1],
         ['budgets that pass but a DET_FACTOR that spends the margin', 450_000, 50_000, 0.75],
+        // 2.996x: rounding the ratio to two places before comparing printed "3.00" and let it pass.
+        ['a ratio that only rounds up to the floor', 449_000, 50_000, 1],
     ])('rejects %s', (_case, detect, store, detFactor) => {
         expect(() => assertResolutionInvariant(detect, store, detFactor)).toThrow(/invariant violated/)
+    })
+})
+
+describe('storedDimsFor', () => {
+    // The caps only bind images above them, so checking the caps says nothing about an image under
+    // both: it would be stored at the size the model saw it, with no margin at all. Text at 4px
+    // would be as readable in the artifact as it was invisible to a detector needing 9px. Small
+    // collected sprites are exactly that shape, so this has to hold per image, not per config.
+    it.each([
+        ['a sprite under both caps', 200, 200],
+        ['a 1080p frame after the decode cap', 894, 503],
+        ['a short wide banner', 2048, 219],
+        ['a narrow tall sidebar', 63, 900],
+        ['a frame whose axes floor differently', 1001, 337],
+    ])('keeps %s at least 3x smaller than what the model saw, on both axes', (_case, W, H) => {
+        const model = modelInputDims(W, H, 736)
+
+        const stored = storedDimsFor(W, H, model.cw, model.ch)
+
+        expect(model.cw / stored.width).toBeGreaterThanOrEqual(3)
+        expect(model.ch / stored.height).toBeGreaterThanOrEqual(3)
+    })
+
+    it('never stores more than the source has', () => {
+        const model = modelInputDims(64, 64, 736)
+
+        const stored = storedDimsFor(64, 64, model.cw, model.ch)
+
+        expect(stored.width).toBeLessThanOrEqual(64)
+        expect(stored.height).toBeLessThanOrEqual(64)
     })
 })

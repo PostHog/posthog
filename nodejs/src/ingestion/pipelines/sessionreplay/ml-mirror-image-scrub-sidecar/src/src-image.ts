@@ -43,13 +43,51 @@ export const SCRUB_MAX_PIXELS = numFromEnv(
     LIMIT_INPUT_PIXELS
 )
 
-/** Throws when the two budgets are set to a pair that lets legible text past the detectors. Called
- *  at startup so a bad pairing never reaches traffic, rather than silently under-redacting. */
+/**
+ * Throws when the two budgets are set to a pair that lets legible text past the detectors. Called at
+ * startup so a bad pairing never reaches traffic.
+ *
+ * This checks the CAPS, which is a configuration sanity check rather than the guarantee: an image
+ * under both caps is scaled by neither, so the caps say nothing about it. storedDimsFor derives each
+ * image's stored size from what the model actually saw of it, which is what makes the ratio hold per
+ * image. Both exist because a bad pairing should fail at startup rather than quietly produce
+ * heavily-downscaled output for every image.
+ */
+/**
+ * Stored dimensions for one image, small enough that everything the detectors inspected is at least
+ * DETECT_OVER_STORE times larger per axis than what gets kept.
+ *
+ * Derived per image rather than from the caps, because the caps only bind images above them. An
+ * image under both is scaled by neither and would be stored at the same size the model saw it, with
+ * no margin at all: text at 4px would be as readable in the artifact as it was invisible to a
+ * detector that needs 9px. Small collected sprites are exactly that shape.
+ *
+ * Takes the model's CONTENT dimensions, not the frame's, so every reduction between the two is
+ * already accounted for: the decode cap, the detection budget, DET_FACTOR, and the integer flooring
+ * that made a 1920x1080 frame land at 2.99x on one axis while the caps said 3.
+ */
+export function storedDimsFor(
+    frameW: number,
+    frameH: number,
+    modelW: number,
+    modelH: number,
+    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
+): { width: number; height: number } {
+    const byInvariant = Math.min(modelW / (DETECT_OVER_STORE * frameW), modelH / (DETECT_OVER_STORE * frameH))
+    const byCap = Math.sqrt(outMaxPixels / (frameW * frameH))
+    // Never above 1: a frame smaller than the cap is kept as it is, not stretched up to it.
+    const scale = Math.min(1, byInvariant, byCap)
+    // Floors, since rounding up by a pixel is what puts the ratio back under the floor.
+    return { width: Math.max(1, Math.floor(frameW * scale)), height: Math.max(1, Math.floor(frameH * scale)) }
+}
+
 export function assertResolutionInvariant(detectPixels: number, storePixels: number, detFactor: number): void {
-    const ratio = (Math.sqrt(detectPixels / storePixels) * Math.min(1, detFactor)).toFixed(2)
-    if (Number(ratio) < DETECT_OVER_STORE) {
+    // Compared raw and only formatted for the message: rounding first let 2.996 print as "3.00" and
+    // pass a check it fails.
+    const ratio = Math.sqrt(detectPixels / storePixels) * Math.min(1, detFactor)
+    if (ratio < DETECT_OVER_STORE) {
         throw new Error(
-            `scrub resolution invariant violated: models would see frames only ${ratio}x the stored size, ` +
+            `scrub resolution invariant violated: models would see frames only ${ratio.toFixed(2)}x the stored size, ` +
                 `below the ${DETECT_OVER_STORE}x needed for text legible in the artifact to be detectable ` +
                 `(SCRUB_MAX_PIXELS=${detectPixels}, SCRUB_OUT_MAX_PIXELS=${storePixels}, DET_FACTOR=${detFactor})`
         )
