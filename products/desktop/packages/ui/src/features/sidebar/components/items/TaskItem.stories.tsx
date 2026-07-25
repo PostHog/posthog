@@ -104,14 +104,14 @@ export const InRepositoryGroup: Story = {
     rows: [
       {
         taskId: "t1",
-        label: "Implement /clear command for PostHog Code",
+        label: "Add keyboard shortcuts to the command palette",
         ageHours: 1,
         workspaceMode: "cloud",
         taskRunStatus: "completed",
       },
       {
         taskId: "t2",
-        label: "Implement btw command in PostHog Code",
+        label: "Support drag and drop between projects",
         ageHours: 26,
         workspaceMode: "worktree",
         prState: "open",
@@ -130,11 +130,11 @@ export const Pinned: Story = {
     rows: [
       {
         taskId: "p1",
-        label: "Write runbook for /local_evaluation 5xx errors",
+        label: "Fix flaky timeout in the worktree cleanup test",
         subtitle: context({
           repository: POSTHOG_REPO,
           workspaceMode: "worktree",
-          branchName: "haacked/local-eval-runbook",
+          branchName: "fix/worktree-cleanup-flake",
         }),
         ageHours: 0,
         isPinned: true,
@@ -142,12 +142,12 @@ export const Pinned: Story = {
       },
       {
         taskId: "p2",
-        label: "PostHog Desktop command line unattended mode",
+        label: "Add a retry banner to the diff viewer",
         subtitle: context({
           repository: CODE_REPO,
           workspaceMode: "local",
           branchName: "main",
-          linkedBranch: "posthog-code/unattended-mode",
+          linkedBranch: "posthog-code/diff-retry-banner",
         }),
         ageHours: 3,
         isPinned: true,
@@ -155,7 +155,7 @@ export const Pinned: Story = {
       },
       {
         taskId: "p3",
-        label: "Add disable-model-invocation support to Desktop skills",
+        label: "Document the release checklist for the desktop app",
         subtitle: context({ repository: CODE_REPO, workspaceMode: "cloud" }),
         ageHours: 27,
         isPinned: true,
@@ -164,7 +164,7 @@ export const Pinned: Story = {
       },
       {
         taskId: "p4",
-        label: "Scan prod for affected teams",
+        label: "Try out the new onboarding copy",
         subtitle: context({}),
         ageHours: 30,
         isPinned: true,
