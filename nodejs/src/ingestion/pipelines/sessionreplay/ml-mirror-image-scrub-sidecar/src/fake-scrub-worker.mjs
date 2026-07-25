@@ -14,9 +14,13 @@ parentPort.on('message', async (job) => {
         parentPort.postMessage({ id: job.id, failure: { message: 'bad bytes', undecodable: true } })
         return
     }
-    // Long enough that a pool running jobs serially takes visibly longer than one running them at once.
-    const jobMs = 40
-    await new Promise((resolve) => setTimeout(resolve, jobMs))
+    // Reports its own interval so the test can assert overlap directly rather than inferring
+    // concurrency from total elapsed time, which turns into a flake on a loaded runner.
+    const startedAt = performance.now()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const finishedAt = performance.now()
     const out = new Uint8Array(Buffer.from(`done:${kind}:w${workerData.index}`))
-    parentPort.postMessage({ id: job.id, out, timings: { totalMs: jobMs } }, [out.buffer])
+    parentPort.postMessage({ id: job.id, out, timings: { totalMs: finishedAt - startedAt, startedAt, finishedAt } }, [
+        out.buffer,
+    ])
 })
