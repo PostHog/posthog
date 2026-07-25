@@ -5,7 +5,7 @@
  * limitsFromEnv().framePixels and DET_FACTOR are read once at module load, so a sweep runs this process per
  * setting rather than looping inside one. Prints a JSON line per run for diffing across them.
  *
- *   limitsFromEnv().framePixels=1000000 DET_FACTOR=0.75 tsx dev/res-sweep.ts naive-1mp
+ *   SCRUB_OUT_MAX_PIXELS=25000 tsx dev/res-sweep.ts smaller-artifact
  *
  * Box counts are the direct read on detection recall. The eval's OCR leak percentage is end-to-end
  * but confounded here: a smaller output makes residual text harder for tesseract to read whether or
@@ -79,7 +79,6 @@ async function main(): Promise<void> {
         JSON.stringify({
             label,
             scrubMaxPixels: limitsFromEnv().framePixels,
-            detFactor: process.env.DET_FACTOR ?? '0.75 (default)',
             rows,
         })
     )

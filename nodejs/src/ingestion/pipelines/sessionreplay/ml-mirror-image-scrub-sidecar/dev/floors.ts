@@ -25,6 +25,7 @@ import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
 import { detectCodes } from '../src/qr.ts'
+import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
 
@@ -38,9 +39,13 @@ prepareZXingModule({
 
 const FRAME_W = 1920
 const FRAME_H = 1080
-/** The proposed shape: detect at 9x the output area, store at 0.1 MP. */
-const DETECT_PX = 900_000
-const STORE_PX = 100_000
+// From the planner, not hardcoded: the sibling benchmark was fixed for exactly this, having measured
+// a pipeline that no longer shipped and reported a ratio it was not running at. The floors these runs
+// produce feed bindingRatio(), so a harness that drifts from production invalidates them silently.
+const LIMITS = limitsFromEnv()
+const PLAN = planScales({ width: FRAME_W, height: FRAME_H }, LIMITS)
+const DETECT_PX = PLAN.frame.width * PLAN.frame.height
+const STORE_PX = PLAN.stored.width * PLAN.stored.height
 
 async function place(subject: Buffer, sidePx: number): Promise<Buffer> {
     const scaled = await sharp(subject).resize(sidePx, sidePx, { fit: 'inside' }).toBuffer()

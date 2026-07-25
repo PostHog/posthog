@@ -23,7 +23,6 @@
 import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 import { bindingRatio } from './floors.ts'
-import { type Box } from './geometry.ts'
 
 export interface Dims {
     width: number
@@ -44,6 +43,11 @@ export interface ScalePlan {
 }
 
 export interface PlanLimits {
+    /** Aspect past which the face detector tiles rather than letterboxing the whole frame, and the
+     *  aspect of each tile. The planner has to know these: modelling the detector as a single
+     *  letterbox understates how much of a long frame it really sees. */
+    faceTileAbove: number
+    faceTileAspect: number
     /** Area budget for the decoded frame. */
     framePixels: number
     /** Area budget for the text detector's padded canvas. */
@@ -59,6 +63,15 @@ export interface PlanLimits {
 }
 
 const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
+
+/** Floor for the decoded frame, named once so the derived default and its own validation cannot
+ *  disagree, which is how a legal stored size produced an illegal frame size. */
+const MIN_FRAME_PIXELS = 96 * 96
+
+/** The face detector's tiling rule, owned here because the plan has to model it. yunet.ts imports
+ *  these rather than declaring its own, so the model and the plan cannot disagree. */
+export const FACE_TILE_ABOVE = 3
+export const FACE_TILE_ASPECT = 6
 
 /** Scale that fits `dims` inside an area budget, never above 1 because rule 1 forbids upscaling. */
 export function scaleToArea(dims: Dims, budgetPixels: number): number {
@@ -118,15 +131,24 @@ export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): {
 }
 
 /**
- * How much of the frame a fixed-input detector sees.
+ * How much of the frame the face detector sees.
  *
  * Scaling the long side to fill the square maximises the subject at the model, which is what recall
- * wants, so upscaling a frame smaller than the square is deliberate and allowed by rule 1: the size
+ * wants, so enlarging a frame smaller than the square is deliberate and allowed by rule 1: the size
  * is the model's, not ours. What matters here is only the reduction, since that is what narrows the
  * ratio.
+ *
+ * It tiles rather than letterboxing once a frame is longer than `tileAbove`, so the scale is set by
+ * the TILE and not by the whole frame. Modelling it as a single letterbox understated the scale on
+ * every long frame, and because the stored size is derived from the weakest detector that understating
+ * crushed the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
+ * nineteen, for a guarantee that never asked for it.
  */
-export function fixedInputScale(dims: Dims, side: number): number {
-    return Math.min(1, side / Math.max(dims.width, dims.height))
+export function faceInputScale(dims: Dims, side: number, tileAbove: number, tileAspect: number): number {
+    const long = Math.max(dims.width, dims.height)
+    const short = Math.min(dims.width, dims.height)
+    const windowLong = long / short > tileAbove ? Math.min(long, tileAspect * short) : long
+    return Math.min(1, side / windowLong)
 }
 
 /**
@@ -140,7 +162,7 @@ export function fixedInputScale(dims: Dims, side: number): number {
 export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const frame = fitToArea(source, limits.framePixels)
     const text = fitToCanvas(frame, limits.textCanvasPixels, limits.stride)
-    const faceScale = fixedInputScale(frame, limits.faceInputSide)
+    const faceScale = faceInputScale(frame, limits.faceInputSide, limits.faceTileAbove, limits.faceTileAspect)
 
     // Each detector's scale relative to the frame, so they are comparable.
     const textScale = Math.min(text.content.width / frame.width, text.content.height / frame.height)
@@ -154,21 +176,6 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
         face: { scale: faceScale },
         code: { scale: 1 },
         stored,
-    }
-}
-
-/** Map a box from one stage's coordinates into another's, rounding outward so a fill can only ever
- *  cover more than it did, never less: losing a pixel to rounding exposes a rim of what it covered. */
-export function rescaleBox(box: Box, from: Dims, to: Dims): Box {
-    const sx = to.width / from.width
-    const sy = to.height / from.height
-    const left = Math.floor(box.left * sx)
-    const top = Math.floor(box.top * sy)
-    return {
-        left,
-        top,
-        width: Math.max(1, Math.min(to.width, Math.ceil((box.left + box.width) * sx)) - left),
-        height: Math.max(1, Math.min(to.height, Math.ceil((box.top + box.height) * sy)) - top),
     }
 }
 
@@ -187,15 +194,21 @@ export function limitsFromEnv(): PlanLimits {
     // satisfy it however the later stages are sized.
     const needed = storedPixels * (bindingRatio() * safetyFactor) ** 2
     return {
+        // Clamped at BOTH ends: numFromEnv validates a default as strictly as an override, so a
+        // legal storedPixels must never derive an illegal framePixels and hand the operator a refusal
+        // naming a variable they never set. Only the upper end was clamped, so every stored size
+        // under about 1000 px crash-looped the sidecar before it bound a listener.
         framePixels: numFromEnv(
             'SCRUB_MAX_PIXELS',
-            Math.min(LIMIT_INPUT_PIXELS, Math.ceil(needed)),
-            96 * 96,
+            Math.max(MIN_FRAME_PIXELS, Math.min(LIMIT_INPUT_PIXELS, Math.ceil(needed))),
+            MIN_FRAME_PIXELS,
             LIMIT_INPUT_PIXELS
         ),
         textCanvasPixels: numFromEnv('DET_CANVAS_PIXELS', 736 * 736, 256 * 256, 4096 * 4096),
         storedPixels,
         faceInputSide: 640,
+        faceTileAbove: FACE_TILE_ABOVE,
+        faceTileAspect: FACE_TILE_ASPECT,
         stride: 32,
         safetyFactor,
     }

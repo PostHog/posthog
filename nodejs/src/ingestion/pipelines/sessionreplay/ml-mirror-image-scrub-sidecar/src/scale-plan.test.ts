@@ -1,11 +1,13 @@
 import { FLOORS, bindingRatio, requiredRatio } from './floors.ts'
-import { type PlanLimits, fitToCanvas, fixedInputScale, planScales, rescaleBox, scaleToArea } from './scale-plan.ts'
+import { type PlanLimits, faceInputScale, fitToCanvas, planScales, scaleToArea } from './scale-plan.ts'
 
 const LIMITS: PlanLimits = {
     framePixels: 450_000,
     textCanvasPixels: 736 * 736,
     storedPixels: 50_000,
     faceInputSide: 640,
+    faceTileAbove: 3,
+    faceTileAspect: 6,
     stride: 32,
     safetyFactor: 1.3,
 }
@@ -95,24 +97,8 @@ describe('scale-plan', () => {
     it('lets a fixed-input detector enlarge a frame smaller than its square', () => {
         // The one allowed upscale: the size belongs to the model, and filling the square is what
         // maximises the subject at it. Only the reduction matters for the ratio, hence the cap at 1.
-        expect(fixedInputScale({ width: 200, height: 100 }, 640)).toBe(1)
-        expect(fixedInputScale({ width: 1280, height: 720 }, 640)).toBeCloseTo(0.5, 5)
-    })
-
-    it.each([
-        ['a box flush to the frame edge', { left: 0, top: 0, width: 100, height: 100 }],
-        ['a box with fractional scaled edges', { left: 37, top: 91, width: 63, height: 47 }],
-    ])('rounds %s outward when rescaled', (_case, box) => {
-        const from = { width: 894, height: 503 }
-        const to = { width: 213, height: 120 }
-
-        const out = rescaleBox(box, from, to)
-
-        // Outward on every edge: a fill that lost a pixel to rounding exposes what it covered.
-        expect(out.left).toBeLessThanOrEqual((box.left * to.width) / from.width)
-        expect(out.left + out.width).toBeGreaterThanOrEqual(((box.left + box.width) * to.width) / from.width - 1)
-        expect(out.left + out.width).toBeLessThanOrEqual(to.width)
-        expect(out.top + out.height).toBeLessThanOrEqual(to.height)
+        expect(faceInputScale({ width: 200, height: 100 }, 640, 3, 6)).toBe(1)
+        expect(faceInputScale({ width: 1280, height: 720 }, 640, 3, 6)).toBeCloseTo(0.5, 5)
     })
 
     it('never returns a zero dimension', () => {

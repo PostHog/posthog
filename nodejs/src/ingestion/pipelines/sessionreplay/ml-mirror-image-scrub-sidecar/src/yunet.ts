@@ -10,6 +10,17 @@ import * as ort from 'onnxruntime-node'
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
+// very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
+// stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
+// (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
+// some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
+// ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
+// at >=107px and a quarter-width face at >=27px, both comfortably detectable.
+// Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
+// know how much of a long frame this stage really sees, and two copies of it is the drift the
+// planner exists to remove.
+import { FACE_TILE_ABOVE, FACE_TILE_ASPECT } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const YUNET_SIDE = 640 // this YuNet build has a FIXED 640x640 input (dynamic dims are rejected)
@@ -51,15 +62,8 @@ export interface FaceOpts {
     scoreMin?: number // lower = more sensitive (the verification pass uses this to catch lingering faces)
 }
 
-// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
-// very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
-// stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
-// (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
-// some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
-// ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
-// at >=107px and a quarter-width face at >=27px, both comfortably detectable.
-const MAX_ASPECT = 3
-const TILE_ASPECT = 6
+const MAX_ASPECT = FACE_TILE_ABOVE
+const TILE_ASPECT = FACE_TILE_ASPECT
 
 interface Window {
     left: number

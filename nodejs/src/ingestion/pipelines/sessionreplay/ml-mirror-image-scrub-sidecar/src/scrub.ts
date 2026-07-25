@@ -159,8 +159,9 @@ export async function advancedScrub(
     // fixed-cost inference on every frame, which makes it the largest single thing this skips.
     if (isUniform(src)) {
         timings.uniform = true
-        // Nothing was inspected: the frame is a single flat colour, so there is no detection pass to
-        // size the artifact against and the frame's own dimensions are the honest input.
+        // Stored at the planned size like any other frame. Sizing it by its own dimensions instead
+        // would make a blank frame the one image kept at full resolution, which is a surprising
+        // exception to carry for no benefit: a flat colour is as recognisable small as large.
         const out = await compose(src, W, H, [], timings, plan.stored)
         timings.totalMs = performance.now() - t0
         return { out, t: timings }
