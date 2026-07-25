@@ -268,7 +268,13 @@ ports from source using these rules.
     only; the env var handed to the build keeps its original name, because the app reads it:
     `POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}`. Applies to
     `POSTHOG_SOURCEMAP_API_KEY`, `POSTHOG_ENV_ID` and `POSTHOG_HOST` across desktop-release,
-    desktop-build-test, desktop-pr-build-installer and desktop-update-e2e. Left bare:
+    desktop-build-test, desktop-pr-build-installer and desktop-update-e2e. The same
+    treatment covers the Windows Authenticode signing secrets in desktop-release's
+    `publish-windows` job (`WINDOWS_PUBLISHER_NAME`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+    `AZURE_CLIENT_SECRET`, `AZURE_CODE_SIGNING_ENDPOINT`, `AZURE_CODE_SIGNING_ACCOUNT`,
+    `AZURE_CERT_PROFILE_NAME`): `AZURE_*` is far too generic to claim repo-wide, and
+    electron-builder reads the bare names from the environment, so only the `secrets.`
+    lookup is prefixed. Left bare:
     `VITE_POSTHOG_API_KEY` and `VITE_POSTHOG_API_HOST` (already org-wide and shared), names
     that already carry a desktop, twig or code qualifier (`AWS_DESKTOP_*`, `AWS_TWIG_*`,
     `POSTHOG_CODE_E2E_*`) and genuinely repo-wide ones (`TRUNK_API_TOKEN`, `VR_API_TOKEN`,
@@ -303,6 +309,12 @@ the PR's side; that file is the one to follow on merge day.
   `POSTHOG_CODE_E2E_*` (secret + vars), `TRUNK_API_TOKEN`, Discord webhook, App Store
   Connect (mobile). Until they exist, the corresponding workflows red on this PR — that is
   the dry run telling us which are missing.
+- **Windows signing (not yet provisioned)**: `publish-windows` reads
+  `DESKTOP_WINDOWS_PUBLISHER_NAME` plus either the `DESKTOP_AZURE_*` set (Azure Trusted
+  Signing, preferred) or `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` (PFX). None exist yet, so
+  `windowsSigningOptions()` returns `{}` and Windows builds still ship **unsigned**, which
+  means electron-updater still skips Authenticode verification of downloaded updates. The
+  config plumbing is in place; provisioning a signing identity is what actually closes it.
 - **Required checks**: register `Desktop Build Pass`, `Desktop Typecheck Pass`,
   `Desktop Quality Pass` and `Desktop Tests Pass` as required status checks once this
   merges.
