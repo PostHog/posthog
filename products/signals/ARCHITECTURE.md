@@ -663,9 +663,14 @@ Two properties are load-bearing:
 - `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
   Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
 
-Metadata is deliberately limited to `report_id`.
-It only refreshes when the report's text changes, so mutable state (status, priority, `signal_count`) would go stale there.
+Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
+It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
 Join that from Postgres or the status-change event stream instead.
+
+Deleting a report tombstones its document the same way `soft_delete_report_signals` tombstones the report's signal rows:
+the row is re-emitted with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition.
+Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
+As with the signal tombstone, this makes the row filterable rather than erasing its text.
 
 ### Soft Deletion
 

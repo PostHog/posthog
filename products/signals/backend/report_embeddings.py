@@ -11,6 +11,7 @@ every resolve, dismissal, and snooze.
 """
 
 from datetime import datetime
+from typing import Any
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.schema_enums import EmbeddingModelName
@@ -41,7 +42,9 @@ def render_report_document(title: str | None, summary: str | None) -> str | None
     return "\n\n".join(part for part in (rendered_title, rendered_summary) if part)
 
 
-def emit_report_embedding(*, team_id: int, report_id: str, content: str, created_at: datetime) -> None:
+def emit_report_embedding(
+    *, team_id: int, report_id: str, content: str, created_at: datetime, deleted: bool = False
+) -> None:
     """Queue a report embedding for the worker, superseding any previous vector for the same report.
 
     `created_at` becomes the row's `timestamp`, rather than the emission time, on purpose. The
@@ -54,7 +57,16 @@ def emit_report_embedding(*, team_id: int, report_id: str, content: str, created
     The cost of pinning is that the table's `timestamp + 3 MONTH` TTL is measured from report creation,
     so a report that stays open longer than that loses its vector while still live. Consumers must
     therefore snapshot features as they are produced rather than recompute them retroactively.
+
+    `deleted` writes the tombstone that mirrors `soft_delete_report_signals`: the same row re-emitted
+    with `metadata.deleted = true` so it replaces the live one. Readers must filter it out the same way
+    every signals query already does, with `NOT JSONExtractBool(metadata, 'deleted')`. Note this makes
+    the row filterable rather than erasing its text, exactly as the signal tombstone does.
     """
+    metadata: dict[str, Any] = {"report_id": report_id}
+    if deleted:
+        metadata["deleted"] = True
+
     emit_embedding_request(
         content=content,
         team_id=team_id,
@@ -64,10 +76,10 @@ def emit_report_embedding(*, team_id: int, report_id: str, content: str, created
         document_id=report_id,
         models=[model.value for model in EmbeddingModelName],
         timestamp=created_at,
-        # Deliberately minimal. Metadata is only refreshed when the report's text changes, so mutable
-        # state (status, priority, signal_count) would go stale here with nothing to signal it; those
-        # belong in a join against Postgres or the `signal_report_status_changed` stream. `report_id`
-        # duplicates `document_id` so a query can JSONExtract it uniformly across report rows and the
-        # signal rows that already carry it in metadata.
-        metadata={"report_id": report_id},
+        # Deliberately minimal. Metadata is only refreshed when the report's text changes or it is
+        # deleted, so mutable state (status, priority, signal_count) would go stale here with nothing
+        # to signal it; those belong in a join against Postgres or the `signal_report_status_changed`
+        # stream. `report_id` duplicates `document_id` so a query can JSONExtract it uniformly across
+        # report rows and the signal rows that already carry it in metadata.
+        metadata=metadata,
     )

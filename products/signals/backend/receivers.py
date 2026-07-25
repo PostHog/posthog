@@ -32,6 +32,35 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
+def _is_safety_suppressed(report_id: str) -> bool:
+    """Whether the safety judge marked this report unsafe.
+
+    An unsafe report's backing signals are deliberately never indexed: `create_scout_report` is passed
+    `emit_signals=False` so the adversarial-looking descriptions can't become semantic-search
+    candidates or matching context for unrelated signals. The report's own title and summary are that
+    same attacker-influenced text, so embedding them would hand back exactly what the gate denies.
+
+    Read from the durable `safety_judgment` artefact rather than a flag on the instance, so the gate
+    holds for every writer, including the deletion path, which loads a fresh report the author of the
+    verdict never touched.
+    """
+    content = (
+        SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+        .order_by("-created_at")
+        .values_list("content", flat=True)
+        .first()
+    )
+    if not content:
+        return False
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # An unparseable verdict is treated as unsafe: failing closed keeps content the judge may have
+        # rejected out of the index.
+        return True
+    return isinstance(data, dict) and data.get("choice") is False
+
+
 @receiver(pre_save, sender=SignalReport)
 def capture_prior_state(
     sender: type[SignalReport],
@@ -164,6 +193,10 @@ def emit_report_embedding_on_document_change(
 
     def _emit() -> None:
         try:
+            # Checked post-commit, because a scout report's safety verdict is written as an artefact
+            # in the same transaction as the report row it judges, so it is only visible from here.
+            if _is_safety_suppressed(report_id):
+                return
             emit_report_embedding(team_id=team_id, report_id=report_id, content=content, created_at=created_at)
         except Exception:
             # A missing vector costs the ranking model one feature row. It must never fail the write
@@ -171,6 +204,58 @@ def emit_report_embedding_on_document_change(
             logger.exception("Failed to emit signal report embedding", report_id=report_id)
 
     # After commit so a rolled-back save never leaves a vector behind for text that was never stored.
+    transaction.on_commit(_emit)
+
+
+@receiver(post_save, sender=SignalReport)
+def tombstone_report_embedding_on_delete(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Tombstone the report's embedding when the report is deleted.
+
+    Deletion already tombstones the report's *signal* rows, via `soft_delete_report_signals` in the
+    deletion workflow. Without the matching write for the report's own document, it would stay visible
+    to any reader filtering on `NOT JSONExtractBool(metadata, 'deleted')`, which is what every existing
+    signals read query does, so the first consumer of report embeddings would surface deleted reports.
+
+    Deletion only flips `status`, so the document-change receiver above never fires for it.
+    """
+    if created:
+        return
+    if update_fields is not None and "status" not in update_fields:
+        return
+    if instance.status != SignalReport.Status.DELETED:
+        return
+    prior_status = getattr(instance, "_prior_status", None)
+    if prior_status is None or prior_status == instance.status:
+        return
+
+    # A report whose text was never written has no row in the table to supersede, and emitting one
+    # here would create the very document the tombstone is meant to retract.
+    content = render_report_document(instance.title, instance.summary)
+    if content is None:
+        return
+
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    created_at = instance.created_at
+
+    def _emit() -> None:
+        try:
+            # A safety-suppressed report was never embedded, so there is no live row to retract and
+            # writing one here would put the very text the safety gate withheld into the table.
+            if _is_safety_suppressed(report_id):
+                return
+            emit_report_embedding(
+                team_id=team_id, report_id=report_id, content=content, created_at=created_at, deleted=True
+            )
+        except Exception:
+            logger.exception("Failed to tombstone signal report embedding", report_id=report_id)
+
     transaction.on_commit(_emit)
 
 
