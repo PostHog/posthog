@@ -26,6 +26,8 @@ export interface MCPNotificationPreviewProps {
     /** Slack mrkdwn, as produced by `mcpNotificationPreviewMessage` */
     message: string
     buttonLabel: string
+    /** Where the interpolated values came from — the project's own events, or sample copy. */
+    caption: string
 }
 
 /**
@@ -33,9 +35,13 @@ export interface MCPNotificationPreviewProps {
  * channel before connecting one. Deliberately static: the copy comes from the real template, but
  * the values are samples.
  */
-export function MCPNotificationPreview({ message, buttonLabel }: MCPNotificationPreviewProps): JSX.Element {
+export function MCPNotificationPreview({ message, buttonLabel, caption }: MCPNotificationPreviewProps): JSX.Element {
     return (
         <div className="rounded border bg-surface-primary p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
+                <span className="text-xs font-medium text-muted">Slack preview</span>
+                <span className="text-xs text-muted">{caption}</span>
+            </div>
             <div className="flex gap-2">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-secondary">
                     <Logomark size="sm" />

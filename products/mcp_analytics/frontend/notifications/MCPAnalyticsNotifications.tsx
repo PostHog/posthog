@@ -27,6 +27,7 @@ import {
     mcpAnalyticsNotificationsLogic,
     MCPNotificationUseCase,
 } from './mcpAnalyticsNotificationsLogic'
+import { MCPNotificationExample, mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
 import { MCPNotificationPreview } from './MCPNotificationPreview'
 
 type MCPNotificationSubTemplateId = 'mcp-missing-capability' | 'mcp-tool-error'
@@ -38,8 +39,10 @@ interface MCPUseCaseConfig {
     headline: string
     lead: string
     dialogTitle: string
-    /** Stand-in values for the preview; the copy itself comes from the real message template. */
+    /** Shown until the project's own latest event loads; the copy always comes from the template. */
     sample: Record<MCPMessageField, string>
+    /** Caption for a preview built from the project's own event. */
+    realCaption: string
 }
 
 const USE_CASES: MCPUseCaseConfig[] = [
@@ -53,9 +56,10 @@ const USE_CASES: MCPUseCaseConfig[] = [
         sample: {
             clientName: 'Cursor',
             serverName: 'acme-mcp',
-            intent: 'export this dashboard to PDF',
+            intent: 'export the signups dashboard to PDF and email it to the team every Monday',
             toolName: '',
         },
+        realCaption: 'Your most recent one',
     },
     {
         useCase: 'tool-error',
@@ -67,9 +71,10 @@ const USE_CASES: MCPUseCaseConfig[] = [
         sample: {
             clientName: 'Claude Code',
             serverName: 'acme-mcp',
-            intent: 'find out why signups dropped this week',
+            intent: 'find out why signups dropped after Tuesday’s release',
             toolName: 'query-events',
         },
+        realCaption: 'Your most recent failure',
     },
 ]
 
@@ -124,9 +129,11 @@ interface UseCaseCardProps {
     notifications: HogFunctionType[]
     onAdd: () => void
     addDisabledReason?: string
+    /** The project's own latest event for this use case, once it has loaded. */
+    example?: MCPNotificationExample
 }
 
-function UseCaseCard({ config, notifications, onAdd, addDisabledReason }: UseCaseCardProps): JSX.Element {
+function UseCaseCard({ config, notifications, onAdd, addDisabledReason, example }: UseCaseCardProps): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3">
             <div className="flex items-start gap-2">
@@ -138,8 +145,9 @@ function UseCaseCard({ config, notifications, onAdd, addDisabledReason }: UseCas
             </div>
 
             <MCPNotificationPreview
-                message={mcpNotificationPreviewMessage(config.subTemplateId, config.sample)}
+                message={mcpNotificationPreviewMessage(config.subTemplateId, example ?? config.sample)}
                 buttonLabel={MCP_NOTIFICATION_BUTTON_LABELS[config.subTemplateId]}
+                caption={example ? config.realCaption : 'Example'}
             />
 
             {notifications.length > 0 && (
@@ -169,6 +177,8 @@ function UseCaseCard({ config, notifications, onAdd, addDisabledReason }: UseCas
 export function MCPAnalyticsNotifications(): JSX.Element {
     const { notifications, notificationsLoaded, notificationsFailed } = useValues(mcpAnalyticsNotificationsLogic)
     const { loadNotifications } = useActions(mcpAnalyticsNotificationsLogic)
+    const { examples } = useValues(mcpNotificationExamplesLogic)
+    const { loadExamples } = useActions(mcpNotificationExamplesLogic)
     const addDisabledReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -176,7 +186,10 @@ export function MCPAnalyticsNotifications(): JSX.Element {
 
     useEffect(() => {
         loadNotifications()
-    }, [loadNotifications])
+        // The previews render sample copy straight away and upgrade to the project's own events when
+        // this lands, so there's deliberately no loading state to wait on.
+        loadExamples()
+    }, [loadNotifications, loadExamples])
 
     const onCreated = (): void => {
         loadNotifications()
@@ -240,6 +253,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                     )}
                     onAdd={openDialogFor[config.subTemplateId]}
                     addDisabledReason={addDisabledReason ?? undefined}
+                    example={examples[config.useCase]}
                 />
             ))}
 

@@ -379,6 +379,18 @@ export const MCP_NOTIFICATION_BUTTON_LABELS = {
 } as const
 
 /**
+ * The caps the delivered message applies to each interpolated field. Exported so a preview built
+ * from real event values cuts them exactly where the chat provider will, instead of showing more
+ * than actually gets sent.
+ */
+export const MCP_MESSAGE_FIELD_LIMITS: Record<MCPMessageField, number> = {
+    clientName: MCP_FIELD_MAX_LENGTH,
+    serverName: MCP_FIELD_MAX_LENGTH,
+    toolName: MCP_FIELD_MAX_LENGTH,
+    intent: MCP_INTENT_MAX_LENGTH,
+}
+
+/**
  * The Slack message a notification will post, rendered with sample values in place of the Hog
  * expressions — for previewing the real copy before wiring a destination up.
  */
