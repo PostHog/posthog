@@ -169,6 +169,19 @@ class TestReportEmbeddingReceiver(BaseTest):
                 report.save(update_fields=updated)
         assert emit.call_count == 0
 
+    def test_editing_a_deleted_report_does_not_resurrect_its_embedding(self):
+        # `update_scout_report` gates edits on team ownership, not status, so an edit can land after
+        # deletion. A live row emitted then would supersede the tombstone.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title="Checkout errors", summary="Rate tripled")
+            deleted = report.transition_to(SignalReport.Status.DELETED)
+            report.save(update_fields=deleted)
+        with patch(EMIT_PATH) as emit:
+            with self.captureOnCommitCallbacks(execute=True):
+                edited = report.update_authored_content(summary="Edited after deletion")
+                report.save(update_fields=edited)
+        assert emit.call_count == 0
+
     def test_status_transition_alone_does_not_re_embed(self):
         with self.captureOnCommitCallbacks(execute=True):
             report = self._create_report(

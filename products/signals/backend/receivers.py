@@ -43,9 +43,14 @@ def _is_safety_suppressed(report_id: str) -> bool:
     Read from the durable `safety_judgment` artefact rather than a flag on the instance, so the gate
     holds for every writer, including the deletion path, which loads a fresh report the author of the
     verdict never touched.
+
+    Pinned to the writer with `using("default")`. This runs immediately after the transaction that
+    wrote the verdict commits, and `ReplicaRouter` documents replication lag on exactly that pattern,
+    so a replica-routed read could miss the verdict and let the gate fail open on unsafe content.
     """
     content = (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+        SignalReportArtefact.objects.using("default")
+        .filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
         .order_by("-created_at")
         .values_list("content", flat=True)
         .first()
@@ -174,6 +179,12 @@ def emit_report_embedding_on_document_change(
     opting in.
     """
     if update_fields is not None and not (_DOCUMENT_FIELDS & set(update_fields)):
+        return
+
+    # An edit can still land on a deleted report: `update_scout_report` gates on team ownership, not
+    # status. Emitting a live row for one would supersede the deletion tombstone and make the report
+    # visible to embedding queries again.
+    if instance.status == SignalReport.Status.DELETED:
         return
 
     content = render_report_document(instance.title, instance.summary)
