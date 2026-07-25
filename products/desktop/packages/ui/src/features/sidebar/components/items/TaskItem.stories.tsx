@@ -35,7 +35,8 @@ interface Row {
   taskId: string;
   label: string;
   subtitle?: string;
-  timestamp: number;
+  /** Age of the task's last activity, resolved to a timestamp at render. */
+  ageHours: number;
   isPinned?: boolean;
   workspaceMode?: "local" | "worktree" | "cloud";
   taskRunStatus?: "completed";
@@ -51,15 +52,22 @@ function TaskRows({
   rows: Row[];
   sectionLabel?: string;
 }) {
+  // Ages become timestamps here rather than in `args`, so the relative labels
+  // are read off the same clock that renders them. The visual-regression runner
+  // freezes the clock in a decorator (apps/code/.storybook/preview.tsx) while
+  // story args are evaluated at import time against the real one — anchoring
+  // args to `Date.now()` collapses every label to "now" in CI.
+  const now = Date.now();
   return (
     <div className="flex w-[280px] flex-col bg-gray-2 py-1">
       {sectionLabel ? (
         <MenuLabel className="flex items-center py-0">{sectionLabel}</MenuLabel>
       ) : null}
-      {rows.map((row) => (
+      {rows.map(({ ageHours, ...row }) => (
         <TaskItem
           key={row.taskId}
           {...row}
+          timestamp={now - ageHours * HOUR}
           isActive={false}
           onClick={noop}
           onContextMenu={noop}
@@ -97,14 +105,14 @@ export const InRepositoryGroup: Story = {
       {
         taskId: "t1",
         label: "Implement /clear command for PostHog Code",
-        timestamp: Date.now() - HOUR,
+        ageHours: 1,
         workspaceMode: "cloud",
         taskRunStatus: "completed",
       },
       {
         taskId: "t2",
         label: "Implement btw command in PostHog Code",
-        timestamp: Date.now() - 26 * HOUR,
+        ageHours: 26,
         workspaceMode: "worktree",
         prState: "open",
       },
@@ -128,7 +136,7 @@ export const Pinned: Story = {
           workspaceMode: "worktree",
           branchName: "haacked/local-eval-runbook",
         }),
-        timestamp: Date.now(),
+        ageHours: 0,
         isPinned: true,
         workspaceMode: "worktree",
       },
@@ -141,7 +149,7 @@ export const Pinned: Story = {
           branchName: "main",
           linkedBranch: "posthog-code/unattended-mode",
         }),
-        timestamp: Date.now() - 3 * HOUR,
+        ageHours: 3,
         isPinned: true,
         prState: "open",
       },
@@ -149,7 +157,7 @@ export const Pinned: Story = {
         taskId: "p3",
         label: "Add disable-model-invocation support to Desktop skills",
         subtitle: context({ repository: CODE_REPO, workspaceMode: "cloud" }),
-        timestamp: Date.now() - 27 * HOUR,
+        ageHours: 27,
         isPinned: true,
         workspaceMode: "cloud",
         taskRunStatus: "completed",
@@ -158,7 +166,7 @@ export const Pinned: Story = {
         taskId: "p4",
         label: "Scan prod for affected teams",
         subtitle: context({}),
-        timestamp: Date.now() - 30 * HOUR,
+        ageHours: 30,
         isPinned: true,
       },
     ],
