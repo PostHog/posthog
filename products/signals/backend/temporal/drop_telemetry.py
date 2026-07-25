@@ -68,7 +68,10 @@ async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> N
                 # nests customer-derived content that must not leak into product analytics.
                 # Core keys win on conflict, same as signal_emitted / signal_emission_started.
                 **_telemetry_props_from_extra(input.extra),
-                "reason": "grouping_processing_error",
+                # Composite of stage + error_type so drops are distinguishable by `reason`
+                # alone — a transient ConnectError burst reads differently from the chronic
+                # ClickHouseAtCapacity baseline instead of collapsing to one constant.
+                "reason": f"{input.stage}:{input.error_type}",
                 "stage": input.stage,
                 "error_type": input.error_type,
                 "error": input.error,
