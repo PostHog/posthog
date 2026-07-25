@@ -505,6 +505,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         />
                     )}
 
+                    {/* What Self-driving already found for this ticket. Outside the widget-only group
+                        below: those panels need a browser session, but a researched report can come
+                        from a ticket on any channel. */}
+                    <LinkedReportsPanel linkedReports={linkedReports} linkedReportsLoading={linkedReportsLoading} />
+
                     {ticket?.channel_source === 'widget' && (
                         <>
                             {/* Session Recording Panel */}
@@ -525,12 +530,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 exceptionsQuery={exceptionsQuery}
                                 sessionId={ticket?.session_id}
                                 distinctId={ticket?.distinct_id}
-                            />
-
-                            {/* What the inbox already found for this ticket */}
-                            <LinkedReportsPanel
-                                linkedReports={linkedReports}
-                                linkedReportsLoading={linkedReportsLoading}
                             />
 
                             {/* Previous Tickets Panel */}

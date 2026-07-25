@@ -40,7 +40,10 @@ export function LinkedReportsPanel({ linkedReports, linkedReportsLoading }: Link
             className="bg-surface-primary"
             // Open when there is something to read, so a teammate sees the findings without a click.
             // Stays shut when empty, where the header alone says all there is to say.
-            defaultActiveKey={linkedReports.length > 0 ? 'linked-reports' : undefined}
+            // `multiple` because only that variant re-syncs its default keys after mount, and the
+            // reports arrive from a request that resolves later than the first render.
+            multiple
+            defaultActiveKeys={linkedReports.length > 0 ? ['linked-reports'] : []}
             panels={[
                 {
                     key: 'linked-reports',
