@@ -110,7 +110,11 @@ GROUP BY repo_fingerprint, repo
 -- The floor applies to *partial* failure rates. A repo where every run fails is a
 -- readiness break the body says to file at any volume, so it must survive the floor.
 HAVING runs > 20 OR (failed = runs AND runs >= 3)
-ORDER BY failed DESC
+-- Order by the discriminator, not raw count. `HAVING` is the volume guard, so everything
+-- here already clears the floor; ranking by count would let a high-traffic repo with a
+-- healthy 1% rate push a small repo at 100% past the LIMIT — the exact inversion the body
+-- calls noise. Rate first, count only as tie-breaker.
+ORDER BY fail_pct DESC, failed DESC
 LIMIT 25
 ```
 
@@ -119,9 +123,15 @@ LIMIT 25
 The localization lens.
 Grouping on a message prefix collapses the variable tail (ids, paths, timings) and leaves the class.
 60 characters is a good default: long enough to separate classes, short enough that per-task detail doesn't fragment them.
-Widen to 100 if two distinct classes collapse together.
+
+**The width is a constant shared by queries 3, 4 and 9.** If two distinct classes collapse and you widen it, widen it in _all three_ — `err_fingerprint` is a hash of the prefix, so a 100-character hash from query 3 matches nothing against a 60-character hash downstream, and the chain silently returns zero rows for exactly the collision the widening was meant to resolve.
 
 `err_fingerprint` is what downstream queries filter on — carry the **number**, never the text (see query 4).
+
+**Visibility: this reads error text from runs you may not be entitled to see.** `system.task_runs` enforces team scoping only, not `task_run_visibility_q`, so a private `#me` task's failure contributes its error text here just like any other — the same actor gets a 404 from `tasks-runs-retrieve` for that run. Two rules follow, and they are what keep this query inside the boundary:
+
+1. **Never quote the raw prefix in a report.** Name the class ("clone authentication failure", "agent returned no parseable output") with counts. The aggregate is what the lens is for; the string is not.
+2. **Any concrete run you cite must round-trip through `tasks-runs-retrieve` first** (query 9 gets you the ids). That call applies the visibility rule — a 404 means this run is not yours to surface, so drop it and cite a different one. Treat the retrieve as the authorization check, not a convenience.
 
 `failed_runs_per_task` here is the same discriminator applied per class.
 The `status = 'failed'` filter below already scopes every row to a failure, so the plain `count() / uniq(task_id)` is failure-scoped as written — no `uniqIf` needed, unlike query 2.
@@ -263,10 +273,13 @@ The system table applies only team scoping and `internal != true`. It does **not
 
 Read task text through the **MCP tools instead**, which enforce the boundary server-side for the token's user:
 
-- `tasks-list` — page newest-first, filtered by `origin_product` to the demand origins (`user_created`, `slack`, `posthog_ai`, `hogdesk`). Returns `id`, `title`, `description`, `origin_product`, `repository`, `created_at`. This is the theme-sampling surface.
+- `tasks-list` — page newest-first, filtered by `origin_product` to the demand origins (`user_created`, `slack`, `posthog_ai`, `hogdesk`). This is the theme-sampling surface.
 - `tasks-retrieve` — full detail on one task when a theme is worth pursuing, and the source of `created_by.uuid` for reviewer routing.
 
-Keep the sampling discipline the SQL version had: read **titles** at scale and pull descriptions only for the handful of tasks that define a candidate theme. Descriptions run to thousands of characters and will exhaust the run's budget if fetched in bulk.
+Two properties of `tasks-list` shape how you call it, and neither is optional:
+
+- **It returns `description` on every row**, up to 100 rows per page. There is no title-only projection, so "read titles at scale" is not free here the way it was in SQL — a full page on a project with long descriptions can swallow the run's context before you analyse anything. **Cap the sample: a small page size and a hard ceiling of a few pages per run.** Take the newest tasks, form themes from titles, and accept that a demand pass samples rather than enumerates. If you run out of budget, stop and record how far you got in `pattern:tasks:last-demand-pass` so the next pass resumes rather than restarting.
+- **It has no `created_at` filter.** Filtering is by `origin_product` / `repository` / `created_by` only, so once an origin runs out of recent tasks the pages keep going backwards into older ones. **Discard any row whose `created_at` is past the 30-day demand window and stop paging that origin at the cutoff** — otherwise historical requests join a theme whose volume and requester counts (query 6) only cover current demand, and the two halves of the lens disagree.
 
 Query 6 stays SQL because it returns only counts and aggregates — no task text crosses the boundary there.
 
