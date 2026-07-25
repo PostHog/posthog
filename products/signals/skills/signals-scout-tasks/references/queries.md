@@ -253,42 +253,29 @@ ORDER BY tasks DESC
 LIMIT 30
 ```
 
-## 7 — Demand theme sampling (lens B, gated)
+## 7 — Demand theme sampling (lens B, gated) — NOT SQL
 
-Titles only, and windowed.
-Descriptions on real projects average thousands of characters — pulling them in bulk will exhaust the run's budget.
-Read titles at scale here, then `tasks-retrieve` a handful of representative ids for full context on a theme worth pursuing.
+**Do not read task titles or descriptions from `system.tasks`.**
+The system table applies only team scoping and `internal != true`. It does **not** apply `task_visibility_q`, the rule that keeps personal-channel ("#me") tasks readable by their creator alone, and it exposes no `channel` column, so that rule cannot be reconstructed here. Reading titles in SQL would let the scout summarize a teammate's private task into a team-visible report — content the run's own actor gets a 404 for through the API.
 
-Titles are also the safer read: they're shorter and far less likely to carry the credentials and customer detail that descriptions routinely do.
+Read task text through the **MCP tools instead**, which enforce the boundary server-side for the token's user:
 
-```sql
-SELECT
-    id                                                           AS task_id,
-    substring(title, 1, 120)                                     AS title,
-    origin_product                                               AS origin,
-    repository                                                   AS repo,
-    created_by_id                                                AS creator,
-    created_at
-FROM system.tasks
-WHERE created_at > now() - interval 30 day
-  AND deleted = 0
-  AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
-  AND length(title) > 10
-ORDER BY created_at DESC
-LIMIT 200
-```
+- `tasks-list` — page newest-first, filtered by `origin_product` to the demand origins (`user_created`, `slack`, `posthog_ai`, `hogdesk`). Returns `id`, `title`, `description`, `origin_product`, `repository`, `created_at`. This is the theme-sampling surface.
+- `tasks-retrieve` — full detail on one task when a theme is worth pursuing, and the source of `created_by.uuid` for reviewer routing.
 
-Cluster the titles yourself, then verify each candidate theme against the two tests in the body: repeated across **distinct** `creator` values, and not already served by the project's product.
-A theme that only survives on one creator's tasks is that person's workflow, not demand.
+Keep the sampling discipline the SQL version had: read **titles** at scale and pull descriptions only for the handful of tasks that define a candidate theme. Descriptions run to thousands of characters and will exhaust the run's budget if fetched in bulk.
+
+Query 6 stays SQL because it returns only counts and aggregates — no task text crosses the boundary there.
 
 ## 8 — Lens intersection (the highest-value shape)
 
 Tasks whose runs failed, restricted to human origins — where a delivery-health cluster and a demand theme overlap.
 A capability people keep asking for that also keeps failing is the most actionable thing this scout can surface.
 
+Returns **ids only, no task text**, for the same visibility reason as query 7: resolve each candidate with `tasks-retrieve`, which applies the visibility rule and 404s on a task this run's actor may not read. A 404 here is the boundary working — drop that task and move on, don't try to recover its title from SQL.
+
 ```sql
 SELECT
-    substring(t.title, 1, 120)                                   AS title,
     t.id                                                         AS task_id,
     t.repository                                                 AS repo,
     t.created_by_id                                              AS creator,
@@ -303,7 +290,7 @@ WHERE r.created_at > now() - interval 30 day
   AND t.created_at > now() - interval 30 day
   AND t.deleted = 0
   AND t.origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
-GROUP BY title, task_id, repo, creator, err_prefix
+GROUP BY task_id, repo, creator, err_prefix
 ORDER BY failed_runs DESC
 LIMIT 30
 ```
