@@ -23,6 +23,15 @@ export type AcpConnectionConfig = {
   /** Deployment environment - "local" for desktop, "cloud" for cloud sandbox */
   deviceType?: "local" | "cloud";
   logger?: Logger;
+  /**
+   * Route the Claude adapter's own diagnostics through `logger` instead of its
+   * console fallback. Off by default: adapter-internal logging includes whole
+   * payloads (expanded slash-command output, tool inputs, subprocess stderr),
+   * and a host `logger` typically carries an `onLog` that persists or transmits
+   * what it receives. Only a host whose sink is the operator's own terminal
+   * should turn this on.
+   */
+  forwardAdapterLogs?: boolean;
   processCallbacks?: ProcessSpawnedCallback;
   codexOptions?: CodexOptions;
   codexModels?: ReadonlyArray<ModelInfo>;
@@ -119,7 +128,9 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
-      logger: config.logger?.child("ClaudeAcpAgent"),
+      logger: config.forwardAdapterLogs
+        ? config.logger?.child("ClaudeAcpAgent")
+        : undefined,
     });
     return agent;
   }, agentStream);

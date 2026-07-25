@@ -37,7 +37,11 @@ Hosts:
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
 - `apps/mobile`: React Native host.
-- `packages/cli`: headless CLI (`@posthog/code-cli`, bin `posthog-code-cli`) — one-shot agent runs over the in-process ACP connection.
+
+Executable packages own a `bin` rather than an `apps/*` host shell. They boot the same packages a host does, without a UI:
+
+- `packages/cli`: headless CLI (`@posthog/code-cli`, bin `posthog-code-cli`) for one-shot agent runs over the in-process ACP connection.
+- `packages/harness`: `@posthog/harness` (bin `harness`, `hog`), which spawns the pi.dev coding agent against the PostHog LLM gateway.
 
 ## Rules
 

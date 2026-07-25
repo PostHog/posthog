@@ -25,6 +25,7 @@ export class Agent {
   private sessionLogWriter?: SessionLogWriter;
   private posthogApiConfig?: AgentConfig["posthog"];
   private enricherEnabled: boolean;
+  private forwardAdapterLogs: boolean;
 
   constructor(config: AgentConfig) {
     this.logger = new Logger({
@@ -38,6 +39,7 @@ export class Agent {
       this.posthogApiConfig = config.posthog;
     }
     this.enricherEnabled = config.enricher?.enabled !== false;
+    this.forwardAdapterLogs = config.forwardAdapterLogs === true;
 
     if (config.posthog && !config.skipLogPersistence) {
       this.sessionLogWriter = new SessionLogWriter({
@@ -132,6 +134,7 @@ export class Agent {
       taskId,
       deviceType: "local",
       logger: this.logger,
+      forwardAdapterLogs: this.forwardAdapterLogs,
       processCallbacks: options.processCallbacks,
       onStructuredOutput: options.onStructuredOutput,
       codexModels,

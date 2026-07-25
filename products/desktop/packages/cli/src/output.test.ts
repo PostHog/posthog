@@ -28,7 +28,7 @@ function textUpdate(sessionId: string, text: string): SessionNotification {
 
 // Some entries are deliberately partial protocol shapes (the sink must ignore
 // them at runtime), so they are cast rather than fully constructed.
-function ignoredUpdate(
+function ignoredUpdates(
   sessionId: string,
 ): { label: string; update: SessionNotification }[] {
   return [
@@ -89,7 +89,7 @@ describe("createOutputSink", () => {
       expect(stdout.output).toBe("Hello, world!");
     });
 
-    it.each(ignoredUpdate("s1"))("ignores $label updates", ({ update }) => {
+    it.each(ignoredUpdates("s1"))("ignores $label updates", ({ update }) => {
       const stdout = makeFakeStdout();
       const sink = createOutputSink("text", stdout);
 
@@ -100,28 +100,25 @@ describe("createOutputSink", () => {
       expect(stdout.output).toBe("kept text");
     });
 
-    it("does not emit a JSON document from finish()", () => {
+    it("emits the streamed text and a terminating newline, and nothing else", () => {
       const stdout = makeFakeStdout();
       const sink = createOutputSink("text", stdout);
 
       sink.onSessionUpdate(textUpdate("s1", "some streamed text"));
       sink.finish({ stopReason: "end_turn", sessionId: "s1" });
 
-      // Text mode must never buffer the streamed text into a finish-result
-      // JSON document. Unparseable output is fine — that IS plain text.
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(stdout.output);
-      } catch {
-        parsed = undefined;
-      }
-      const isFinishDocument =
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "text" in parsed &&
-        "stopReason" in parsed;
-      expect(isFinishDocument).toBe(false);
-      expect(stdout.output).toContain("some streamed text");
+      // Exact equality, so text mode can't regress into appending a
+      // finish-result JSON document after the streamed text.
+      expect(stdout.output).toBe("some streamed text\n");
+    });
+
+    it("writes nothing at all when the turn produced no assistant text", () => {
+      const stdout = makeFakeStdout();
+      const sink = createOutputSink("text", stdout);
+
+      sink.finish({ stopReason: "end_turn", sessionId: "s1" });
+
+      expect(stdout.output).toBe("");
     });
   });
 
@@ -142,22 +139,35 @@ describe("createOutputSink", () => {
 
       sink.onSessionUpdate(textUpdate("s1", "Hello, "));
       sink.onSessionUpdate(textUpdate("s1", "world"));
-      sink.finish({
-        stopReason: "end_turn",
-        usage: { totalTokens: 42 },
-        sessionId: "s1",
-      });
+      const usage = { totalTokens: 42, inputTokens: 30, outputTokens: 12 };
+      sink.finish({ stopReason: "end_turn", usage, sessionId: "s1" });
 
       const parsed = JSON.parse(stdout.output);
       expect(parsed).toEqual({
         text: "Hello, world",
         stopReason: "end_turn",
-        usage: { totalTokens: 42 },
+        usage,
         sessionId: "s1",
       });
     });
 
-    it.each(ignoredUpdate("s1"))(
+    // Several adapter settle paths carry no usage. The key has to stay in the
+    // document so a consumer reading usage.totalTokens sees null, not a crash.
+    it("emits usage: null when the turn settled without usage", () => {
+      const stdout = makeFakeStdout();
+      const sink = createOutputSink("json", stdout);
+
+      sink.finish({ stopReason: "cancelled", sessionId: "s1" });
+
+      expect(JSON.parse(stdout.output)).toEqual({
+        text: "",
+        stopReason: "cancelled",
+        usage: null,
+        sessionId: "s1",
+      });
+    });
+
+    it.each(ignoredUpdates("s1"))(
       "excludes $label updates from the concatenated text",
       ({ update }) => {
         const stdout = makeFakeStdout();

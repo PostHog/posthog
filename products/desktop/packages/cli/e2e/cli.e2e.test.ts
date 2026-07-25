@@ -14,7 +14,8 @@ import { describe, expect, it } from "vitest";
 const execFileAsync = promisify(execFile);
 
 // Same env contract as packages/agent/e2e/config.ts: a local llm-gateway plus
-// a personal API key. Without the token the suite self-skips (never silent).
+// a personal API key. Without the token the suite self-skips, so the guard test
+// below fails rather than letting the run go green having tested nothing.
 const GATEWAY_URL =
   process.env.POSTHOG_CODE_E2E_GATEWAY_URL || "http://localhost:3308/ci";
 const TOKEN = process.env.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY ?? "";
@@ -46,6 +47,15 @@ function setupRepo(): string {
   );
   return repo;
 }
+
+// Outside the skipIf, mirroring packages/agent/e2e/guard.e2e.test.ts: without
+// this, an unset token turns the whole suite into a pass that ran nothing.
+it("requires POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY", () => {
+  expect(
+    !!TOKEN,
+    "POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY is not set, so the CLI e2e suite would skip and the run would pass without exercising the binary.",
+  ).toBe(true);
+});
 
 describe.skipIf(!TOKEN)("posthog-code-cli", () => {
   it("runs one turn and prints the answer", async () => {

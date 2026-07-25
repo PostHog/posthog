@@ -29,11 +29,6 @@
         "@vitest/coverage-v8"
       ]
     },
-    "apps/cli": {
-      "entry": ["src/cli.ts"],
-      "project": ["src/**/*.ts", "bin/**/*.ts"],
-      "includeEntryExports": true
-    },
     "packages/cli": {
       "project": ["src/**/*.ts"],
       "includeEntryExports": true

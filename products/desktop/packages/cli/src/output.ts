@@ -1,9 +1,13 @@
-import type { SessionNotification } from "@agentclientprotocol/sdk";
+import type {
+  PromptResponse,
+  SessionNotification,
+  StopReason,
+} from "@agentclientprotocol/sdk";
 import type { OutputMode } from "./args";
 
 export interface FinishResult {
-  stopReason: string;
-  usage?: unknown;
+  stopReason: StopReason;
+  usage?: PromptResponse["usage"];
   sessionId: string;
 }
 
@@ -48,8 +52,11 @@ export function createOutputSink(
     },
     finish({ stopReason, usage, sessionId }) {
       if (mode === "json") {
+        // usage ?? null: several adapter settle paths carry no usage, and
+        // JSON.stringify drops an undefined value, which would change the
+        // document's shape out from under a consumer reading usage.totalTokens.
         stdout.write(
-          `${JSON.stringify({ text: chunks.join(""), stopReason, usage, sessionId })}\n`,
+          `${JSON.stringify({ text: chunks.join(""), stopReason, usage: usage ?? null, sessionId })}\n`,
         );
       } else if (streamedText) {
         stdout.write("\n");

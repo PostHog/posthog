@@ -1,20 +1,41 @@
 #!/usr/bin/env node
 import { text } from "node:stream/consumers";
+import { withTimeout } from "@posthog/shared";
 import { parseCliArgs } from "./args";
 import { run } from "./run";
 
+// A reader that exits early (`… | head -1`) closes the pipe under us. Without a
+// listener the next write raises an unhandled 'error' event, which crashes with
+// a raw stack trace before cleanup can run. Swallowing it lets the run unwind
+// through its normal teardown, so the agent subprocess still gets torn down;
+// further writes are discarded, and the force-exit backstop covers the flush
+// callback that a closed pipe will never fire. Registered before any output.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code !== "EPIPE") throw err;
+});
+
+// A non-TTY stdin that never reaches EOF (an inherited but idle stdin under a
+// supervisor or CI step) must not hang a one-shot run.
+const STDIN_READ_TIMEOUT_MS = 30_000;
+
 async function main(): Promise<number> {
   const parsed = parseCliArgs(process.argv);
-  if ("error" in parsed) {
-    if (parsed.error) {
-      process.stderr.write(`${parsed.error}\n`);
-    }
-    return parsed.exitCode;
+  if (parsed.kind === "exit") return parsed.exitCode;
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return 1;
   }
+  const { options } = parsed;
 
-  let prompt = parsed.prompt;
+  let prompt = options.prompt?.trim();
   if (!prompt && !process.stdin.isTTY) {
-    prompt = (await text(process.stdin)).trim();
+    const piped = await withTimeout(text(process.stdin), STDIN_READ_TIMEOUT_MS);
+    if (piped.result === "success") {
+      prompt = piped.value.trim();
+    } else {
+      // The read is still pending and holds the event loop open.
+      process.stdin.destroy();
+    }
   }
   if (!prompt) {
     process.stderr.write(
@@ -24,10 +45,11 @@ async function main(): Promise<number> {
   }
 
   // The Claude subprocess refuses bypass for root outside a sandbox; fail
-  // here with a clear message instead of a cryptic session error.
+  // here with a clear message instead of a cryptic session error. Effective uid
+  // first, matching the IS_ROOT check in @posthog/agent that actually gates it.
   if (
-    parsed.permissionMode === "bypassPermissions" &&
-    process.getuid?.() === 0 &&
+    options.permissionMode === "bypassPermissions" &&
+    (process.geteuid?.() ?? process.getuid?.()) === 0 &&
     !process.env.IS_SANDBOX
   ) {
     process.stderr.write(
@@ -43,25 +65,33 @@ async function main(): Promise<number> {
     );
   }
 
-  return run({ ...parsed, prompt });
+  return run({ ...options, prompt });
 }
+
+// The agent subprocess can leave handles open past cleanup, so force-exit once
+// stdout has drained; a clean event loop still exits naturally before then.
+const POST_FLUSH_GRACE_MS = 500;
+// Backstop for a consumer that never drains the pipe, which would otherwise
+// keep the flush callback from ever firing.
+const STALLED_CONSUMER_TIMEOUT_MS = 10_000;
 
 // process.exit does not wait for pending pipe writes, so flush stdout first
 // (the write callback fires once earlier writes are accepted by the OS).
-// The agent subprocess can leave handles open past cleanup; the unref'd timer
-// force-exits then, while a clean event loop still exits naturally. The
-// unconditional backstop covers a stalled consumer that never drains the pipe,
-// which would otherwise keep the flush callback from ever firing.
 function exitAfterFlush(code: number): void {
   process.exitCode = code;
-  setTimeout(() => process.exit(code), 10_000).unref();
+  setTimeout(() => process.exit(code), STALLED_CONSUMER_TIMEOUT_MS).unref();
   process.stdout.write("", () => {
-    setTimeout(() => process.exit(code), 500).unref();
+    setTimeout(() => process.exit(code), POST_FLUSH_GRACE_MS).unref();
   });
 }
 
 main().then(exitAfterFlush, (err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`posthog-code-cli: ${message}\n`);
+  // parsed.debug is out of scope here, and an unexpected throw is exactly when
+  // the stack is worth having.
+  const detail =
+    err instanceof Error
+      ? (process.argv.includes("--debug") && err.stack) || err.message
+      : String(err);
+  process.stderr.write(`posthog-code-cli: ${detail}\n`);
   exitAfterFlush(1);
 });

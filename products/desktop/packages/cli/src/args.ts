@@ -28,12 +28,11 @@ export interface CliOptions {
   debug: boolean;
 }
 
-export interface ParseError {
-  error: string;
-  exitCode: number;
-}
-
-export type ParseResult = CliOptions | ParseError;
+export type ParseResult =
+  | { kind: "options"; options: CliOptions }
+  /** Commander already wrote help or version to stdout; exit quietly. */
+  | { kind: "exit"; exitCode: number }
+  | { kind: "error"; message: string };
 
 function parseModel(value: string): string {
   // Non-claude ids are silently coerced to the default model downstream, so
@@ -109,13 +108,13 @@ export function parseCliArgs(argv: string[]): ParseResult {
   } catch (err) {
     if (err instanceof CommanderError) {
       // Help/version output was already written by commander itself.
-      const informational =
+      if (
         err.code === "commander.helpDisplayed" ||
-        err.code === "commander.version";
-      return {
-        error: informational ? "" : err.message,
-        exitCode: informational ? 0 : 1,
-      };
+        err.code === "commander.version"
+      ) {
+        return { kind: "exit", exitCode: 0 };
+      }
+      return { kind: "error", message: err.message };
     }
     throw err;
   }
@@ -130,12 +129,15 @@ export function parseCliArgs(argv: string[]): ParseResult {
   }>();
 
   return {
-    prompt: program.args[0],
-    cwd: opts.cwd,
-    permissionMode: opts.permissionMode,
-    model: opts.model,
-    systemPrompt: opts.systemPrompt,
-    output: opts.output,
-    debug: opts.debug,
+    kind: "options",
+    options: {
+      prompt: program.args[0],
+      cwd: opts.cwd,
+      permissionMode: opts.permissionMode,
+      model: opts.model,
+      systemPrompt: opts.systemPrompt,
+      output: opts.output,
+      debug: opts.debug,
+    },
   };
 }

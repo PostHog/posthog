@@ -108,6 +108,13 @@ export interface AgentConfig {
   enricher?: { enabled?: boolean };
   debug?: boolean;
   onLog?: OnLogCallback;
+  /**
+   * Send the adapter's own diagnostics to `onLog` too. Off by default because
+   * those lines carry whole payloads (expanded slash-command output, tool
+   * inputs, subprocess stderr) and most hosts persist or transmit what `onLog`
+   * receives. Turn it on only when the sink is the operator's own terminal.
+   */
+  forwardAdapterLogs?: boolean;
 }
 
 // Device info for tracking where work happens

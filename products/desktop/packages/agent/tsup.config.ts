@@ -147,6 +147,7 @@ export default defineConfig([
       "src/adapters/claude/mcp/tool-metadata.ts",
       "src/adapters/reasoning-effort.ts",
       "src/execution-mode.ts",
+      "src/unattended-permission-policy.ts",
       "src/server/schemas.ts",
       "src/server/agent-server.ts",
       "src/server/bin.ts",

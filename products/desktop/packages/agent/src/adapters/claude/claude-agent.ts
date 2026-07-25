@@ -2282,6 +2282,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager.getSettings().model,
     ]);
     modelOptions.currentModelId = resolvedModelId;
+    // A requested id that isn't available falls back silently, which reads as
+    // "the model I asked for" to a caller that can't see the allowed set (a
+    // headless CLI run, a scripted session). Say so.
+    const requestedModelId = meta?.model?.trim();
+    if (requestedModelId && requestedModelId !== resolvedModelId) {
+      this.logger.warn("Requested model is unavailable; using another", {
+        requested: requestedModelId,
+        resolved: resolvedModelId,
+        available: modelOptions.options.map((opt) => opt.value),
+      });
+    }
     session.modelId = resolvedModelId;
     session.lastContextWindowSize =
       meta?.contextWindow === "200k"
