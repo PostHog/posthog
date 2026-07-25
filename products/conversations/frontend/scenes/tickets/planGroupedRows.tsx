@@ -1,7 +1,7 @@
 import { LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Ticket } from '../../types'
-import { PLAN_GROUPS, planLabel, planRank } from './planTags'
+import { PLAN_GROUPS, planLabel } from './planTags'
 
 type TicketColumn = LemonTableColumn<Ticket, keyof Ticket | undefined>
 export type TicketListColumn = LemonTableColumn<TicketListRow, undefined>
@@ -22,22 +22,6 @@ export type TicketListRow = Ticket | PlanHeaderRow
 
 export function isPlanHeaderRow(row: TicketListRow): row is PlanHeaderRow {
     return 'planHeader' in row
-}
-
-/** Whether the page's tickets really are in plan-rank order (the server's
- *  `order_by=plan`/`-plan` contract). While a sort change is in flight, the
- *  sorting state says "plan" but `tickets` still holds the previous ordering —
- *  grouping THAT would emit duplicate headers (and duplicate row keys), so the
- *  scene only groups once this holds. */
-export function isPlanOrdered(tickets: Ticket[], desc: boolean): boolean {
-    for (let i = 1; i < tickets.length; i++) {
-        const prev = planRank(tickets[i - 1].tags)
-        const next = planRank(tickets[i].tags)
-        if (desc ? next > prev : next < prev) {
-            return false
-        }
-    }
-    return true
 }
 
 interface PlanGroupingContext {

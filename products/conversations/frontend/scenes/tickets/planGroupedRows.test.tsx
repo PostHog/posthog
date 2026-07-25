@@ -1,13 +1,7 @@
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Ticket } from '../../types'
-import {
-    buildPlanGroupedRows,
-    isPlanHeaderRow,
-    isPlanOrdered,
-    TicketListRow,
-    withPlanHeaderRows,
-} from './planGroupedRows'
+import { buildPlanGroupedRows, isPlanHeaderRow, TicketListRow, withPlanHeaderRows } from './planGroupedRows'
 
 const ticket = (id: string, tags: string[]): Ticket => ({ id, tags }) as unknown as Ticket
 
@@ -19,27 +13,6 @@ const free = ticket('f', ['plan_free'])
 const community = ticket('co', ['community'])
 
 const SINGLE_PAGE = { desc: false, isFirstPage: true, isLastPage: true }
-
-describe('isPlanOrdered', () => {
-    it('accepts ascending plan-rank order (and desc rejects it)', () => {
-        expect(isPlanOrdered([triage, churn, enterprise, free], false)).toBe(true)
-        expect(isPlanOrdered([triage, churn, enterprise, free], true)).toBe(false)
-    })
-
-    it('accepts descending order when desc', () => {
-        expect(isPlanOrdered([free, enterprise, churn], true)).toBe(true)
-    })
-
-    it('rejects interleaved (stale, non-plan-sorted) data', () => {
-        expect(isPlanOrdered([churn, free, churn], false)).toBe(false)
-        expect(isPlanOrdered([churn, free, churn], true)).toBe(false)
-    })
-
-    it('accepts empty and single-ticket lists', () => {
-        expect(isPlanOrdered([], false)).toBe(true)
-        expect(isPlanOrdered([free], true)).toBe(true)
-    })
-})
 
 describe('buildPlanGroupedRows', () => {
     it('returns an empty list unchanged (empty state, no headers)', () => {

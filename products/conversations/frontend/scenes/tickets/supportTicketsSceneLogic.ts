@@ -198,14 +198,15 @@ export interface supportTicketsSceneLogicValues {
     } | null
     dateTo: string | null
     hasActiveFilters: boolean
+    loadedOrderBy: string | null
     orderBy: string
+    planCounts: Record<string, number> | null
     priorityFilter: TicketPriority[]
     searchQuery: string
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
-    planCounts: Record<string, number> | null
     statusFilter: TicketStatus[]
     tagsExcludeFilter: string[]
     tagsFilter: string[]
@@ -283,6 +284,12 @@ export interface supportTicketsSceneLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setLoadedOrderBy: (orderBy: string) => {
+        orderBy: string
+    }
+    setPlanCounts: (counts: Record<string, number> | null) => {
+        counts: Record<string, number> | null
+    }
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]
     }
@@ -318,9 +325,6 @@ export interface supportTicketsSceneLogicActions {
     }
     setTotalCount: (count: number) => {
         count: number
-    }
-    setPlanCounts: (counts: Record<string, number> | null) => {
-        counts: Record<string, number> | null
     }
 }
 
@@ -391,6 +395,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setPlanCounts: (counts: Record<string, number> | null) => ({ counts }),
+        setLoadedOrderBy: (orderBy: string) => ({ orderBy }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
@@ -434,6 +439,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             null as Record<string, number> | null,
             {
                 setPlanCounts: (_, { counts }) => counts,
+            },
+        ],
+        // The order_by the CURRENT tickets array was fetched with — updated in
+        // lockstep with setTickets, so it describes the loaded data rather
+        // than the requested sort. The plan grouped view only engages once
+        // this says the rows really are plan-ordered, keeping the list flat
+        // while a sort change is in flight instead of grouping the previous
+        // sort's rows.
+        loadedOrderBy: [
+            null as string | null,
+            {
+                setLoadedOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         totalCount: [
@@ -737,6 +754,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
                 actions.setPlanCounts(response.plan_counts ?? null)
+                actions.setLoadedOrderBy(params.order_by as string)
             } catch {
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)

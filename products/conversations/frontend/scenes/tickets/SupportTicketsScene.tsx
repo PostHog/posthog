@@ -50,13 +50,7 @@ import {
     statusMultiselectOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import {
-    buildPlanGroupedRows,
-    isPlanHeaderRow,
-    isPlanOrdered,
-    TicketListRow,
-    withPlanHeaderRows,
-} from './planGroupedRows'
+import { buildPlanGroupedRows, isPlanHeaderRow, TicketListRow, withPlanHeaderRows } from './planGroupedRows'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 import { buildTicketColumns } from './ticketColumns'
 import { TicketColumnsDropdown } from './TicketColumnsDropdown'
@@ -111,6 +105,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         currentPage,
         totalCount,
         planCounts,
+        loadedOrderBy,
         sorting,
         selectedTicketIds,
         searchQuery,
@@ -161,12 +156,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     // Sorting by Plan (staff-only) IS the grouped view: the server returns the
     // page ordered by plan rank, so tier boundaries are contiguous and we
     // interleave full-width group headers at each change (see planGroupedRows).
-    // The isPlanOrdered guard keeps the list flat while a sort change is in
-    // flight: `sorting` flips to plan immediately, but `tickets` still holds
-    // the previous ordering until the fetch lands — grouping stale data would
-    // emit duplicate headers with duplicate row keys.
-    const planDesc = sorting?.order === -1
-    const planGrouped = staff && sorting?.columnKey === 'plan' && isPlanOrdered(tickets, planDesc)
+    // Gate and direction both come from loadedOrderBy — the order_by the
+    // CURRENT tickets were fetched with — not from `sorting`, which flips the
+    // moment the user clicks while `tickets` still holds the previous sort's
+    // rows. Grouping engages (and orients its ladder) only once the loaded
+    // data really is plan-ordered, so the in-flight beat renders flat instead
+    // of grouping stale rows.
+    const planDesc = loadedOrderBy === '-plan'
+    const planGrouped = staff && sorting?.columnKey === 'plan' && (loadedOrderBy === 'plan' || planDesc)
     const rows = useMemo<TicketListRow[]>(
         () =>
             planGrouped
