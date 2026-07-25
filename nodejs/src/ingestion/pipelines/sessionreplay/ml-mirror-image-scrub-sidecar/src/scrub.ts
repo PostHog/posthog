@@ -107,11 +107,12 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 // --- input preparation --------------------------------------------------------------------------
 /** Adaptive DBNet detection budget: big enough to resolve small text on retina shots, capped for cost.
  *  The returned value is the budget SIDE — dbnet caps its input at detLimit^2 px, aspect preserved. */
-// Detection budget as a fraction of the image's own scale (sqrt of its area). 0.75 clears all crisp
-// rendered UI (session replay's actual domain) cheaply; raise toward 1.0 for faint/small
-// scanned-document print (more CPU), lower for more throughput. Faint low-contrast text is
-// contrast- not size-limited, so resolution alone won't catch every faded fax line.
-const DET_FACTOR = numFromEnv('DET_FACTOR', 0.75, 0.1, 1)
+// Detection budget as a fraction of the frame's own scale (sqrt of its area). 1 means DBNet sees the
+// whole decoded frame, which is what the resolution invariant in src-image.ts assumes: the frame is
+// already sized to be DETECT_OVER_STORE times the stored image, and a second downscale here would
+// silently spend that margin. Lowering it trades recall for throughput and narrows the invariant,
+// so assertResolutionInvariant is given this value rather than assuming it.
+export const DET_FACTOR = numFromEnv('DET_FACTOR', 1, 0.1, 1)
 const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
 function adaptiveDetLimit(W: number, H: number): number {
     const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32

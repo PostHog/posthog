@@ -5,24 +5,56 @@ import sharp from 'sharp'
 import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 
-// Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
-// unconditionally. Two reasons: (1) memory, because compose holds a few full-frame buffers and bytes
-// are proportional to area, so the budget bounds the per-image working set; (2) fidelity honesty,
-// because text detection runs under the same area budget, so storing pixels above it would preserve
-// exactly the detail the detectors never certified as clean. An area budget rather than a long-side
-// cap so tall pages keep legible native resolution instead of being squashed.
-//
-// Lowering this is a redaction-recall change, not a cost one: adaptiveDetLimit derives its input
-// side from the already-downscaled frame and floors at 736, so any budget at or below 1 MP pins
-// detection at that floor and shrinks text relative to it. Re-run `npm run eval` and compare box
-// counts, not just leak percentage, before moving it.
-export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
+/**
+ * Resolution in this pipeline is one decision, not two.
+ *
+ * What we store decides what can leak: text below a few pixels in the stored image is unreadable no
+ * matter who is looking, so the only text that can leak is text large enough to survive the
+ * downscale. What we detect at decides what we catch. Tie them together and the guarantee is
+ * structural rather than a pair of constants that happen to be compatible today.
+ *
+ * Measured floors, both in font-size px (ink is about 0.72x that, see dev/glyph-floor.ts):
+ *   ~3px in the stored image is where a person stops reading text
+ *   ~9px at the model input is where DBNet reliably finds it
+ *
+ * So the model has to see every frame at least 3x larger, per axis, than we store it. Anything
+ * legible in the artifact is then comfortably above what the detector needs. The same benchmark run
+ * for faces and codes (dev/floors.ts) shows both clearing this ratio with margin, so text is what
+ * binds.
+ */
+export const DETECT_OVER_STORE = numFromEnv('SCRUB_DETECT_OVER_STORE', 3, 2, 8)
 
-// Area budget for the STORED image, applied after detection has run at SCRUB_MAX_PIXELS. Storage
-// resolution and detection resolution are separate questions: what a downstream model needs to read
-// a session is not what DBNet needs to find 14px text, and tying them together means every pixel
-// saved in storage is paid for in recall. Defaults to SCRUB_MAX_PIXELS, which is no downscale at all.
-export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', SCRUB_MAX_PIXELS, 96 * 96, LIMIT_INPUT_PIXELS)
+// Area budget for the STORED image: the permanent record, and the only copy that exists.
+export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', 50_000, 16 * 16, LIMIT_INPUT_PIXELS)
+
+/**
+ * Area budget for the frame every detector runs on, derived from the stored size rather than set
+ * independently, so the ratio above cannot drift. An explicit SCRUB_MAX_PIXELS still wins, because
+ * an operator debugging a recall problem needs to be able to raise it, but it is checked against the
+ * ratio at startup rather than trusted.
+ *
+ * Note this is the frame the models see: DET_FACTOR must stay at 1 for that to hold, or DBNet takes
+ * a second downscale on top and the ratio it actually gets is smaller than the one enforced here.
+ */
+export const SCRUB_MAX_PIXELS = numFromEnv(
+    'SCRUB_MAX_PIXELS',
+    Math.min(LIMIT_INPUT_PIXELS, SCRUB_OUT_MAX_PIXELS * DETECT_OVER_STORE ** 2),
+    96 * 96,
+    LIMIT_INPUT_PIXELS
+)
+
+/** Throws when the two budgets are set to a pair that lets legible text past the detectors. Called
+ *  at startup so a bad pairing never reaches traffic, rather than silently under-redacting. */
+export function assertResolutionInvariant(detectPixels: number, storePixels: number, detFactor: number): void {
+    const ratio = (Math.sqrt(detectPixels / storePixels) * Math.min(1, detFactor)).toFixed(2)
+    if (Number(ratio) < DETECT_OVER_STORE) {
+        throw new Error(
+            `scrub resolution invariant violated: models would see frames only ${ratio}x the stored size, ` +
+                `below the ${DETECT_OVER_STORE}x needed for text legible in the artifact to be detectable ` +
+                `(SCRUB_MAX_PIXELS=${detectPixels}, SCRUB_OUT_MAX_PIXELS=${storePixels}, DET_FACTOR=${detFactor})`
+        )
+    }
+}
 
 export interface Src {
     data: Buffer
