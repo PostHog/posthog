@@ -457,6 +457,12 @@ class RESTClient:
             # zero-row page, which yields one match whose value is []). Sources that treat a missing
             # data key as an error set data_selector_required=True instead of silently syncing 0 rows.
             if required and not matches:
+                # An empty container carries no rows and no alternative shape, so it's a "no data"
+                # answer (many APIs omit the envelope key entirely for an empty collection) rather
+                # than a shape change. A genuine shape change surfaces different keys, which still
+                # fails loud below.
+                if isinstance(body, dict | list) and not body:
+                    return []
                 keys = sorted(body.keys())[:20] if isinstance(body, dict) else type(body).__name__
                 raise ValueError(
                     f"Required data_selector {data_selector!r} matched nothing in the response "

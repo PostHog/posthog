@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 
@@ -24,6 +26,12 @@ class TestRequiredDataSelector:
     def test_absent_key_is_silent_when_not_required(self) -> None:
         # Backward compatible: without required, a missing key still silently yields nothing.
         assert _client()._extract_response({"unexpected": "envelope"}, "data", required=False) == []
+
+    @parameterized.expand([("empty_object", {}), ("empty_array", [])])
+    def test_empty_body_is_zero_rows_when_required(self, _name: str, body: object) -> None:
+        # An empty container omits the key but carries no rows and no alternative shape -> a legit
+        # zero-row page (APIs that drop the envelope key for an empty collection), NOT a shape change.
+        assert _client()._extract_response(body, "data", required=True) == []
 
 
 class TestRequiredListBody:
