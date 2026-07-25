@@ -335,16 +335,28 @@ const MCP_URL_ENCODED_TOOL_BUDGET = 480
 
 type ChatEscaper = (expression: string, maxLength?: number) => string
 
+/**
+ * Bounds a producer-controlled value before escaping it, so the escape never scans more than it
+ * can keep. Escaping only ever grows a string, so N output characters can come from at most N
+ * input characters — cutting the input at the same limit leaves the bounded result identical while
+ * keeping the work off a multi-megabyte property. The trailing bound still has to be applied after
+ * escaping, since expansion can push a short input past the limit.
+ */
+function boundedExpr(expression: string, maxLength: number): string {
+    return `substring(concat(${expression}), 1, ${maxLength})`
+}
+
 function slackEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
     // concat, not toString: concat(null) renders '' (matching bare {} interpolation), toString(null) prints 'null'
-    return `substring(replaceAll(replaceAll(replaceAll(concat(${expression}), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, ${maxLength})`
+    const bounded = boundedExpr(expression, maxLength)
+    return `substring(replaceAll(replaceAll(replaceAll(${bounded}, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, ${maxLength})`
 }
 
 function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
     // Breaking the `](` adjacency is enough to neutralize masked links [text](url) in
     // Discord and Teams; Discord mass mentions are already suppressed by the destination
     // template's allowed_mentions, and Teams mentions can't be triggered from text.
-    return `substring(replaceAll(concat(${expression}), '](', '] ('), 1, ${maxLength})`
+    return `substring(replaceAll(${boundedExpr(expression, maxLength)}, '](', '] ('), 1, ${maxLength})`
 }
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
