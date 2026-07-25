@@ -1,6 +1,10 @@
 import sharp from 'sharp'
 
+import { modelInputDims } from './dbnet.ts'
+import { adaptiveDetLimit } from './scrub.ts'
 import { type StageTimings, compose } from './scrub.ts'
+import { storedDimsFor } from './src-image.ts'
+import { yunetFrameScale } from './yunet.ts'
 
 function timings(): StageTimings {
     return {
@@ -77,9 +81,24 @@ describe('compose', () => {
     // (encodeStored can only receive already-composited pixels) and empirically against a solid
     // block, where the residue reached full intensity one pixel out at a 0.957 downscale. Through
     // compose it is not separable from the fill itself, whose colour is the region's own mean.
-    it.each([1, 0.957, 0.5, 0.25])('keeps a filled region covered at storage scale %s', async (fraction) => {
-        const out = await compose(await strokesOnWhite(), W, H, [box], timings(), Math.round(W * H * fraction))
+    // Parameterised over caps that actually bind. The resolution invariant clamps the stored size to
+    // at most a third of what the detector saw, so any cap above that produces the same output and
+    // the case is inert: asserting the dimensions keeps the parameter honest rather than letting it
+    // silently stop varying anything, which is what happened when the clamp was introduced.
+    it.each([
+        ['a cap above the invariant, which clamps it', W * H],
+        ['a cap at the invariant', Math.round((W * H) / 9)],
+        ['a cap below the invariant', Math.round((W * H) / 25)],
+        ['a very small cap', 5_000],
+    ])('keeps a filled region covered with %s', async (_case, outMaxPixels) => {
+        const src = await strokesOnWhite()
+        const model = modelInputDims(W, H, adaptiveDetLimit(W, H))
+        const expected = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels, yunetFrameScale(W, H))
 
+        const out = await compose(src, W, H, [box], timings(), outMaxPixels)
+
+        const meta = await sharp(out).metadata()
+        expect({ width: meta.width, height: meta.height }).toEqual(expected)
         expect(await darkPixels(out)).toBe(0)
     })
 })

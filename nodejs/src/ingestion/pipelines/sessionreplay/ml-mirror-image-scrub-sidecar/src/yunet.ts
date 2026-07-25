@@ -75,17 +75,28 @@ interface Window {
     height: number
 }
 
+/** Exposed for tests: a window that starts off the edge silently disables face redaction for a
+ *  whole class of frame shapes, and nothing downstream errors when it happens. */
+export function detectionWindowsForTest(W: number, H: number): Window[] {
+    return detectionWindows(W, H)
+}
+
 function detectionWindows(W: number, H: number): Window[] {
     const long = Math.max(W, H)
     const short = Math.min(W, H)
     if (long / short <= MAX_ASPECT) {
         return [{ left: 0, top: 0, width: W, height: H }]
     }
-    const windowLong = TILE_ASPECT * short
-    const stride = windowLong - short // overlap of one shortSide: no face can straddle two windows undetected
+    // Never longer than the frame: for an aspect between MAX_ASPECT and TILE_ASPECT the frame is
+    // SHORTER than a full tile, so an unclamped windowLong made `long - windowLong` negative and
+    // every window started off the left (or top) edge. Face boxes are translated by that offset, so
+    // at an aspect just over MAX_ASPECT the shift approached the whole long side and no box survived
+    // the width check: face redaction was silently off for every frame between 3:1 and 6:1.
+    const windowLong = Math.min(long, TILE_ASPECT * short)
+    const stride = Math.max(1, windowLong - short) // overlap of one shortSide: no face can straddle two windows undetected
     const windows: Window[] = []
     for (let pos = 0; ; pos += stride) {
-        const start = Math.min(pos, long - windowLong)
+        const start = Math.max(0, Math.min(pos, long - windowLong))
         windows.push(
             W >= H
                 ? { left: start, top: 0, width: Math.min(windowLong, long), height: H }

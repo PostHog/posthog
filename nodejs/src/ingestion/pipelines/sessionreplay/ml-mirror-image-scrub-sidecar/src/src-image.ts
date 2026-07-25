@@ -25,7 +25,12 @@ import { numFromEnv } from './env.ts'
  * The same question asked of faces and codes (dev/floors.ts) shows both clearing this with more room
  * than text has, so text is what binds.
  */
-export const DETECT_OVER_STORE = numFromEnv('SCRUB_DETECT_OVER_STORE', 3, 2, 8)
+/** The floor the measurement supports: detection is reliable at ~7px at the model, a person reads
+ *  down to ~3px in the artifact, so 7/3. SCRUB_DETECT_OVER_STORE can add margin above this but not
+ *  remove it, since a check against a number the operator also sets is not a check. */
+const MEASURED_MIN_RATIO = 7 / 3
+
+export const DETECT_OVER_STORE = numFromEnv('SCRUB_DETECT_OVER_STORE', 3, MEASURED_MIN_RATIO, 8)
 
 // Area budget for the STORED image: the permanent record, and the only copy that exists.
 export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', 50_000, 16 * 16, LIMIT_INPUT_PIXELS)
@@ -41,7 +46,11 @@ export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', 50_000, 1
  */
 export const SCRUB_MAX_PIXELS = numFromEnv(
     'SCRUB_MAX_PIXELS',
-    Math.min(LIMIT_INPUT_PIXELS, SCRUB_OUT_MAX_PIXELS * DETECT_OVER_STORE ** 2),
+    // Clamped at BOTH ends: numFromEnv validates a default as strictly as an override, so tuning
+    // SCRUB_OUT_MAX_PIXELS down inside its own advertised range used to derive a SCRUB_MAX_PIXELS
+    // under the minimum and refuse to start, reporting a variable the operator never set.
+    // assertResolutionInvariant is what fails loudly if a clamp here breaks the ratio.
+    Math.max(96 * 96, Math.min(LIMIT_INPUT_PIXELS, SCRUB_OUT_MAX_PIXELS * DETECT_OVER_STORE ** 2)),
     96 * 96,
     LIMIT_INPUT_PIXELS
 )

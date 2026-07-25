@@ -166,7 +166,9 @@ export async function advancedScrub(
     // fixed-cost inference on every frame, which makes it the largest single thing this skips.
     if (isUniform(src)) {
         timings.uniform = true
-        const out = await compose(src, W, H, [], timings)
+        // Nothing was inspected: the frame is a single flat colour, so there is no detection pass to
+        // size the artifact against and the frame's own dimensions are the honest input.
+        const out = await compose(src, W, H, [], timings, SCRUB_OUT_MAX_PIXELS, { cw: W, ch: H })
         timings.totalMs = performance.now() - t0
         return { out, t: timings }
     }
@@ -230,7 +232,7 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const out = await compose(src, W, H, fillBoxes, timings)
+    const out = await compose(src, W, H, fillBoxes, timings, SCRUB_OUT_MAX_PIXELS, modelInputDims(W, H, det))
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
 }
@@ -340,11 +342,14 @@ export async function compose(
     H: number,
     boxes: Box[],
     timings: StageTimings,
-    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
+    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS,
+    // What the text detector actually inspected. Passed in rather than recomputed, because the
+    // stored size has to be a ratio against the pixels a model really saw: recomputing it assumes a
+    // detection pass that a caller in heuristic mode, or one passing its own detLimit, never ran, and
+    // then charges every image a downscale against detection that did not happen.
+    model: { cw: number; ch: number } = modelInputDims(W, H, adaptiveDetLimit(W, H))
 ): Promise<Buffer> {
-    // What the text detector actually inspected, which is what the stored size is derived from: the
-    // guarantee is a ratio against the pixels a model saw, not against the pixels we decoded.
-    const modelDims = modelInputDims(W, H, adaptiveDetLimit(W, H))
+    const modelDims = model
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
