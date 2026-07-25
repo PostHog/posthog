@@ -88,32 +88,38 @@ describe('uploadToS3', () => {
         expect(mockOn).not.toHaveBeenCalled()
     })
 
-    it.each([
-        {
-            failure: 'a response the SDK could not parse',
-            // All the SDK reports is its parser's confusion; the gateway's real body is on $response.
-            error: Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
-                $response: { statusCode: 502, body: '<html>502 Bad Gateway</html>' },
-            }),
-            expectedMessage:
-                /^S3 upload to s3:\/\/bucket\/prefix\/id\.mp4 failed \(status 502\)[\s\S]*response body: <html>502 Bad Gateway<\/html>$/,
-        },
-        {
-            failure: 'a failure carrying no HTTP response',
-            error: new Error('socket hang up'),
-            expectedMessage: /^S3 upload to s3:\/\/bucket\/prefix\/id\.mp4 failed \(status unknown\): socket hang up$/,
-        },
-    ])('reports $failure, leaving it retryable', async ({ error, expectedMessage }) => {
-        mockDone.mockRejectedValue(error)
+    it('reports a response the SDK could not read, leaving it retryable', async () => {
+        // All the SDK reports is its parser's confusion; the raw body it choked on is on $responseBodyText.
+        const undecodable = Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
+            $responseBodyText: 'Error: proxy denied',
+            $response: { statusCode: 407, body: 'Error: proxy denied' },
+        })
+        mockDone.mockRejectedValue(undecodable)
 
         await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
             name: 'RasterizationError',
-            code: 'S3_UPLOAD_FAILED',
-            // Wrapping an upload failure must not make it terminal.
+            code: 'S3_UPLOAD_UNDECODABLE_RESPONSE',
+            // Translating the failure must not make it terminal.
             retryable: true,
-            cause: error,
-            message: expect.stringMatching(expectedMessage),
+            cause: undecodable,
+            message:
+                'S3 upload to s3://bucket/prefix/id.mp4 failed with an unreadable (non-XML) response (status 407): Error: proxy denied',
         })
+    })
+
+    it.each([
+        {
+            failure: 'a modeled service error whose body parsed fine',
+            error: Object.assign(new Error('Access Denied'), {
+                name: 'AccessDenied',
+                $response: { statusCode: 403 },
+                $metadata: { httpStatusCode: 403 },
+            }),
+        },
+        { failure: 'a failure carrying no HTTP response', error: new Error('socket hang up') },
+    ])('rethrows $failure untouched, so callers still see the SDK error', async ({ error }) => {
+        mockDone.mockRejectedValue(error)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(error)
     })
 })
 

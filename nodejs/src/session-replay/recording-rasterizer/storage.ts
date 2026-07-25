@@ -9,19 +9,27 @@ import { createLogger } from './logger'
 
 const log = createLogger()
 
-function toUploadError(err: unknown, target: string): RasterizationError {
-    // The AWS SDK keeps the HTTP response off its public error type and hangs it on a non-enumerable
-    // $response instead. When it could not parse the body at all, because a proxy or gateway answered with
-    // plaintext or an HTML error page rather than S3's XML, $response.body holds that raw body and the
-    // error the SDK raises describes nothing but its own parser's confusion. Retryability is untouched:
-    // the workflow's retry policy keeps deciding, as it does for any other upload failure.
-    const { statusCode, body } = (err as { $response?: { statusCode?: number; body?: unknown } })?.$response ?? {}
-    const reason = err instanceof Error ? err.message : String(err)
-    const responseBody = typeof body === 'string' ? `, response body: ${body.slice(0, 500)}` : ''
+// The AWS SDK attaches $responseBodyText to an error only when it could not parse the response body at
+// all, and hangs the HTTP response itself on a non-enumerable $response. Both are absent from its public
+// error type. That pair identifies the one failure worth translating: a proxy or gateway answering with
+// plaintext or an HTML error page instead of S3's XML, where the error the SDK raises describes its own
+// parser rather than the request, and the raw body is the only place the real reason survives.
+type UndecodableS3Response = {
+    $responseBodyText?: string
+    $response?: { statusCode?: number }
+}
+
+function undecodableResponseError(err: unknown, target: string): RasterizationError | null {
+    const { $responseBodyText, $response } = (err ?? {}) as UndecodableS3Response
+    if (typeof $responseBodyText !== 'string') {
+        return null
+    }
+    // Retryability is untouched: the workflow's retry policy keeps deciding, as it does for any other
+    // upload failure.
     return new RasterizationError(
-        `S3 upload to ${target} failed (status ${statusCode ?? 'unknown'}): ${reason}${responseBody}`,
+        `S3 upload to ${target} failed with an unreadable (non-XML) response (status ${$response?.statusCode ?? 'unknown'}): ${$responseBodyText.slice(0, 500)}`,
         true,
-        'S3_UPLOAD_FAILED',
+        'S3_UPLOAD_UNDECODABLE_RESPONSE',
         err
     )
 }
@@ -97,7 +105,7 @@ export async function uploadToS3(
     try {
         await upload.done()
     } catch (err) {
-        throw toUploadError(err, target)
+        throw undecodableResponseError(err, target) ?? err
     }
 
     return target
