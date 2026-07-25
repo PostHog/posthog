@@ -108,7 +108,7 @@ impl ApiProxyError {
 }
 
 fn canonicalize_file(path: &Path) -> Option<PathBuf> {
-    let resolved = path.canonicalize().ok()?;
+    let resolved = dunce::canonicalize(path).ok()?;
     if resolved.is_file() {
         Some(resolved)
     } else {
@@ -152,8 +152,7 @@ fn materialize_embedded_script(
         .map_err(|source| materialize_failed(MaterializeStep::CreateDir, source))?;
     fs::write(&path, bundle)
         .map_err(|source| materialize_failed(MaterializeStep::Write, source))?;
-    let resolved = path
-        .canonicalize()
+    let resolved = dunce::canonicalize(&path)
         .map_err(|source| materialize_failed(MaterializeStep::Canonicalize, source))?;
     if !resolved.is_file() {
         return Err(materialize_failed(
@@ -212,11 +211,10 @@ fn find_script() -> Result<PathBuf, ApiProxyError> {
         }
         let path = PathBuf::from(path);
         let resolved =
-            path.canonicalize()
-                .map_err(|source| ApiProxyError::ConfiguredPathMissing {
-                    path: path.display().to_string(),
-                    source,
-                })?;
+            dunce::canonicalize(&path).map_err(|source| ApiProxyError::ConfiguredPathMissing {
+                path: path.display().to_string(),
+                source,
+            })?;
         if !resolved.is_file() {
             return Err(ApiProxyError::ConfiguredPathNotAFile {
                 path: resolved.display().to_string(),
@@ -386,18 +384,21 @@ mod tests {
 
         assert_eq!(
             resolved,
-            temp_dir
-                .path()
-                .join("api-cli")
-                .join(env!("CARGO_PKG_VERSION"))
-                .join(API_CLI_BUNDLE)
-                .canonicalize()
-                .expect("canonicalize materialized bundle")
+            dunce::canonicalize(
+                temp_dir
+                    .path()
+                    .join("api-cli")
+                    .join(env!("CARGO_PKG_VERSION"))
+                    .join(API_CLI_BUNDLE)
+            )
+            .expect("canonicalize materialized bundle")
         );
         assert_eq!(
-            fs::read(resolved).expect("read materialized bundle"),
+            fs::read(&resolved).expect("read materialized bundle"),
             b"embedded bundle"
         );
+        #[cfg(windows)]
+        assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
     }
 
     #[test]
@@ -453,7 +454,7 @@ mod tests {
 
         assert_eq!(
             resolved,
-            legacy_bundle.canonicalize().expect("canonicalize legacy")
+            dunce::canonicalize(legacy_bundle).expect("canonicalize legacy")
         );
     }
 
@@ -488,8 +489,7 @@ mod tests {
 
         assert_eq!(
             resolved,
-            embedded_bundle_path(&install_dir)
-                .canonicalize()
+            dunce::canonicalize(embedded_bundle_path(&install_dir))
                 .expect("canonicalize embedded bundle")
         );
         assert_eq!(
