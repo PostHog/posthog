@@ -20,8 +20,8 @@
 import sharp from 'sharp'
 import { createWorker } from 'tesseract.js'
 
-import { detectTextDbnet, loadDbnet, modelInputDims } from '../src/dbnet.ts'
-import { adaptiveDetLimit } from '../src/scrub.ts'
+import { detectTextDbnet, loadDbnet } from '../src/dbnet.ts'
+import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { decodeSrc } from '../src/src-image.ts'
 
 const FRAME_W = 1280
@@ -54,12 +54,12 @@ async function main(): Promise<void> {
     // alone. decodeSrc applies SCRUB_MAX_PIXELS first, so a glyph passes through two reductions
     // before the model sees it; taking only the second overstated this column by about 10% and the
     // floors quoted from it are what DETECT_OVER_STORE is derived from.
-    const probe = await decodeSrc(await frameAt(16))
-    const detLimit = adaptiveDetLimit(probe.W, probe.H)
-    const atModel = modelInputDims(probe.W, probe.H, detLimit).cw / FRAME_W
+    const limits = limitsFromEnv()
+    const probePlan = planScales({ width: FRAME_W, height: FRAME_H }, limits)
+    const atModel = probePlan.text.content.width / FRAME_W
     console.log(
-        `frame ${FRAME_W}x${FRAME_H} -> decoded ${probe.W}x${probe.H} -> model ${modelInputDims(probe.W, probe.H, detLimit).cw}px wide; ` +
-            `glyphs reach DBNet at ${atModel.toFixed(3)}x\n`
+        `frame ${FRAME_W}x${FRAME_H} -> decoded ${probePlan.frame.width}x${probePlan.frame.height} -> ` +
+            `model ${probePlan.text.content.width}px wide; glyphs reach DBNet at ${atModel.toFixed(3)}x\n`
     )
     console.log(
         `  ${'font px'.padStart(8)}${'at model'.padStart(10)}${'boxes'.padStart(7)}${'OCR words'.padStart(11)}   verdict`
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     for (const fontPx of SIZES) {
         const png = await frameAt(fontPx)
         const src = await decodeSrc(png)
-        const boxes = await detectTextDbnet(dbnet, src, src.W, src.H, { detLimit: adaptiveDetLimit(src.W, src.H) })
+        const boxes = await detectTextDbnet(dbnet, src, planScales({ width: src.W, height: src.H }, limits).text)
         const { data } = await tess.recognize(png, {}, { blocks: true })
         const words = (data.blocks ?? []).flatMap((b: any) =>
             (b.paragraphs ?? []).flatMap((p: any) => (p.lines ?? []).flatMap((l: any) => l.words ?? []))

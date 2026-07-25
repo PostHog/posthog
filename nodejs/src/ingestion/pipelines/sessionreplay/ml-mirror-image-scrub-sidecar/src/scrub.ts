@@ -13,13 +13,14 @@
 import sharp from 'sharp'
 
 import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
-import { type DbnetModel, detectTextDbnet, loadDbnet, modelInputDims } from './dbnet.ts'
+import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
-import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp, storedDimsFor } from './src-image.ts'
-import { type YunetModel, detectFacesYunet, loadYunet, yunetFrameScale } from './yunet.ts'
+import { type Dims, type ScalePlan, limitsFromEnv, planScales } from './scale-plan.ts'
+import { type Src, decodeSrc, probeDims, srcSharp } from './src-image.ts'
+import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
 
@@ -107,18 +108,6 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 // --- input preparation --------------------------------------------------------------------------
 /** Adaptive DBNet detection budget: big enough to resolve small text on retina shots, capped for cost.
  *  The returned value is the budget SIDE — dbnet caps its input at detLimit^2 px, aspect preserved. */
-// Detection budget as a fraction of the frame's own scale (sqrt of its area). 1 means DBNet sees the
-// whole decoded frame, which is what the resolution invariant in src-image.ts assumes: the frame is
-// already sized to be DETECT_OVER_STORE times the stored image, and a second downscale here would
-// silently spend that margin. Lowering it trades recall for throughput and narrows the invariant,
-// so assertResolutionInvariant is given this value rather than assuming it.
-export const DET_FACTOR = numFromEnv('DET_FACTOR', 1, 0.1, 1)
-const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
-export function adaptiveDetLimit(W: number, H: number): number {
-    const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32
-    return Math.max(736, Math.min(DET_CAP, target))
-}
-
 /** Whole worker job for one image, advanced path. Detection is parallelized when PARALLEL_DETECT=1:
  *  the three ORT sessions run on onnxruntime's background threads. */
 export async function advancedScrub(
@@ -150,8 +139,12 @@ export async function advancedScrub(
     // Decode the PNG ONCE; every stage re-wraps these raw pixels. The decode is the only stage that
     // consumes untrusted bytes, so its failures are permanent-for-these-bytes (422/skip), never 500.
     let src: Src
+    let plan: ScalePlan
     try {
-        src = await decodeSrc(input)
+        const meta = await probeDims(input)
+        // One decision, before any pixel is read: every stage below takes its size from here.
+        plan = planScales(meta, limitsFromEnv())
+        src = await decodeSrc(input, plan.frame)
     } catch (e) {
         throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
     }
@@ -168,7 +161,7 @@ export async function advancedScrub(
         timings.uniform = true
         // Nothing was inspected: the frame is a single flat colour, so there is no detection pass to
         // size the artifact against and the frame's own dimensions are the honest input.
-        const out = await compose(src, W, H, [], timings, SCRUB_OUT_MAX_PIXELS, { cw: W, ch: H })
+        const out = await compose(src, W, H, [], timings, plan.stored)
         timings.totalMs = performance.now() - t0
         return { out, t: timings }
     }
@@ -189,9 +182,8 @@ export async function advancedScrub(
 
     // 2. Face (YuNet) + text (DBNet) on native ORT, codes (zxing) on wasm. Serial by default
     //    (1 core/worker); parallel opt-in.
-    const det = adaptiveDetLimit(W, H)
     const runText = (): Promise<Box[]> =>
-        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, W, H, { detLimit: det }) : detectTextRegions(input, W, H)
+        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, plan.text) : detectTextRegions(input, W, H)
     let faceBoxes: Box[]
     let textBoxes: Box[]
     let codeBoxes: Box[]
@@ -232,7 +224,7 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const out = await compose(src, W, H, fillBoxes, timings, SCRUB_OUT_MAX_PIXELS, modelInputDims(W, H, det))
+    const out = await compose(src, W, H, fillBoxes, timings, plan.stored)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
 }
@@ -342,19 +334,15 @@ export async function compose(
     H: number,
     boxes: Box[],
     timings: StageTimings,
-    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS,
-    // What the text detector actually inspected. Passed in rather than recomputed, because the
-    // stored size has to be a ratio against the pixels a model really saw: recomputing it assumes a
-    // detection pass that a caller in heuristic mode, or one passing its own detLimit, never ran, and
-    // then charges every image a downscale against detection that did not happen.
-    model: { cw: number; ch: number } = modelInputDims(W, H, adaptiveDetLimit(W, H))
+    /** Where the plan says this image is stored. Passed in rather than derived here, because the size
+     *  is a property of the whole pipeline's geometry and not of the compose step. */
+    stored: Dims
 ): Promise<Buffer> {
-    const modelDims = model
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
         const tE0 = performance.now()
-        const out0 = await encodeStored(srcSharp(src), W, H, modelDims, outMaxPixels, timings)
+        const out0 = await encodeStored(srcSharp(src), W, H, stored, timings)
         timings.encodeMs = performance.now() - tE0
         return out0
     }
@@ -411,7 +399,7 @@ export async function compose(
     const redacted = srcSharp(src).composite([
         { input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 },
     ])
-    const out = await encodeStored(redacted, W, H, modelDims, outMaxPixels, timings)
+    const out = await encodeStored(redacted, W, H, stored, timings)
     timings.encodeMs = performance.now() - tE
     return out
 }
@@ -434,11 +422,10 @@ async function encodeStored(
     redacted: sharp.Sharp,
     W: number,
     H: number,
-    model: { cw: number; ch: number },
-    outMaxPixels: number,
+    stored: Dims,
     timings?: StageTimings
 ): Promise<Buffer> {
-    const { width: outW, height: outH } = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels, yunetFrameScale(W, H))
+    const { width: outW, height: outH } = stored
     if (timings) {
         timings.storedPixels = outW * outH
     }

@@ -11,11 +11,11 @@ import * as ort from 'onnxruntime-node'
 
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
-import { type Box, ceilTo32 } from './geometry.ts'
+import { type Box } from './geometry.ts'
+import { type Dims } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 export interface DetectOpts {
-    detLimit?: number // detection budget SIDE: the model input is capped at detLimit^2 px (aspect preserved). Bigger = catches smaller text, slower.
     probThreshold?: number // per-pixel text probability cutoff
     boxScoreMin?: number // mean probability over a component's core pixels to keep it
     minAreaPx?: number // min component size in model-resolution px
@@ -25,7 +25,6 @@ export interface DetectOpts {
 }
 
 const DEFAULTS: Required<DetectOpts> = {
-    detLimit: numFromEnv('DET_LIMIT', 640, 256, 4096),
     probThreshold: numFromEnv('PROB_T', 0.3, 0.05, 0.9),
     boxScoreMin: numFromEnv('BOX_SCORE', 0.5, 0.05, 0.95),
     minAreaPx: numFromEnv('MIN_AREA', 16, 1, 1024),
@@ -69,51 +68,12 @@ export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
     return { session, inputName: session.inputNames[0], outputName: session.outputNames[0] }
 }
 
-/** Content and canvas dimensions the model runs on. Split out so the geometry is testable: an
- *  aspect ratio that quantises badly silently narrows the redaction guarantee rather than erroring. */
-export function modelInputDims(
-    W: number,
-    H: number,
-    detLimit: number
-): { cw: number; ch: number; rw: number; rh: number } {
-    const budget = detLimit * detLimit
-    const ratio = Math.min(1, Math.sqrt(budget / (W * H)))
-    let cw = Math.max(1, Math.floor(W * ratio))
-    let ch = Math.max(1, Math.floor(H * ratio))
-    let rw = ceilTo32(cw)
-    let rh = ceilTo32(ch)
-
-    // The budget bounds the CONTENT area, but the tensor that gets allocated is the padded canvas,
-    // and padding a collapsed axis up to the stride multiplies it back: a 400000x4 source clears the
-    // area cap at 212132x2 and then pads to 212160x32, fifteen times the budget asked for. That is a
-    // ~100 KB PNG turning into a multi-megapixel tensor, and these images come from the DOM of
-    // arbitrary sites. Shrink the long axis against the short one's padded size until the canvas fits.
-    for (let guard = 0; guard < 4 && rw * rh > budget; guard++) {
-        if (rw >= rh) {
-            cw = Math.max(1, Math.floor(budget / rh / 32) * 32)
-            rw = ceilTo32(cw)
-        } else {
-            ch = Math.max(1, Math.floor(budget / rw / 32) * 32)
-            rh = ceilTo32(ch)
-        }
-    }
-    return { cw, ch, rw, rh }
-}
-
 async function preprocess(
     src: Src,
-    W: number,
-    H: number,
-    detLimit: number
+    text: { content: Dims; canvas: Dims }
 ): Promise<{ data: Float32Array; rw: number; rh: number; sx: number; sy: number }> {
-    // Area budget (detLimit^2), aspect preserved: same tensor-size bound as a detLimit-square, but a
-    // tall page keeps its native text size instead of being squashed below detectability.
-    // The frame keeps its own scale; only the canvas around it is rounded to the encoder's stride of
-    // 32. Resizing to a multiple of 32 instead would either upscale (resampling real pixels larger
-    // than the budget asked for) or floor (discarding up to 31 rows, which on a short banner is a
-    // large fraction of it and silently breaks the ratio the invariant enforces: a 2048x219 image
-    // floors to 192 rows against 73 stored, 2.63x, under the 3x that guarantees detection).
-    const { cw, ch, rw, rh } = modelInputDims(W, H, detLimit)
+    const { width: cw, height: ch } = text.content
+    const { width: rw, height: rh } = text.canvas
     // A resample is a low-pass filter, and glyph edges are the high frequencies DB scores. Restoring
     // some of that edge contrast before the model sees it is the cheapest lever on small text.
     // Measured against the ORIGINAL rather than the decoded frame, because both downscales cost edge
@@ -135,7 +95,7 @@ async function preprocess(
         chw[plane + p] = (data[i + 1] / 255 - MEAN[1]) / STD[1]
         chw[2 * plane + p] = (data[i + 2] / 255 - MEAN[2]) / STD[2]
     }
-    return { data: chw, rw, rh, sx: W / cw, sy: H / ch }
+    return { data: chw, rw, rh, sx: src.W / cw, sy: src.H / ch }
 }
 
 /** Horizontal dilation by radius k via per-row prefix sums; bridges inter-word gaps on a line. */
@@ -247,14 +207,13 @@ function postprocess(
 export async function detectTextDbnet(
     model: DbnetModel,
     src: Src,
-    W: number,
-    H: number,
+    text: { content: Dims; canvas: Dims },
     opts: DetectOpts = {}
 ): Promise<Box[]> {
     const o: Required<DetectOpts> = { ...DEFAULTS, ...opts }
-    const { data, rw, rh, sx, sy } = await preprocess(src, W, H, o.detLimit)
+    const { data, rw, rh, sx, sy } = await preprocess(src, text)
     const tensor = new ort.Tensor('float32', data, [1, 3, rh, rw])
     const out = await model.session.run({ [model.inputName]: tensor })
     const prob = out[model.outputName].data as Float32Array
-    return postprocess(prob, rw, rh, sx, sy, W, H, o)
+    return postprocess(prob, rw, rh, sx, sy, src.W, src.H, o)
 }

@@ -1,7 +1,4 @@
-import { modelInputDims } from './dbnet.ts'
-import { adaptiveDetLimit } from './scrub.ts'
-import { SCRUB_MAX_PIXELS, storedDimsFor } from './src-image.ts'
-import { yunetFrameScale } from './yunet.ts'
+import { limitsFromEnv, planScales } from './scale-plan.ts'
 
 /**
  * What the geometry does today, pinned before it is rewritten.
@@ -11,18 +8,14 @@ import { yunetFrameScale } from './yunet.ts'
  * change in production. Delete a row only alongside the reason it moved.
  */
 describe('scale geometry, as it currently behaves', () => {
-    /** The whole chain for one source, as a reader would have to reconstruct it from five files. */
+    /** The whole chain for one source, now a single call rather than five modules to reconstruct. */
     function plan(sourceW: number, sourceH: number) {
-        const decodeScale = Math.min(1, Math.sqrt(SCRUB_MAX_PIXELS / (sourceW * sourceH)))
-        const frameW = Math.max(1, Math.round(sourceW * decodeScale))
-        const frameH = Math.max(1, Math.round(sourceH * decodeScale))
-        const model = modelInputDims(frameW, frameH, adaptiveDetLimit(frameW, frameH))
-        const stored = storedDimsFor(frameW, frameH, model.cw, model.ch, undefined, yunetFrameScale(frameW, frameH))
+        const p = planScales({ width: sourceW, height: sourceH }, limitsFromEnv())
         return {
-            frame: `${frameW}x${frameH}`,
-            textContent: `${model.cw}x${model.ch}`,
-            textCanvas: `${model.rw}x${model.rh}`,
-            stored: `${stored.width}x${stored.height}`,
+            frame: `${p.frame.width}x${p.frame.height}`,
+            textContent: `${p.text.content.width}x${p.text.content.height}`,
+            textCanvas: `${p.text.canvas.width}x${p.text.canvas.height}`,
+            stored: `${p.stored.width}x${p.stored.height}`,
         }
     }
 

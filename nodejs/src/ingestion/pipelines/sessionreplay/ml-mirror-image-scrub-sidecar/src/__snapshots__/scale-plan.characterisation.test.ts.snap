@@ -2,53 +2,53 @@
 
 exports[`scale geometry, as it currently behaves a 4K desktop frame 1`] = `
 {
-  "frame": "894x503",
-  "stored": "213x120",
-  "textCanvas": "896x512",
-  "textContent": "894x503",
+  "frame": "904x508",
+  "stored": "210x118",
+  "textCanvas": "928x512",
+  "textContent": "904x508",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a 1080p desktop frame 1`] = `
 {
-  "frame": "894x503",
-  "stored": "213x120",
-  "textCanvas": "896x512",
-  "textContent": "894x503",
+  "frame": "904x508",
+  "stored": "210x118",
+  "textCanvas": "928x512",
+  "textContent": "904x508",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a banner past the tiling threshold 1`] = `
 {
-  "frame": "7746x58",
-  "stored": "213x1",
-  "textCanvas": "7776x64",
-  "textContent": "7746x58",
+  "frame": "7832x58",
+  "stored": "210x1",
+  "textCanvas": "7840x64",
+  "textContent": "7832x58",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a degenerate column 1`] = `
 {
-  "frame": "7x67082",
-  "stored": "1x213",
+  "frame": "6x67827",
+  "stored": "1x210",
   "textCanvas": "32x16928",
-  "textContent": "7x16928",
+  "textContent": "6x16928",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a degenerate strip 1`] = `
 {
-  "frame": "67082x7",
-  "stored": "213x1",
+  "frame": "67827x6",
+  "stored": "210x1",
   "textCanvas": "16928x32",
-  "textContent": "16928x7",
+  "textContent": "16928x6",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a mobile portrait frame 1`] = `
 {
   "frame": "390x844",
-  "stored": "98x213",
+  "stored": "97x210",
   "textCanvas": "416x864",
   "textContent": "390x844",
 }
@@ -56,17 +56,17 @@ exports[`scale geometry, as it currently behaves a mobile portrait frame 1`] = `
 
 exports[`scale geometry, as it currently behaves a retina laptop frame 1`] = `
 {
-  "frame": "849x530",
-  "stored": "213x133",
+  "frame": "857x536",
+  "stored": "210x131",
   "textCanvas": "864x544",
-  "textContent": "849x530",
+  "textContent": "857x536",
 }
 `;
 
 exports[`scale geometry, as it currently behaves a small sprite under every cap 1`] = `
 {
   "frame": "200x200",
-  "stored": "66x66",
+  "stored": "65x65",
   "textCanvas": "224x224",
   "textContent": "200x200",
 }
@@ -75,7 +75,7 @@ exports[`scale geometry, as it currently behaves a small sprite under every cap 
 exports[`scale geometry, as it currently behaves a square at the cap 1`] = `
 {
   "frame": "671x671",
-  "stored": "213x213",
+  "stored": "210x210",
   "textCanvas": "672x672",
   "textContent": "671x671",
 }
@@ -93,7 +93,7 @@ exports[`scale geometry, as it currently behaves a tiny favicon 1`] = `
 exports[`scale geometry, as it currently behaves a wide banner 1`] = `
 {
   "frame": "2048x219",
-  "stored": "213x22",
+  "stored": "210x22",
   "textCanvas": "2048x224",
   "textContent": "2048x219",
 }

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { availableParallelism, totalmem } from 'node:os'
 
 import { numFromEnv } from './env.ts'
-import { SCRUB_MAX_PIXELS } from './src-image.ts'
+import { limitsFromEnv } from './scale-plan.ts'
 
 /** Max threads a single ONNX session may use. Matches the ceiling numFromEnv enforces below. */
 const ORT_THREADS_MAX = 32
@@ -28,7 +28,7 @@ const SCRUB_WORKERS_MAX = 32
  */
 const WORKER_FIXED_BYTES = 288 * 1024 * 1024
 const WORKER_BYTES_PER_MEGAPIXEL = 288 * 1024 * 1024
-const WORKER_MEMORY_BUDGET_BYTES = WORKER_FIXED_BYTES + (WORKER_BYTES_PER_MEGAPIXEL * SCRUB_MAX_PIXELS) / 1e6
+const WORKER_MEMORY_BUDGET_BYTES = WORKER_FIXED_BYTES + (WORKER_BYTES_PER_MEGAPIXEL * limitsFromEnv().framePixels) / 1e6
 
 /**
  * Held back from the worker budget for everything that is not a worker: the main thread's own heap,

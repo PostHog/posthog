@@ -1,21 +1,18 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
 import { loadConfig } from './config.ts'
 import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
+import { bindingRatio } from './floors.ts'
 import { ScrubMetrics, trackPool } from './metrics.ts'
 import { startPool } from './pool.ts'
-import { DET_FACTOR } from './scrub.ts'
+import { limitsFromEnv } from './scale-plan.ts'
 import { startServer } from './server.ts'
-import { SCRUB_MAX_PIXELS, SCRUB_OUT_MAX_PIXELS, assertResolutionInvariant } from './src-image.ts'
 
 // Resolved here rather than in pool.ts: entry points run under tsx, where import.meta works, while
 // jest's CJS transform cannot load a src/ module that contains it (see the note in qr.ts).
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
 
-// Before anything binds a listener: a pod whose two resolution budgets do not satisfy the invariant
-// would under-redact for as long as it ran, and would look perfectly healthy doing it.
-assertResolutionInvariant(SCRUB_MAX_PIXELS, SCRUB_OUT_MAX_PIXELS, DET_FACTOR)
-
 const cfg = loadConfig()
+const SCRUB_LIMITS = limitsFromEnv()
 // Thread sizing is derived (workers and ORT threads from the cgroup quota) or set outside the process
 // (UV_THREADPOOL_SIZE in the Dockerfile), so log what this process actually resolved: a pool sized
 // wrong shows up as latency rather than as an error, with no other way to tell from a running pod.
@@ -23,7 +20,8 @@ const uvThreadpoolSize = Number(process.env.UV_THREADPOOL_SIZE ?? 4)
 console.log(
     `[image-scrub] concurrency=${cfg.maxConcurrency} workers=${SCRUB_WORKERS} ortThreads=${ORT_THREADS} ` +
         `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'} ` +
-        `detectPixels=${SCRUB_MAX_PIXELS} storePixels=${SCRUB_OUT_MAX_PIXELS} detFactor=${DET_FACTOR}`
+        `framePixels=${SCRUB_LIMITS.framePixels} storedPixels=${SCRUB_LIMITS.storedPixels} ` +
+        `ratio=${(bindingRatio() * SCRUB_LIMITS.safetyFactor).toFixed(2)}x`
 )
 // The pool is process-wide and every worker's sharp stages queue onto it, so below the worker count
 // those stages re-serialise however many workers there are. It cannot be fixed from here: libuv

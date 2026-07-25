@@ -1,10 +1,7 @@
 import sharp from 'sharp'
 
-import { modelInputDims } from './dbnet.ts'
-import { adaptiveDetLimit } from './scrub.ts'
+import { limitsFromEnv, planScales } from './scale-plan.ts'
 import { type StageTimings, compose } from './scrub.ts'
-import { storedDimsFor } from './src-image.ts'
-import { yunetFrameScale } from './yunet.ts'
 
 function timings(): StageTimings {
     return {
@@ -90,12 +87,11 @@ describe('compose', () => {
         ['a cap at the invariant', Math.round((W * H) / 9)],
         ['a cap below the invariant', Math.round((W * H) / 25)],
         ['a very small cap', 5_000],
-    ])('keeps a filled region covered with %s', async (_case, outMaxPixels) => {
+    ])('keeps a filled region covered with %s', async (_case, storedPixels) => {
         const src = await strokesOnWhite()
-        const model = modelInputDims(W, H, adaptiveDetLimit(W, H))
-        const expected = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels, yunetFrameScale(W, H))
+        const expected = planScales({ width: W, height: H }, { ...limitsFromEnv(), storedPixels }).stored
 
-        const out = await compose(src, W, H, [box], timings(), outMaxPixels)
+        const out = await compose(src, W, H, [box], timings(), expected)
 
         const meta = await sharp(out).metadata()
         expect({ width: meta.width, height: meta.height }).toEqual(expected)
