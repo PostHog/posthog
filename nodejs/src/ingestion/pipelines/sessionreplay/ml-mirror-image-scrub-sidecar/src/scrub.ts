@@ -65,6 +65,10 @@ export interface StageTimings {
     faces: number
     textBoxes: number
     codes: number
+    /** Source format and its pre-downscale size: which stage to attack depends on the corpus mix,
+     *  and only formats with a multi-resolution decode can be shrunk on load. */
+    format: string
+    inputPixels: number
 }
 
 const NSFW_THRESHOLD = numFromEnv('NSFW_THRESHOLD', 0.6, 0.05, 0.95) // NSFL+NSFW combined; deliberately loose, this is a safety net
@@ -124,6 +128,8 @@ export async function advancedScrub(
         faces: 0,
         textBoxes: 0,
         codes: 0,
+        format: 'unknown',
+        inputPixels: 0,
     }
     const t0 = performance.now()
     const tDec = performance.now()
@@ -137,6 +143,8 @@ export async function advancedScrub(
     }
     const { W, H } = src
     timings.decodeMs = performance.now() - tDec
+    timings.format = src.format
+    timings.inputPixels = src.inputPixels
 
     // 1. NSFW / gore gate FIRST: if it trips we skip all detection. Running it first (rather than
     //    overlapping detection) keeps each worker ~1 core, which packs better under multi-process
