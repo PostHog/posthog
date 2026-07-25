@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
-import { MCP_RECURRING_REPORTS, MCPRecurringReport, urlForRecurringReport } from './mcpRecurringReports'
+import { MCP_RECURRING_REPORTS, MCPRecurringReport, urlForRecurringReport } from './recurringReportDefinitions'
 
 function ReportCard({ report, enabled }: { report: MCPRecurringReport; enabled: boolean }): JSX.Element {
     return (
