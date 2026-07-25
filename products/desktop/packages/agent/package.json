@@ -147,7 +147,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "devDependencies": {
     "@posthog/shared": "workspace:*",

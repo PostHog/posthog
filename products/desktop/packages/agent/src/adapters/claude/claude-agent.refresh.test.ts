@@ -117,6 +117,7 @@ function installFakeSession(
     localToolsServerNames: ["posthog-code-tools"],
     input,
     cancelled: false,
+    cancelSeq: 0,
     settingsManager: { dispose: vi.fn() },
     permissionMode: "default",
     abortController,

@@ -455,6 +455,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
+    // Read before any await: setup below can take seconds (the pre-prompt MCP
+    // reconnect), and a cancel landing in that window belongs to this prompt.
+    const cancelSeqAtEntry = this.session.cancelSeq;
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
@@ -518,6 +521,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         modelId: this.session.modelId,
         contextWindowSize: this.session.lastContextWindowSize,
       });
+    }
+
+    // A cancel counted during setup targets this prompt. It is not queued yet, so
+    // `interrupt()` had nothing to stop and armed no backstop; returning here,
+    // before the message reaches the SDK, is what actually cancels it. Leave
+    // `cancelled` standing: an earlier turn may still be settling against it, and
+    // `activateTurn` clears it for the next turn that runs.
+    if (this.session.cancelSeq > cancelSeqAtEntry && this.session.cancelled) {
+      return this.cancelledResponse();
     }
 
     const turn: Turn = {
@@ -696,6 +708,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const activateTurn = async (turn: Turn) => {
       session.activeTurn = turn;
+      // Any cancel aimed at this turn already settled it: during setup `prompt()`
+      // returns early, and once queued `interrupt()` sweeps it. Reaching here means
+      // the flag is left over from an earlier turn.
       session.cancelled = false;
       session.interruptReason = undefined;
       session.pendingOrphanResults = 0;
@@ -2111,6 +2126,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       localToolsServerNames,
       input,
       cancelled: false,
+      cancelSeq: 0,
       settingsManager,
       permissionMode,
       cloudMode: cloudRun,

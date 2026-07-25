@@ -54,6 +54,7 @@ function installFakeSession(
     localToolsServerNames: [] as string[],
     input,
     cancelled: false,
+    cancelSeq: 0,
     interruptReason: undefined,
     settingsManager: { dispose: vi.fn(), getRepoRoot: () => "/tmp/repo" },
     permissionMode: "default" as const,

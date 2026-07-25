@@ -342,6 +342,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       ),
       notificationHistory: [],
       cancelled: false,
+      cancelSeq: 0,
     };
   }
 

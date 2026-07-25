@@ -47,6 +47,13 @@ export interface BaseSettingsManager {
 export interface BaseSession {
   notificationHistory: SessionNotification[];
   cancelled: boolean;
+  /**
+   * Bumped on every cancel. An adapter whose `prompt()` awaits before registering
+   * the turn must snapshot this on entry and re-check it before handing the prompt
+   * to the backend: a cancel landing in that window reaches no turn, and `cancelled`
+   * alone cannot distinguish it from a stale flag left by an earlier cancel.
+   */
+  cancelSeq: number;
   interruptReason?: string;
   abortController: AbortController;
   settingsManager: BaseSettingsManager;
@@ -78,10 +85,12 @@ export abstract class BaseAcpAgent implements Agent {
       throw new Error("Session ID mismatch");
     }
     this.session.cancelled = true;
+    this.session.cancelSeq += 1;
     const meta = params._meta as { interruptReason?: string } | undefined;
-    if (meta?.interruptReason) {
-      this.session.interruptReason = meta.interruptReason;
-    }
+    // Assign even when absent, so the reason always describes the current cancel.
+    // A turn cancelled during setup keeps this value through activation, so a
+    // leftover reason would otherwise be reported for a cancel that supplied none.
+    this.session.interruptReason = meta?.interruptReason;
     await this.interrupt();
   }
 
