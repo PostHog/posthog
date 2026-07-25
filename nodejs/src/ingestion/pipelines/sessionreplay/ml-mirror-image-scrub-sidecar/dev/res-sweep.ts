@@ -33,10 +33,10 @@ async function main(): Promise<void> {
     const label = process.argv[2] ?? 'run'
     const models = await loadModels()
     const files = [
-        ...(await listImages('corpus')),
-        ...(await listImages('fixtures')),
-        ...(await listImages('test-data/text')),
-        ...(await listImages('test-data/faces')),
+        ...(await listImages(process.env.SWEEP_DIR ?? 'corpus')),
+        ...(process.env.SWEEP_DIR ? [] : await listImages('fixtures')),
+        ...(process.env.SWEEP_DIR ? [] : await listImages('test-data/text')),
+        ...(process.env.SWEEP_DIR ? [] : await listImages('test-data/faces')),
     ]
 
     // The first scrub of a process pays one-off native init, so spend it before timing anything.
@@ -61,6 +61,8 @@ async function main(): Promise<void> {
             totalMs: t.totalMs,
             textMs: t.textMs,
             faceMs: t.faceMs,
+            nsfwMs: t.nsfwMs,
+            codesMs: t.codesMs,
             composeMs: t.composeMs,
             encodeMs: t.encodeMs,
             decodeMs: t.decodeMs,
