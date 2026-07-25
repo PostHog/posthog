@@ -3,35 +3,34 @@ import { Upload } from '@aws-sdk/lib-storage'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
+import { sanitizeForUTF8 } from '~/common/utils/strings'
+
 import { config } from './config'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 
 const log = createLogger()
 
-type S3ResponseError = Error & {
-    $response?: { statusCode?: number; body?: unknown }
-    $metadata?: { httpStatusCode?: number }
-}
-
-function describeUndecodableS3Response(err: unknown): { message: string; retryable: boolean } | null {
+function undecodableS3ResponseError(err: unknown): RasterizationError | null {
     if (!(err instanceof Error) || !/Deserialization error|is not expected/i.test(err.message)) {
         return null
     }
 
-    // The AWS SDK hides the raw non-XML response on properties omitted from its public error type.
-    const responseError = err as S3ResponseError
-    const status = responseError.$response?.statusCode ?? responseError.$metadata?.httpStatusCode
-    const body = responseError.$response?.body
-    const bodyPreview = typeof body === 'string' ? body.slice(0, 500) : undefined
-    const detail = [status !== undefined ? `status ${status}` : null, bodyPreview ? `body: ${bodyPreview}` : null]
-        .filter(Boolean)
-        .join(', ')
-    const retryable = status === undefined || status >= 500 || status === 429
-    return {
-        message: `S3 upload returned an undecodable (non-XML) response${detail ? ` (${detail})` : ''}`,
-        retryable,
+    // The AWS SDK stashes the raw response the XML parser choked on under $response, a property its
+    // public error type omits, so read it defensively to recover the real status and body.
+    const { statusCode, body } = (err as { $response?: { statusCode?: number; body?: unknown } }).$response ?? {}
+    const details = [`status ${statusCode ?? 'unknown'}`]
+    if (typeof body === 'string' && body.length > 0) {
+        details.push(`body: ${sanitizeForUTF8(body.slice(0, 500))}`)
     }
+    // Without a status we cannot tell a client error from a server one, so retry rather than fail the render.
+    const retryable = statusCode === undefined || statusCode >= 500 || statusCode === 429
+    return new RasterizationError(
+        `S3 upload returned an undecodable (non-XML) response (${details.join(', ')})`,
+        retryable,
+        'S3_UPLOAD_UNDECODABLE_RESPONSE',
+        err
+    )
 }
 
 let s3Client: S3Client | null = null
@@ -104,12 +103,12 @@ export async function uploadToS3(
     try {
         await upload.done()
     } catch (err) {
-        const described = describeUndecodableS3Response(err)
-        if (described) {
-            log.warn({ err, bucket, key }, 'S3 upload returned an undecodable response')
-            throw new RasterizationError(described.message, described.retryable, 'S3_UPLOAD_UNDECODABLE_RESPONSE', err)
+        const undecodable = undecodableS3ResponseError(err)
+        if (!undecodable) {
+            throw err
         }
-        throw err
+        log.warn({ err, bucket, key }, 'S3 upload returned an undecodable response')
+        throw undecodable
     }
 
     return `s3://${bucket}/${key}`
