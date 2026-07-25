@@ -65,14 +65,16 @@ describe('memoryLimitBytes', () => {
 })
 
 describe('memoryBoundedWorkers', () => {
-    // The reserve is what stops the arithmetic handing every byte of the limit to workers, leaving
-    // the main thread and the overlap during a replacement unbudgeted. On the deployed 4-core/2Gi
-    // shape the cores bound already gives 4, so the reserve costs nothing there and only binds where
-    // memory is the scarcer side.
+    // The reserve stops the arithmetic handing every byte of the limit to workers, leaving the main
+    // thread and the overlap during a replacement unbudgeted. Note what this says about the deployed
+    // 4-core/2Gi shape: memory, not cores, is the binding constraint there, and a pod has to carry
+    // roughly 4Gi before four workers fit. Sizing by cores alone would have put four workers in 2Gi,
+    // which measurement says needs about 3.1Gi at peak.
     it.each([
-        ['2Gi, the deployed shape', 2 * 1024 ** 3, 3],
-        ['4Gi', 4 * 1024 ** 3, 7],
-        ['1Gi, too small for two', 1024 ** 3, 1],
+        ['2Gi', 2 * 1024 ** 3, 1],
+        ['3Gi', 3 * 1024 ** 3, 3],
+        ['4Gi', 4 * 1024 ** 3, 4],
+        ['1Gi, below one worker plus the reserve', 1024 ** 3, 1],
         ['256Mi, below even the reserve', 256 * 1024 ** 2, 1],
     ])('allows %s to hold %d workers', (_case, limit, expected) => {
         expect(workersForMemoryLimit(limit)).toBe(expected)

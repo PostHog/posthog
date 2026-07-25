@@ -13,13 +13,16 @@ const NO_QUOTA_CORES = 4
 const SCRUB_WORKERS_MAX = 32
 
 /**
- * Memory to assume each worker needs: its own V8 isolate, three ONNX sessions with their arenas, a
- * zxing wasm instance, and the full-frame sharp buffers a scrub holds. Taken from the ratio the
- * deployed pod already runs at (4 cores to 2Gi in
- * charts/argocd/ingestion/config/ingestion-sessionreplay-ml-image-scrub.yaml), so on that shape it
- * changes nothing and only binds where cores outrun memory.
+ * Memory to assume each worker needs, measured rather than assumed: peak RSS with every worker
+ * scrubbing at once, divided by the worker count, on frames at the SCRUB_MAX_PIXELS cap where it
+ * plateaus. That came to 776 MB per worker (278 MB on a 0.33 MP frame, 719 MB on 2 MP, 776 MB at the
+ * cap), of which about 76 MB is the isolate and its three ONNX sessions and the rest is the transient
+ * a scrub holds. This is that with headroom.
+ *
+ * The earlier figure here was 512 MB, back-solved from the deployed pod's cores-to-memory ratio
+ * rather than from any measurement, and it was low enough to have sized the pool into an OOM.
  */
-const WORKER_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
+const WORKER_MEMORY_BUDGET_BYTES = 896 * 1024 * 1024
 
 /**
  * Held back from the worker budget for everything that is not a worker: the main thread's own heap,
