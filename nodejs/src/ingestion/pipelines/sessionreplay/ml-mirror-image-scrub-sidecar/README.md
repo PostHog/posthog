@@ -57,7 +57,11 @@ Production never imports from `dev/`.
 
 ```text
 src/  (production — ships)
-  main.ts         entrypoint: load models -> start servers
+  main.ts         entrypoint: start the worker pool -> start servers
+  pool.ts         the inference workers: dispatch, per-job deadlines, replace the dead
+  scrub-worker.ts one worker thread: owns its ONNX sessions, scrubs one image at a time
+  worker-protocol.ts  the job/reply messages crossing the thread boundary
+  cores.ts        worker + ORT thread sizing from the cgroup CPU quota and memory limit
   server.ts       the /scrub + /metrics listeners; scrub implementation injected
   config.ts       env-driven runtime config
   blur.ts         baseline blur (kept in sync with rust/replay-anonymizer/src/blur.rs)
@@ -108,14 +112,40 @@ The face check re-runs YuNet at high sensitivity on the scrubbed output and asse
 The suite **gates** on session replay's representative domain (crisp rendered-UI text + faces) and **reports** on a harder scanned-document set:
 
 ```text
-UI TEXT (gated):        12/12 clean, 0.0% leak   [PASS]   # rendered screenshots
-DOCUMENT TEXT (report): 18/20 clean, 5.2% worst  [report] # faint fax/scan print, out of domain
-FACE:                   88/88 faces redacted (100%)
+UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
+DOCUMENT TEXT (report): 19/20 clean, 2.7% worst  [report] # faint fax/scan print, out of domain
+FACE:                   89/89 faces redacted (100%)
 ```
+
+The corpus spans 0.3 to 8.3 megapixels at both device pixel ratios, which matters: it used to top out
+at 1440x900, entirely under the `SCRUB_MAX_PIXELS` cap, so nothing in it was ever downscaled on the
+way to detection and the suite could not see what that cap costs. Adding monitor-sized frames
+immediately failed the gate at a 14.3% leak on 4K captures taken at device pixel ratio 1, where 14px
+text reaches DBNet at about 6px after both downscales. `DET_SHARPEN` closes that, and the numbers
+above are with it on.
 
 Faint, low-contrast scanned-fax lines occasionally survive.
 That is contrast-limited not size-limited, so resolution alone won't catch every faded line, and it is outside the rendered-UI domain and within the "best-effort, not catastrophic if a little gets through" bar.
 Raise `DET_FACTOR` (env, default 0.75 of the long side) toward 1.0 to spend more CPU on text recall.
+
+### Resolution knobs
+
+`SCRUB_MAX_PIXELS` is what the **detectors** see, and lowering it is a redaction change rather than a
+cost one: at 1 MP the detection budget hits its 736 floor and a 4K frame yields zero text boxes, so
+the scrub becomes a no-op that returns a downscaled copy with everything still legible.
+`SCRUB_OUT_MAX_PIXELS` is what gets **stored**, applied after detection has run, so it costs no
+recall and is a question about what a downstream model needs to read. It defaults to
+`SCRUB_MAX_PIXELS`, meaning no downscale.
+
+### Probes
+
+The liveness probe answers 503 once no worker can scrub, which is what restores the signal that
+moving inference onto worker threads removed: a wedged synchronous inference used to block the event
+loop and fail the probe by itself. Readiness deliberately stays green so the pod keeps its place in
+the Service that Prometheus scrapes through, since `/scrub` is loopback-only and reaches no Service.
+That requires `livenessProbe` to point at `/_health` and `readinessProbe` at `/_ready`, which is how
+the lane's chart wires them; a deployment that points readiness at `/_health` would drop the pod out
+of the scrape at exactly the moment its metrics explain what happened.
 
 ## Models are baked into the image
 

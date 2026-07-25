@@ -4,12 +4,15 @@ import { type Server } from 'node:http'
 
 import { UndecodableImageError } from './blur.ts'
 import { ScrubMetrics, register } from './metrics.ts'
+import { ScrubAbandonedError } from './pool.ts'
 
 class ConsumerHungUpError extends Error {}
 
 /** The scrub implementation is injected (main.ts wires advancedScrub over its loaded models; tests
- *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. */
-export type ScrubFn = (input: Buffer) => Promise<Buffer>
+ *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. The
+ *  signal carries the caller hanging up, which is what lets queued work be dropped rather than run
+ *  for a response nobody will read. */
+export type ScrubFn = (input: Buffer, signal: AbortSignal) => Promise<Buffer>
 
 export interface SidecarServers {
     // /scrub, bound to loopback — the pod IP must never expose it.
@@ -23,13 +26,14 @@ export function startServer(
     metricsPort: number,
     maxConcurrency: number,
     maxBodyBytes: number,
-    scrubFn: ScrubFn
+    scrubFn: ScrubFn,
+    canScrub: () => boolean = () => true
 ): SidecarServers {
     async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
         if (signal.aborted) {
             throw new ConsumerHungUpError()
         }
-        return scrubFn(input)
+        return scrubFn(input, signal)
     }
 
     let inFlight = 0
@@ -96,7 +100,9 @@ export function startServer(
     })
 
     app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
-        if (err instanceof ConsumerHungUpError) {
+        // Both mean the caller stopped waiting: one noticed at the HTTP layer, the other in the pool
+        // when the job came up for dispatch. Neither is a scrub failure, so neither counts as one.
+        if (err instanceof ConsumerHungUpError || err instanceof ScrubAbandonedError) {
             ScrubMetrics.incAborted()
             return
         }
@@ -130,7 +136,21 @@ export function startServer(
     const obs = express()
     obs.disable('x-powered-by')
     obs.disable('etag')
-    obs.get(['/_health', '/_ready'], (_req, res) => {
+    // Liveness, not readiness, is what asks whether any scrub capacity is left. Inference runs on
+    // worker threads, so a pod that has lost all of them answers this listener as fast as a healthy
+    // one: without this the kubelet would never restart it. Failing readiness instead would drop the
+    // pod out of the Service that Prometheus scrapes through, taking the metrics away at the one
+    // moment they explain what happened, and it would buy nothing back, since /scrub is loopback-only
+    // and reaches no Service. The probe's failureThreshold decides how long a pool rebuilding through
+    // its restart backoff is given before the pod is replaced.
+    obs.get('/_health', (_req, res) => {
+        if (!canScrub()) {
+            res.status(503).send('no scrub capacity')
+            return
+        }
+        res.status(200).send('ok')
+    })
+    obs.get('/_ready', (_req, res) => {
         res.status(200).send('ok')
     })
     obs.get('/metrics', (_req, res, next) => {
