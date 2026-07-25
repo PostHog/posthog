@@ -43,6 +43,12 @@ const duration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 60],
     registers: [register],
 })
+const inputBytes = new Histogram({
+    name: 'ml_mirror_image_scrub_input_bytes',
+    help: 'Encoded size of each image received. Its _sum is the denominator for uniform_frame_bytes_total',
+    buckets: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216],
+    registers: [register],
+})
 const outputBytes = new Histogram({
     name: 'ml_mirror_image_scrub_output_bytes',
     help: 'Scrubbed output size — a collapse toward zero flags an output regression',
@@ -82,9 +88,19 @@ const blanked = new Counter({
     help: 'Images irreversibly replaced with a blank PNG by the NSFW/gore gate (alert on rate spikes)',
     registers: [register],
 })
+// Whether blank frames are worth catching earlier (in the Rust collector, before they reach Kafka
+// and S3 at all) is a question about volume, not about the scrub. These two answer it: the count
+// against scrubbed_total gives the share of calls, and the bytes against input_bytes_sum give the
+// share of topic and bucket volume, which is what an upstream skip would actually save. Both count
+// only what survives the dedup upstream, since a repeat of the same blank never reaches this service.
 const uniformFrames = new Counter({
     name: 'ml_mirror_image_scrub_uniform_frames_total',
-    help: 'Frames of a single flat colour, where detection was skipped as provably vacuous (against scrubbed_total, this is what the skip is worth)',
+    help: 'Frames of a single flat colour, where detection was skipped as provably vacuous',
+    registers: [register],
+})
+const uniformFrameBytes = new Counter({
+    name: 'ml_mirror_image_scrub_uniform_frame_bytes_total',
+    help: 'Encoded bytes of those frames: the scrub-topic and bucket volume an upstream blank skip would remove',
     registers: [register],
 })
 const facesRedacted = new Counter({
@@ -161,7 +177,9 @@ export const ScrubMetrics = {
         }
         if (t.uniform) {
             uniformFrames.inc()
+            uniformFrameBytes.inc(t.inputBytes)
         }
+        inputBytes.observe(t.inputBytes)
         facesRedacted.inc(t.faces)
         textBoxesRedacted.inc(t.textBoxes)
         codesRedacted.inc(t.codes)
@@ -169,9 +187,16 @@ export const ScrubMetrics = {
         sourceFormat.labels(t.format).inc()
         sourceMegapixels.labels(t.format).observe(t.inputPixels / 1e6)
         stageDuration.labels('decode').observe(t.decodeMs / 1000)
+        // Each early return skips the stages below it, and recording their zeros would drag those
+        // quantiles toward zero rather than describing the work they do. A uniform frame returns
+        // before the gate and every detector, still paying compose and encode; a blanked one returns
+        // after the gate but before detection and compose.
+        if (t.uniform) {
+            stageDuration.labels('compose').observe(t.composeMs / 1000)
+            stageDuration.labels('encode').observe(t.encodeMs / 1000)
+            return
+        }
         stageDuration.labels('nsfw').observe(t.nsfwMs / 1000)
-        // A blanked image returns before detection and compose, so recording their zeros would
-        // drag those stages' quantiles toward zero rather than describing the work they do.
         if (t.blanked) {
             return
         }

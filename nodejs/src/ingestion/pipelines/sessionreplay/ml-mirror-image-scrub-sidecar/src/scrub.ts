@@ -75,6 +75,8 @@ export interface StageTimings {
      *  and only formats with a multi-resolution decode can be shrunk on load. */
     format: string
     inputPixels: number
+    /** Encoded size as received, which is what this image cost the topic and the bucket. */
+    inputBytes: number
 }
 
 const NSFW_THRESHOLD = numFromEnv('NSFW_THRESHOLD', 0.6, 0.05, 0.95) // NSFL+NSFW combined; deliberately loose, this is a safety net
@@ -137,6 +139,7 @@ export async function advancedScrub(
         codes: 0,
         format: 'unknown',
         inputPixels: 0,
+        inputBytes: input.length,
     }
     const t0 = performance.now()
     const tDec = performance.now()
