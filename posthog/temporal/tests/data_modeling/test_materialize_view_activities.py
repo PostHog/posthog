@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from collections.abc import Collection, Iterable
+from collections.abc import AsyncIterator, Collection, Iterable
 from typing import Any, cast
 
 import pytest
@@ -12,6 +12,8 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pytest_asyncio
+
+from posthog.hogql.resolver import ResolverFactory
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
@@ -1060,6 +1062,8 @@ class TestMaterializeViewActivity:
 
 
 class _EmptyArrowClient:
+    describe_body = b"id\tInt64\n"
+
     def __init__(self, schema: pa.Schema):
         self.schema = schema
         self.arrow_query_calls = 0
@@ -1075,7 +1079,7 @@ class _EmptyArrowClient:
     @contextlib.asynccontextmanager
     async def apost_query(self, query, *data, query_parameters=None, query_id=None):
         if query.startswith("DESCRIBE TABLE"):
-            body = b"id\tInt64\n"
+            body = self.describe_body
         else:
             self.schema_query_calls += 1
             buffer = pa.BufferOutputStream()
@@ -1114,7 +1118,7 @@ class TestHogqlTableEmptyResults:
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
-    """Reports a DateTime column, so the arrow re-prepare runs, after a slow DESCRIBE."""
+    describe_body = b"ts\tDateTime\n"
 
     def __init__(self, schema: pa.Schema, describe_seconds: float):
         super().__init__(schema)
@@ -1122,19 +1126,9 @@ class _SlowDescribeClient(_EmptyArrowClient):
 
     @contextlib.asynccontextmanager
     async def apost_query(self, query, *data, query_parameters=None, query_id=None):
-        assert query.startswith("DESCRIBE TABLE")
         await asyncio.sleep(self.describe_seconds)
-
-        class _Response:
-            content: Any
-
-            def __init__(self) -> None:
-                self.content = self
-
-            async def read(self) -> bytes:
-                return b"ts\tDateTime\n"
-
-        yield _Response()
+        async with super().apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            yield response
 
 
 class TestHogqlTableResolutionDeadline:
@@ -1148,10 +1142,10 @@ class TestHogqlTableResolutionDeadline:
         )
 
         @contextlib.asynccontextmanager
-        async def fake_get_client(**kwargs):
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_SlowDescribeClient]:
             yield client
 
-        def short_deadline_factory(view_name, **kwargs):
+        def short_deadline_factory(view_name: str | None, **kwargs: Any) -> ResolverFactory:
             return bounded_resolver_factory_for_view(view_name, **{**kwargs, "deadline_seconds": deadline_seconds})
 
         with (

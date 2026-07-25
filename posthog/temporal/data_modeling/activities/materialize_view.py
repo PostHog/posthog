@@ -373,7 +373,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     context.output_format = "ArrowStream"
     settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
-    # a fresh factory: reusing the one above would charge this pass for the DESCRIBE round trip
+    # each prepare pass owns its deadline clock, so the DESCRIBE round trip above is not charged
+    # to view resolution
     arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
