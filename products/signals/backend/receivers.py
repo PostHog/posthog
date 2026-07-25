@@ -20,32 +20,50 @@ from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_embeddings import emit_report_embedding, render_report_document
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 logger = structlog.get_logger(__name__)
 
 _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.RESOLVED})
 
+# The fields the embedded report document is rendered from. A save touching none of them cannot
+# change the document, so it skips both the prior-state read and the re-embed.
+_DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
 
 @receiver(pre_save, sender=SignalReport)
-def capture_prior_status(
+def capture_prior_state(
     sender: type[SignalReport],
     instance: SignalReport,
     **kwargs: Any,
 ) -> None:
-    """Stash the row's prior status so post_save receivers can tell a real transition from a no-op edit."""
+    """Stash the row's prior status and rendered document so post_save receivers can tell a real
+    status transition, or a real text change, from a no-op edit.
+
+    Both are read in one query because a full save (``update_fields=None``) needs both, and a second
+    round-trip per save would double the read cost of the bulk-state endpoint's 100-report path.
+    """
     # UUIDModel PKs carry a Python-side default, so pk is set at construction, never None — use
     # _state.adding to tell an unsaved row (no prior status) from an update.
     if instance._state.adding:
         instance._prior_status = None  # type: ignore[attr-defined]
+        instance._prior_document = None  # type: ignore[attr-defined]
         return
 
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "status" not in update_fields:
+    wants_status = update_fields is None or "status" in update_fields
+    wants_document = update_fields is None or bool(_DOCUMENT_FIELDS & set(update_fields))
+    if not wants_status and not wants_document:
         instance._prior_status = None  # type: ignore[attr-defined]
+        instance._prior_document = None  # type: ignore[attr-defined]
         return
 
-    instance._prior_status = sender.objects.filter(pk=instance.pk).values_list("status", flat=True).first()  # type: ignore[attr-defined]
+    prior = sender.objects.filter(pk=instance.pk).values("status", "title", "summary").first()
+    instance._prior_status = prior["status"] if prior and wants_status else None  # type: ignore[attr-defined]
+    instance._prior_document = (  # type: ignore[attr-defined]
+        render_report_document(prior["title"], prior["summary"]) if prior and wants_document else None
+    )
 
 
 def _pr_close_reason(
@@ -108,6 +126,52 @@ def close_pr_when_report_dismissed(
             reason=reason,
         )
     )
+
+
+@receiver(post_save, sender=SignalReport)
+def emit_report_embedding_on_document_change(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Embed the report whenever its title or summary changes.
+
+    Same single-choke-point argument as the label stream below: the matcher writes the text when it
+    creates a report, the summary workflow rewrites it on `IN_PROGRESS -> READY`, re-research rewrites
+    it on each subsequent run, and the scout channel rewrites it through `update_authored_content`.
+    All of them finish in a ``save``, so hooking the model covers every producer without each one
+    opting in.
+    """
+    if update_fields is not None and not (_DOCUMENT_FIELDS & set(update_fields)):
+        return
+
+    content = render_report_document(instance.title, instance.summary)
+    if content is None:
+        return
+    # A save can touch title/summary without changing them: the grouping pipeline rewrites `title`
+    # for every signal that joins the report. Re-embedding identical text would spend an embedding
+    # call to write a row identical to the one already stored.
+    if getattr(instance, "_prior_document", None) == content:
+        return
+
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    # Snapshot now, because the instance can be saved again before the commit callback runs and the
+    # document that gets embedded must be the one this save produced.
+    created_at = instance.created_at
+
+    def _emit() -> None:
+        try:
+            emit_report_embedding(team_id=team_id, report_id=report_id, content=content, created_at=created_at)
+        except Exception:
+            # A missing vector costs the ranking model one feature row. It must never fail the write
+            # that produced the report.
+            logger.exception("Failed to emit signal report embedding", report_id=report_id)
+
+    # After commit so a rolled-back save never leaves a vector behind for text that was never stored.
+    transaction.on_commit(_emit)
 
 
 @receiver(post_save, sender=SignalReport)

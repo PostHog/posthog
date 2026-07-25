@@ -623,9 +623,9 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | --------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `team_id`       | Int64                  | Team identifier                                                                                                                  |
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
-| `document_type` | LowCardinality(String) | Document type — signals uses `'signal'`                                                                                          |
+| `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals uses `'plain'`                                                                                |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -643,6 +643,29 @@ Defined in `products/error_tracking/backend/embedding.py`:
 emit_embedding_request() → Kafka (document_embeddings_input topic)
     → Kafka table → Materialized View → Writable Distributed table → Sharded ReplacingMergeTree
 ```
+
+### Report Documents
+
+Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
+This gives a report a single vector instead of only the cloud of constituent-signal vectors,
+and is the feature-side building block for the inbox ranking model,
+whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+
+Emission lives in `backend/report_embeddings.py`,
+driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
+That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+Two properties are load-bearing:
+
+- The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
+  The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
+  so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
+  The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
+- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+
+Metadata is deliberately limited to `report_id`.
+It only refreshes when the report's text changes, so mutable state (status, priority, `signal_count`) would go stale there.
+Join that from Postgres or the status-change event stream instead.
 
 ### Soft Deletion
 
