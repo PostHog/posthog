@@ -495,7 +495,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
                 session_id="s-fresh",
                 status=ObservationStatus.RUNNING,
                 workflow_id="wf-gone-2",
-                age=dt.timedelta(minutes=30),
+                age=OBSERVATION_ORPHAN_CUTOFF - dt.timedelta(minutes=5),
             ),
         }
 

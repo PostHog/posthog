@@ -19,6 +19,7 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
+from google.genai.errors import APIError, ServerError
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -62,6 +63,22 @@ _VIDEO_CACHE_TTL = "900s"
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
+# 4xx statuses where retrying the same request can still succeed: rate limit, request timeout, transient conflict.
+_RETRYABLE_PROVIDER_STATUS = frozenset({408, 409, 429})
+
+
+def _classify_provider_error(exc: APIError) -> ScannerFailureError:
+    """Turn a raw Gemini transport error into a classified failure so the observation shows a real reason.
+
+    Server errors (5xx) and rate-limit-style 4xx are transient — a retry usually clears them. Any other client
+    error means the request itself was rejected (bad argument, blocked content, unprocessable video); re-running
+    the same recording won't help, so it fails fast and non-retryably instead of collapsing into `internal_error`.
+    """
+    transient = isinstance(exc, ServerError) or exc.code in _RETRYABLE_PROVIDER_STATUS
+    kind = FailureKind.PROVIDER_TRANSIENT if transient else FailureKind.PROVIDER_REJECTED
+    message = (exc.message or str(exc)).strip()
+    return ScannerFailureError(f"AI provider error {exc.code}: {message}", kind=kind)
+
 
 @activity.defn
 @track_activity()
@@ -100,14 +117,17 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
-    finalized, signals = await _run_mission(
-        scanner=scanner,
-        snapshot=snapshot,
-        video_part=video_part,
-        preamble_text=preamble_text,
-        team_id=inputs.team_id,
-        llm_inputs=llm_inputs,
-    )
+    try:
+        finalized, signals = await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=video_part,
+            preamble_text=preamble_text,
+            team_id=inputs.team_id,
+            llm_inputs=llm_inputs,
+        )
+    except APIError as exc:
+        raise _classify_provider_error(exc) from exc
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(finalized, scanner, duration_ms)
     return ScannerCallOutput(model_output=finalized, signals=signals)

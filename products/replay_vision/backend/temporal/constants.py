@@ -4,11 +4,14 @@ from uuid import UUID
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
-# Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
+# Shared by the sweep's children and the on-demand /observe/ trigger.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 
-# Pending/running rows older than twice the apply execution timeout are provably orphaned.
-OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
+# Pending/running rows older than this with no live workflow are orphaned. The reaper's real safety net is its
+# per-row Temporal `describe()` check — a still-open workflow is always skipped regardless of age — so this only
+# has to clear the brief window after a row is created for its workflow to be describable. Kept short (not tied to
+# the execution timeout) so a retry whose workflow died or timed out flips to FAILED within minutes, not ~2 hours.
+OBSERVATION_ORPHAN_CUTOFF = dt.timedelta(minutes=15)
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)

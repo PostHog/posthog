@@ -2,14 +2,17 @@ from typing import Any, cast
 
 import pytest
 
+from google.genai.errors import APIError, ClientError, ServerError
+from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _classify_provider_error,
     _maybe_create_video_cache,
     _run_steps,
     _step_config,
 )
-from products.replay_vision.backend.temporal.errors import ScannerFailureError
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.scanners.base import MissionStep
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -237,3 +240,22 @@ async def test_video_cache_creation_is_best_effort() -> None:
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
     result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
     assert result is None
+
+
+class TestClassifyProviderError:
+    @parameterized.expand(
+        [
+            (ServerError, 500, FailureKind.PROVIDER_TRANSIENT),
+            (ServerError, 503, FailureKind.PROVIDER_TRANSIENT),
+            (ClientError, 429, FailureKind.PROVIDER_TRANSIENT),
+            (ClientError, 408, FailureKind.PROVIDER_TRANSIENT),
+            (ClientError, 400, FailureKind.PROVIDER_REJECTED),
+            (ClientError, 403, FailureKind.PROVIDER_REJECTED),
+        ]
+    )
+    def test_maps_gemini_error_to_failure_kind(self, exc_cls: type[APIError], code: int, expected: FailureKind) -> None:
+        # Guards the classification: a mislabeled 400 as transient (or a 500 as rejected) would silently retry
+        # a doomed request or fail-fast a recoverable one, and both used to collapse into `internal_error`.
+        failure = _classify_provider_error(exc_cls(code, {"error": {"message": "boom"}}))
+        assert failure.kind is expected
+        assert failure.non_retryable is not expected.is_retryable
