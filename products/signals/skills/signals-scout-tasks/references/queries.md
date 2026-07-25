@@ -7,7 +7,9 @@ Conventions used throughout:
   Those are the harness's run containers, not project work — no repository, one creator, and on an active project they can outnumber every real origin combined.
   The `internal` flag does **not** exclude them.
 - **Join on `r.task_id = t.id`.**
-  `system.tasks` is already filtered to non-internal rows; add `t.deleted = 0` when you're counting tasks rather than runs.
+  Add `t.deleted = 0` when you're counting tasks rather than runs.
+- **Internal tasks are invisible here, and that bounds the lens.**
+  `system.tasks` carries a hard `internal != true` predicate. Loop firings (`origin_product = 'loop'`, created `internal=True`) and parts of the signals pipeline never appear, so this cookbook measures the _non-internal_ slice only. Don't describe a finding as fleet-wide delivery health — it is delivery health for the work this table can see.
 - **Two different time anchors.**
   `t.created_at` is when someone asked; `r.created_at` is when a run executed.
   A task created months ago can run today, so an origin mix computed on task creation will not match one computed on run time.
@@ -18,14 +20,24 @@ Conventions used throughout:
 - **`error_message` presence is not failure.**
   Far more runs carry a message than are in `failed` status.
   Always pair it with `status = 'failed'` when measuring failures.
-- **Status values are lowercase**: `completed`, `failed`, `cancelled`, `queued`, `in_progress`.
+- **Status values are lowercase**: `not_started`, `queued`, `in_progress`, `completed`, `failed`, `cancelled`.
+  `not_started` is the model default, so a run that never advances past creation sits there — the non-terminal set is all three of `not_started` / `queued` / `in_progress`, never just the latter two.
 - **`created_by_id` is an internal integer.**
   Good for counting distinct people; it does **not** resolve to a reviewer.
   Use `tasks-retrieve` on one task id in the cluster and read `created_by.uuid`.
 
 ## 0 — Orientation: origin mix and field coverage
 
-Run once per run before anything else.
+**Confirm the schema first.** The `execute-sql` contract requires querying `system.information_schema.columns` for every `system.*` table before projecting its columns, and column sets do drift:
+
+```sql
+SELECT table_name, column_name, data_type
+FROM system.information_schema.columns
+WHERE table_name IN ('system.tasks', 'system.task_runs')
+ORDER BY table_name, column_name
+```
+
+Then run the orientation query below using only confirmed columns.
 Tells you which origins this project actually uses (never assume the full enum is present) and whether the fields your lenses need are populated here.
 
 ```sql
@@ -58,7 +70,7 @@ SELECT
     countIf(r.status = 'failed')                                 AS failed,
     round(100.0 * countIf(r.status = 'failed') / count(), 1)     AS fail_pct,
     round(100.0 * countIf(r.status = 'cancelled') / count(), 1)  AS cancel_pct,
-    countIf(r.status IN ('queued', 'in_progress'))               AS in_flight,
+    countIf(r.status IN ('not_started', 'queued', 'in_progress')) AS in_flight,
     uniq(t.created_by_id)                                        AS users
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
@@ -140,7 +152,7 @@ Classes seen in the wild, as a rough taxonomy to orient against — expect a pro
 ## 4 — Cross: repository × error class (lens A group)
 
 Once queries 2 and 3 name a candidate, this confirms whether the class is repo-specific (a config problem on that repo) or spread across repos (systemic).
-Substitute the prefix you're chasing.
+**Paste the candidate prefix from query 3 into the predicate below** — without it this returns the global top 30 pairs and the class you are chasing may not be among them.
 
 ```sql
 SELECT
@@ -154,16 +166,20 @@ WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
   AND r.status = 'failed'
   AND isNotNull(r.error_message)
+  -- Replace with the exact prefix query 3 returned:
+  AND substring(r.error_message, 1, 60) = 'PASTE THE CANDIDATE PREFIX HERE'
 GROUP BY repo, err_prefix
-HAVING runs > 3
+HAVING runs > 0
 ORDER BY runs DESC
 LIMIT 30
 ```
 
 ## 5 — Silent non-completion (lens A)
 
-Cancellation rate and aging in-flight backlog.
+Two separate questions with two different windows, which is why this is two queries.
 A cancellation rate well above the baseline in query 1 is a prompt to look at what those tasks shared, not a finding on its own.
+
+**5a — cancellation rate (windowed).**
 
 ```sql
 SELECT
@@ -171,9 +187,7 @@ SELECT
     count()                                                      AS runs,
     countIf(r.status = 'cancelled')                              AS cancelled,
     round(100.0 * countIf(r.status = 'cancelled') / count(), 1)  AS cancel_pct,
-    countIf(r.status IN ('queued', 'in_progress'))               AS in_flight,
-    countIf(r.status IN ('queued', 'in_progress')
-            AND r.created_at < now() - interval 1 day)           AS stale_in_flight
+    countIf(r.status IN ('not_started', 'queued', 'in_progress')) AS in_flight
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
@@ -181,6 +195,26 @@ WHERE r.created_at > now() - interval 14 day
 GROUP BY repo
 HAVING runs > 20
 ORDER BY cancelled DESC
+LIMIT 20
+```
+
+**5b — aging backlog (deliberately unbounded).**
+A run stuck for longer than the analysis window is the _most_ interesting one, so this query must not carry the 14-day lower bound that 5a does — that bound would hide exactly the runs it exists to find.
+
+```sql
+SELECT
+    t.repository                                                 AS repo,
+    r.status                                                     AS status,
+    count()                                                      AS stuck_runs,
+    min(r.created_at)                                            AS oldest,
+    max(r.created_at)                                            AS newest
+FROM system.task_runs AS r
+JOIN system.tasks AS t ON r.task_id = t.id
+WHERE r.status IN ('not_started', 'queued', 'in_progress')
+  AND r.created_at < now() - interval 1 day
+  AND t.origin_product != 'signals_scout'
+GROUP BY repo, status
+ORDER BY stuck_runs DESC
 LIMIT 20
 ```
 
@@ -199,7 +233,7 @@ SELECT
 FROM system.tasks
 WHERE created_at > now() - interval 30 day
   AND deleted = 0
-  AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk', 'onboarding')
+  AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
 GROUP BY origin, repo
 ORDER BY tasks DESC
 LIMIT 30
@@ -224,7 +258,7 @@ SELECT
 FROM system.tasks
 WHERE created_at > now() - interval 30 day
   AND deleted = 0
-  AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk', 'onboarding')
+  AND origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
   AND length(title) > 10
 ORDER BY created_at DESC
 LIMIT 200
@@ -250,8 +284,33 @@ FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 30 day
   AND r.status = 'failed'
-  AND t.origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk', 'onboarding')
+  AND t.origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
 GROUP BY title, task_id, repo, creator, err_prefix
 ORDER BY failed_runs DESC
 LIMIT 30
+```
+
+## 9 — Drill-down: a representative failing run (lens A)
+
+Every other lens-A query aggregates, but a report has to cite concrete ids and the body sends you to `tasks-runs-retrieve`, which needs both a task id and a run id.
+Run this once per cluster you're about to file, substituting the repository or error prefix that defines it, and cite what it returns.
+
+```sql
+SELECT
+    r.id                                                         AS run_id,
+    r.task_id                                                    AS task_id,
+    t.repository                                                 AS repo,
+    r.status                                                     AS status,
+    substring(r.error_message, 1, 120)                           AS error_message,
+    r.created_at                                                 AS run_created_at
+FROM system.task_runs AS r
+JOIN system.tasks AS t ON r.task_id = t.id
+WHERE r.created_at > now() - interval 14 day
+  AND t.origin_product != 'signals_scout'
+  AND r.status = 'failed'
+  -- Narrow to the cluster you are filing, e.g.:
+  -- AND t.repository = 'owner/repo'
+  -- AND substring(r.error_message, 1, 60) = 'PASTE THE CANDIDATE PREFIX HERE'
+ORDER BY r.created_at DESC
+LIMIT 5
 ```

@@ -47,16 +47,16 @@ Rate over volume, then the ratio, then reach.
 Tasks and runs are Postgres system tables queried with `execute-sql`.
 Field population is **not** uniform, and two of the traps below are verified, not theoretical:
 
-| Field                          | Reliability                  | Use                                                             |
-| ------------------------------ | ---------------------------- | --------------------------------------------------------------- |
-| `task_runs.status`             | always                       | `completed` / `failed` / `cancelled` / `queued` / `in_progress` |
-| `task_runs.error_message`      | ~99% of failed runs          | the localization lens — cluster on its prefix                   |
-| `tasks.origin_product`         | always                       | who asked, and the lens partition                               |
-| `tasks.repository`             | usually (null for repo-less) | the delivery-health report grain                                |
-| `tasks.created_by_id`          | always                       | reach; an **integer** id, see routing below                     |
-| `tasks.title` / `.description` | usually                      | the demand lens                                                 |
-| `task_runs.branch`             | ~60%                         | weak; don't build detection on it                               |
-| **`task_runs.stage`**          | **unpopulated in practice**  | **never build a lens on it — it reads as null**                 |
+| Field                          | Reliability                  | Use                                                                                           |
+| ------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `task_runs.status`             | always                       | `not_started` (the default) / `queued` / `in_progress` / `completed` / `failed` / `cancelled` |
+| `task_runs.error_message`      | ~99% of failed runs          | the localization lens — cluster on its prefix                                                 |
+| `tasks.origin_product`         | always                       | who asked, and the lens partition                                                             |
+| `tasks.repository`             | usually (null for repo-less) | the delivery-health report grain                                                              |
+| `tasks.created_by_id`          | always                       | reach; an **integer** id, see routing below                                                   |
+| `tasks.title` / `.description` | usually                      | the demand lens                                                                               |
+| `task_runs.branch`             | ~60%                         | weak; don't build detection on it                                                             |
+| **`task_runs.stage`**          | **unpopulated in practice**  | **never build a lens on it — it reads as null**                                               |
 
 Two consequences worth carrying:
 
@@ -87,8 +87,10 @@ If tasks exist but nothing changed — no failure cluster past your `pattern:tas
 
 ## Orient
 
-- `scout-scratchpad-search` (`text=tasks`) — durable steering.
-  `pattern:` holds this project's baseline failure bands and the demand-pass gate; `noise:` / `addressed:` / `dedupe:` say what's benign, fixed, or already filed; `report:` / `reviewer:` point at the open report for a cluster and who owns it.
+- `scout-scratchpad-search` — durable steering.
+  Read the two gate entries by their **exact keys** first (`pattern:tasks:baseline`, `pattern:tasks:last-demand-pass`), then sweep `text=tasks` for the rest.
+  A single broad search returns the newest matches only, and this scout accumulates baseline, gate, demand-theme, noise, dedupe, report and reviewer entries — once they outnumber one page, the gate falls out of the result set and you re-run the demand pass or re-file a live report.
+  `pattern:` holds the baseline failure bands and the demand-pass gate; `noise:` / `addressed:` / `dedupe:` say what's benign, fixed, or already filed; `report:` / `reviewer:` point at the open report for a cluster and who owns it.
 - `scout-runs-list` (last 7d) — what prior tasks runs found and ruled out.
 - `scout-project-profile-get` — orientation on the project's repositories and integrations.
 - `inbox-reports-list` (`ordering=-updated_at`, `search` = a repo or failure class) — what's already filed.
@@ -101,10 +103,13 @@ If tasks exist but nothing changed — no failure cluster past your `pattern:tas
 Both read the same tables and ask different questions.
 **Lens A runs every time; lens B is gated.**
 
-| Lens                    | Cadence                                        | Origins                                                                    | Unit     | Question                        |
-| ----------------------- | ---------------------------------------------- | -------------------------------------------------------------------------- | -------- | ------------------------------- |
-| **A — delivery health** | every run                                      | all except `signals_scout`                                                 | the run  | does agent work actually land?  |
-| **B — demand**          | when `pattern:tasks:last-demand-pass` > 7d old | human only: `user_created`, `slack`, `posthog_ai`, `hogdesk`, `onboarding` | the task | what do people keep asking for? |
+| Lens                    | Cadence                                        | Origins                                                      | Unit     | Question                        |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------------------ | -------- | ------------------------------- |
+| **A — delivery health** | every run                                      | non-internal, all except `signals_scout`                     | the run  | does agent work actually land?  |
+| **B — demand**          | when `pattern:tasks:last-demand-pass` > 7d old | human only: `user_created`, `slack`, `posthog_ai`, `hogdesk` | the task | what do people keep asking for? |
+
+`onboarding` is deliberately absent: those tasks are generated server-side with a fixed title and a templated prompt, and only _attributed_ to the user who onboarded.
+Several of them clear the distinct-creator repetition test on their own and would manufacture a demand theme out of product-generated work.
 
 Lens B's origin filter is load-bearing, not tidiness.
 Machine origins (`signal_report`, `review_hog`, `loops`, `automation`, and the excluded `signals_scout`) are work the platform generated for itself.
@@ -112,6 +117,9 @@ Counting them as demand manufactures a trend out of the inbox's own throughput.
 Read them in lens A, where "did it land" is exactly the right question for them, and never in lens B.
 
 ## Lens A — delivery health (every run)
+
+**Scope caveat, state it in every report.** `system.tasks` hard-filters `internal != true`, so Loop firings and parts of the signals pipeline are created internal and never appear here.
+This lens measures the non-internal slice; it is not fleet-wide delivery health, and a report that claims otherwise overstates its evidence.
 
 Detect → localize → group.
 Start with cookbook queries 1–2 to find candidate clusters, then query 3 to localize each on its error class.
@@ -183,6 +191,7 @@ Author / edit / remember / skip, against the four-states classifier:
 - **Edit** (`scout-edit-report`) when a live report covers the cluster and it's still failing — `append_note` the fresh rate, volume, and any newly-affected repos.
   This is the default when a match exists.
   `edit-report` can't change status, so a `resolved` / `suppressed` match means authoring fresh for the relapse and repointing the key.
+- **Cite a concrete run.** The lens-A queries aggregate, so they return no ids to quote. Before filing, run cookbook query 9 narrowed to the cluster for a representative `task_id` + `run_id` pair, and use those in the `evidence` (and for `tasks-runs-retrieve` if you want one worked example).
 - **Author** (`scout-emit-report`) only when nothing live covers it.
   **One report per cluster** — a repository or a failure class, never one per failed run.
   Report-worthy for lens A: the cluster clears its band from `pattern:tasks:baseline`, the systemic-vs-retry-storm ratio says systemic (or the repo is totally broken), and the error class is named with counts in the `evidence`.
