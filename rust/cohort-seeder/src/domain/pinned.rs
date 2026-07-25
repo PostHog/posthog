@@ -72,6 +72,10 @@ pub struct PinnedRun {
 pub struct ValidatedPinnedRun {
     pub run: PinnedRun,
     pub warnings: Vec<PinnedWarning>,
+    /// Participations still expecting coverage. Read alongside `run.conditions`: zero surviving
+    /// conditions with a live participation means nothing will be seeded for a cohort that will
+    /// nonetheless be asked to certify completion.
+    pub active_participations: usize,
 }
 
 /// A run proven `seeding` with an established boundary, ready for pinned-payload validation. The
@@ -222,8 +226,10 @@ impl PinnedRun {
         let participation = ParticipationSet::build(snapshot.team_id, snapshot.participations, tz)?;
         let conditions = resolve_conditions(payload.conditions, &participation, &mut warnings)?;
         let event_names = EventNameSet::from_conditions(&conditions);
+        let active_participations = participation.active_count();
 
         Ok(ValidatedPinnedRun {
+            active_participations,
             run: PinnedRun {
                 run_id: snapshot.run_id,
                 team_id: snapshot.team_id,
@@ -316,6 +322,13 @@ impl ParticipationSet {
 
     fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
         self.states.get(&cohort_id).copied()
+    }
+
+    fn active_count(&self) -> usize {
+        self.states
+            .values()
+            .filter(|state| **state == PinnedParticipationState::Active)
+            .count()
     }
 
     fn into_filters(self) -> TeamFilters {
@@ -714,6 +727,9 @@ mod tests {
         let validated = PinnedRun::validate(snapshot(payload.clone(), participations)).unwrap();
         assert_eq!(validated.run.conditions.len(), 1);
         assert_eq!(validated.run.conditions[0].cohort_id, CohortId(1));
+        // Only the live participation counts: the planning-proof gate reads this against the
+        // surviving condition set to keep a run with zero coverage fail-closed.
+        assert_eq!(validated.active_participations, 1);
         assert_eq!(validated.run.event_names.as_slice(), &["active-event"]);
         assert!(validated
             .run

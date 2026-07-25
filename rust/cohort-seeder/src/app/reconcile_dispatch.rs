@@ -17,6 +17,7 @@ use crate::kafka::producer::{
     EnqueueError, PartitionCountError, SeedPartition, SeedPartitionCountError, SeedTileProducer,
 };
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
+use crate::store::completion::{read_planning_stamp, CompletionStoreError};
 use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +40,12 @@ impl RegisterBackfillConfirmation {
     pub const fn confirmed_by_operator() -> Self {
         Self(())
     }
+
+    /// The env-attested equivalent for the automatic dispatch driver: the deployment asserted the
+    /// register-backfill boundary via `SEEDER_CONFIRM_REGISTER_BACKFILLED` at startup.
+    pub const fn confirmed_by_env() -> Self {
+        Self(())
+    }
 }
 
 /// A run capability minted only after its status, active participations, hashes, and chunk ledger
@@ -55,6 +62,10 @@ impl PreparedReconcileDispatch {
         self.run.run_id()
     }
 
+    pub const fn run_status(&self) -> RunStatus {
+        self.run.status()
+    }
+
     pub fn cohort_count(&self) -> usize {
         self.run.cohort_count()
     }
@@ -68,35 +79,97 @@ impl PreparedReconcileDispatch {
     }
 }
 
+/// A prepared dispatch whose completion was certified under [`CompletionRequirement::Complete`]. Only
+/// this capability can reach the persistence path — the record write is minted from a `Certified`
+/// value, never from an `AllowIncomplete` one, so an incomplete dispatch can never be persisted.
+#[derive(Debug)]
+pub struct CertifiedDispatch(PreparedReconcileDispatch);
+
+impl CertifiedDispatch {
+    pub fn prepared(&self) -> &PreparedReconcileDispatch {
+        &self.0
+    }
+
+    pub fn into_prepared(self) -> PreparedReconcileDispatch {
+        self.0
+    }
+}
+
+/// The outcome of preparing a dispatch: a `Certified` capability (completion proven) or an
+/// `Uncertified` one (an operator override that must stay print-only).
+#[derive(Debug)]
+pub enum PreparedDispatch {
+    Certified(CertifiedDispatch),
+    Uncertified(PreparedReconcileDispatch),
+}
+
+impl PreparedDispatch {
+    fn inner(&self) -> &PreparedReconcileDispatch {
+        match self {
+            Self::Certified(certified) => &certified.0,
+            Self::Uncertified(prepared) => prepared,
+        }
+    }
+
+    pub fn run_id(&self) -> RunId {
+        self.inner().run_id()
+    }
+
+    pub fn run_status(&self) -> RunStatus {
+        self.inner().run_status()
+    }
+
+    pub fn cohort_count(&self) -> usize {
+        self.inner().cohort_count()
+    }
+
+    pub fn total_chunks(&self) -> u64 {
+        self.inner().total_chunks()
+    }
+
+    pub fn remaining_chunks(&self) -> u64 {
+        self.inner().remaining_chunks()
+    }
+}
+
 pub async fn prepare_reconcile_dispatch(
     pool: &PgPool,
     run_id: RunId,
     completion: CompletionRequirement,
     _register_backfill: RegisterBackfillConfirmation,
-) -> Result<PreparedReconcileDispatch, PrepareReconcileDispatchError> {
+) -> Result<PreparedDispatch, PrepareReconcileDispatchError> {
     let run = load_reconcile_run(pool, run_id).await?;
     let progress = PgChunkStore::new(pool.clone())
         .chunk_progress(run_id)
         .await?;
+    let planning_proven = read_planning_stamp(pool, run_id).await?.is_some();
     validate_completion(
         run_id,
         run.status(),
-        progress.total(),
         progress.remaining(),
+        planning_proven,
         completion,
     )?;
-    Ok(PreparedReconcileDispatch {
+    let prepared = PreparedReconcileDispatch {
         run,
         total_chunks: progress.total(),
         remaining_chunks: progress.remaining(),
+    };
+    Ok(match completion {
+        CompletionRequirement::Complete => PreparedDispatch::Certified(CertifiedDispatch(prepared)),
+        CompletionRequirement::AllowIncomplete => PreparedDispatch::Uncertified(prepared),
     })
 }
 
+/// A run is complete when every chunk has confirmed (`remaining == 0`) AND planning is proven —
+/// either the run is already `reconciling` (its ledger is frozen) or its `chunks_planned_at` stamp is
+/// set. A planned-but-zero-chunk seeding run therefore passes; a seeding run that has never planned
+/// fails closed.
 fn validate_completion(
     run_id: RunId,
     status: RunStatus,
-    total_chunks: u64,
     remaining_chunks: u64,
+    planning_proven: bool,
     completion: CompletionRequirement,
 ) -> Result<(), PrepareReconcileDispatchError> {
     if completion == CompletionRequirement::Complete {
@@ -106,8 +179,9 @@ fn validate_completion(
                 remaining_chunks,
             });
         }
-        if total_chunks == 0 && status == RunStatus::Seeding {
-            return Err(PrepareReconcileDispatchError::EmptyChunkLedger(run_id));
+        let planned = status == RunStatus::Reconciling || planning_proven;
+        if !planned {
+            return Err(PrepareReconcileDispatchError::PlanningUnproven(run_id));
         }
     }
     Ok(())
@@ -119,15 +193,17 @@ pub enum PrepareReconcileDispatchError {
     Run(#[from] ReconcileRunError),
     #[error("reading the run's chunk ledger")]
     Chunks(#[from] ChunkStoreError),
+    #[error("reading the run's planning proof")]
+    Completion(#[from] CompletionStoreError),
     #[error("run {run_id:?} still has {remaining_chunks} unconfirmed chunks")]
     Incomplete {
         run_id: RunId,
         remaining_chunks: u64,
     },
     #[error(
-        "seeding run {0:?} has no chunk rows, so dispatch cannot prove planning has completed; use --allow-incomplete to override"
+        "seeding run {0:?} has no planning proof, so dispatch cannot certify completion; use --allow-incomplete to override"
     )]
-    EmptyChunkLedger(RunId),
+    PlanningUnproven(RunId),
 }
 
 /// Highest acknowledged reconcile-control offset for every seed partition. A team-wide run may
@@ -355,21 +431,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn completion_requirement_fails_closed_for_unplanned_seeding_runs() {
+    fn completion_requirement_requires_a_planning_proof_for_seeding_runs() {
         let run_id = RunId(Uuid::nil());
+        // A planned-but-zero-chunk seeding run passes now that planning is the proof, not chunk rows.
         assert!(validate_completion(
             run_id,
             RunStatus::Seeding,
-            3,
             0,
+            true,
             CompletionRequirement::Complete,
         )
         .is_ok());
+        // A reconciling run's frozen ledger is proof enough, regardless of the planning stamp.
         assert!(validate_completion(
             run_id,
             RunStatus::Reconciling,
             0,
-            0,
+            false,
             CompletionRequirement::Complete,
         )
         .is_ok());
@@ -377,7 +455,7 @@ mod tests {
             run_id,
             RunStatus::Seeding,
             0,
-            0,
+            false,
             CompletionRequirement::AllowIncomplete,
         )
         .is_ok());
@@ -385,8 +463,8 @@ mod tests {
             validate_completion(
                 run_id,
                 RunStatus::Seeding,
-                3,
                 2,
+                true,
                 CompletionRequirement::Complete,
             ),
             Err(PrepareReconcileDispatchError::Incomplete {
@@ -399,10 +477,10 @@ mod tests {
                 run_id,
                 RunStatus::Seeding,
                 0,
-                0,
+                false,
                 CompletionRequirement::Complete,
             ),
-            Err(PrepareReconcileDispatchError::EmptyChunkLedger(id)) if id == run_id
+            Err(PrepareReconcileDispatchError::PlanningUnproven(id)) if id == run_id
         ));
     }
 

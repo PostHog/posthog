@@ -337,6 +337,8 @@ async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Resul
         .await?;
 
         let register_backfill = RegisterBackfillConfirmation::confirmed_by_operator();
+        // A seeding run that never planned has no completion proof, so a complete dispatch fails
+        // closed (the CLI must use --allow-incomplete for an unplanned run).
         ensure!(matches!(
             prepare_reconcile_dispatch(
                 &pool,
@@ -345,7 +347,7 @@ async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Resul
                 register_backfill,
             )
             .await,
-            Err(PrepareReconcileDispatchError::EmptyChunkLedger(id)) if id == run_id
+            Err(PrepareReconcileDispatchError::PlanningUnproven(id)) if id == run_id
         ));
         let overridden = prepare_reconcile_dispatch(
             &pool,
