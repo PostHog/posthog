@@ -23,7 +23,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     'intent-clustering':
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
     notifications:
-        'Get notified in Slack, Teams, Discord, or a webhook when agents hit a missing capability or a tool call fails.',
+        'Pick the moments worth interrupting you for. Each one posts to Slack, Teams, Discord, or any webhook.',
 }
 
 // Per-tab question seeded into PostHog AI so the answer is grounded in what the user is looking at.

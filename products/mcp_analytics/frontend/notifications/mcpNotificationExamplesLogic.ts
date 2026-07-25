@@ -13,16 +13,22 @@ export type MCPNotificationExample = Record<MCPMessageField, string>
 export type MCPNotificationExamples = Partial<Record<MCPNotificationUseCase, MCPNotificationExample>>
 
 // The most recent real event per use case, so a preview can show the project's own traffic instead
-// of invented values. Grouping by event lets one scan serve both use cases — argMax picks each
-// group's latest. Time-bounded to keep it cheap; the preview falls back to sample copy when a
-// project has nothing (yet), so an empty result is a normal outcome rather than an error.
+// of invented values. One scan serves every card: the three failure use cases all live in
+// $mcp_tool_call and are separated by error type, so the use case is derived first and grouped on,
+// letting argMax pick each one's latest. Time-bounded to keep it cheap; the preview falls back to
+// sample copy when a project has nothing (yet), so an empty result is normal, not an error.
 //
 // The effective-tool expression mirrors EFFECTIVE_TOOL_SQL in
 // products/mcp_analytics/backend/hogql_queries/base.py — the inner tool when the call came through
 // the single-exec wrapper, else the directly-registered name.
 const EXAMPLES_QUERY = `
 SELECT
-    event,
+    multiIf(
+        event = '$mcp_missing_capability', 'missing-capability',
+        toString(properties.$mcp_error_type) = 'permission', 'auth-error',
+        toString(properties.$mcp_error_type) = 'rate_limited', 'rate-limited',
+        'tool-error'
+    ) AS use_case,
     argMax(toString(properties.$mcp_client_name), timestamp) AS client_name,
     argMax(toString(properties.$mcp_server_name), timestamp) AS server_name,
     argMax(toString(properties.$mcp_intent), timestamp) AS intent,
@@ -36,19 +42,18 @@ WHERE timestamp >= now() - INTERVAL 90 DAY
     event = '$mcp_missing_capability'
     OR (event = '$mcp_tool_call' AND toBool(properties.$mcp_is_error))
   )
-GROUP BY event
+GROUP BY use_case
 `
 
-const USE_CASE_BY_EVENT: Record<string, MCPNotificationUseCase> = {
-    $mcp_missing_capability: 'missing-capability',
-    $mcp_tool_call: 'tool-error',
-}
+const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['missing-capability', 'tool-error', 'auth-error', 'rate-limited']
 
 // Every field the message renders must be present, otherwise the "real" example would be a mix of
 // the project's data and our invented copy — more misleading than an honest sample.
 const REQUIRED_FIELDS: Record<MCPNotificationUseCase, MCPMessageField[]> = {
     'missing-capability': ['clientName', 'serverName', 'intent'],
     'tool-error': ['clientName', 'serverName', 'intent', 'toolName'],
+    'auth-error': ['clientName', 'serverName', 'intent', 'toolName'],
+    'rate-limited': ['clientName', 'serverName', 'intent', 'toolName'],
 }
 
 // Array.from so a cut can't land inside a surrogate pair and render as a replacement character.
@@ -63,8 +68,8 @@ export function parseExampleRows(rows: unknown[]): MCPNotificationExamples {
     const examples: MCPNotificationExamples = {}
 
     for (const row of rows) {
-        const [event, clientName, serverName, intent, toolName] = row as unknown[]
-        const useCase = USE_CASE_BY_EVENT[asString(event)]
+        const [rawUseCase, clientName, serverName, intent, toolName] = row as unknown[]
+        const useCase = KNOWN_USE_CASES.find((candidate) => candidate === asString(rawUseCase))
         if (!useCase) {
             continue
         }

@@ -2,9 +2,10 @@ import { MCP_MESSAGE_FIELD_LIMITS } from 'scenes/hog-functions/sub-templates/sub
 
 import { parseExampleRows } from './mcpNotificationExamplesLogic'
 
-// Rows arrive positionally: [event, client_name, server_name, intent, tool_name]
-const MISSING_CAPABILITY_ROW = ['$mcp_missing_capability', 'Cursor', 'acme-mcp', 'export to PDF', '']
-const TOOL_ERROR_ROW = ['$mcp_tool_call', 'Claude Code', 'acme-mcp', 'why did signups drop', 'query-events']
+// Rows arrive positionally: [use_case, client_name, server_name, intent, tool_name]. The query
+// derives use_case, since the failure use cases all share the $mcp_tool_call event.
+const MISSING_CAPABILITY_ROW = ['missing-capability', 'Cursor', 'acme-mcp', 'export to PDF', '']
+const TOOL_ERROR_ROW = ['tool-error', 'Claude Code', 'acme-mcp', 'why did signups drop', 'query-events']
 
 describe('parseExampleRows', () => {
     it('maps each use case from its positional columns', () => {
@@ -27,10 +28,10 @@ describe('parseExampleRows', () => {
     // A half-real example (project's client name, our invented intent) reads as genuine but isn't,
     // so an incomplete row is dropped in favour of the honest sample copy.
     it.each([
-        ['missing intent', ['$mcp_missing_capability', 'Cursor', 'acme-mcp', '', '']],
-        ['missing client name', ['$mcp_missing_capability', null, 'acme-mcp', 'export to PDF', '']],
-        ['tool error with no tool name', ['$mcp_tool_call', 'Claude Code', 'acme-mcp', 'why', '']],
-        ['an unrelated event', ['$pageview', 'Cursor', 'acme-mcp', 'export to PDF', 'query-events']],
+        ['missing intent', ['missing-capability', 'Cursor', 'acme-mcp', '', '']],
+        ['missing client name', ['missing-capability', null, 'acme-mcp', 'export to PDF', '']],
+        ['a failure with no tool name', ['auth-error', 'Claude Code', 'acme-mcp', 'why', '']],
+        ['an unrecognized use case', ['something-else', 'Cursor', 'acme-mcp', 'export to PDF', 'query-events']],
     ])('drops a row with %s', (_label, row) => {
         expect(parseExampleRows([row])).toEqual({})
     })
@@ -38,7 +39,7 @@ describe('parseExampleRows', () => {
     it('cuts a field at the limit the delivered message uses', () => {
         const intent = 'x'.repeat(MCP_MESSAGE_FIELD_LIMITS.intent + 50)
 
-        const parsed = parseExampleRows([['$mcp_missing_capability', 'Cursor', 'acme-mcp', intent, '']])
+        const parsed = parseExampleRows([['missing-capability', 'Cursor', 'acme-mcp', intent, '']])
 
         expect(parsed['missing-capability']?.intent).toHaveLength(MCP_MESSAGE_FIELD_LIMITS.intent)
     })

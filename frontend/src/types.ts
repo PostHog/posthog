@@ -7209,6 +7209,8 @@ export type HogFunctionSubTemplateIdType =
     | 'survey-response'
     | 'mcp-missing-capability'
     | 'mcp-tool-error'
+    | 'mcp-auth-error'
+    | 'mcp-rate-limited'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'

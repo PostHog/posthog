@@ -37,30 +37,22 @@ export interface MCPNotificationPreviewProps {
  */
 export function MCPNotificationPreview({ message, buttonLabel, caption }: MCPNotificationPreviewProps): JSX.Element {
     return (
-        <div className="rounded border bg-surface-primary p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
-                <span className="text-xs font-medium text-muted">Slack preview</span>
-                <span className="text-xs text-muted">{caption}</span>
+        <div className="flex gap-2 rounded border bg-surface-primary p-2">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-secondary">
+                <Logomark size="xs" />
             </div>
-            <div className="flex gap-2">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-secondary">
-                    <Logomark size="sm" />
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-semibold">PostHog</span>
+                    <LemonTag type="muted" size="small">
+                        APP
+                    </LemonTag>
+                    <span className="text-xs text-muted">·&nbsp;{caption}</span>
                 </div>
-                <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-semibold">PostHog</span>
-                        <LemonTag type="muted" size="small">
-                            APP
-                        </LemonTag>
-                        <span className="text-xs text-muted">now</span>
-                    </div>
-                    <p className="m-0 mt-0.5 break-words text-sm">{renderSlackMarkup(message)}</p>
-                    <div className="mt-2">
-                        <span className="inline-flex rounded border bg-surface-secondary px-2 py-1 text-xs font-medium">
-                            {buttonLabel}
-                        </span>
-                    </div>
-                </div>
+                <p className="m-0 mt-0.5 break-words text-sm">{renderSlackMarkup(message)}</p>
+                <span className="mt-1.5 inline-flex rounded border bg-surface-secondary px-2 py-0.5 text-xs font-medium">
+                    {buttonLabel}
+                </span>
             </div>
         </div>
     )

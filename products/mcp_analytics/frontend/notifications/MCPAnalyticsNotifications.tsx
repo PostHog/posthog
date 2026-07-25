@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconMCP, IconPlus, IconWarning } from '@posthog/icons'
+import { IconHourglass, IconLock, IconMCP, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
@@ -16,6 +16,7 @@ import { getNotificationDescription } from 'scenes/hog-functions/list/notificati
 import {
     MCP_NOTIFICATION_BUTTON_LABELS,
     MCPMessageField,
+    MCPNotificationSubTemplateId,
     mcpNotificationPreviewMessage,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { urls } from 'scenes/urls'
@@ -29,8 +30,6 @@ import {
 } from './mcpAnalyticsNotificationsLogic'
 import { MCPNotificationExample, mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
 import { MCPNotificationPreview } from './MCPNotificationPreview'
-
-type MCPNotificationSubTemplateId = 'mcp-missing-capability' | 'mcp-tool-error'
 
 interface MCPUseCaseConfig {
     useCase: MCPNotificationUseCase
@@ -49,24 +48,24 @@ const USE_CASES: MCPUseCaseConfig[] = [
     {
         useCase: 'missing-capability',
         subTemplateId: 'mcp-missing-capability',
-        icon: <IconMCP className="text-lg" />,
-        headline: "Agents asked for something your server can't do",
-        lead: "Their own words, as they asked for it. The closest thing you'll get to a roadmap.",
+        icon: <IconMCP />,
+        headline: "Agents asked for something you can't do",
+        lead: "Their own words. The closest thing you'll get to a roadmap.",
         dialogTitle: 'Notify me about missing capabilities',
         sample: {
             clientName: 'Cursor',
             serverName: 'acme-mcp',
-            intent: 'export the signups dashboard to PDF and email it to the team every Monday',
+            intent: 'export the signups dashboard to PDF every Monday',
             toolName: '',
         },
-        realCaption: 'Your most recent one',
+        realCaption: 'Your most recent',
     },
     {
         useCase: 'tool-error',
         subTemplateId: 'mcp-tool-error',
-        icon: <IconWarning className="text-lg" />,
+        icon: <IconWarning />,
         headline: 'A tool call failed',
-        lead: 'Which tool broke, what the agent was trying to do, and a link straight to the detail.',
+        lead: 'Which tool broke, what the agent wanted, and a link to the detail.',
         dialogTitle: 'Notify me about failing tool calls',
         sample: {
             clientName: 'Claude Code',
@@ -74,7 +73,37 @@ const USE_CASES: MCPUseCaseConfig[] = [
             intent: 'find out why signups dropped after Tuesday’s release',
             toolName: 'query-events',
         },
-        realCaption: 'Your most recent failure',
+        realCaption: 'Your most recent',
+    },
+    {
+        useCase: 'auth-error',
+        subTemplateId: 'mcp-auth-error',
+        icon: <IconLock />,
+        headline: 'Your auth turned an agent away',
+        lead: 'A scope or token problem, not a broken tool — and a different fix.',
+        dialogTitle: 'Notify me about denied tool calls',
+        sample: {
+            clientName: 'Claude Code',
+            serverName: 'acme-mcp',
+            intent: 'turn off the beta flag for EU users',
+            toolName: 'update-feature-flag',
+        },
+        realCaption: 'Your most recent',
+    },
+    {
+        useCase: 'rate-limited',
+        subTemplateId: 'mcp-rate-limited',
+        icon: <IconHourglass />,
+        headline: 'Agents are hitting your limits',
+        lead: 'They back off mid-task, so the work silently goes unfinished.',
+        dialogTitle: 'Notify me about rate-limited tool calls',
+        sample: {
+            clientName: 'Cursor',
+            serverName: 'acme-mcp',
+            intent: 'pull the last 30 days of signups by source',
+            toolName: 'query-events',
+        },
+        realCaption: 'Your most recent',
     },
 ]
 
@@ -135,13 +164,25 @@ interface UseCaseCardProps {
 
 function UseCaseCard({ config, notifications, onAdd, addDisabledReason, example }: UseCaseCardProps): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3">
-            <div className="flex items-start gap-2">
-                <span className="mt-0.5 shrink-0 text-muted">{config.icon}</span>
-                <div className="min-w-0">
-                    <h3 className="m-0 text-base font-semibold">{config.headline}</h3>
-                    <p className="m-0 text-sm text-muted">{config.lead}</p>
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
+            <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-1.5">
+                    <span className="mt-0.5 shrink-0 text-muted">{config.icon}</span>
+                    <div className="min-w-0">
+                        <h3 className="m-0 text-sm font-semibold">{config.headline}</h3>
+                        <p className="m-0 text-xs text-muted">{config.lead}</p>
+                    </div>
                 </div>
+                <LemonButton
+                    type={notifications.length > 0 ? 'secondary' : 'primary'}
+                    size="xsmall"
+                    icon={<IconPlus />}
+                    onClick={onAdd}
+                    disabledReason={addDisabledReason}
+                    data-attr={`mcp-analytics-add-notification-${config.useCase}`}
+                >
+                    {notifications.length > 0 ? 'Add' : 'Notify me'}
+                </LemonButton>
             </div>
 
             <MCPNotificationPreview
@@ -151,25 +192,12 @@ function UseCaseCard({ config, notifications, onAdd, addDisabledReason, example 
             />
 
             {notifications.length > 0 && (
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1">
                     {notifications.map((notification) => (
                         <NotificationRow key={notification.id} notification={notification} />
                     ))}
                 </div>
             )}
-
-            <div>
-                <LemonButton
-                    type={notifications.length > 0 ? 'secondary' : 'primary'}
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={onAdd}
-                    disabledReason={addDisabledReason}
-                    data-attr={`mcp-analytics-add-notification-${config.useCase}`}
-                >
-                    {notifications.length > 0 ? 'Add another destination' : 'Notify me'}
-                </LemonButton>
-            </div>
         </LemonCard>
     )
 }
@@ -195,16 +223,24 @@ export function MCPAnalyticsNotifications(): JSX.Element {
         loadNotifications()
     }
 
-    // One dialog logic per use case, in a fixed order so the hook calls stay stable.
+    // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
     const { openDialog: openMissingCapabilityDialog } = useActions(
         newNotificationDialogLogic({ subTemplateId: 'mcp-missing-capability', onCreated })
     )
     const { openDialog: openToolErrorDialog } = useActions(
         newNotificationDialogLogic({ subTemplateId: 'mcp-tool-error', onCreated })
     )
+    const { openDialog: openAuthErrorDialog } = useActions(
+        newNotificationDialogLogic({ subTemplateId: 'mcp-auth-error', onCreated })
+    )
+    const { openDialog: openRateLimitedDialog } = useActions(
+        newNotificationDialogLogic({ subTemplateId: 'mcp-rate-limited', onCreated })
+    )
     const openDialogFor: Record<MCPNotificationSubTemplateId, () => void> = {
         'mcp-missing-capability': openMissingCapabilityDialog,
         'mcp-tool-error': openToolErrorDialog,
+        'mcp-auth-error': openAuthErrorDialog,
+        'mcp-rate-limited': openRateLimitedDialog,
     }
 
     if (notificationsFailed) {
@@ -221,12 +257,11 @@ export function MCPAnalyticsNotifications(): JSX.Element {
 
     if (!notificationsLoaded) {
         return (
-            <div className="flex flex-col gap-3" data-attr="mcp-analytics-notifications">
+            <div className="grid gap-2 md:grid-cols-2" data-attr="mcp-analytics-notifications">
                 {USE_CASES.map((config) => (
-                    <LemonCard key={config.useCase} hoverEffect={false} className="flex flex-col gap-3">
-                        <LemonSkeleton className="h-4 w-64 max-w-full" />
-                        <LemonSkeleton className="h-20 w-full" />
-                        <LemonSkeleton className="h-8 w-28" />
+                    <LemonCard key={config.useCase} hoverEffect={false} className="flex flex-col gap-2 p-3">
+                        <LemonSkeleton className="h-4 w-48 max-w-full" />
+                        <LemonSkeleton className="h-16 w-full" />
                     </LemonCard>
                 ))}
             </div>
@@ -238,28 +273,25 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     const unclassified = notifications.filter((notification) => !getMCPNotificationUseCase(notification))
 
     return (
-        <div className="flex flex-col gap-3" data-attr="mcp-analytics-notifications">
-            <p className="m-0 text-sm text-muted">
-                Pick a moment worth interrupting you for. Each one posts to Slack, Discord, Microsoft Teams, or any
-                webhook.
-            </p>
-
-            {USE_CASES.map((config) => (
-                <UseCaseCard
-                    key={config.useCase}
-                    config={config}
-                    notifications={notifications.filter(
-                        (notification) => getMCPNotificationUseCase(notification) === config.useCase
-                    )}
-                    onAdd={openDialogFor[config.subTemplateId]}
-                    addDisabledReason={addDisabledReason ?? undefined}
-                    example={examples[config.useCase]}
-                />
-            ))}
+        <div className="flex flex-col gap-2" data-attr="mcp-analytics-notifications">
+            <div className="grid gap-2 md:grid-cols-2">
+                {USE_CASES.map((config) => (
+                    <UseCaseCard
+                        key={config.useCase}
+                        config={config}
+                        notifications={notifications.filter(
+                            (notification) => getMCPNotificationUseCase(notification) === config.useCase
+                        )}
+                        onAdd={openDialogFor[config.subTemplateId]}
+                        addDisabledReason={addDisabledReason ?? undefined}
+                        example={examples[config.useCase]}
+                    />
+                ))}
+            </div>
 
             {unclassified.length > 0 && (
-                <LemonCard hoverEffect={false} className="flex flex-col gap-2">
-                    <h3 className="m-0 text-base font-semibold">Other MCP notifications</h3>
+                <LemonCard hoverEffect={false} className="flex flex-col gap-1 p-3">
+                    <h3 className="m-0 text-sm font-semibold">Other MCP notifications</h3>
                     {unclassified.map((notification) => (
                         <NotificationRow key={notification.id} notification={notification} />
                     ))}
