@@ -494,6 +494,13 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       "project",
       "local",
     ],
+    // Honor only the MCP servers passed explicitly via `mcpServers` (plus any
+    // declared by explicitly-passed `agents`), so the CLI ignores an opened
+    // repo's checked-in `.mcp.json`. Without this, a repo shipping a stdio
+    // server there has its `command` spawned at MCP-connection init, before the
+    // first tool call and with no approval prompt. Assigned after the
+    // `userProvidedOptions` spread so a caller cannot relax it back to false.
+    strictMcpConfig: true,
     stderr: (err) => params.logger.error(err),
     cwd: params.cwd,
     includePartialMessages: true,

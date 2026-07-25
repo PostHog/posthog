@@ -189,6 +189,21 @@ describe("buildSessionOptions", () => {
     expect(options.fallbackModel).toBe("claude-sonnet-5");
   });
 
+  it("forces strictMcpConfig so a repo's .mcp.json cannot auto-spawn stdio servers", () => {
+    const options = buildSessionOptions(makeParams());
+
+    expect(options.strictMcpConfig).toBe(true);
+  });
+
+  it("keeps strictMcpConfig on even when userProvidedOptions tries to relax it", () => {
+    const options = buildSessionOptions({
+      ...makeParams(),
+      userProvidedOptions: { strictMcpConfig: false },
+    });
+
+    expect(options.strictMcpConfig).toBe(true);
+  });
+
   it("threads onEnsureLocalToolsConnected into the signed-commit guard (cloud)", async () => {
     const healSpy = vi.fn().mockResolvedValue(true);
     await runPreToolUseHooks(
