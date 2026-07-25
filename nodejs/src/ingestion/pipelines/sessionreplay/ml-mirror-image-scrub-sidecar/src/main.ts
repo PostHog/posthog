@@ -1,27 +1,30 @@
+/* eslint-disable no-console -- sidecar logs to stdout */
 import { loadConfig } from './config.ts'
-import { ORT_THREADS } from './cores.ts'
+import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
 import { ScrubMetrics } from './metrics.ts'
-import { advancedScrub, loadModels } from './scrub.ts'
+import { startPool } from './pool.ts'
 import { startServer } from './server.ts'
 
 const cfg = loadConfig()
-// The thread pools are sized outside the process (UV_THREADPOOL_SIZE in the Dockerfile, ORT_THREADS
-// from the cgroup quota), so log what this process actually resolved: a pool sized wrong shows up as
-// latency rather than as an error, and there is otherwise no way to tell from a running pod.
+// Thread sizing is derived (workers and ORT threads from the cgroup quota) or set outside the process
+// (UV_THREADPOOL_SIZE in the Dockerfile), so log what this process actually resolved: a pool sized
+// wrong shows up as latency rather than as an error, with no other way to tell from a running pod.
 console.log(
-    `[image-scrub] concurrency=${cfg.maxConcurrency} ortThreads=${ORT_THREADS} ` +
+    `[image-scrub] concurrency=${cfg.maxConcurrency} workers=${SCRUB_WORKERS} ortThreads=${ORT_THREADS} ` +
         `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'}`
 )
 
-// Models load before any listener exists, so the readiness probe can't pass until the scrub can run.
-const models = await loadModels()
+// Every worker loads its models before this resolves, so no listener exists until the whole pool can
+// scrub and the readiness probe cannot pass on a half-started pool.
+const pool = await startPool(SCRUB_WORKERS)
+
 const { scrub, metrics } = startServer(
     cfg.port,
     cfg.metricsPort,
     cfg.maxConcurrency,
     cfg.maxBodyBytes,
     async (input) => {
-        const { out, t } = await advancedScrub(input, models)
+        const { out, t } = await pool.scrub(input)
         ScrubMetrics.observeScrubOutcome(t)
         return out
     }
@@ -36,7 +39,9 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
         const exitWhenBothClosed = (): void => {
             if (--remaining === 0) {
                 clearTimeout(force)
-                process.exit(0)
+                // Workers hold no unflushed state, so they are torn down after the listeners rather
+                // than drained: an in-flight scrub whose socket is already closing has nowhere to go.
+                void pool.close().finally(() => process.exit(0))
             }
         }
         for (const server of [scrub, metrics]) {

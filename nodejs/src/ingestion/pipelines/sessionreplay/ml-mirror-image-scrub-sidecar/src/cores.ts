@@ -9,6 +9,23 @@ const ORT_THREADS_MAX = 32
 /** Assumed allotment when no quota is readable. Small on purpose: see the fallback in containerCores. */
 const NO_QUOTA_CORES = 4
 
+/** Enough to cover any pod this lane is deployed on; guards a bad env value from forking hundreds. */
+const SCRUB_WORKERS_MAX = 32
+
+/**
+ * Inference worker threads, one per core by default.
+ *
+ * onnxruntime-node's `run` blocks the thread that calls it, so a single-threaded process can only
+ * ever have one inference executing however many requests are in flight. A thread each is what
+ * converts cores into concurrent scrubs.
+ */
+export const SCRUB_WORKERS = numFromEnv(
+    'SCRUB_WORKERS',
+    Math.min(SCRUB_WORKERS_MAX, containerCores()),
+    1,
+    SCRUB_WORKERS_MAX
+)
+
 /**
  * Intra-op threads for every ONNX session, defined once so the three models cannot drift apart.
  *
@@ -16,13 +33,16 @@ const NO_QUOTA_CORES = 4
  * an unclamped `containerCores()` above the ceiling would throw at module load and refuse to start
  * the sidecar, which is reachable whenever there is no quota to read and the host is large.
  *
- * Sized to the whole allotment because onnxruntime-node's `run` is synchronous (verified against
- * v1.27.0: `js/node/lib/backend.ts` calls the native `run` inside `setImmediate`, and
- * `inference_session_wrap.h` declares only a `[sync]` Run), so inferences cannot overlap and exactly
- * one executes at a time. Divide this by the number of concurrent inferences if that stops being
- * true, whether by an upstream `RunAsync` or by moving inference onto worker threads.
+ * Divided by the worker count because each worker runs its own inference concurrently with the
+ * others, so the per-session pools multiply. Threads times workers is what has to fit the allotment:
+ * exceeding it is paid back as CFS throttling, which is the cost this sizing exists to avoid.
  */
-export const ORT_THREADS = numFromEnv('ORT_THREADS', Math.min(ORT_THREADS_MAX, containerCores()), 1, ORT_THREADS_MAX)
+export const ORT_THREADS = numFromEnv(
+    'ORT_THREADS',
+    Math.min(ORT_THREADS_MAX, Math.max(1, Math.floor(containerCores() / SCRUB_WORKERS))),
+    1,
+    ORT_THREADS_MAX
+)
 
 /**
  * Cores this process may actually use, as opposed to the ones it can see.
