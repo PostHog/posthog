@@ -488,12 +488,39 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         assert again == first
         mock_summarize.assert_called_once()
 
-    def test_regenerates_when_cached_themes_predate_the_current_shape(self) -> None:
+    def test_serves_recent_digest_when_the_corpus_churns(self) -> None:
+        """A busy server cycles its recent intents faster than the dashboard refreshes, so the
+        content-addressed key misses every time. Only the recency key stops that from being one
+        LLM call per refresh."""
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Signup funnel investigation.",
+            themes=[intent_generation.IntentThemeSchema(name="Funnel checks", description="", intent_numbers=[1])],
+        )
+
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
+            first = api.generate_intent_digest(self.team)
+            self._seed_intent_event("now something completely different")
+            after_churn = api.generate_intent_digest(self.team)
+
+        mock_summarize.assert_called_once()
+        # Reports the corpus it was derived from, so the theme shares still add up.
+        assert after_churn == first
+        assert after_churn.intent_count == 1
+
+    @parameterized.expand(
+        [
+            ("corpus_key", "mcp_intent_digest_v3/{corpus_hash}"),
+            ("recent_key", "mcp_intent_digest_v3/recent"),
+        ]
+    )
+    def test_regenerates_when_a_cached_payload_predates_the_current_shape(self, _name: str, key: str) -> None:
         cache.clear()
         self._seed_intent_event("check the signups funnel")
         corpus_hash = hashlib.sha256(b"check the signups funnel").hexdigest()
         cache.set(
-            generate_cache_key(self.team.pk, f"mcp_intent_digest_v3/{corpus_hash}"),
+            generate_cache_key(self.team.pk, key.format(corpus_hash=corpus_hash)),
             {"summary": "Stale.", "themes": [{"name": "Old shape", "share": 0.5}]},
             60,
         )

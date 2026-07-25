@@ -338,21 +338,29 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
 
 
 INTENT_DIGEST_CACHE_TTL = 60 * 60
+# Floor on how often a project can trigger a fresh generation. The corpus hash alone cannot bound
+# this: a busy server cycles its hundred most recent intents in well under a minute, so every
+# dashboard refresh would miss the content-addressed key and call the LLM again. Serving the
+# previous digest for a few minutes costs nothing — the card answers "what are agents working on
+# lately", not "what happened in the last thirty seconds".
+INTENT_DIGEST_MIN_REGENERATE_SECONDS = 10 * 60
 
 
-def _cached_digest_themes(cached: dict) -> list[contracts.IntentTheme] | None:
-    """Rehydrate cached themes, or None when the payload predates the current shape.
+def _cached_digest(cached: object) -> contracts.IntentDigest | None:
+    """Rehydrate a cached digest, or None when the payload is absent or predates the current shape.
 
     Returning None sends the caller back to the LLM rather than raising, so a shape change that
     outlives its cache key degrades into one extra generation instead of a 500.
     """
-    themes = cached.get("themes")
-    if not isinstance(themes, list):
+    if not isinstance(cached, dict) or not isinstance(cached.get("themes"), list):
         return None
     try:
-        return [contracts.IntentTheme(**theme) for theme in themes]
+        themes = [contracts.IntentTheme(**theme) for theme in cached["themes"]]
     except TypeError:
         return None
+    return contracts.IntentDigest(
+        digest=cached.get("summary"), intent_count=cached.get("intent_count", 0), themes=themes
+    )
 
 
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
@@ -361,30 +369,38 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
     names each group; counts, tools, and the verbatim example are resolved from the corpus by
     ``intent_generation.resolve_themes``, so nothing countable on the card is model-generated.
-    Content-addressed cache: keyed by the current intent corpus, so it only regenerates when new
-    intents arrive (and at most refreshes hourly via the TTL). A project with no recorded intents
-    returns a null digest without an LLM call. Raises ``contracts.IntentGenerationUnavailable``
-    if the LLM is unreachable.
+
+    Two cache layers, because the two ends of the volume range want opposite things. The
+    content-addressed key means a quiet project never pays for a regeneration while its intents sit
+    unchanged. The recency key bounds a busy project, whose corpus is different on every request, to
+    one generation per ``INTENT_DIGEST_MIN_REGENERATE_SECONDS``. ``intent_count`` travels in the
+    payload so a served digest always reports the corpus it was actually derived from, keeping the
+    theme shares consistent with the total the card displays.
+
+    A project with no recorded intents returns a null digest without an LLM call. Raises
+    ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
     intents = intent_generation.fetch_recent_project_intents(team)
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0, themes=[])
 
     corpus_hash = hashlib.sha256("\n".join(intent for intent, _ in intents).encode()).hexdigest()
-    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        cached_themes = _cached_digest_themes(cached)
-        if cached_themes is not None:
-            return contracts.IntentDigest(digest=cached.get("summary"), intent_count=len(intents), themes=cached_themes)
+    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
+    recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
+    for key in (corpus_key, recent_key):
+        cached = _cached_digest(cache.get(key))
+        if cached is not None:
+            return cached
 
     parsed = intent_generation.summarize_project_intents(intents, team)
     themes = intent_generation.resolve_themes(parsed, intents)
-    cache.set(
-        cache_key,
-        {"summary": parsed.summary, "themes": [dataclasses.asdict(theme) for theme in themes]},
-        INTENT_DIGEST_CACHE_TTL,
-    )
+    payload = {
+        "summary": parsed.summary,
+        "intent_count": len(intents),
+        "themes": [dataclasses.asdict(theme) for theme in themes],
+    }
+    cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
+    cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
     return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
 
 
