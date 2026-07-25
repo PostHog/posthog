@@ -6,13 +6,23 @@ import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 
 // Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
-// unconditionally. Two reasons: (1) memory — compose holds a few full-frame buffers, and bytes are
-// proportional to area, so the budget bounds the per-image working set (~8 MB/frame at 1600^2 vs
-// ~150 MB at the 50 MP decode limit); (2) fidelity honesty — text detection runs under the same
-// area budget (DET_CAP^2), so storing pixels above it would preserve exactly the detail the
-// detectors never certified as clean. An area budget rather than a long-side cap so tall pages
-// (skyscraper screenshots, infographics) keep legible native resolution instead of being squashed.
+// unconditionally. Two reasons: (1) memory, because compose holds a few full-frame buffers and bytes
+// are proportional to area, so the budget bounds the per-image working set; (2) fidelity honesty,
+// because text detection runs under the same area budget, so storing pixels above it would preserve
+// exactly the detail the detectors never certified as clean. An area budget rather than a long-side
+// cap so tall pages keep legible native resolution instead of being squashed.
+//
+// Lowering this is a redaction-recall change, not a cost one: adaptiveDetLimit derives its input
+// side from the already-downscaled frame and floors at 736, so any budget at or below 1 MP pins
+// detection at that floor and shrinks text relative to it. Re-run `npm run eval` and compare box
+// counts, not just leak percentage, before moving it.
 export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
+
+// Area budget for the STORED image, applied after detection has run at SCRUB_MAX_PIXELS. Storage
+// resolution and detection resolution are separate questions: what a downstream model needs to read
+// a session is not what DBNet needs to find 14px text, and tying them together means every pixel
+// saved in storage is paid for in recall. Defaults to SCRUB_MAX_PIXELS, which is no downscale at all.
+export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', SCRUB_MAX_PIXELS, 96 * 96, LIMIT_INPUT_PIXELS)
 
 export interface Src {
     data: Buffer

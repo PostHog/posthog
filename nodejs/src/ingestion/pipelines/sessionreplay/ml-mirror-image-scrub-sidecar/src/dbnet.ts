@@ -9,6 +9,7 @@
  */
 import * as ort from 'onnxruntime-node'
 
+import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box, roundTo32 } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
@@ -33,6 +34,17 @@ const DEFAULTS: Required<DetectOpts> = {
     padY: numFromEnv('PAD_Y', 0.3, 0, 2),
 }
 
+/** Unsharp radius applied to the detector's input. 0 disables it. Detection only: the stored image
+ *  is never sharpened. */
+const DET_SHARPEN = numFromEnv('DET_SHARPEN', 1, 0, 10)
+
+/** Only sharpen once the model's input is this fraction of the ORIGINAL image's side or smaller,
+ *  measured across both downscales together (the SCRUB_MAX_PIXELS cap and the detLimit budget).
+ *  Sharpening restores edges a resample removed, so on a frame that was barely resampled there is
+ *  nothing to restore and it only amplifies whatever noise the source already had, which costs
+ *  recall on grainy scans. */
+const DET_SHARPEN_BELOW = numFromEnv('DET_SHARPEN_BELOW', 0.6, 0.05, 1)
+
 const MEAN = [0.485, 0.456, 0.406]
 const STD = [0.229, 0.224, 0.225]
 
@@ -42,15 +54,17 @@ export interface DbnetModel {
     outputName: string
 }
 
-// 1 intra-op thread by default so we scale by running many images in parallel (one core each).
-const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
-
 export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
     const session = await ort.InferenceSession.create(modelPath, {
         graphOptimizationLevel: 'all',
         intraOpNumThreads: ORT_THREADS,
         interOpNumThreads: 1,
         executionMode: 'sequential',
+        // The arena allocator holds on to peak allocations for reuse, which on a pool of workers each
+        // running their own sessions is memory multiplied by the worker count: measured at 719MB per
+        // worker with it on against 570MB off, on a 2 MP frame. It buys no measurable CPU here
+        // (97.6% of baseline over the eval corpus, inside run-to-run noise), so the memory is free.
+        enableCpuMemArena: false,
     })
     return { session, inputName: session.inputNames[0], outputName: session.outputNames[0] }
 }
@@ -66,7 +80,16 @@ async function preprocess(
     const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
     const rw = roundTo32(W * ratio)
     const rh = roundTo32(H * ratio)
-    const { data } = await srcSharp(src).resize(rw, rh, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true })
+    // A resample is a low-pass filter, and glyph edges are the high frequencies DB scores. Restoring
+    // some of that edge contrast before the model sees it is the cheapest lever on small text.
+    // Measured against the ORIGINAL rather than the decoded frame, because both downscales cost edge
+    // detail and a 4K screenshot has been through both by the time it arrives here.
+    const totalRatio = Math.sqrt((rw * rh) / src.inputPixels)
+    const pipeline = srcSharp(src).resize(rw, rh, { fit: 'fill' })
+    const sharpened = DET_SHARPEN > 0 && totalRatio < DET_SHARPEN_BELOW
+    const { data } = await (sharpened ? pipeline.sharpen({ sigma: DET_SHARPEN }) : pipeline)
+        .raw()
+        .toBuffer({ resolveWithObject: true })
     const chw = new Float32Array(3 * rw * rh)
     const plane = rw * rh
     for (let i = 0, p = 0; i < data.length; i += 3, p++) {

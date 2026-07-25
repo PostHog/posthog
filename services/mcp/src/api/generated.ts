@@ -55151,6 +55151,50 @@ export namespace Schemas {
     }
 
     /**
+     * One scout in either bucket of `inventory.scout_fleet`.
+     */
+    export interface ScoutFleetEntry {
+      /** The `signals-scout-*` skill this config schedules. */
+      skill_name: string;
+      /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+      run_interval_minutes: number;
+      /**
+         * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+         * @nullable
+         */
+      run_cron_schedule: string | null;
+      /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+      emit: boolean;
+      /**
+         * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+         * @nullable
+         */
+      last_run_at: string | null;
+      /**
+         * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+         * @nullable
+         */
+      last_emitted_at: string | null;
+      /**
+         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * @nullable
+         */
+      not_running_reason: string | null;
+    }
+
+    /**
+     * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+     */
+    export interface ScoutFleet {
+      /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+      enabled: ScoutFleetEntry[];
+      /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+      disabled: ScoutFleetEntry[];
+      /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+      emitted_lookback_days: number;
+    }
+
+    /**
      * One row in `inventory.recent_activity.by_scope`.
      */
     export interface ScopeActivityEntry {
@@ -55571,6 +55615,8 @@ export namespace Schemas {
       signal_source_configs: SignalSourceConfigsBuckets;
       /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
       emit_eligibility: EmitEligibility;
+      /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+      scout_fleet: ScoutFleet;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */

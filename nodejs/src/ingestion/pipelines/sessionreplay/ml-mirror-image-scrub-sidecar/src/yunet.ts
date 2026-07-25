@@ -7,6 +7,7 @@
  */
 import * as ort from 'onnxruntime-node'
 
+import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
@@ -16,7 +17,6 @@ const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const PAD = 0.25 // expand each detected face box so hairline/chin/ears are covered
-const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
 
 export interface YunetModel {
     session: ort.InferenceSession
@@ -29,6 +29,11 @@ export async function loadYunet(modelPath: string): Promise<YunetModel> {
         intraOpNumThreads: ORT_THREADS,
         interOpNumThreads: 1,
         executionMode: 'sequential',
+        // The arena allocator holds on to peak allocations for reuse, which on a pool of workers each
+        // running their own sessions is memory multiplied by the worker count: measured at 719MB per
+        // worker with it on against 570MB off, on a 2 MP frame. It buys no measurable CPU here
+        // (97.6% of baseline over the eval corpus, inside run-to-run noise), so the memory is free.
+        enableCpuMemArena: false,
     })
     return { session, inputName: session.inputNames[0] }
 }
