@@ -898,8 +898,10 @@ def test_doctor_migrate_volumes_happy_path_migrates_both_services(monkeypatch: p
     assert "Migrated ClickHouse/ZooKeeper data" in result.output
 
     # Both containers are stopped together before anything is copied — a live
-    # `cp -a` against an actively-written data dir can read a torn snapshot.
-    assert ["docker", "stop", "ch1", "zk1"] in calls
+    # `cp -a` against an actively-written data dir can read a torn snapshot. The
+    # explicit grace period gives ClickHouse time to flush a multi-GB dataset;
+    # docker's 10s default SIGKILLs it into crash recovery.
+    assert ["docker", "stop", "-t", "60", "ch1", "zk1"] in calls
 
     # Each destination is pre-created with compose's own labels before the copy,
     # so compose doesn't warn "not created by Docker Compose" on every later `up`.
@@ -1150,3 +1152,23 @@ def test_doctor_migrate_volumes_serializes_across_concurrent_worktrees(
     thread.join(timeout=5)
     assert done.is_set()
     assert calls  # released promptly and ran through once unblocked
+
+
+def test_doctor_migrate_volumes_refuses_symlinked_lock_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The lock path is predictable and, on Linux, lives in world-writable /tmp.
+    # Opening it with "w" follows a symlink another local user planted there and
+    # truncates the target, handing them a file-destruction primitive in the
+    # developer's account. Runs on every `hogli start`, so this must stay a
+    # no-follow open — and must still fail open rather than crash the startup.
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/docker")
+    fake_run, calls = _fake_migrate_dispatcher(named_volume_exists=True)
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    victim = tmp_path / "victim"
+    victim.write_text("precious")
+    (tmp_path / "hogli-migrate-volumes-posthog.lock").symlink_to(victim)
+
+    result = CliRunner().invoke(doctor_migrate_volumes, [])
+    assert result.exit_code == 0
+    assert victim.read_text() == "precious"
+    assert calls == []  # bailed before touching docker

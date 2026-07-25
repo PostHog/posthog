@@ -2010,6 +2010,14 @@ def _restart_containers(container_ids: Iterable[str]) -> None:
         _run_output(["docker", "start", *ids], timeout=30)
 
 
+# ClickHouse needs time to flush a multi-GB dataset on shutdown; docker's 10s
+# default SIGKILLs it mid-flush, so every developer's first start after the
+# migration pays for crash recovery. The subprocess timeout is derived from this
+# so raising the grace period can't leave the docker client killed before the
+# container it's waiting on.
+_STOP_GRACE_SECONDS = 60
+
+
 def _execute_volume_migration(plan: Sequence[VolumeMigrationStep], project_name: str) -> bool:
     """Stop the old containers, copy every planned volume, and verify each
     one. A live `cp -a` against an actively-written ClickHouse/ZooKeeper data
@@ -2022,7 +2030,10 @@ def _execute_volume_migration(plan: Sequence[VolumeMigrationStep], project_name:
     un-migrated state.
     """
     container_ids = sorted({step.container_id for step in plan})
-    if not _run_ok(["docker", "stop", *container_ids], timeout=30):
+    if not _run_ok(
+        ["docker", "stop", "-t", str(_STOP_GRACE_SECONDS), *container_ids],
+        timeout=_STOP_GRACE_SECONDS + 30,
+    ):
         # `docker stop` on multiple containers can partially succeed (e.g. one
         # already vanished) and still exit non-zero overall — restart whatever
         # did stop rather than leaving a working dev stack unexpectedly down.
@@ -2096,11 +2107,17 @@ def doctor_migrate_volumes() -> None:
     # the lock automatically if the holding process dies, so a crash can't wedge it.
     lock_path = _MIGRATION_LOCK_DIR / f"hogli-migrate-volumes-{project_name}.lock"
     try:
-        with open(lock_path, "w") as lock_file:
+        # The path is predictable and, on Linux, sits in world-writable /tmp. Opening it
+        # with "w" would follow a symlink planted there by another local user and truncate
+        # whatever it points at. O_NOFOLLOW refuses the symlink outright, and omitting
+        # O_TRUNC means there's nothing to destroy either way — the file is only ever a
+        # flock handle, never written to.
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "r+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             _do_migrate_volumes(project_name)
     except OSError:
-        return  # couldn't lock (e.g. interrupted) — fail-open, same as every other step here
+        return  # couldn't lock (e.g. interrupted, or a symlink squatting the path) — fail-open
 
 
 def _do_migrate_volumes(project_name: str) -> None:
