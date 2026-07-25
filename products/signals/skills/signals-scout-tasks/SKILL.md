@@ -220,11 +220,11 @@ Author / edit / remember / skip, against the four-states classifier:
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.
   Left empty, the report reaches no one.
-- **Lens B holds a higher bar than lens A.**
-  A demand theme is an observation, and the inbox is for actions — so the default outcome of a demand pass is a `pattern:tasks:demand-<theme>` entry that compounds across passes, not a report.
-  File one only when the theme has crossed into something someone can do: a repeated manual task that should be a Loop, a recurring ask with no surface behind it, or a theme that coincides with a lens-A failure cluster.
-  Those file as `requires_human_input` with `NO_REPO` unless the change is concrete and in a repo you can name.
-  **Never** file a demand report whose evidence is machine-origin tasks.
+- **Lens B does not file reports. It writes memory only.**
+  This is a visibility constraint, not a quality bar. `tasks-list` authorizes the creator, so the acting user's own personal-channel tasks are in the sample, and the surface exposes no channel indicator that would let you exclude them. Paraphrasing does not fix that: once a private task shapes a theme, a team-visible report discloses its substance no matter whose words describe it, and the multiple-creators rule doesn't help because one private task plus one public task satisfies it.
+  So a demand pass ends in `pattern:tasks:demand-<theme>` entries that compound across passes and stay inside the project's own scout memory. Do not author or edit an inbox report from lens B evidence, even when a theme looks actionable — note the candidate in memory and say so in the run summary instead.
+  The block lifts when a listing surface exists that excludes personal channels (or exposes a readability indicator); that surface is tracked in the `system.tasks` visibility issue. Until then, lens B's value is the compounding picture it gives future runs and other agents reading the scratchpad over MCP.
+  Lens A is unaffected: it reports on runs and repositories, not task text.
 - **Remember** below the bar; **skip** with a one-line note when a `noise:` / `addressed:` / `dedupe:` entry or a live report already covers it.
 
 ## Disqualifiers (skip these)
