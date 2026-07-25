@@ -89,12 +89,12 @@ describe('uploadToS3', () => {
     })
 
     it('propagates upload errors', async () => {
-        mockDone.mockRejectedValue(new Error('AccessDenied'))
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toThrow('AccessDenied')
+        const uploadError = Object.assign(new Error('AccessDenied'), { $response: { statusCode: 403 } })
+        mockDone.mockRejectedValue(uploadError)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(uploadError)
     })
 
     it('translates an undecodable (non-XML) response into a clear retryable RasterizationError', async () => {
-        // The AWS XML parser's opaque failure when the object store returns a non-XML body (e.g. a proxy error page).
         const smithyErr = Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
             $response: { statusCode: 502, body: 'Error: bad gateway' },
         })
@@ -107,7 +107,6 @@ describe('uploadToS3', () => {
             retryable: true,
             cause: smithyErr,
         })
-        // The real upstream status + body surface instead of the parser's confusion.
         await expect(promise).rejects.toThrow(/status 502.*bad gateway/)
     })
 

@@ -9,26 +9,24 @@ import { createLogger } from './logger'
 
 const log = createLogger()
 
-// A non-XML body from the object store (a proxy/gateway error page, a plaintext "Error…") makes the AWS SDK's
-// XML parser blow up with an opaque "char 'E' is not expected" / "Deserialization error … $response" — the raw
-// response is hidden on `err.$response`. Recover the real status + body so the failure is diagnosable instead of
-// surfacing the parser's confusion as the user-facing reason.
+type S3ResponseError = Error & {
+    $response?: { statusCode?: number; body?: unknown }
+    $metadata?: { httpStatusCode?: number }
+}
+
 function describeUndecodableS3Response(err: unknown): { message: string; retryable: boolean } | null {
-    if (!(err instanceof Error)) {
+    if (!(err instanceof Error) || !/Deserialization error|is not expected/i.test(err.message)) {
         return null
     }
-    const raw = (err as { $response?: unknown }).$response
-    const looksUndecodable = /Deserialization error|is not expected/i.test(err.message)
-    if (!raw && !looksUndecodable) {
-        return null
-    }
-    const response = (raw ?? {}) as { statusCode?: number; body?: unknown }
-    const status = response.statusCode ?? (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
-    const bodyPreview = typeof response.body === 'string' ? response.body.slice(0, 500) : undefined
+
+    // The AWS SDK hides the raw non-XML response on properties omitted from its public error type.
+    const responseError = err as S3ResponseError
+    const status = responseError.$response?.statusCode ?? responseError.$metadata?.httpStatusCode
+    const body = responseError.$response?.body
+    const bodyPreview = typeof body === 'string' ? body.slice(0, 500) : undefined
     const detail = [status !== undefined ? `status ${status}` : null, bodyPreview ? `body: ${bodyPreview}` : null]
         .filter(Boolean)
         .join(', ')
-    // No status usually means a gateway/transport hiccup; 5xx/429 are transient too. Retry those, give up on 4xx.
     const retryable = status === undefined || status >= 500 || status === 429
     return {
         message: `S3 upload returned an undecodable (non-XML) response${detail ? ` (${detail})` : ''}`,
