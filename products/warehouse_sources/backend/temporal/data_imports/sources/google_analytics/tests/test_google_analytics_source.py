@@ -6,6 +6,8 @@ from google.auth.exceptions import RefreshError
 
 from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -223,6 +225,20 @@ def test_validate_credentials_handles_session_failure():
 
     assert ok is False
     assert "Could not load Google Analytics credentials" in (message or "")
+
+
+def test_validate_credentials_handles_missing_integration():
+    # A deleted/disconnected OAuth row makes `google_analytics_session` raise the typed
+    # `Integration.DoesNotExist`; surface a reconnect message instead of the raw ORM error.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
+        side_effect=Integration.DoesNotExist(),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "no longer exists" in (message or "")
+    assert "matching query" not in (message or "")
 
 
 def test_validate_credentials_succeeds_when_metadata_readable():
