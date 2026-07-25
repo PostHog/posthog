@@ -45,6 +45,7 @@ from products.cohorts.backend.parity.oracle import (
     load_leaf_match_counts,
     load_leaf_members,
     load_run_context,
+    run_with_boundary_exists,
 )
 from products.cohorts.backend.parity.recompute import (
     ExtendedLeafCounts,
@@ -326,12 +327,25 @@ class Command(BaseCommand):
         # Validate every mode-specific flag up front: the drain below takes minutes, and a flag error
         # surfacing after it wastes the whole run.
         explicit_at: Optional[datetime] = None
+        team: Optional[Team] = None
         if oracle == "recompute":
             self._validate_recompute_flags(options)
             if options["at"] is not None:
                 explicit_at = _parse_iso_utc(options["at"], "--at")
                 if explicit_at <= since:
                     raise CommandError("--at must be after --since")
+                if explicit_at > now:
+                    # An instant the data never reached would pin a report the run cannot describe,
+                    # and would silence the staleness warning by making the skew negative.
+                    raise CommandError("--at is in the future")
+            # The recompute oracle needs the team tz and a resolvable run; both are cheap to check.
+            team = Team.objects.filter(id=team_id).first()
+            if team is None:
+                raise CommandError(f"team {team_id} does not exist")
+            if options["run_id"] is not None and not run_with_boundary_exists(team_id, options["run_id"]):
+                raise CommandError(
+                    f"--run-id {options['run_id']} is not a backfill run of team {team_id} with a boundary"
+                )
         else:
             _reject_flags(options, ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"), oracle)
 
@@ -399,9 +413,11 @@ class Command(BaseCommand):
             # Stamped after the drain, not before it: the fold reflects every offset up to here, so an
             # oracle window closing earlier would score cohort entries made during the drain as hard
             # over-counts. --grace-minutes absorbs the remaining tail.
+            assert team is not None  # resolved above, before the drain
             self._report_recompute(
                 options=options,
                 team_id=team_id,
+                team=team,
                 since=since,
                 now=datetime.now(tz=UTC),
                 explicit_at=explicit_at,
@@ -530,6 +546,7 @@ class Command(BaseCommand):
         *,
         options: dict[str, Any],
         team_id: int,
+        team: Team,
         since: datetime,
         now: datetime,
         explicit_at: Optional[datetime],
@@ -552,7 +569,6 @@ class Command(BaseCommand):
         )
         run_id: Optional[str] = options["run_id"]
 
-        team = Team.objects.get(id=team_id)
         team_tz = resolve_zoneinfo(team.timezone)
         cohort_by_id = {c.pk: c for c in cohorts}
         completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
@@ -582,10 +598,15 @@ class Command(BaseCommand):
 
             ctx = load_run_context(team_id, cid, run_id)
             if run_id is not None and ctx is None:
-                raise CommandError(
-                    f"--run-id {run_id} is not a backfill run with a boundary for cohort {cid}; without it the "
-                    "missing set would silently go unsegmented"
+                # The run itself was validated before the drain, so this cohort simply is not part of
+                # it. Skipping keeps the rest of the report while refusing to claim a parity that the
+                # requested run cannot segment.
+                rows.append(
+                    skip_comparison(
+                        cohort_id=cid, name=name, reason="not_in_requested_run", reconcile_runs=reconcile_runs
+                    )
                 )
+                continue
             warn_states.append(
                 RecomputeCohortState(
                     cohort_id=cid,
@@ -639,14 +660,15 @@ class Command(BaseCommand):
                 }
 
             # Under-count segmentation: per-day counts for the missing set of a single monotone leaf.
+            # `classify_recompute` owns whether the shape is segmentable at all; this only decides
+            # whether the query is worth issuing, and reports back if the cap stopped it.
             day_counts: dict[str, list[Any]] = {}
-            segmentable = screen.single_leaf and screen.sole_leaf.monotone and ctx is not None
-            if segmentable and missing_targets:
+            day_counts_loaded = True
+            if screen.single_leaf and screen.sole_leaf.monotone and ctx is not None and missing_targets:
                 if not _within_target_cap(missing_targets, "under-count", cohort_notes):
-                    segmentable = False
+                    day_counts_loaded = False
                 else:
                     leaf = screen.sole_leaf
-                    assert ctx is not None
                     day_counts = load_day_counts(
                         team_id,
                         event_name=leaf.event_name,
@@ -670,7 +692,7 @@ class Command(BaseCommand):
                     at=at,
                     grace=grace,
                     team_tz=team_tz,
-                    segmentable=segmentable,
+                    day_counts_loaded=day_counts_loaded,
                     reconcile_runs=reconcile_runs,
                     extra_notes=cohort_notes,
                 )

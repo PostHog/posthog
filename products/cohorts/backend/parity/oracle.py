@@ -37,6 +37,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunCohort,
 )
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import COHORT_QUERY_TIMEOUT_SECONDS
 from products.cohorts.backend.parity.recompute import DayMatch, OracleLeaf, RunContext
 from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo, window_start_utc
 
@@ -101,8 +102,18 @@ WHERE e.team_id = %(team_id)s
 GROUP BY resolved_person_id, day, bucket
 """
 
+# Every read is a large cohort scan, so bound wall-clock the way the product's own cohort
+# calculation queries do: a clear timeout an operator can retry with a narrower leaf beats a hang
+# holding an offline-pool connection.
+_TIMEOUT_SETTINGS = {
+    "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+    "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+    "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+}
+
 # The GROUP BY resolved_person_id can be large for a broad event; spill like the old-membership read.
 _MEMBER_SET_SETTINGS = {
+    **_TIMEOUT_SETTINGS,
     "max_bytes_ratio_before_external_group_by": 0.5,
     "distributed_aggregation_memory_efficient": 1,
 }
@@ -180,6 +191,7 @@ def load_leaf_match_counts(
                 "at": at,
                 "person_ids": chunk,
             },
+            settings=_TIMEOUT_SETTINGS,
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
@@ -223,6 +235,7 @@ def load_day_counts(
                 "at": at,
                 "person_ids": chunk,
             },
+            settings=_TIMEOUT_SETTINGS,
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
@@ -236,13 +249,20 @@ def _chunks(person_ids: Sequence[str]) -> list[list[str]]:
     return [ids[start : start + _PERSON_ID_CHUNK] for start in range(0, len(ids), _PERSON_ID_CHUNK)]
 
 
+def run_with_boundary_exists(team_id: int, run_id: str) -> bool:
+    """Whether the team has a usable backfill run under this id, regardless of which cohorts it
+    covers. Lets a mistyped ``--run-id`` fail before the drain; per-cohort participation is
+    :func:`load_run_context`'s business."""
+    return CohortBackfillRun.objects.for_team(team_id).filter(id=run_id, boundary_at__isnull=False).exists()
+
+
 def load_run_context(team_id: int, cohort_id: int, run_id: Optional[str] = None) -> Optional[RunContext]:
     """The backfill run the missing set is segmented against.
 
     B5 is absent, so real runs stay ``seeding`` forever — deliberately no status filter. Accepts the
     latest run the cohort participates in (or the explicit ``run_id``) with a set ``boundary_at``.
-    Returns ``None`` when there is no such run; an explicitly requested ``run_id`` that does not
-    resolve is the caller's error to raise, not a silent downgrade to an unsegmented report.
+    Returns ``None`` when there is no such run, including when an explicit ``run_id`` simply does not
+    cover this cohort — the caller decides whether that is a skip or an error.
     """
     runs = (
         CohortBackfillRun.objects.for_team(team_id)

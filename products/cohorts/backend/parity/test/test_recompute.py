@@ -426,14 +426,17 @@ class TestEvictionAndUnsegmented(SimpleTestCase):
         self.assertEqual(row.verdict, "SKIP")
         self.assertTrue(any(note in n for n in row.notes), row.notes)
 
-    def test_caller_supplied_unsegmentable_reason_wins(self) -> None:
+    def test_unloaded_day_counts_keep_the_caller_reason(self) -> None:
+        # The shape is segmentable, so the only explanation is the caller's; emitting a structural
+        # reason here would misattribute a read-cap downgrade to the cohort's definition.
         row = _classify(
             oracle_members={"p"},
-            segmentable=False,
+            day_counts_loaded=False,
             extra_notes=["exceeds the per-person read cap"],
         )
         self.assertEqual(row.missing_unsegmented, 1)
         self.assertEqual(row.notes[0], "exceeds the per-person read cap")
+        self.assertFalse(any("multi-leaf" in n or "non-monotone" in n or "no backfill run" in n for n in row.notes))
 
     def test_hard_over_count_outranks_unadjudicated_missing(self) -> None:
         row = _classify(spec=_spec(single_leaf=False), fold_records=_fold("x"), oracle_members={"p"})

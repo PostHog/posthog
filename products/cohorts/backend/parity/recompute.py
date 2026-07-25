@@ -542,7 +542,7 @@ def classify_recompute(
     at: datetime,
     grace: timedelta,
     team_tz: ZoneInfo,
-    segmentable: bool = True,
+    day_counts_loaded: bool = True,
     reconcile_runs: Sequence[ReconcileRunCompleteness] = (),
     extra_notes: Sequence[str] = (),
 ) -> RecomputeComparison:
@@ -586,8 +586,12 @@ def classify_recompute(
 
     # Under-count segmentation. Needs one leaf (a per-day scan of one event name), a monotone op (a
     # day's matches can only push a person toward membership), and a run to attribute days against.
+    # That structural decision lives here, not in the caller: the caller only reports whether it
+    # managed to load the per-person day counts.
     leaf = spec.sole_leaf if spec.single_leaf else None
-    if segmentable and leaf is not None and leaf.monotone and ctx is not None:
+    segmentable = leaf is not None and leaf.monotone and ctx is not None
+    if segmentable and day_counts_loaded:
+        assert leaf is not None and ctx is not None
         window = frozenset(window_dates(at, leaf.window_days, team_tz))
         min_count = _min_count(leaf.op, leaf.op_value)
         for person in missing_set:
@@ -602,8 +606,9 @@ def classify_recompute(
     else:
         counts["missing_unsegmented"] = len(missing_set)
         per_class["missing_unsegmented"] = list(missing_set)
-        # A caller that passed segmentable=False already recorded why in extra_notes.
-        if segmentable:
+        # When the shape itself is segmentable, the caller failed to load the counts and already
+        # recorded why in extra_notes.
+        if not segmentable:
             notes.append(_unsegmentable_note(leaf, ctx))
 
     false_hard_set = false_set - eviction_pending

@@ -81,8 +81,8 @@ def window_dates(at: datetime, window_days: int, tz: ZoneInfo) -> list[date]:
     """The inclusive ``[at_day - N .. at_day]`` set = ``N + 1`` team-tz dates, ascending.
 
     ``window_days`` is the leaf's whole-day sliding window ``N``; the returned list has ``N + 1``
-    entries (the ``+ 1`` is the off-by-one the pipeline's inclusive lower bound demands), unless the
-    start saturates at :attr:`date.min`.
+    entries (the ``+ 1`` is the off-by-one the pipeline's inclusive lower bound demands), unless
+    :func:`window_start_day` saturates the start at :data:`EPOCH_DAY`.
     """
     at_day = day_of_instant(at, tz)
     start = window_start_day(at_day, window_days)
