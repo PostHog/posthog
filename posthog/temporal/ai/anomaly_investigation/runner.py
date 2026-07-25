@@ -42,12 +42,16 @@ from products.alerts.backend.models.alert import AlertConfiguration
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 10
-AGENT_MODEL = "claude-sonnet-4-6"
+AGENT_MODEL = "claude-sonnet-5"
 FINAL_REPORT_TOOL_NAME = "submit_investigation_report"
 MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
+# Sonnet 5 runs adaptive thinking by default, which counts against max_tokens —
+# leave headroom so a thinking-heavy turn can't truncate the final report.
+MAX_OUTPUT_TOKENS = 8192
 # Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
 # this guards against a single stuck HTTP call hanging for the whole activity budget.
-LLM_REQUEST_TIMEOUT_SECONDS = 90.0
+# Sized for adaptive-thinking turns, which run longer than plain tool-call turns.
+LLM_REQUEST_TIMEOUT_SECONDS = 180.0
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -133,14 +137,19 @@ async def run_investigation(
         "input_schema": InvestigationReport.model_json_schema(),
     }
 
+    # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
     llm = MaxChatAnthropic(
         model=AGENT_MODEL,
         team=team,
         user=user,
         billable=True,
         inject_context=True,
-        max_retries=2,
-        temperature=0,
+        # One in-request retry absorbs a transient blip cheaply; the Temporal activity retry
+        # (maximum_attempts=2) is the outer safety net. Keeping this low bounds the aggregate
+        # LLM wall-clock so a run stays inside the activity's start_to_close deadline instead of
+        # being killed mid-flight (which would skip the fallback report and re-run the whole agent).
+        max_retries=1,
+        max_tokens=MAX_OUTPUT_TOKENS,
         default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
         posthog_properties={"ai_product": "alert_investigation_agent"},
     )
@@ -157,7 +166,12 @@ async def run_investigation(
             final_report_tool,
         ]
     )
-    llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
+    # Auto tool choice, not forced: Sonnet 5's default thinking mode only supports auto/none tool
+    # choice, so forcing a specific tool returns a 400 and this finalize turn would fall through to
+    # the generic fallback report. Binding *only* the final-report tool, plus the explicit "submit
+    # now" nudge on the budget-exhausted turn, reliably elicits the call without forcing it; if the
+    # model returns plain text instead, the text-JSON fallback in _parse_report still recovers it.
+    llm_with_final_report = llm.bind_tools([final_report_tool])
 
     # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
     # never reach AI observability — langchain-anthropic itself doesn't emit $ai_* events.
@@ -250,7 +264,7 @@ async def run_investigation(
                         logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
                         content = f"Tool {name} failed: {err}"
             # Guard against runaway tool responses pushing the conversation past
-            # Anthropic's 200K-token context window. Keep the first slice; if the
+            # the model's context window. Keep the first slice; if the
             # agent needs more it can issue a narrower query.
             if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
                 content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"

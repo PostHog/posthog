@@ -517,6 +517,7 @@ class TestDatabricksSource:
                 "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
                 "IP access control list",
             ),
+            ("[RESOURCE_DOES_NOT_EXIST] Warehouse abc123 does not exist.", "SQL warehouse"),
             ("something totally unexpected", "Could not connect to Databricks"),
         ],
     )

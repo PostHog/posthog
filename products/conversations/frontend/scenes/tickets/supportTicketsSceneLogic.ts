@@ -74,7 +74,8 @@ function orderByToSorting(orderBy: string): Sorting {
 }
 
 function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
-    return entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`
+    // 'unassigned' and 'me' are string tokens; concrete entries encode as type:id.
+    return typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`
 }
 
 // kea-router hands back arrays for multi-value params, but a hand-typed single
@@ -91,8 +92,8 @@ function toStringArray(value: unknown): string[] {
 
 function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
     const entries = toStringArray(value).map((token): AssigneeFilterEntry | null => {
-        if (token === 'unassigned') {
-            return 'unassigned'
+        if (token === 'unassigned' || token === 'me') {
+            return token
         }
         const separator = token.indexOf(':')
         const type = token.slice(0, separator)
@@ -696,9 +697,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.sla = values.slaFilter
             }
             if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries
-                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
-                    .join(',')
+                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
             }
             if (values.tagsFilter.length > 0) {
                 params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
@@ -730,6 +729,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         applyViewFilters: () => {
             actions.setCurrentPage(1)
+        },
+        clearActiveView: () => {
+            // Once detached there's no view to fall back to, so a later param-less
+            // navigation shouldn't be treated as "leaving a saved view" and reset filters.
+            cache.latestViewShortId = null
         },
         applyUrlFilters: ({ filters }) => {
             cache.applyingUrlFilters = true
@@ -886,6 +890,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             } else {
                 Object.assign(searchParams, filtersToUrlParams(values.currentFilters))
             }
+            // Only URL changes we didn't originate should re-apply filters. Flag our own
+            // writes so urlToAction skips them; re-applying a URL we just wrote resets any
+            // state absent from it — e.g. the sort order while detaching a saved view.
+            if (!objectsEqual(searchParams, router.values.searchParams)) {
+                cache.selfNavigating = true
+            }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
         return {
@@ -909,6 +919,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     urlToAction(({ actions, values, props, cache }) => ({
         '/support/tickets': (_, searchParams) => {
             if (props.distinctIds?.length) {
+                return
+            }
+            // A URL change we wrote ourselves already matches state — re-applying it would
+            // clobber filters not encoded in the URL. External navigations don't set this.
+            if (cache.selfNavigating) {
+                cache.selfNavigating = false
                 return
             }
             if (searchParams.search !== undefined) {

@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.9.1 — 2026-07-23
+
+### Patch changes
+
+- [1e49417142](https://github.com/PostHog/posthog/commit/1e49417142febac7925637eeb92ec12549e88235) Publish fresh CLI artifacts after fixing repository paths that prevented the Windows release build from checking out the source. — Thanks @cat-ph!
+
 ## 0.9.0 — 2026-07-22
 
 ### Minor changes

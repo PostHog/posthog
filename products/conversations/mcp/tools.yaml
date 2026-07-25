@@ -21,9 +21,6 @@ tools:
     conversations-tickets-compose-create:
         operation: conversations_tickets_compose_create
         enabled: false
-    conversations-tickets-create:
-        operation: conversations_tickets_create
-        enabled: false
     conversations-tickets-destroy:
         operation: conversations_tickets_destroy
         enabled: false

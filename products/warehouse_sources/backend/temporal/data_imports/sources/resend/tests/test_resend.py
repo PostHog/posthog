@@ -8,6 +8,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import (
     RESEND_BASE_URL,
     ResendResumeConfig,
@@ -61,7 +62,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str,
 
 def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceResponse:
     return resend_source(
-        api_key="re_test",
+        auth=BearerTokenAuth("re_test"),
         endpoint=endpoint,
         team_id=1,
         job_id="job-1",

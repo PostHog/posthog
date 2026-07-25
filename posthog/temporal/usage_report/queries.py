@@ -56,6 +56,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
@@ -518,6 +519,16 @@ QUERIES: list[QuerySpec] = [
             "14d": "teams_with_logs_retention_14d_bytes_in_period",
             "30d": "teams_with_logs_retention_30d_bytes_in_period",
             "90d": "teams_with_logs_retention_90d_bytes_in_period",
+        },
+    ),
+    # ---- ClickHouse: APM tracing ---------------------------------------------
+    QuerySpec(
+        name="apm_tracing_usage",
+        fn=get_teams_with_apm_tracing_usage_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "bytes": "teams_with_apm_tracing_bytes_in_period",
+            "spans": "teams_with_apm_tracing_spans_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------

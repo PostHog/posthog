@@ -6,6 +6,8 @@ on:
         # matrix as the merge gate. To force the full matrix on a draft, add the
         # `run-ci-frontend` label —
         # labeled/unlabeled re-trigger the run so it starts without needing a push.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes), until it is removed or the PR is marked ready.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     push:
         branches:
@@ -24,6 +26,13 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
         outputs:

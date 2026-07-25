@@ -1055,8 +1055,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         alertsLogic.actions.loadAlerts()
                     }
                 }
-                // remove draft query from local storage
-                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                if (!insightNumericId) {
+                    // saving the new insight consumes its draft; updating an existing insight
+                    // must leave the (unrelated) draft alone
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()

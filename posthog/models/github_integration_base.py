@@ -53,6 +53,20 @@ class GitHubCommitAuthor:
     login: str
     name: str | None
     commit_url: str
+    # GitHub caps the file listing at 300 entries.
+    file_paths: tuple[str, ...] = ()
+    is_bot: bool = False
+
+
+@dataclass(frozen=True)
+class GitHubCommitAttribution:
+    """GitHub's own commit→account attribution, from the commits listing."""
+
+    sha: str
+    login: str
+    is_bot: bool
+    # Git author display name — untrusted free text, for display only, never parse it.
+    name: str | None = None
 
 
 class GitHubIntegrationError(Exception):
@@ -669,7 +683,97 @@ class GitHubIntegrationBase:
         git_author = data.get("commit", {}).get("author", {})
         name = git_author.get("name") or author.get("login")
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
-        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
+        files = data.get("files")
+        file_paths = (
+            tuple(f["filename"] for f in files if isinstance(f, dict) and isinstance(f.get("filename"), str))
+            if isinstance(files, list)
+            else ()
+        )
+        return GitHubCommitAuthor(
+            login=author["login"],
+            name=name,
+            commit_url=commit_url,
+            file_paths=file_paths,
+            is_bot=author.get("type") == "Bot",
+        )
+
+    def list_commit_attributions(
+        self,
+        repository: str,
+        *,
+        since: datetime,
+        # The listing includes merge commits, so it must run deeper than the non-merge
+        # git log it joins against (posthog/posthog: ~11k listed entries per 90 days).
+        max_pages: int = 150,
+    ) -> list[GitHubCommitAttribution]:
+        """GitHub's commit→login attribution for default-branch commits since ``since``.
+
+        The listing endpoint carries no file data — callers join on sha against their own
+        source of changed paths (e.g. a local ``git log``). Commits GitHub cannot attribute
+        to an account (unrecognized author emails) are skipped. The first page failing
+        raises; later pages are best-effort so a long history returns what was fetched.
+        Rate limits raise ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        params: dict[str, str | int] = {
+            "per_page": 100,
+            "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        attributions: list[GitHubCommitAttribution] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self.api_request(
+                "GET",
+                f"/repos/{repository}/commits",
+                endpoint="/repos/{owner}/{repo}/commits",
+                params={**params, "page": page},
+            )
+            if response.status_code != 200:
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: commit listing failed for {repository}",
+                        status_code=response.status_code,
+                    )
+                logger.info(
+                    "GitHub API non-200 during commit listing pagination",
+                    status_code=response.status_code,
+                    repository=repository,
+                    page=page,
+                )
+                break
+            try:
+                body = response.json()
+                if not isinstance(body, list):
+                    raise ValueError(f"expected a list, got {type(body).__name__}")
+            except Exception as exc:
+                # Page 1 must raise like the non-200 branch — an empty result here would
+                # let callers write an empty attribution map as if it were real data.
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: malformed commit listing for {repository}",
+                        status_code=response.status_code,
+                    ) from exc
+                logger.warning(
+                    "GitHubIntegration: malformed commit listing page", repository=repository, page=page, exc_info=True
+                )
+                break
+            for entry in body:
+                if not isinstance(entry, dict):
+                    continue
+                sha = entry.get("sha")
+                author = entry.get("author")
+                if not isinstance(sha, str) or not isinstance(author, dict) or not author.get("login"):
+                    continue
+                git_author = (entry.get("commit") or {}).get("author") or {}
+                attributions.append(
+                    GitHubCommitAttribution(
+                        sha=sha,
+                        login=author["login"],
+                        is_bot=author.get("type") == "Bot",
+                        name=git_author.get("name") if isinstance(git_author.get("name"), str) else None,
+                    )
+                )
+            if len(body) < 100:
+                break
+        return attributions
 
     @staticmethod
     def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:

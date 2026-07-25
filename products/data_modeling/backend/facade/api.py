@@ -22,6 +22,7 @@ _LAZY = {
     "start_node_materialization": "logic.node_materialization",
     "apply_saved_query_frequency_target": "logic.schedule_reconcile",
     "tiered_schedules_enabled": "logic.schedule_reconcile",
+    "declared_targets_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",

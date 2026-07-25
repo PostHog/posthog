@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
@@ -575,14 +577,20 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             delivery_targets=[{"type": "email", "value": "test@example.com"}],
         )
 
-    def _emit_eval_events(self, team: Team, evaluation_id: str, timestamps: list[dt.datetime]) -> None:
+    def _emit_eval_events(
+        self,
+        team: Team,
+        evaluation_id: str,
+        timestamps: list[dt.datetime],
+        extra_properties: dict | None = None,
+    ) -> None:
         for index, ts in enumerate(timestamps):
             _create_event(
                 team=team,
                 event="$ai_evaluation",
                 distinct_id=f"d-{evaluation_id}-{index}",
                 timestamp=ts,
-                properties={"$ai_evaluation_id": evaluation_id},
+                properties={"$ai_evaluation_id": evaluation_id, **(extra_properties or {})},
             )
 
     def test_counts_respect_since_evaluation_and_threshold(self):
@@ -676,6 +684,43 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(by_id[str(sentiment_report.id)].skipped_reason)
         self.assertTrue(by_id[str(sentiment_report.id)].due)
         self.assertTrue(by_id[str(boolean_report.id)].due)
+
+    @parameterized.expand([("boolean",), ("sentiment",)])
+    def test_skipped_runs_are_excluded_from_counts(self, output_type: str) -> None:
+        # Sentiment's event_predicate requires the result_type property; boolean's accepts null.
+        base_props = {"$ai_evaluation_result_type": output_type} if output_type == "sentiment" else {}
+        skipped_props = {**base_props, "$ai_evaluation_skipped": True, "$ai_evaluation_skip_reason": "no_user_messages"}
+        in_window = [self.T0 + dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=2)]
+
+        # 2 real runs + 1 skipped vs threshold 3: due only if the skipped run leaks into the count.
+        report_not_due = self._create_report(
+            self.team, threshold=3, since=self.T0, name=f"skip-not-due-{output_type}", output_type=output_type
+        )
+        self._emit_eval_events(self.team, str(report_not_due.evaluation_id), in_window, extra_properties=base_props)
+        self._emit_eval_events(
+            self.team,
+            str(report_not_due.evaluation_id),
+            [self.T0 + dt.timedelta(minutes=90)],
+            extra_properties=skipped_props,
+        )
+
+        # Control: same events vs threshold 2 stays due, so the exclusion can't over-filter real runs.
+        report_due = self._create_report(
+            self.team, threshold=2, since=self.T0, name=f"skip-due-{output_type}", output_type=output_type
+        )
+        self._emit_eval_events(self.team, str(report_due.evaluation_id), in_window, extra_properties=base_props)
+        self._emit_eval_events(
+            self.team,
+            str(report_due.evaluation_id),
+            [self.T0 + dt.timedelta(minutes=90)],
+            extra_properties=skipped_props,
+        )
+
+        results = _check_count_triggered_eval_reports_batch([str(report_not_due.id), str(report_due.id)], self.NOW)
+
+        due_by_id = {r.report_id: r.due for r in results}
+        self.assertFalse(due_by_id[str(report_not_due.id)])
+        self.assertTrue(due_by_id[str(report_due.id)])
 
     def test_trace_target_reports_exclude_generation_events(self):
         # The batched countIf must carry the evaluation's target predicate like the

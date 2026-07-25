@@ -88,9 +88,6 @@ pub struct NotificationsConfig {
     #[envconfig(from = "TEMPORAL_CLIENT_KEY", default = "")]
     pub temporal_client_key: String,
 
-    #[envconfig(from = "TEMPORAL_CLIENT_ROOT_CA")]
-    pub temporal_client_root_ca: Option<String>,
-
     #[envconfig(from = "TEMPORAL_SECRET_KEY", default = "")]
     pub temporal_secret_key: String,
 
