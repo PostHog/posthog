@@ -649,6 +649,68 @@ const experimentList = (): ToolBase<
         },
     })
 
+const ExperimentMetricsRecalculationCreateSchema = ExperimentsMetricsRecalculationCreateParams.omit({
+    project_id: true,
+})
+    .extend(ExperimentsMetricsRecalculationCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+
+const experimentMetricsRecalculationCreate = (): ToolBase<
+    typeof ExperimentMetricsRecalculationCreateSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-create',
+    schema: ExperimentMetricsRecalculationCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
+
+const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRecalculationLatestRetrieveParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']) })
+
+const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
+    typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-latest-retrieve',
+    schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
+
+const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']) })
+
+const experimentMetricsRecalculationRetrieve = (): ToolBase<
+    typeof ExperimentMetricsRecalculationRetrieveSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-retrieve',
+    schema: ExperimentMetricsRecalculationRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
+
 const ExperimentPauseSchema = ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
 })
@@ -1069,73 +1131,6 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
-const ExperimentsMetricsRecalculationCreateSchema = ExperimentsMetricsRecalculationCreateParams.omit({
-    project_id: true,
-})
-    .extend(ExperimentsMetricsRecalculationCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
-
-const experimentsMetricsRecalculationCreate = (): ToolBase<
-    typeof ExperimentsMetricsRecalculationCreateSchema,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiments-metrics-recalculation-create',
-    schema: ExperimentsMetricsRecalculationCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentsMetricsRecalculationCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.trigger !== undefined) {
-            body['trigger'] = params.trigger
-        }
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
-    },
-})
-
-const ExperimentsMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRecalculationLatestRetrieveParams.omit({
-    project_id: true,
-}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']) })
-
-const experimentsMetricsRecalculationLatestRetrieve = (): ToolBase<
-    typeof ExperimentsMetricsRecalculationLatestRetrieveSchema,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiments-metrics-recalculation-latest-retrieve',
-    schema: ExperimentsMetricsRecalculationLatestRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentsMetricsRecalculationLatestRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
-        })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
-    },
-})
-
-const ExperimentsMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
-    project_id: true,
-}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']) })
-
-const experimentsMetricsRecalculationRetrieve = (): ToolBase<
-    typeof ExperimentsMetricsRecalculationRetrieveSchema,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiments-metrics-recalculation-retrieve',
-    schema: ExperimentsMetricsRecalculationRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentsMetricsRecalculationRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
@@ -1154,6 +1149,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-holdouts-retrieve': experimentHoldoutsRetrieve,
     'experiment-launch': experimentLaunch,
     'experiment-list': experimentList,
+    'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
+    'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
+    'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
     'experiment-pause': experimentPause,
     'experiment-reset': experimentReset,
     'experiment-resume': experimentResume,
@@ -1168,7 +1166,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
-    'experiments-metrics-recalculation-create': experimentsMetricsRecalculationCreate,
-    'experiments-metrics-recalculation-latest-retrieve': experimentsMetricsRecalculationLatestRetrieve,
-    'experiments-metrics-recalculation-retrieve': experimentsMetricsRecalculationRetrieve,
 }

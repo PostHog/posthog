@@ -1066,7 +1066,13 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = RecalculateMetricsRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        trigger = request_serializer.validated_data["trigger"]
+
+        is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
+        trigger = (
+            ExperimentMetricsRecalculation.Trigger.AGENT_MCP
+            if is_mcp_client
+            else request_serializer.validated_data["trigger"]
+        )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         result = request_recalculation(experiment, cast(User, request.user), trigger)
