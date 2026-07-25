@@ -82,13 +82,33 @@ def promote_dismissal_note(
     them, so each scout is told about its own reports and only reports with no resolvable author
     fall back to the whole fleet.
 
-    Best-effort by contract: every failure here is logged and swallowed, because the caller has
-    already committed the state transition the user asked for along with the `dismissal` artefact
-    that records the feedback. Nothing in this module may turn a successful dismissal into a 5xx.
+    Best-effort by contract: nothing in this module may turn a successful dismissal into a 5xx. The
+    caller has already committed the state transition the user asked for along with the `dismissal`
+    artefact that records the feedback, so a failure here must not surface (a 500 on a dismissal
+    that actually happened sends the client into a retry that then hits a 409). Every step past
+    this point runs inside one failure boundary, because authorization and target resolution both
+    read the database.
     """
     if not note or not note.strip() or not reports:
         return []
+    try:
+        return _promote(team=team, reports=reports, reason=reason, note=note.strip(), request=request)
+    except Exception:
+        logger.exception(
+            "Failed to promote dismissal feedback to a scout note",
+            extra={"team_id": team.id, "report_count": len(reports)},
+        )
+        return []
 
+
+def _promote(
+    *,
+    team: Team,
+    reports: Sequence[SignalReport],
+    reason: str | None,
+    note: str,
+    request: Request,
+) -> list[str]:
     # Scout rows persist under the canonical parent team (`RootTeamMixin.save` rewrites child
     # writes), and it is the parent project's scouts that read the note, so both the authorization
     # check and every lookup resolve against the canonical team rather than the possibly-child team
@@ -96,24 +116,13 @@ def promote_dismissal_note(
     canonical_team = team.parent_team or team
     if not _may_steer_scouts(request, canonical_team):
         return []
+
     user = request.user
-
-    try:
-        grouped = _group_reports(canonical_team.id, reports)
-    except Exception:
-        # Resolution is two DB reads. Inside the same failure boundary as the write, because a
-        # failure after the transition committed would 500 a dismissal that actually succeeded,
-        # and a client retry would then hit the report in its new state and get a 409.
-        logger.exception(
-            "Failed to resolve scout note targets for dismissal feedback",
-            extra={"team_id": canonical_team.id, "report_count": len(reports)},
-        )
-        return []
-
+    grouped = _group_reports(canonical_team.id, reports)
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     created_ids: list[str] = []
     for (skill_name, verb), skill_reports in grouped.items():
-        content = _build_note_content(verb=verb, reason=reason, note=note.strip(), reports=skill_reports)
+        content = _build_note_content(verb=verb, reason=reason, note=note, reports=skill_reports)
         try:
             created = leave_note(
                 team_id=canonical_team.id,
@@ -124,6 +133,8 @@ def promote_dismissal_note(
                 origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
             )
         except Exception:
+            # Per-note guard on top of the outer boundary, so one unwritable target (a skill deleted
+            # mid-request, say) doesn't cost the other scouts their notes.
             logger.exception(
                 "Failed to promote dismissal note to a scout note",
                 extra={"team_id": canonical_team.id, "skill_name": skill_name, "report_count": len(skill_reports)},

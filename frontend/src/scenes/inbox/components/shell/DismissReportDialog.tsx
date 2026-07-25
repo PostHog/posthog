@@ -64,8 +64,8 @@ export function openDismissReportDialog({
         ? `Archive ${selectedCount} reports?`
         : `Archive report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isBulk
-        ? 'These reports will be archived out of your inbox. Your feedback is saved on each report and passed to the agents that look for issues like these.'
-        : 'This report will be archived out of your inbox. Your feedback is saved on the report and passed to the agents that look for issues like this one.'
+        ? 'These reports will be archived out of your inbox. Your feedback is saved on each report, where the agents that look for issues like these can pick it up.'
+        : 'This report will be archived out of your inbox. Your feedback is saved on the report, where the agents that look for issues like this one can pick it up.'
 
     LemonDialog.openForm({
         title,
@@ -79,7 +79,11 @@ export function openDismissReportDialog({
                         <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
                     )}
                 </LemonField>
-                <LemonField name="note" label="Note" info="Optional. The agents read it on their next run.">
+                <LemonField
+                    name="note"
+                    label="Note"
+                    info="Optional. Helps the agents stop filing reports like this one."
+                >
                     <LemonTextArea
                         placeholder="What made this report wrong, or not worth fixing?"
                         maxLength={4000}

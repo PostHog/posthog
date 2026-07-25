@@ -193,6 +193,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         [
             ("dismissal_note_cannot_be_written", "products.signals.backend.dismissal_notes.leave_note"),
             ("note_targets_cannot_be_resolved", "products.signals.backend.dismissal_notes._target_skill_names"),
+            ("authorization_cannot_be_resolved", "products.signals.backend.dismissal_notes._may_steer_scouts"),
         ]
     )
     def test_dismissal_still_succeeds_when_promotion_fails(self, _name: str, target: str) -> None:
