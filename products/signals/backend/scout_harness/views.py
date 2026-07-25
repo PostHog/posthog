@@ -212,25 +212,32 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     return "signal_scout_internal:write" in scopes
 
 
-def _may_read_reports(request: Request) -> bool:
+def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
 
     Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
-    report API gates on `task:read`. The notes surface rides the narrower `signal_scout:read`, so
-    without this a scout-only token could read report content it can't reach canonically. Mirrors
-    the reasoning behind the `signal_scout:read` + `task:read` pair on `emission_reports`.
+    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    so both of that API's legs are re-checked here or a caller reads report content it cannot
+    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
 
-    Only token auth carries API scopes. Session callers have none and are governed by team access
-    and RBAC instead, so they pass here and see everything the team can see.
+    Both legs matter independently. A token carries API scopes, and one without task read is
+    refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
+    team, because an admin can grant a member scout access while withholding task access, and a
+    session caller carries no scopes for the first leg to inspect.
     """
     authenticator = request.successful_authenticator
+    scopes: list[str] | None = None
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         scopes = authenticator.personal_api_key.scopes or []
     elif isinstance(authenticator, OAuthAccessTokenAuthentication):
         scopes = (authenticator.access_token.scope or "").split()
-    else:
-        return True
-    return "*" in scopes or "task:read" in scopes or "task:write" in scopes
+    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
+        return False
+
+    user = request.user
+    if not isinstance(user, User):
+        return False
+    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
 
 
 class Conflict(exceptions.APIException):
@@ -1232,7 +1239,11 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
             content_max_chars=validated.get("content_max_chars"),
-            exclude_origins=() if _may_read_reports(request) else (SignalScoutNote.Origin.REPORT_DISMISSAL,),
+            exclude_origins=(
+                ()
+                if _may_read_reports(request, self.team.parent_team or self.team)
+                else (SignalScoutNote.Origin.REPORT_DISMISSAL,)
+            ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
 

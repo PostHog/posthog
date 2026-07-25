@@ -114,6 +114,13 @@ def _promote(
     # check and every lookup resolve against the canonical team rather than the possibly-child team
     # the request came in on.
     canonical_team = team.parent_team or team
+    # A note lands on the canonical project and is readable by everyone with access to it, while
+    # the report it quotes lives on the environment the request came in on. Access is granted per
+    # team, so promoting a child environment's report would hand its id, title, and dismissal text
+    # to an audience that may have no access to that environment. Those dismissals stay on the
+    # report only.
+    if team.id != canonical_team.id:
+        return []
     if not _may_steer_scouts(request, canonical_team):
         return []
 
@@ -148,11 +155,10 @@ def _may_steer_scouts(request: Request, canonical_team: Team) -> bool:
     """Whether this caller could have left the same note by hand through the notes API.
 
     Mirrors the write gates on `SignalScoutNoteViewSet`, all anchored to the canonical team because
-    that is whose scouts read the row: `ScoutCanonicalTeamAccessPermission` in both its legs (the
-    user has access to the parent project, and a team-scoped token covers the parent too, not just
-    the child environment the request came in on), plus `_assert_can_steer_scouts` (the `llm_skill`
-    editor level that authoring a scout's skill body requires). Synthetic service principals
-    (project secret API keys) have no RBAC identity, so they never steer scouts.
+    that is whose scouts read the row: `ScoutCanonicalTeamAccessPermission` in both its legs (team
+    access and a token whose `scoped_teams` cover that team), plus `_assert_can_steer_scouts` (the
+    `llm_skill` editor level that authoring a scout's skill body requires). Synthetic service
+    principals (project secret API keys) have no RBAC identity, so they never steer scouts.
 
     Deliberately not enforced: the `llm_skill:write` / `signal_scout:write` API key scopes the notes
     endpoint also demands. An agent dismissing a report holds `task:write`, and its dismissal text

@@ -206,6 +206,27 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert report.status == SignalReport.Status.SUPPRESSED
         assert self._notes() == []
 
+    def test_no_note_for_a_child_environment_report(self) -> None:
+        # The note would land on the parent project, readable by people who may have no access to
+        # the environment the report lives on, so a child environment's feedback stays on the report.
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, name="Child environment"
+        )
+        report = SignalReport.objects.create(
+            team=environment, status=SignalReport.Status.READY, title="Child report", summary="Test summary"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{environment.id}/signals/reports/{report.id}/state/",
+            data=json.dumps({"state": "suppressed", "dismissal_note": "noise from the staging env"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert not SignalScoutNote.all_teams.exists()
+
     def test_no_note_when_the_token_is_scoped_to_a_child_environment(self) -> None:
         # Notes canonicalize to the parent project, so a token confined to a child environment must
         # not steer the parent's scouts through a dismissal, even though its user has parent access.
