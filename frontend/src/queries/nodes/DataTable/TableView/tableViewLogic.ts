@@ -1,5 +1,18 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -89,6 +102,28 @@ function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean
     }
     const defaultColumns = defaultDataTableColumns(NodeKind.EventsQuery)
     return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
+}
+
+// True when the query is the untouched default for its context (no view applied, no filters).
+// A persisted view is only auto-restored on mount from this state, so it's also the state that
+// signals the user has just cleared everything.
+function isDefaultQueryForContext(contextKey: string, query: TableViewSupportedQueryType): boolean {
+    switch (contextKey) {
+        case PEOPLE_LIST_CONTEXT_KEY:
+            return equal(query, PEOPLE_LIST_DEFAULT_QUERY.source)
+        case 'group-0-list':
+        case 'group-1-list':
+        case 'group-2-list':
+        case 'group-3-list':
+        case 'group-4-list': {
+            const groupTypeIndex = parseInt(contextKey.split('-')[1])
+            return equal(query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)
+        }
+        case PERSON_EVENTS_CONTEXT_KEY:
+            return isInitialPersonEventsQuery(query)
+        default:
+            return false
+    }
 }
 
 function getQueryFromView(
@@ -422,7 +457,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                     if (!state) {
                         return views[0] || null
                     }
-                    return state
+                    // Drop a persisted view that no longer exists (e.g. deleted from another tab).
+                    return views.find((v) => v.id === state.id) ? state : null
                 },
                 deleteViewSuccess: (state, { views }) => {
                     if (state && !views.find((v) => v.id === state.id)) {
@@ -542,32 +578,26 @@ export const tableViewLogic = kea<tableViewLogicType>([
         },
     })),
 
+    propsChanged(({ actions, props, values }, oldProps) => {
+        // When the user clears filters back to the default query, forget the active view so it
+        // isn't silently re-applied from localStorage on the next mount. Only act on the
+        // transition into the default state (not the initial mount, where afterMount restores it).
+        if (
+            values.currentView &&
+            !equal(props.query, oldProps.query) &&
+            isDefaultQueryForContext(props.contextKey, props.query) &&
+            !isDefaultQueryForContext(props.contextKey, oldProps.query)
+        ) {
+            actions.setCurrentView(null)
+        }
+    }),
+
     afterMount(({ values, actions, props }) => {
         if (!values.currentView) {
             return
         }
-
-        switch (props.contextKey) {
-            case PEOPLE_LIST_CONTEXT_KEY:
-                if (equal(props.query, PEOPLE_LIST_DEFAULT_QUERY.source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case 'group-0-list':
-            case 'group-1-list':
-            case 'group-2-list':
-            case 'group-3-list':
-            case 'group-4-list':
-                const groupTypeIndex = parseInt(props.contextKey.split('-')[1])
-                if (equal(props.query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case PERSON_EVENTS_CONTEXT_KEY:
-                if (isInitialPersonEventsQuery(props.query)) {
-                    actions.applyView(values.currentView)
-                }
-                break
+        if (isDefaultQueryForContext(props.contextKey, props.query)) {
+            actions.applyView(values.currentView)
         }
     }),
 ])
