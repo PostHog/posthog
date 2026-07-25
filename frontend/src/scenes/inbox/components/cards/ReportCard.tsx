@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { router } from 'kea-router'
 
 import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { ScoutLink } from 'lib/signals/ScoutLink'
@@ -18,6 +18,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { derivePrState, PR_BADGE_STATE, type PrBadgeState } from '../badges/prState'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -82,30 +83,6 @@ export function InboxCardSourceMeta({
 }
 
 // ── PR status badge ─────────────────────────────────────────────────────────
-
-/**
- * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
- * merge — report status can't stand in for it, since a report can be resolved directly without its
- * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
- */
-const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
-    open: { label: 'open', type: 'success' },
-    merged: { label: 'merged', type: 'completion' },
-    closed: { label: 'closed', type: 'danger' },
-}
-
-type PrBadgeState = keyof typeof PR_BADGE_STATE
-
-function derivePrState(status: SignalReportStatus, prMerged: boolean): PrBadgeState {
-    if (prMerged) {
-        return 'merged'
-    }
-    if (status === SignalReportStatus.FAILED) {
-        return 'closed'
-    }
-    return 'open'
-}
 
 /**
  * PR status badge for the card's top-right corner: a state-colored tag with the pull-request

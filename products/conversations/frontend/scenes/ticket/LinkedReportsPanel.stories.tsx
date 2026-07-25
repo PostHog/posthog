@@ -4,8 +4,8 @@ import type { SignalReportApi } from 'products/signals/frontend/generated/api.sc
 
 import { LinkedReportsPanel } from './LinkedReportsPanel'
 
-// The panel a support teammate reads on a ticket to see what Self-driving already found.
-// Stories cover the three states it can be in, since only one is reachable in a fresh workspace.
+// The panel a support teammate reads on a ticket to see which reports came out of it.
+// A ticket's fix is the headline, so the PR states get their own stories.
 
 const meta: Meta<typeof LinkedReportsPanel> = {
     title: 'Scenes-App/Support/LinkedReportsPanel',
@@ -24,6 +24,7 @@ function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
         summary:
             'Formatting-only edits re-run full query generation, so a one-line change costs the same as a new question.\n\n## Problem\n\nThe agent rebuilds its whole plan per turn, and a formatting edit takes the same path as a fresh query.',
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/73646',
+        implementation_pr_merged: false,
         ...overrides,
     } as SignalReportApi
 }
@@ -32,7 +33,7 @@ function Panel({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="max-w-sm">{children}</div>
 }
 
-export const WithFindings: Story = {
+export const FixProposed: Story = {
     render: () => (
         <Panel>
             <LinkedReportsPanel linkedReports={[makeReport({})]} />
@@ -40,7 +41,15 @@ export const WithFindings: Story = {
     ),
 }
 
-export const SeveralFindingsAcrossStatuses: Story = {
+export const FixMerged: Story = {
+    render: () => (
+        <Panel>
+            <LinkedReportsPanel linkedReports={[makeReport({ implementation_pr_merged: true })]} />
+        </Panel>
+    ),
+}
+
+export const SeveralReportsAcrossStates: Story = {
     render: () => (
         <Panel>
             <LinkedReportsPanel
@@ -66,7 +75,7 @@ export const SeveralFindingsAcrossStatuses: Story = {
     ),
 }
 
-export const NothingFoundYet: Story = {
+export const NoReportsYet: Story = {
     render: () => (
         <Panel>
             <LinkedReportsPanel linkedReports={[]} />
