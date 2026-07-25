@@ -151,6 +151,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+        # MongoClient constructor, before any of our own connectivity handling runs. dnspython
+        # already retries across nameservers for the whole resolution lifetime before giving up
+        # with a ConfigurationError wrapping its LifetimeTimeout — a momentary DNS blip on the
+        # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
+        # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
+        # not the variable timeout duration or nameserver address it's followed by.
+        return {"The resolution lifetime expired"}
+
     def get_schemas(
         self,
         config: MongoDBSourceConfig,

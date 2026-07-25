@@ -10,7 +10,6 @@ use personhog_proto::personhog::types::v1::{
     UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
-use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -23,7 +22,7 @@ use crate::cache::{
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
-use crate::pg::load_person_from_pg;
+use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
@@ -67,8 +66,8 @@ pub struct PersonHogLeaderService {
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     producer: FutureProducer<KafkaContext>,
     changelog_topic: String,
-    /// Read-only pool for PG fallback on cache miss.
-    fallback_pool: Option<PgPool>,
+    /// Read-only PG fallback (pool + the table it reads) for cache miss.
+    fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
     /// Total changelog partition count, read from etcd at startup (the same
@@ -90,7 +89,7 @@ impl PersonHogLeaderService {
         cache: Arc<PartitionedCache>,
         producer: FutureProducer<KafkaContext>,
         changelog_topic: String,
-        fallback_pool: Option<PgPool>,
+        fallback: Option<PgFallback>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
         num_partitions: u32,
@@ -104,7 +103,7 @@ impl PersonHogLeaderService {
             locks,
             producer,
             changelog_topic,
-            fallback_pool,
+            fallback,
             inflight,
             num_partitions,
             dirty_index,
@@ -227,7 +226,7 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
-        let Some(pool) = &self.fallback_pool else {
+        let Some(fallback) = &self.fallback else {
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -235,7 +234,7 @@ impl PersonHogLeaderService {
         };
 
         let started = Instant::now();
-        let result = load_person_from_pg(pool, key).await;
+        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
         histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {

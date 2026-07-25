@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -9,9 +9,28 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
         help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
     })
-    private static readonly mismatch = new Counter({
-        name: 'ml_mirror_image_scrub_consumer_key_content_mismatch_total',
-        help: 'Messages dropped because the key hash did not match the value bytes (forged/corrupt key)',
+    private static readonly deduped = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_deduped_total',
+        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier). Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
+        labelNames: ['scope'],
+    })
+    /**
+     * Intra-batch dedup can only collapse copies that arrive in the same poll batch, so its ceiling is
+     * set by how many messages a batch holds. Small batches are the one way it can be "undersized",
+     * and unlike the seen-ref cache the fix is poll configuration rather than memory. Buckets stop at
+     * the CONSUMER_BATCH_SIZE fetch cap, past which they could never be populated. This deliberately
+     * excludes empty polls, which is what makes it readable where consumer-v1's own batch-size
+     * histogram is not: that one samples before the empty check, and this lane runs with
+     * callEachBatchWhenEmpty, so idle polls bury the real distribution in the lowest bucket.
+     */
+    private static readonly batchMessages = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_messages',
+        help: 'Messages per non-empty poll batch. Read alongside deduped{scope="batch"}: consistently small batches cap how much intra-batch dedup can collapse, whatever the duplicate rate is',
+        buckets: [1, 10, 50, 100, 200, 300, 400, 500],
+    })
+    private static readonly invalidKey = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
+        help: 'Messages dropped because the key is missing, not an image ref, or the value is empty — a sustained rate means producer/consumer ref-format drift is zeroing the lane',
     })
     private static readonly shardsWritten = new Counter({
         name: 'ml_mirror_image_scrub_consumer_shards_written_total',
@@ -40,8 +59,14 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incMismatch(): void {
-        this.mismatch.inc()
+    public static incDeduped(scope: 'batch' | 'pod'): void {
+        this.deduped.labels(scope).inc()
+    }
+    public static incInvalidKey(): void {
+        this.invalidKey.inc()
+    }
+    public static observeBatchMessages(count: number): void {
+        this.batchMessages.observe(count)
     }
     public static observeShard(images: number, bytes: number): void {
         this.shardsWritten.inc()

@@ -146,6 +146,9 @@ pub struct PodConfig {
     /// Should be less than K8s terminationGracePeriodSeconds to allow
     /// time for lease revocation before SIGKILL.
     pub drain_timeout: Duration,
+    /// `host:port` where this pod's gRPC server is reachable; registered
+    /// so routers can dial the pod through the routing table.
+    pub advertise_address: Option<String>,
 }
 
 impl Default for PodConfig {
@@ -157,6 +160,7 @@ impl Default for PodConfig {
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
+            advertise_address: None,
         }
     }
 }
@@ -316,6 +320,7 @@ impl PodHandle {
             registered_at: now,
             last_heartbeat: now,
             controller: self.config.controller.clone(),
+            advertise_address: self.config.advertise_address.clone(),
         };
         self.store.register_pod(&pod, lease_id).await
     }
@@ -613,6 +618,7 @@ mod tests {
         PartitionAssignment {
             partition: 1,
             owner: owner.to_string(),
+            advertise_address: None,
             status: AssignmentStatus::Active,
         }
     }
@@ -625,6 +631,7 @@ mod tests {
             phase,
             started_at: 0,
             handoff_id: "h-test".to_string(),
+            new_owner_address: None,
         }
     }
 

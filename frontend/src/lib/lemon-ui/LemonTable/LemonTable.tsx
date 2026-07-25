@@ -210,11 +210,12 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         columns: baseColumns,
     })
 
-    /** Sorting. */
+    /** Sorting. `useURLForSorting` gates both writing and reading the URL — when off, a stale
+     * `order` param must not resurrect a sort the consumer isn't controlling. */
     const currentSorting =
         sorting ||
         internalSorting ||
-        (searchParams[currentSortingParam]
+        (useURLForSorting && searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
                       columnKey: searchParams[currentSortingParam].substr(1),

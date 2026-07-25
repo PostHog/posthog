@@ -1,12 +1,15 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -57,6 +60,38 @@ class TestRefreshSandboxCredentialsActivity:
         event_name = track_event.call_args[0][0]
         assert event_name == "sandbox_credentials_refreshed"
         assert track_event.call_args.kwargs["properties"]["refreshed_kinds"] == ["github"]
+
+    def test_retries_transient_db_connection_drop(self, activity_environment, task_context, test_task, sandbox):
+        # A pooled pgbouncer connection dropped mid-request raises OperationalError on the
+        # activity's early Task read. The retry-once guard must evict the dead connection and
+        # succeed on the second attempt rather than letting it escape as error-tracking noise.
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Task"
+            ) as mock_task,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                return_value="ghs_fresh",
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+        ):
+            mock_task.DoesNotExist = Task.DoesNotExist
+            mock_task.objects.select_related.return_value.get.side_effect = [
+                OperationalError("server closed the connection unexpectedly"),
+                test_task,
+            ]
+
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert mock_task.objects.select_related.return_value.get.call_count == 2
+        assert output.refreshed_kinds == ["github"]
 
     def test_credential_failure_is_non_fatal(self, activity_environment, task_context, test_task, sandbox):
         with (

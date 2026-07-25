@@ -7,17 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface LLMSkillOutlineEntryApi {
-    /**
-     * Markdown heading level (1-6).
-     * @minimum 1
-     * @maximum 6
-     */
-    level: number
-    /** Heading text. */
-    text: string
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -73,6 +62,17 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface LLMSkillOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text. */
+    text: string
+}
+
 /**
  * Arbitrary key-value metadata.
  */
@@ -109,6 +109,8 @@ export interface LLMSkillListApi {
     metadata?: LLMSkillListApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+    readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
@@ -152,7 +154,7 @@ export interface LLMSkillFileInputApi {
 }
 
 /**
- * Create serializer — accepts bundled files as write-only input on POST.
+ * Create serializer — accepts bundled files and owners as write-only input on POST.
  */
 export interface LLMSkillCreateApi {
     readonly id: string
@@ -191,6 +193,11 @@ export interface LLMSkillCreateApi {
     metadata?: LLMSkillCreateApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /**
+     * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
+     * @maxItems 25
+     */
+    owners?: string[]
     /** Bundled files to include with the initial version (scripts, references, assets). */
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -206,11 +213,6 @@ export interface LLMSkillCreateApi {
     readonly first_version_created_at: string
 }
 
-export interface LLMSkillImportApi {
-    /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
-    file: string
-}
-
 /**
  * Arbitrary key-value metadata.
  */
@@ -221,10 +223,6 @@ export interface LLMSkillFileManifestApi {
     path: string
     /** @maxLength 100 */
     content_type?: string
-    /** Number of lines in the file content. */
-    line_count: number
-    /** Number of characters in the file content. */
-    char_count: number
 }
 
 export interface LLMSkillApi {
@@ -264,7 +262,9 @@ export interface LLMSkillApi {
     metadata?: LLMSkillApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
-    /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+    readonly owners: readonly UserBasicApi[]
+    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
@@ -277,6 +277,11 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+export interface LLMSkillImportApi {
+    /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
+    file: string
 }
 
 /**
@@ -405,7 +410,12 @@ export interface PatchedLLMSkillPublishApi {
     /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
     file_edits?: LLMSkillFileEditApi[]
     /**
-     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership.
+     * @maxItems 25
+     */
+    owners?: string[]
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).
      * @minimum 1
      */
     base_version?: number
@@ -477,64 +487,6 @@ export interface LLMSkillResolveResponseApi {
     skill: LLMSkillApi
     versions: LLMSkillVersionSummaryApi[]
     has_more: boolean
-}
-
-/**
- * * `name` - name
- * * `description` - description
- * * `body` - body
- * * `file_path` - file_path
- * * `file_content` - file_content
- */
-export type MatchedFieldEnumApi = (typeof MatchedFieldEnumApi)[keyof typeof MatchedFieldEnumApi]
-
-export const MatchedFieldEnumApi = {
-    Name: 'name',
-    Description: 'description',
-    Body: 'body',
-    FilePath: 'file_path',
-    FileContent: 'file_content',
-} as const
-
-export interface LLMSkillSearchMatchApi {
-    /** Skill field that matched the search query.
-     *
-     * * `name` - name
-     * * `description` - description
-     * * `body` - body
-     * * `file_path` - file_path
-     * * `file_content` - file_content */
-    matched_field: MatchedFieldEnumApi
-    /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
-    path?: string
-    /**
-     * One-based line containing the match when the result came from a body or bundled file.
-     * @minimum 1
-     */
-    line?: number
-    /** Short excerpt showing why this skill matched. */
-    excerpt: string
-}
-
-export interface LLMSkillSearchResultApi {
-    /** Unique skill name. */
-    name: string
-    /** What this skill does and when to use it. */
-    description: string
-    /** Up to two locations that matched the search query, ordered by field relevance. */
-    matches: LLMSkillSearchMatchApi[]
-}
-
-export interface LLMSkillSearchResponseApi {
-    /** Number of matching skills returned, capped at 10. */
-    count: number
-    /** Matching ordinary skills in relevance order. */
-    results: LLMSkillSearchResultApi[]
-}
-
-export interface LLMSkillSearchErrorApi {
-    /** Explanation of why the skill search could not complete. */
-    detail: string
 }
 
 export type LlmSkillsListParams = {
@@ -628,13 +580,4 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
-}
-
-export type LlmSkillsSearchRetrieveParams = {
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query: string
 }

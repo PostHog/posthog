@@ -15,6 +15,7 @@ from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
+from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -159,7 +160,10 @@ class DuckgresBatchConsumerAdapter:
         try:
             first_resolution = self._team_ids_fetched_at is None
             previous = self._team_ids
-            enablement = await sync_to_async(duckgres_sink_enablement, thread_sensitive=False)()
+            # database_sync_to_async_pool (not a bare sync_to_async) so a connection killed by
+            # the DB/proxy since the last refresh gets closed and reopened before this query,
+            # instead of surfacing as "the connection is closed" OperationalErrors.
+            enablement = await database_sync_to_async_pool(duckgres_sink_enablement)()
             self._team_ids = None if enablement is None else enablement.team_ids
             self._team_org_budgets = [] if enablement is None else enablement.team_org_budgets
             self._team_ids_fetched_at = now

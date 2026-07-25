@@ -35,6 +35,8 @@ import type {
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
+    ScoutNoteApi,
+    ScoutNoteCreateRequestApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
@@ -49,6 +51,8 @@ import type {
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
+    SignalScoutCreateApi,
+    SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
@@ -59,6 +63,7 @@ import type {
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
     SignalsScoutMembersListParams,
+    SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
@@ -482,6 +487,27 @@ export const signalsReportsRefundSummaryRetrieve = async (
     })
 }
 
+export const getSignalsScoutCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/`
+}
+
+/**
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * @summary Create a scout
+ */
+export const signalsScoutCreate = async (
+    projectId: string,
+    signalScoutCreateApi: SignalScoutCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutCreateResponseApi> => {
+    return apiMutator<SignalScoutCreateResponseApi>(getSignalsScoutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutCreateApi),
+    })
+}
+
 export const getSignalsScoutConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/`
 }
@@ -642,6 +668,73 @@ export const signalsScoutMetadataGet = async (projectId: string, options?: Reque
     return apiMutator<ScoutMetadataApi>(getSignalsScoutMetadataGetUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutNotesListUrl = (projectId: string, params?: SignalsScoutNotesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/notes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/notes/`
+}
+
+/**
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * @summary List scout notes
+ */
+export const signalsScoutNotesList = async (
+    projectId: string,
+    params?: SignalsScoutNotesListParams,
+    options?: RequestInit
+): Promise<ScoutNoteApi[]> => {
+    return apiMutator<ScoutNoteApi[]>(getSignalsScoutNotesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutNotesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/notes/`
+}
+
+/**
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * @summary Leave a note for the scouts
+ */
+export const signalsScoutNotesCreate = async (
+    projectId: string,
+    scoutNoteCreateRequestApi: ScoutNoteCreateRequestApi,
+    options?: RequestInit
+): Promise<ScoutNoteApi> => {
+    return apiMutator<ScoutNoteApi>(getSignalsScoutNotesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutNoteCreateRequestApi),
+    })
+}
+
+export const getSignalsScoutNotesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/notes/${id}/`
+}
+
+/**
+ * Delete one note by its `id`, retiring it from every scout's view. Use this when a note has been acted on or no longer applies; time-boxed notes can instead carry an `expires_at` and retire themselves.
+ * @summary Delete a scout note
+ */
+export const signalsScoutNotesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSignalsScoutNotesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

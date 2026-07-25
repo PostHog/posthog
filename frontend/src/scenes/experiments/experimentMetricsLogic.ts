@@ -764,6 +764,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
                     } else {
+                        if (trigger === 'manual' && !recalculation.is_existing) {
+                            lemonToast.info(
+                                'Recalculating metrics in the background. Results will update as they finish.'
+                            )
+                        }
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {

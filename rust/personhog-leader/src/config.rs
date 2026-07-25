@@ -196,6 +196,14 @@ pub struct Config {
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
+    /// Table the fallback reads. Must be the table the writer maintains
+    /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
+    /// PG row as current, which is only true of the writer's own target.
+    /// Prod pairs posthog_person on both sides; the dev validation stack
+    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    #[envconfig(default = "posthog_person")]
+    pub fallback_table: String,
+
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 
@@ -214,6 +222,12 @@ pub struct Config {
     /// Pod name for etcd registration (typically set from K8s downward API)
     #[envconfig(default = "leader-0")]
     pub pod_name: String,
+
+    /// Pod IP from the K8s downward API (`status.podIP`), injected by the
+    /// chart. Used to derive the advertised gRPC address when binding a
+    /// wildcard. Unset in local runs, which bind a concrete address.
+    #[envconfig(default = "")]
+    pub pod_ip: String,
 
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
@@ -257,5 +271,53 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+}
+
+/// Derive the `host:port` this leader should advertise for routing.
+///
+/// The advertised port is always the serving port (taken from the bind
+/// address), so it cannot drift from reality. The host is the bind host
+/// when it is concrete (local runs bind `127.0.0.1:<port>`), or POD_IP
+/// when binding a wildcard (deployments bind `0.0.0.0`). Wildcard with no
+/// POD_IP fails closed: a leader that cannot say where it is reachable
+/// must not register and claim partitions.
+pub fn derive_advertise_address(
+    grpc_address: &std::net::SocketAddr,
+    pod_ip: &str,
+) -> Result<String, String> {
+    if !grpc_address.ip().is_unspecified() {
+        return Ok(grpc_address.to_string());
+    }
+    if pod_ip.is_empty() {
+        return Err(format!(
+            "cannot derive an advertise address: GRPC_ADDRESS binds the wildcard \
+             {grpc_address} and POD_IP is not set — routers would have nowhere to dial"
+        ));
+    }
+    Ok(format!("{pod_ip}:{}", grpc_address.port()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_advertise_address;
+
+    #[test]
+    fn advertise_address_prefers_concrete_bind_and_requires_pod_ip_for_wildcards() {
+        let concrete = "127.0.0.1:50060".parse().unwrap();
+        assert_eq!(
+            derive_advertise_address(&concrete, "").unwrap(),
+            "127.0.0.1:50060"
+        );
+
+        let wildcard = "0.0.0.0:50053".parse().unwrap();
+        assert_eq!(
+            derive_advertise_address(&wildcard, "10.1.2.3").unwrap(),
+            "10.1.2.3:50053"
+        );
+        assert!(derive_advertise_address(&wildcard, "").is_err());
+
+        let wildcard6 = "[::]:50053".parse().unwrap();
+        assert!(derive_advertise_address(&wildcard6, "").is_err());
     }
 }

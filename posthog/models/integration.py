@@ -347,6 +347,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
@@ -550,6 +551,7 @@ class OauthIntegration:
         "jira",
         "pinterest-ads",
         "stripe",
+        "resend",
     ]
     integration: Integration
 
@@ -900,6 +902,28 @@ class OauthIntegration:
                 id_path="stripe_user_id",
                 name_path="account_name",
             )
+        elif kind == "resend":
+            if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
+                raise NotImplementedError("Resend app not configured")
+
+            # Resend implements OAuth 2.1: PKCE is required, and access tokens are short-lived
+            # (~15m) JWTs while refresh tokens rotate on every use. We register as a confidential
+            # client (token_endpoint_auth_method=client_secret_post), so the standard client_secret
+            # token-exchange/refresh path applies on top of PKCE. `full_access` is the scope needed
+            # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
+            # The token response carries no account identifier, so id/name are derived from the
+            # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://resend.com/oauth/authorize",
+                token_url="https://api.resend.com/oauth/token",
+                token_revoke_url="https://api.resend.com/oauth/revoke",
+                client_id=settings.RESEND_APP_CLIENT_ID,
+                client_secret=settings.RESEND_APP_CLIENT_SECRET,
+                scope="full_access",
+                pkce=True,
+                id_path="resend_account_id",
+                name_path="resend_account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -1027,6 +1051,9 @@ class OauthIntegration:
                     **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
                 timeout=10,
+                # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
+                # into resending client_secret + authorization code to another origin.
+                allow_redirects=False,
             )
 
         try:
@@ -1165,6 +1192,29 @@ class OauthIntegration:
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
 
+        # Resend's token response carries no account identifier, but the access token is a JWT.
+        # Derive the integration id/name from its claims (`sub` is the account subject; email/name
+        # are used for a human-readable label when present). Assumes the standard `sub` claim — if
+        # Resend uses a different claim, the missing-id guard below raises and the user sees a clear
+        # reconnect error rather than a silently mislabeled integration.
+        if kind == "resend" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
+                        resend_account_id = jwt_data.get("sub")
+                        if resend_account_id:
+                            config["resend_account_id"] = resend_account_id
+                            config["resend_account_name"] = (
+                                jwt_data.get("email") or jwt_data.get("name") or f"Resend account {resend_account_id}"
+                            )
+                            integration_id = resend_account_id
+                else:
+                    logger.error("Resend OAuth response missing access_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Resend JWT")
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1301,9 +1351,10 @@ class OauthIntegration:
         if not oauth_config.token_revoke_url:
             return
 
-        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
-            "access_token"
-        )
+        # Prefer the refresh token: revoking it invalidates the whole grant (and its access
+        # tokens), so an attacker holding it can't keep minting access tokens after disconnect.
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        token = refresh_token or self.integration.sensitive_config.get("access_token")
         if not token:
             return
 
@@ -1317,12 +1368,22 @@ class OauthIntegration:
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
+        data = {"token": token}
+        if self.integration.kind == "resend":
+            # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
+            # client_secret_post) and requires client authentication on revocation. Without it
+            # the endpoint rejects the request and the grant survives the disconnect. The hint
+            # tells the provider which token type it received (RFC 7009).
+            data["client_id"] = oauth_config.client_id
+            data["client_secret"] = oauth_config.client_secret
+            data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
+
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
         # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
             revoke_url,
-            data={"token": token},
+            data=data,
             timeout=10,
             allow_redirects=False,
         )
