@@ -11,9 +11,7 @@ every resolve, dismissal, and snooze.
 """
 
 from datetime import datetime
-from typing import Any
 
-from posthog.api.embedding_worker import emit_embedding_request
 from posthog.schema_enums import EmbeddingModelName
 
 EMBEDDING_PRODUCT = "signals"
@@ -25,6 +23,15 @@ EMBEDDING_DOCUMENT_TYPE = "report"
 # a v2 lets both compositions sit in the table at once and be compared, rather than v2 rows silently
 # replacing the v1 row for the same report.
 EMBEDDING_RENDERING = "title_summary_v1"
+
+# Tombstones carry this fixed text instead of the report's own, which is what makes it safe to write
+# one without first knowing whether a live row exists. A tombstone only has to match the ReplacingMergeTree
+# key — team, date(timestamp), product, document_type, model_name, rendering, document_id — and content
+# is not part of that key, so the placeholder supersedes a live row just as well as a copy of its text
+# would. Carrying the real text instead would mean a speculative tombstone could *introduce* content the
+# safety judge rejected, and an empty string would put an embedding of "" through the worker. This is a
+# deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim.
+TOMBSTONE_CONTENT = "[deleted report]"
 
 
 def render_report_document(title: str | None, summary: str | None) -> str | None:
@@ -42,10 +49,8 @@ def render_report_document(title: str | None, summary: str | None) -> str | None
     return "\n\n".join(part for part in (rendered_title, rendered_summary) if part)
 
 
-def emit_report_embedding(
-    *, team_id: int, report_id: str, content: str, created_at: datetime, deleted: bool = False
-) -> None:
-    """Queue a report embedding for the worker, superseding any previous vector for the same report.
+def _emit(*, team_id: int, report_id: str, content: str, created_at: datetime, deleted: bool) -> None:
+    """Queue one report document for the embedding worker.
 
     `created_at` becomes the row's `timestamp`, rather than the emission time, on purpose. The
     underlying table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`, so a
@@ -57,13 +62,13 @@ def emit_report_embedding(
     The cost of pinning is that the table's `timestamp + 3 MONTH` TTL is measured from report creation,
     so a report that stays open longer than that loses its vector while still live. Consumers must
     therefore snapshot features as they are produced rather than recompute them retroactively.
-
-    `deleted` writes the tombstone that mirrors `soft_delete_report_signals`: the same row re-emitted
-    with `metadata.deleted = true` so it replaces the live one. Readers must filter it out the same way
-    every signals query already does, with `NOT JSONExtractBool(metadata, 'deleted')`. Note this makes
-    the row filterable rather than erasing its text, exactly as the signal tombstone does.
     """
-    metadata: dict[str, Any] = {"report_id": report_id}
+    # Deferred so `django.setup()` does not pay for the embedding producer: `receivers.py` is imported
+    # from SignalsConfig.ready(), and this module's only heavy dependency is the Kafka/HTTP/ClickHouse
+    # chain behind emit_embedding_request, which only matters once a report is actually embedded.
+    from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
+
+    metadata: dict[str, object] = {"report_id": report_id}
     if deleted:
         metadata["deleted"] = True
 
@@ -76,10 +81,35 @@ def emit_report_embedding(
         document_id=report_id,
         models=[model.value for model in EmbeddingModelName],
         timestamp=created_at,
-        # Deliberately minimal. Metadata is only refreshed when the report's text changes or it is
-        # deleted, so mutable state (status, priority, signal_count) would go stale here with nothing
+        # Deliberately minimal. Metadata is only refreshed when the report's text changes or the row is
+        # retracted, so mutable state (status, priority, signal_count) would go stale here with nothing
         # to signal it; those belong in a join against Postgres or the `signal_report_status_changed`
         # stream. `report_id` duplicates `document_id` so a query can JSONExtract it uniformly across
         # report rows and the signal rows that already carry it in metadata.
         metadata=metadata,
+    )
+
+
+def emit_report_embedding(*, team_id: int, report_id: str, content: str, created_at: datetime) -> None:
+    """Publish the report's current document, superseding any previous vector for the same report."""
+    _emit(team_id=team_id, report_id=report_id, content=content, created_at=created_at, deleted=False)
+
+
+def emit_report_tombstone(*, team_id: int, report_id: str, created_at: datetime) -> None:
+    """Retract the report's vector, whether or not one was ever written.
+
+    Callers do not need to know if a live row exists. Because the tombstone carries `TOMBSTONE_CONTENT`
+    rather than the report's text, writing one for a report that was never embedded costs an extra row
+    and leaks nothing, which is what lets every retraction path — deletion, an unsafe verdict, an
+    unreviewed edit — emit unconditionally instead of guessing.
+
+    Readers must filter these out the way every signals query already does, with
+    `NOT JSONExtractBool(metadata, 'deleted')`.
+    """
+    _emit(
+        team_id=team_id,
+        report_id=report_id,
+        content=TOMBSTONE_CONTENT,
+        created_at=created_at,
+        deleted=True,
     )

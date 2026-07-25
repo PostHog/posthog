@@ -667,10 +667,25 @@ Metadata is deliberately limited to `report_id` plus the `deleted` tombstone fla
 It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
 Join that from Postgres or the status-change event stream instead.
 
-Deleting a report tombstones its document the same way `soft_delete_report_signals` tombstones the report's signal rows:
-the row is re-emitted with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition.
+#### Safety gating and retraction
+
+A report's title and summary are derived from its signals, so they inherit the same prompt-injection exposure.
+Emission is therefore gated on the durable `safety_judgment` artefact: when the latest verdict is `choice: false`, no vector is written.
+That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
+
+Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
+Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+
+- **Deletion** — the report-level counterpart to `soft_delete_report_signals`.
+- **A later unsafe verdict** — the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
+- **An unreviewed edit** — the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
+Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists — which is the question none of these paths can answer cheaply.
+It also guarantees a retraction can never introduce the very text the safety judge withheld.
+This is a deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim and so makes rows filterable rather than erased.
+
 Readers must filter with `NOT JSONExtractBool(metadata, 'deleted')`, as every existing signals query already does.
-As with the signal tombstone, this makes the row filterable rather than erasing its text.
 
 ### Soft Deletion
 
