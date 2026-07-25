@@ -30,12 +30,11 @@ function toUploadError(err: unknown, target: string): RasterizationError {
     const body = typeof rawBody === 'string' && rawBody.length > 0 ? sanitizeForUTF8(rawBody.slice(0, 500)) : null
     // SDK messages run to several lines, and this one ends up as a Temporal failure message.
     const reason = err instanceof Error ? err.message.replace(/\s+/g, ' ').slice(0, 300) : String(err)
-    // A 4xx will fail the same way on the next attempt. No status at all means a network or credential
-    // failure rather than a verdict from the store, so it gets the benefit of the doubt.
-    const retryable = status === undefined || status >= 500 || status === 429
+    // Reporting only: no upload failure is marked terminal here, so the workflow's retry policy keeps
+    // deciding what happens next.
     return new RasterizationError(
         `S3 upload to ${target} failed (status ${status ?? 'unknown'}): ${reason}${body ? `, response body: ${body}` : ''}`,
-        retryable,
+        true,
         'S3_UPLOAD_FAILED',
         err
     )

@@ -95,7 +95,6 @@ describe('uploadToS3', () => {
             error: Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
                 $response: { statusCode: 502, body: '<html>502 Bad Gateway</html>' },
             }),
-            retryable: true,
             expectedMessage: /status 502.*response body: <html>502 Bad Gateway/,
         },
         {
@@ -103,7 +102,6 @@ describe('uploadToS3', () => {
             error: Object.assign(new Error('Deserialization error: to see the raw response, inspect …'), {
                 $response: { statusCode: 403, body: 'AccessDenied' },
             }),
-            retryable: false,
             expectedMessage: /status 403.*response body: AccessDenied/,
         },
         {
@@ -112,29 +110,25 @@ describe('uploadToS3', () => {
                 name: 'AccessDenied',
                 $metadata: { httpStatusCode: 403 },
             }),
-            retryable: false,
             expectedMessage: /status 403.*Access Denied/,
         },
         {
             failure: 'a failure with no HTTP response at all',
             error: new Error('socket hang up'),
-            retryable: true,
             expectedMessage: /status unknown.*socket hang up/,
         },
-    ])(
-        'reports $failure as a RasterizationError with retryable=$retryable',
-        async ({ error, retryable, expectedMessage }) => {
-            mockDone.mockRejectedValue(error)
+    ])('reports $failure with its status, leaving it retryable', async ({ error, expectedMessage }) => {
+        mockDone.mockRejectedValue(error)
 
-            await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
-                name: 'RasterizationError',
-                code: 'S3_UPLOAD_FAILED',
-                retryable,
-                cause: error,
-                message: expect.stringMatching(expectedMessage),
-            })
-        }
-    )
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
+            name: 'RasterizationError',
+            code: 'S3_UPLOAD_FAILED',
+            // Wrapping the failure must not make it terminal, whatever status it came back with.
+            retryable: true,
+            cause: error,
+            message: expect.stringMatching(expectedMessage),
+        })
+    })
 
     it('names the upload target in the failure message', async () => {
         mockDone.mockRejectedValue(new Error('socket hang up'))
