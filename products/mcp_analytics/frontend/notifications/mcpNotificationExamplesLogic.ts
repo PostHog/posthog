@@ -26,7 +26,6 @@ SELECT
     multiIf(
         event = '$mcp_missing_capability', 'missing-capability',
         toString(properties.$mcp_error_type) = 'permission', 'auth-error',
-        toString(properties.$mcp_error_type) = 'rate_limited', 'rate-limited',
         'tool-error'
     ) AS use_case,
     argMax(toString(properties.$mcp_client_name), timestamp) AS client_name,
@@ -45,7 +44,7 @@ WHERE timestamp >= now() - INTERVAL 90 DAY
 GROUP BY use_case
 `
 
-const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['missing-capability', 'tool-error', 'auth-error', 'rate-limited']
+const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['missing-capability', 'tool-error', 'auth-error']
 
 // Every field the message renders must be present, otherwise the "real" example would be a mix of
 // the project's data and our invented copy — more misleading than an honest sample.
@@ -53,7 +52,6 @@ const REQUIRED_FIELDS: Record<MCPNotificationUseCase, MCPMessageField[]> = {
     'missing-capability': ['clientName', 'serverName', 'intent'],
     'tool-error': ['clientName', 'serverName', 'intent', 'toolName'],
     'auth-error': ['clientName', 'serverName', 'intent', 'toolName'],
-    'rate-limited': ['clientName', 'serverName', 'intent', 'toolName'],
 }
 
 // Array.from so a cut can't land inside a surrogate pair and render as a replacement character.

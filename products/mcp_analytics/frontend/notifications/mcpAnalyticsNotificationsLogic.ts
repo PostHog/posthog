@@ -16,7 +16,6 @@ const MCP_NOTIFICATION_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'mcp-missing-capability',
     'mcp-tool-error',
     'mcp-auth-error',
-    'mcp-rate-limited',
 ]
 
 function getMCPNotificationFilterGroups(): CyclotronJobFiltersType[] {
@@ -25,12 +24,11 @@ function getMCPNotificationFilterGroups(): CyclotronJobFiltersType[] {
     )
 }
 
-export type MCPNotificationUseCase = 'missing-capability' | 'tool-error' | 'auth-error' | 'rate-limited'
+export type MCPNotificationUseCase = 'missing-capability' | 'tool-error' | 'auth-error'
 
 // The error-type bucket each narrowed failure notification filters on.
 const USE_CASE_BY_ERROR_TYPE: Record<string, MCPNotificationUseCase> = {
     permission: 'auth-error',
-    rate_limited: 'rate-limited',
 }
 
 export function getMCPNotificationUseCase(fn: Pick<HogFunctionType, 'filters'>): MCPNotificationUseCase | null {

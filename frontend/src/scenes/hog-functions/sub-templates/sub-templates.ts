@@ -91,12 +91,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'standard',
         filters: { events: [mcpFailedToolCallEvent('permission')] },
     },
-    'mcp-rate-limited': {
-        sub_template_id: 'mcp-rate-limited',
-        type: 'destination',
-        context_id: 'standard',
-        filters: { events: [mcpFailedToolCallEvent('rate_limited')] },
-    },
     'activity-log': {
         sub_template_id: 'activity-log',
         type: 'internal_destination',
@@ -401,20 +395,14 @@ function mcpToolFailureMessage(field: MCPFieldRenderer, bold: string, verb: stri
 const MCP_FAILURE_VERBS = {
     'mcp-tool-error': 'failed',
     'mcp-auth-error': 'was denied',
-    'mcp-rate-limited': 'was rate limited',
 } as const
 
-export type MCPNotificationSubTemplateId =
-    | 'mcp-missing-capability'
-    | 'mcp-tool-error'
-    | 'mcp-auth-error'
-    | 'mcp-rate-limited'
+export type MCPNotificationSubTemplateId = 'mcp-missing-capability' | 'mcp-tool-error' | 'mcp-auth-error'
 
 export const MCP_NOTIFICATION_BUTTON_LABELS: Record<MCPNotificationSubTemplateId, string> = {
     'mcp-missing-capability': 'View MCP activity',
     'mcp-tool-error': 'View tool detail',
     'mcp-auth-error': 'View tool detail',
-    'mcp-rate-limited': 'View tool detail',
 }
 
 /**
@@ -569,16 +557,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call was denied',
         markdownMessage: `${mcpFailureMarkdownMessage('mcp-auth-error')}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-auth-error'] },
-    }),
-    'mcp-rate-limited': mcpNotificationVariants({
-        subTemplateId: 'mcp-rate-limited',
-        nameSuffix: 'when an MCP tool call is rate limited',
-        description: 'Agents are hitting your limits and backing off mid-task',
-        webhookDescription: 'Send rate-limited tool calls to your own endpoint',
-        slackMessage: mcpFailureSlackMessage('mcp-rate-limited'),
-        slackFallbackText: 'An MCP tool call was rate limited',
-        markdownMessage: `${mcpFailureMarkdownMessage('mcp-rate-limited')}\n\n${MCP_TOOL_ERROR_LINK}`,
-        slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-rate-limited'] },
     }),
     'survey-response': [
         {

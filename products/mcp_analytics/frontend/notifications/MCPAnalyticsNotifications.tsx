@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconHourglass, IconLock, IconMCP, IconPlus, IconWarning } from '@posthog/icons'
+import { IconLock, IconMCP, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
@@ -30,6 +30,7 @@ import {
 } from './mcpAnalyticsNotificationsLogic'
 import { MCPNotificationExample, mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
 import { MCPNotificationPreview } from './MCPNotificationPreview'
+import { MCPRecurringReports } from './MCPRecurringReports'
 
 interface MCPUseCaseConfig {
     useCase: MCPNotificationUseCase
@@ -87,21 +88,6 @@ const USE_CASES: MCPUseCaseConfig[] = [
             serverName: 'acme-mcp',
             intent: 'turn off the beta flag for EU users',
             toolName: 'update-feature-flag',
-        },
-        realCaption: 'Your most recent',
-    },
-    {
-        useCase: 'rate-limited',
-        subTemplateId: 'mcp-rate-limited',
-        icon: <IconHourglass />,
-        headline: 'Agents are hitting your limits',
-        lead: 'They back off mid-task, so the work silently goes unfinished.',
-        dialogTitle: 'Notify me about rate-limited tool calls',
-        sample: {
-            clientName: 'Cursor',
-            serverName: 'acme-mcp',
-            intent: 'pull the last 30 days of signups by source',
-            toolName: 'query-events',
         },
         realCaption: 'Your most recent',
     },
@@ -233,47 +219,35 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     const { openDialog: openAuthErrorDialog } = useActions(
         newNotificationDialogLogic({ subTemplateId: 'mcp-auth-error', onCreated })
     )
-    const { openDialog: openRateLimitedDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'mcp-rate-limited', onCreated })
-    )
     const openDialogFor: Record<MCPNotificationSubTemplateId, () => void> = {
         'mcp-missing-capability': openMissingCapabilityDialog,
         'mcp-tool-error': openToolErrorDialog,
         'mcp-auth-error': openAuthErrorDialog,
-        'mcp-rate-limited': openRateLimitedDialog,
-    }
-
-    if (notificationsFailed) {
-        return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: () => loadNotifications() }}
-                data-attr="mcp-analytics-notifications-load-error"
-            >
-                We couldn't load your MCP notifications. Please try again in a moment.
-            </LemonBanner>
-        )
-    }
-
-    if (!notificationsLoaded) {
-        return (
-            <div className="grid gap-2 md:grid-cols-2" data-attr="mcp-analytics-notifications">
-                {USE_CASES.map((config) => (
-                    <LemonCard key={config.useCase} hoverEffect={false} className="flex flex-col gap-2 p-3">
-                        <LemonSkeleton className="h-4 w-48 max-w-full" />
-                        <LemonSkeleton className="h-16 w-full" />
-                    </LemonCard>
-                ))}
-            </div>
-        )
     }
 
     // Anything the filters matched but we can't classify still needs a home, so it can't be
     // silently dropped from the list.
     const unclassified = notifications.filter((notification) => !getMCPNotificationUseCase(notification))
 
-    return (
-        <div className="flex flex-col gap-2" data-attr="mcp-analytics-notifications">
+    const instantAlerts = notificationsFailed ? (
+        <LemonBanner
+            type="error"
+            action={{ children: 'Try again', onClick: () => loadNotifications() }}
+            data-attr="mcp-analytics-notifications-load-error"
+        >
+            We couldn't load your MCP alerts. Please try again in a moment.
+        </LemonBanner>
+    ) : !notificationsLoaded ? (
+        <div className="grid gap-2 md:grid-cols-2">
+            {USE_CASES.map((config) => (
+                <LemonCard key={config.useCase} hoverEffect={false} className="flex flex-col gap-2 p-3">
+                    <LemonSkeleton className="h-4 w-48 max-w-full" />
+                    <LemonSkeleton className="h-16 w-full" />
+                </LemonCard>
+            ))}
+        </div>
+    ) : (
+        <>
             <div className="grid gap-2 md:grid-cols-2">
                 {USE_CASES.map((config) => (
                     <UseCaseCard
@@ -291,12 +265,27 @@ export function MCPAnalyticsNotifications(): JSX.Element {
 
             {unclassified.length > 0 && (
                 <LemonCard hoverEffect={false} className="flex flex-col gap-1 p-3">
-                    <h3 className="m-0 text-sm font-semibold">Other MCP notifications</h3>
+                    <h3 className="m-0 text-sm font-semibold">Other MCP alerts</h3>
                     {unclassified.map((notification) => (
                         <NotificationRow key={notification.id} notification={notification} />
                     ))}
                 </LemonCard>
             )}
+        </>
+    )
+
+    return (
+        <div className="flex flex-col gap-6" data-attr="mcp-analytics-notifications">
+            <MCPRecurringReports />
+
+            <section className="flex flex-col gap-2">
+                <h2 className="m-0 text-base font-semibold">Instant alerts</h2>
+                <p className="m-0 text-sm text-muted">
+                    One message per event, for the things you'd want to hear about the moment they happen. A busy server
+                    can send a lot of these.
+                </p>
+                {instantAlerts}
+            </section>
 
             {USE_CASES.map((config) => (
                 <NewNotificationDialog

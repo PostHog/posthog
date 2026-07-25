@@ -79,7 +79,7 @@ describe('mcpAnalyticsNotificationsLogic', () => {
     // tells them apart — misreading it would group a row under the wrong card.
     test.each([
         ['permission', 'auth-error'],
-        ['rate_limited', 'rate-limited'],
+        ['rate_limited', 'tool-error'],
         ['timeout', 'tool-error'],
     ])('classifies an errored tool call filtered to %s as %s', (errorType, expected) => {
         expect(
