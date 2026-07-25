@@ -358,9 +358,11 @@ WHERE t.origin_product != 'signals_scout'
   -- Failure clusters: keep both lines as written.
   -- Backlog clusters (query 5b): swap the status list for
   -- ('not_started', 'queued', 'in_progress') AND replace the recent-run bound with
-  -- `r.created_at < now() - interval 1 day`, then flip the ORDER BY to `r.created_at ASC`.
-  -- Dropping the age predicate entirely would return the *newest* active runs and let the
-  -- report cite a run that was never part of the backlog it claims to evidence.
+  -- `r.created_at < now() - interval 1 day`, then flip the ORDER BY to `r.created_at ASC`,
+  -- and add `AND r.environment = 'cloud'` to match 5b's scope.
+  -- Dropping the age predicate entirely would return the *newest* active runs, and dropping
+  -- the environment one would surface a local run 5b never counted — either lets the report
+  -- cite a run that was never part of the backlog it claims to evidence.
   AND r.status = 'failed'
   AND r.created_at > now() - interval 14 day
   -- Narrow to the cluster you are filing, e.g.:
