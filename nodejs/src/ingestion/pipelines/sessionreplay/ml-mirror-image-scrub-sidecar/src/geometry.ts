@@ -14,3 +14,9 @@ export interface Box {
 export function floorTo32(n: number): number {
     return Math.max(32, Math.floor(n / 32) * 32)
 }
+
+/** The smallest multiple of 32 that is at least n. Used to PAD a model input up to the stride, never
+ *  to resize up to it: padding adds background, where resizing up would resample real pixels. */
+export function ceilTo32(n: number): number {
+    return Math.max(32, Math.ceil(n / 32) * 32)
+}

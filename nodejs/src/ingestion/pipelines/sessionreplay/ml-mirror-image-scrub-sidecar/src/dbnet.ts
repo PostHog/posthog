@@ -11,7 +11,7 @@ import * as ort from 'onnxruntime-node'
 
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
-import { type Box, floorTo32 } from './geometry.ts'
+import { type Box, ceilTo32 } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 export interface DetectOpts {
@@ -69,6 +69,19 @@ export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
     return { session, inputName: session.inputNames[0], outputName: session.outputNames[0] }
 }
 
+/** Content and canvas dimensions the model runs on. Split out so the geometry is testable: an
+ *  aspect ratio that quantises badly silently narrows the redaction guarantee rather than erroring. */
+export function modelInputDims(
+    W: number,
+    H: number,
+    detLimit: number
+): { cw: number; ch: number; rw: number; rh: number } {
+    const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
+    const cw = Math.max(1, Math.floor(W * ratio))
+    const ch = Math.max(1, Math.floor(H * ratio))
+    return { cw, ch, rw: ceilTo32(cw), rh: ceilTo32(ch) }
+}
+
 async function preprocess(
     src: Src,
     W: number,
@@ -77,15 +90,22 @@ async function preprocess(
 ): Promise<{ data: Float32Array; rw: number; rh: number; sx: number; sy: number }> {
     // Area budget (detLimit^2), aspect preserved: same tensor-size bound as a detLimit-square, but a
     // tall page keeps its native text size instead of being squashed below detectability.
-    const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
-    const rw = floorTo32(W * ratio)
-    const rh = floorTo32(H * ratio)
+    // The frame keeps its own scale; only the canvas around it is rounded to the encoder's stride of
+    // 32. Resizing to a multiple of 32 instead would either upscale (resampling real pixels larger
+    // than the budget asked for) or floor (discarding up to 31 rows, which on a short banner is a
+    // large fraction of it and silently breaks the ratio the invariant enforces: a 2048x219 image
+    // floors to 192 rows against 73 stored, 2.63x, under the 3x that guarantees detection).
+    const { cw, ch, rw, rh } = modelInputDims(W, H, detLimit)
     // A resample is a low-pass filter, and glyph edges are the high frequencies DB scores. Restoring
     // some of that edge contrast before the model sees it is the cheapest lever on small text.
     // Measured against the ORIGINAL rather than the decoded frame, because both downscales cost edge
     // detail and a 4K screenshot has been through both by the time it arrives here.
-    const totalRatio = Math.sqrt((rw * rh) / src.inputPixels)
-    const pipeline = srcSharp(src).resize(rw, rh, { fit: 'fill' })
+    const totalRatio = Math.sqrt((cw * ch) / src.inputPixels)
+    // Padding is mid-grey rather than black or white: a flat extreme against a light or dark frame
+    // edge is itself a strong edge, which is what the DB head scores.
+    const pipeline = srcSharp(src)
+        .resize(cw, ch, { fit: 'fill' })
+        .extend({ right: rw - cw, bottom: rh - ch, background: '#808080' })
     const sharpened = DET_SHARPEN > 0 && totalRatio < DET_SHARPEN_BELOW
     const { data } = await (sharpened ? pipeline.sharpen({ sigma: DET_SHARPEN }) : pipeline)
         .raw()
@@ -97,7 +117,7 @@ async function preprocess(
         chw[plane + p] = (data[i + 1] / 255 - MEAN[1]) / STD[1]
         chw[2 * plane + p] = (data[i + 2] / 255 - MEAN[2]) / STD[2]
     }
-    return { data: chw, rw, rh, sx: W / rw, sy: H / rh }
+    return { data: chw, rw, rh, sx: W / cw, sy: H / ch }
 }
 
 /** Horizontal dilation by radius k via per-row prefix sums; bridges inter-word gaps on a line. */
