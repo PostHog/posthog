@@ -3036,7 +3036,12 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(
-        cls, team_id: int, repository: str, *, source: str | None = None
+        cls,
+        team_id: int,
+        repository: str,
+        *,
+        source: str | None = None,
+        priority: Priority | None = None,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -3048,7 +3053,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration, source=source)
+            github = cls(integration, source=source, priority=priority)
             if github.installation_can_access_repository(repository):
                 return github
         return None
