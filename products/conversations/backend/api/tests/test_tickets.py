@@ -639,11 +639,11 @@ class TestTicketAPI(APIBaseTest):
         full = self._list_ordered_ids("plan")
         self.assertEqual(full, expected_ids)
 
-        paged = []
+        paged: list[str] = []
         for offset in range(0, 5, 2):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/conversations/tickets/",
-                data={"order_by": "plan", "limit": 2, "offset": offset},
+                data={"order_by": "plan", "limit": "2", "offset": str(offset)},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             paged.extend(r["id"] for r in response.json()["results"])
