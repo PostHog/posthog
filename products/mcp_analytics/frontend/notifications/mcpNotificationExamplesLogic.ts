@@ -107,10 +107,10 @@ export interface mcpNotificationExamplesLogicActions {
         errorObject?: any
     }
     loadExamplesSuccess: (
-        examples: MCPNotificationExamples,
+        examples: Partial<Record<MCPNotificationUseCase, MCPNotificationExample>>,
         payload?: any
     ) => {
-        examples: MCPNotificationExamples
+        examples: Partial<Record<MCPNotificationUseCase, MCPNotificationExample>>
         payload?: any
     }
 }
