@@ -41,6 +41,8 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
                 )
             },
             team=survey.team,
+            # system write: skips the approval gate, because a beat task cannot
+            # surface an ApprovalRequired change request
             user=None,
         )
 

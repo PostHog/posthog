@@ -215,7 +215,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
-        self.recurring_survey.created_by = None
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
 

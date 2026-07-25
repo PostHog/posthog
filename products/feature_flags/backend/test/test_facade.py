@@ -494,7 +494,9 @@ class TestReleaseConditionTransforms:
             "payloads": {"control": "{}"},
             "aggregation_group_type_index": 1,
         }
-        new_groups = [{"variant": "", "rollout_percentage": 100, "properties": [{"key": "new", "type": "person"}]}]
+        new_groups: list[dict[str, Any]] = [
+            {"variant": "", "rollout_percentage": 100, "properties": [{"key": "new", "type": "person"}]}
+        ]
 
         result = replace_release_conditions(filters, new_groups)
 
