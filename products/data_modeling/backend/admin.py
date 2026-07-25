@@ -5,8 +5,8 @@ from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from products.data_modeling.backend.facade.api import build_tier_runs, untargeted_nodes
-from products.data_modeling.backend.facade.models import DAG
+from products.data_modeling.backend.logic.tier_run_report import build_tier_runs, untargeted_nodes
+from products.data_modeling.backend.models.dag import DAG
 
 
 @admin.register(DAG)

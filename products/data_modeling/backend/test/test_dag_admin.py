@@ -5,14 +5,15 @@ from posthog.test.base import BaseTest
 from django.test import override_settings
 from django.urls import reverse
 
-from products.data_modeling.backend.facade.models import (
-    DAG,
-    DataModelingJob,
-    DataModelingJobStatus,
-    DataWarehouseSavedQuery,
-    Node,
-    NodeType,
-)
+# under the test harness `autodiscover_modules("admin")` reaches no product-local admin, so the
+# @admin.register decorator has to be fired by importing the module (it registers fine in a real
+# process — this is not specific to this admin)
+import products.data_modeling.backend.admin  # noqa: E402, F401, I001
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import saved_query_node
 
 
 @override_settings(TEMPORAL_UI_HOST="https://temporal.example.com", TEMPORAL_NAMESPACE="prod")
@@ -24,17 +25,15 @@ class TestDataModelingDAGAdminTiers(BaseTest):
         self.client.force_login(self.user)
         self.dag = DAG.objects.create(team=self.team, name="Default")
 
-    def _node(self, name: str, target_seconds: int | None) -> Node:
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-        )
-        properties = {"system": {"frequency": {"target_seconds": target_seconds}}} if target_seconds else {}
-        return Node.objects.create(
-            team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.MAT_VIEW, properties=properties
-        )
+    def _node(self, name: str, target: timedelta | None) -> Node:
+        node = saved_query_node(self.team, self.dag, name, NodeType.MAT_VIEW)
+        if target is not None:
+            set_declared_target(node, target)
+            node.save()
+        return node
 
     def test_tiers_page_renders_each_tier_with_temporal_links(self):
-        node = self._node("daily_model", int(timedelta(days=1).total_seconds()))
+        node = self._node("daily_model", timedelta(days=1))
         parent_workflow_id = f"execute-dag-{self.dag.id}:86400-2026-07-25T03:00:00Z"
         DataModelingJob.objects.create(
             team=self.team,
