@@ -235,9 +235,12 @@ export function SmartEdge({
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
-    const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+    const { animatingEdgePair, mode, selectedNodeId } = useValues(hogFlowEditorLogic)
 
     const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
+    // Accent every edge touching the selected step so its inputs and outputs are easy to trace
+    const isConnectedToSelectedNode =
+        selectedNodeId !== null && (source === selectedNodeId || target === selectedNodeId)
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
@@ -267,9 +270,13 @@ export function SmartEdge({
 
     const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
 
+    const edgeStyle = isConnectedToSelectedNode
+        ? { ...props.style, stroke: 'var(--accent)', strokeWidth: 1.5 }
+        : props.style
+
     return (
         <>
-            <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            <BaseEdge {...props} path={edgePath} style={edgeStyle} markerEnd={markerEnd} markerStart={markerStart} />
             {isAnimating && (
                 <path
                     ref={animPathRef}

@@ -1,4 +1,5 @@
 import {
+    Connection,
     Edge,
     EdgeChange,
     MarkerType,
@@ -133,6 +134,33 @@ export function computeMoveEdges(
     } as HogFlow['edges'][0])
 
     return newEdges
+}
+
+/**
+ * Computes the new edges after dragging an edge's target end onto a different node.
+ * Returns null for no-op or invalid drops (unknown edge, unchanged target, or a self-loop
+ * back onto the edge's own source). Extracted into a pure function to be easier to test.
+ */
+export function computeReconnectEdges(
+    edges: HogFlow['edges'],
+    oldEdge: HogFlow['edges'][0],
+    newTarget: string | null
+): HogFlow['edges'] | null {
+    if (!newTarget || newTarget === oldEdge.to || newTarget === oldEdge.from) {
+        return null
+    }
+
+    const oldEdgeId = getEdgeId(oldEdge)
+    let matched = false
+    const newEdges = edges.map((edge) => {
+        if (getEdgeId(edge) === oldEdgeId) {
+            matched = true
+            return { ...edge, to: newTarget }
+        }
+        return edge
+    })
+
+    return matched ? newEdges : null
 }
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
@@ -1865,6 +1893,13 @@ export interface hogFlowEditorLogicActions {
     setEdges: (edges: HogFlowActionEdge[]) => {
         edges: HogFlowActionEdge[]
     }
+    onEdgeReconnect: (
+        oldEdge: HogFlowActionEdge,
+        newConnection: Connection
+    ) => {
+        oldEdge: HogFlowActionEdge
+        newConnection: Connection
+    }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
     }
@@ -1961,6 +1996,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         hideDropzones: true,
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
+        onEdgeReconnect: (oldEdge: HogFlowActionEdge, newConnection: Connection) => ({ oldEdge, newConnection }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
@@ -2208,7 +2244,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             id: getEdgeId(edge),
                             type: 'smart',
                             deletable: false,
-                            reconnectable: false,
+                            // Only the target end may be dragged: an edge's source determines its
+                            // type (branch vs continue) and branch index, so rewiring the source
+                            // would be ambiguous. Rewiring the target just repoints a step.
+                            reconnectable: 'target',
                             selectable: false,
                             focusable: false,
                             markerEnd: {
@@ -2301,6 +2340,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // that moved gets a fresh reference, an untouched one keeps its identity and its
                 // ReactFlow subtree doesn't re-render.
                 actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
+            },
+
+            onEdgeReconnect: ({ oldEdge, newConnection }) => {
+                const oldHogFlowEdge = oldEdge.data?.edge
+                if (!oldHogFlowEdge) {
+                    return
+                }
+
+                const updatedEdges = computeReconnectEdges(values.workflow.edges, oldHogFlowEdge, newConnection.target)
+                if (updatedEdges) {
+                    actions.setWorkflowInfo({ edges: updatedEdges })
+                }
             },
 
             onNodesDelete: ({ deleted }) => {

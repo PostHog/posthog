@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { computeMoveEdges, computeReconnectEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -85,6 +85,32 @@ describe('computeMoveEdges', () => {
         const edges = [edge('trigger', 'A', 'continue'), edge('A', 'exit', 'continue')]
         const nonexistent = edge('X', 'Y', 'continue')
         expect(computeMoveEdges(edges, 'A', nonexistent, false)).toBeNull()
+    })
+})
+
+describe('computeReconnectEdges', () => {
+    it('repoints only the dragged branch edge, leaving sibling branches untouched', () => {
+        // A conditional whose branches all default to the same downstream node (#73675): dragging
+        // one branch to a different step must rewire that edge alone, not every output.
+        const edges = [
+            edge('cond', 'exit', 'branch', 0),
+            edge('cond', 'exit', 'branch', 1),
+            edge('cond', 'exit', 'continue'),
+        ]
+        expect(computeReconnectEdges(edges, edge('cond', 'exit', 'branch', 1), 'A')).toEqual([
+            edge('cond', 'exit', 'branch', 0),
+            edge('cond', 'A', 'branch', 1),
+            edge('cond', 'exit', 'continue'),
+        ])
+    })
+
+    it.each([
+        { name: 'unchanged target', newTarget: 'exit' },
+        { name: 'self-loop onto the source', newTarget: 'cond' },
+        { name: 'dropped on empty space', newTarget: null },
+    ])('returns null for a no-op or invalid reconnect ($name)', ({ newTarget }) => {
+        const edges = [edge('cond', 'exit', 'branch', 0), edge('cond', 'exit', 'continue')]
+        expect(computeReconnectEdges(edges, edge('cond', 'exit', 'branch', 0), newTarget)).toBeNull()
     })
 })
 

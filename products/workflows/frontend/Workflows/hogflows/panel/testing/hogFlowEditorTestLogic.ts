@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1046,6 +1047,20 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             if (values.noMatchingEvents) {
                 actions.setNoMatchingEvents(false)
                 actions.setCanTryExtendedSearch(false)
+            }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        // Keep the sample event in sync with the trigger: when the trigger's filters change,
+        // the once-per-mount fetch in afterMount would otherwise leave a stale event in the panel.
+        matchingFilters: (_matchingFilters, oldMatchingFilters) => {
+            // Skip the initial emission on mount — afterMount already performs the first load.
+            if (oldMatchingFilters === undefined) {
+                return
+            }
+            if (values.shouldLoadSampleGlobals) {
+                actions.loadSampleGlobals()
             }
         },
     })),
