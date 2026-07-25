@@ -668,6 +668,14 @@ snapshots:
         hash: v1.k4693efd2.e01a8a548c694761b9f2a575268f420f653ad7eb9d26c2e33dc245ab03415fcf.Z5Ut_gF62xXnxkDgBXxE3yk6UDIAEVX5Sw_rKBPsqps
     settings-personalizationsettings--synced-truncated--light:
         hash: v1.k4693efd2.3c9f0dfa759b8c174abd8754593f0db9fd1518ff5225cccdcf0c3e83d4cdbe77.BqdmyuIiYJuGmHCQiRVAaBMk-xgycYOgVfwuMqma4LY
+    sidebar-taskitem--in-repository-group--dark:
+        hash: v1.k4693efd2.601f072b55c719b74db2abf8e4aa7f268f7c2cf80a279590fe841198392b49ee.sL5RJdxs9Ur7fkB9J_SO2L9JXFEpW1l1fmmQpd_-hEA
+    sidebar-taskitem--in-repository-group--light:
+        hash: v1.k4693efd2.0ae532ca59c02e645355bb9f08af295fb0c2afcd2c8c3cc6acd178f276acb416.6sNqaOArOyd2Wns3UDl8uQyd4aiwAAncKTbYidsZ9yw
+    sidebar-taskitem--pinned--dark:
+        hash: v1.k4693efd2.fef3cdc0c8a5485cabbb7ac37830d119d8939e864e972ee7a9cbd5e8c1a99fa9.6r2emBachF9VHn2cz9a2ktly_0P6sGl1iKfoQt9Sxu4
+    sidebar-taskitem--pinned--light:
+        hash: v1.k4693efd2.8e36c4705d8650d806cf7c933684299aca5d751d1dbffd58e836e20015115bd5.gkDV3puY-rvStAc8WBaLWOOakDzZDYv8B3wTukt4QbQ
     skill-buttons-skillbuttonactionmessage--add-analytics--dark:
         hash: v1.k4693efd2.6d4ce4fac8e23a50efbbfaf24c2e11f8981f6778af2bfb2ca559749d7bda0eca.OnypKY5jyJSbQUZtTVcUy-eXC2euU-xQ2wFBYJOsKwI
     skill-buttons-skillbuttonactionmessage--add-analytics--light:
