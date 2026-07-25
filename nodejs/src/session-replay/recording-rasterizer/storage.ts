@@ -3,37 +3,23 @@ import { Upload } from '@aws-sdk/lib-storage'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
-import { sanitizeForUTF8 } from '~/common/utils/strings'
-
 import { config } from './config'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 
 const log = createLogger()
 
-// The AWS SDK keeps the HTTP response off its public error type and hangs it on non-enumerable
-// $response / $metadata properties instead. Reading them is the only way to say anything useful about a
-// failure whose body the SDK could not parse: an object store or proxy answering with plaintext or an
-// HTML error page rather than S3's XML makes the SDK's parser throw, and the error it raises then
-// describes the parser's confusion instead of the request. $response.body holds the raw body in that
-// case, so it is where the actual reason lives.
-type AwsResponseError = {
-    $response?: { statusCode?: number; body?: unknown }
-    $metadata?: { httpStatusCode?: number }
-}
-
 function toUploadError(err: unknown, target: string): RasterizationError {
-    const { $response, $metadata } = (err ?? {}) as AwsResponseError
-    const status = $response?.statusCode ?? $metadata?.httpStatusCode
-    // $response.body is a string only when the SDK failed to parse it; otherwise it is the response stream.
-    const rawBody = $response?.body
-    const body = typeof rawBody === 'string' && rawBody.length > 0 ? sanitizeForUTF8(rawBody.slice(0, 500)) : null
-    // SDK messages run to several lines, and this one ends up as a Temporal failure message.
-    const reason = err instanceof Error ? err.message.replace(/\s+/g, ' ').slice(0, 300) : String(err)
-    // Reporting only: no upload failure is marked terminal here, so the workflow's retry policy keeps
-    // deciding what happens next.
+    // The AWS SDK keeps the HTTP response off its public error type and hangs it on a non-enumerable
+    // $response instead. When it could not parse the body at all, because a proxy or gateway answered with
+    // plaintext or an HTML error page rather than S3's XML, $response.body holds that raw body and the
+    // error the SDK raises describes nothing but its own parser's confusion. Retryability is untouched:
+    // the workflow's retry policy keeps deciding, as it does for any other upload failure.
+    const { statusCode, body } = (err as { $response?: { statusCode?: number; body?: unknown } })?.$response ?? {}
+    const reason = err instanceof Error ? err.message : String(err)
+    const responseBody = typeof body === 'string' ? `, response body: ${body.slice(0, 500)}` : ''
     return new RasterizationError(
-        `S3 upload to ${target} failed (status ${status ?? 'unknown'}): ${reason}${body ? `, response body: ${body}` : ''}`,
+        `S3 upload to ${target} failed (status ${statusCode ?? 'unknown'}): ${reason}${responseBody}`,
         true,
         'S3_UPLOAD_FAILED',
         err

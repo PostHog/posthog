@@ -90,51 +90,30 @@ describe('uploadToS3', () => {
 
     it.each([
         {
-            failure: 'a 5xx response the SDK could not parse',
-            // The SDK reports its parser's confusion, and hides the gateway's real body on $response.
+            failure: 'a response the SDK could not parse',
+            // All the SDK reports is its parser's confusion; the gateway's real body is on $response.
             error: Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
                 $response: { statusCode: 502, body: '<html>502 Bad Gateway</html>' },
             }),
-            expectedMessage: /status 502.*response body: <html>502 Bad Gateway/,
+            expectedMessage:
+                /^S3 upload to s3:\/\/bucket\/prefix\/id\.mp4 failed \(status 502\)[\s\S]*response body: <html>502 Bad Gateway<\/html>$/,
         },
         {
-            failure: 'a 4xx response the SDK could not parse',
-            error: Object.assign(new Error('Deserialization error: to see the raw response, inspect …'), {
-                $response: { statusCode: 403, body: 'AccessDenied' },
-            }),
-            expectedMessage: /status 403.*response body: AccessDenied/,
-        },
-        {
-            failure: 'a modeled service error carrying only $metadata',
-            error: Object.assign(new Error('Access Denied'), {
-                name: 'AccessDenied',
-                $metadata: { httpStatusCode: 403 },
-            }),
-            expectedMessage: /status 403.*Access Denied/,
-        },
-        {
-            failure: 'a failure with no HTTP response at all',
+            failure: 'a failure carrying no HTTP response',
             error: new Error('socket hang up'),
-            expectedMessage: /status unknown.*socket hang up/,
+            expectedMessage: /^S3 upload to s3:\/\/bucket\/prefix\/id\.mp4 failed \(status unknown\): socket hang up$/,
         },
-    ])('reports $failure with its status, leaving it retryable', async ({ error, expectedMessage }) => {
+    ])('reports $failure, leaving it retryable', async ({ error, expectedMessage }) => {
         mockDone.mockRejectedValue(error)
 
         await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
             name: 'RasterizationError',
             code: 'S3_UPLOAD_FAILED',
-            // Wrapping the failure must not make it terminal, whatever status it came back with.
+            // Wrapping an upload failure must not make it terminal.
             retryable: true,
             cause: error,
             message: expect.stringMatching(expectedMessage),
         })
-    })
-
-    it('names the upload target in the failure message', async () => {
-        mockDone.mockRejectedValue(new Error('socket hang up'))
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toThrow(
-            'S3 upload to s3://bucket/prefix/id.mp4 failed'
-        )
     })
 })
 
