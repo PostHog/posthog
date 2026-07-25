@@ -19,6 +19,7 @@ function timings(over: Partial<StageTimings> = {}): StageTimings {
         format: 'png',
         inputPixels: 1000,
         inputBytes: 500,
+        storedPixels: 1000,
         ...over,
     }
 }

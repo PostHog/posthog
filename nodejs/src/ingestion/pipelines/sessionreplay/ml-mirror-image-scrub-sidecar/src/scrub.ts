@@ -77,6 +77,8 @@ export interface StageTimings {
     inputPixels: number
     /** Encoded size as received, which is what this image cost the topic and the bucket. */
     inputBytes: number
+    /** Pixels actually written, which SCRUB_OUT_MAX_PIXELS can move independently of the source. */
+    storedPixels: number
 }
 
 const NSFW_THRESHOLD = numFromEnv('NSFW_THRESHOLD', 0.6, 0.05, 0.95) // NSFL+NSFW combined; deliberately loose, this is a safety net
@@ -140,6 +142,7 @@ export async function advancedScrub(
         format: 'unknown',
         inputPixels: 0,
         inputBytes: input.length,
+        storedPixels: 0,
     }
     const t0 = performance.now()
     const tDec = performance.now()
@@ -162,8 +165,7 @@ export async function advancedScrub(
     // fixed-cost inference on every frame, which makes it the largest single thing this skips.
     if (isUniform(src)) {
         timings.uniform = true
-        const flat = await forStorage(src, W, H, [])
-        const out = await compose(flat.src, flat.W, flat.H, [], timings)
+        const out = await compose(src, W, H, [], timings)
         timings.totalMs = performance.now() - t0
         return { out, t: timings }
     }
@@ -227,19 +229,19 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const stored = await forStorage(src, W, H, fillBoxes)
-    const out = await compose(stored.src, stored.W, stored.H, stored.boxes, timings)
+    const out = await compose(src, W, H, fillBoxes, timings)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
 }
 
 /** Whether every pixel is the same exact colour.
  *
- *  Exact rather than near-uniform, and at full resolution rather than over a thumbnail, because both
- *  shortcuts skip frames that do hold text: a downscale averages a single 14px line into its
- *  background, and a tolerance admits any faint watermark. Costs nothing on a frame with content,
- *  which differs from its first pixel within the first few, and a full pass only on frames it is
- *  about to save an entire detection round on. */
+ *  Exact, and over the same buffer every detector is given, which is what makes skipping them sound:
+ *  a frame that is one colour at that resolution cannot yield a detection at that resolution. Both
+ *  obvious relaxations break that: a tolerance admits a faint watermark, and running it over a
+ *  thumbnail admits a single 14px line once the downscale averages it into the background. Costs
+ *  nothing on a frame with content, which differs from its first pixel within the first few, and a
+ *  full pass only on frames it is about to save an entire detection round on. */
 export function isUniform(src: Src): boolean {
     const d = src.data
     const r = d[0]
@@ -251,45 +253,6 @@ export function isUniform(src: Src): boolean {
         }
     }
     return true
-}
-
-/** Shrink the frame to the storage budget once detection is done with it, carrying the boxes across.
- *
- *  Detection has already run at full resolution, so this costs no recall, unlike lowering
- *  SCRUB_MAX_PIXELS, which shrinks what the detectors get to see. Boxes round outward: a fill that
- *  lost a pixel on rounding would expose a rim of whatever it was covering. */
-async function forStorage(
-    src: Src,
-    W: number,
-    H: number,
-    boxes: Box[]
-): Promise<{ src: Src; W: number; H: number; boxes: Box[] }> {
-    if (W * H <= SCRUB_OUT_MAX_PIXELS) {
-        return { src, W, H, boxes }
-    }
-    const scale = Math.sqrt(SCRUB_OUT_MAX_PIXELS / (W * H))
-    const { data, info } = await srcSharp(src)
-        .resize(Math.max(1, Math.round(W * scale)), Math.max(1, Math.round(H * scale)), { fit: 'fill' })
-        .raw()
-        .toBuffer({ resolveWithObject: true })
-    const sx = info.width / W
-    const sy = info.height / H
-    const scaled = boxes.map((b) => {
-        const left = Math.floor(b.left * sx)
-        const top = Math.floor(b.top * sy)
-        return {
-            left,
-            top,
-            width: Math.max(1, Math.min(info.width, Math.ceil((b.left + b.width) * sx)) - left),
-            height: Math.max(1, Math.min(info.height, Math.ceil((b.top + b.height) * sy)) - top),
-        }
-    })
-    return {
-        src: { ...src, data, W: info.width, H: info.height },
-        W: info.width,
-        H: info.height,
-        boxes: scaled,
-    }
 }
 
 /**
@@ -370,12 +333,19 @@ async function detectTextRegions(input: Buffer, W: number, H: number): Promise<B
  *  pixels inside a box ever survive. A solid fill carries no glyph, face, or code-module structure
  *  (blur and mosaic are low-pass filters whose coarse structure an LLM or a re-run detector can
  *  still recover), so the same irreversible treatment covers all three classes. */
-async function compose(src: Src, W: number, H: number, boxes: Box[], timings: StageTimings): Promise<Buffer> {
+export async function compose(
+    src: Src,
+    W: number,
+    H: number,
+    boxes: Box[],
+    timings: StageTimings,
+    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
+): Promise<Buffer> {
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
         const tE0 = performance.now()
-        const out0 = await srcSharp(src).png({ compressionLevel: PNG_LEVEL }).toBuffer()
+        const out0 = await encodeStored(srcSharp(src), W, H, outMaxPixels, timings)
         timings.encodeMs = performance.now() - tE0
         return out0
     }
@@ -429,10 +399,50 @@ async function compose(src: Src, W: number, H: number, boxes: Box[], timings: St
 
     timings.composeMs = performance.now() - tC
     const tE = performance.now()
-    const out = await srcSharp(src)
-        .composite([{ input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 }])
-        .png({ compressionLevel: PNG_LEVEL })
-        .toBuffer()
+    const redacted = srcSharp(src).composite([
+        { input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 },
+    ])
+    const out = await encodeStored(redacted, W, H, outMaxPixels, timings)
     timings.encodeMs = performance.now() - tE
     return out
+}
+
+/**
+ * Encode at the storage budget, downscaling only after every fill is already in the pixels.
+ *
+ * Order matters here and is the whole reason this is a separate step. Resampling the frame first and
+ * filling the rescaled boxes afterwards leaves a rim of the content each box exists to destroy: a
+ * resize kernel reaches beyond the box edge, so destination pixels just outside it carry a weighted
+ * average that includes what was inside. Rounding the boxes outward covers one pixel of rounding,
+ * not the kernel's reach, and measured against a black block on white the residue runs to full
+ * intensity one pixel out at a mild downscale. Downscaling what is already redacted cannot leak,
+ * because the only thing left to smear is the solid fill.
+ *
+ * Sharp orders resize before composite within one pipeline regardless of call order, so the resize
+ * has to happen in a second pass over the composited pixels rather than chained onto the first.
+ */
+async function encodeStored(
+    redacted: sharp.Sharp,
+    W: number,
+    H: number,
+    outMaxPixels: number,
+    timings?: StageTimings
+): Promise<Buffer> {
+    if (W * H <= outMaxPixels) {
+        if (timings) {
+            timings.storedPixels = W * H
+        }
+        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
+    }
+    const scale = Math.sqrt(outMaxPixels / (W * H))
+    const outW = Math.max(1, Math.round(W * scale))
+    const outH = Math.max(1, Math.round(H * scale))
+    if (timings) {
+        timings.storedPixels = outW * outH
+    }
+    const { data, info } = await redacted.raw().toBuffer({ resolveWithObject: true })
+    return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })
+        .resize(outW, outH, { fit: 'fill' })
+        .png({ compressionLevel: PNG_LEVEL })
+        .toBuffer()
 }
