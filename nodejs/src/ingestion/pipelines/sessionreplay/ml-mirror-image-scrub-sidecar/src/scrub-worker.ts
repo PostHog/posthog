@@ -26,10 +26,12 @@ port.on('message', (job: ScrubJob) => {
     // job instead of becoming an unhandled rejection that takes the whole worker down with it.
     advancedScrub(input, models)
         .then(({ out, t }) => {
-            // Deliberately copied rather than transferred. The output can be the shared BLANK_PNG
-            // constant, which lives in Node's small-buffer pool, and an 8 KiB pool ArrayBuffer is not
-            // transferable: attempting it throws DataCloneError on exactly the NSFW-gated path this
-            // service exists to handle. A PNG-sized copy costs microseconds against a scrub.
+            // Copied, never transferred: nothing this returns has a transferable backing store, so a
+            // transfer list throws DataCloneError on every reply rather than on some edge case.
+            // sharp hands back a napi external ArrayBuffer, which is not detachable even when it is
+            // exactly sized, and the safety gate's BLANK_PNG is carved from Node's shared 8 KiB
+            // buffer pool. A PNG-sized copy costs microseconds against a scrub, so there is nothing
+            // to reclaim by trying to be clever here.
             port.postMessage({ id: job.id, out, timings: t } satisfies ScrubReply)
         })
         .catch((error: unknown) => {
