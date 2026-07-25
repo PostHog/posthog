@@ -10,6 +10,18 @@ const FAKE_WORKER = pathToFileURL(`${process.cwd()}/src/fake-scrub-worker.mjs`)
  *  overlap rather than infer it from elapsed wall time, which only measures how loaded the runner is. */
 type TimedRun = ScrubResult['t'] & { startedAt: number; finishedAt: number }
 
+/** Replacement runs on a backoff timer, so tests wait for the pool to report the capacity back rather
+ *  than for a duration that has to be re-tuned whenever that backoff changes. */
+async function untilUsable(pool: ScrubPool, workers: number): Promise<void> {
+    const giveUpAt = performance.now() + 10_000
+    while (pool.usableWorkers() !== workers) {
+        if (performance.now() > giveUpAt) {
+            throw new Error(`pool stuck at ${pool.usableWorkers()} usable workers, wanted ${workers}`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+}
+
 function peakOverlap(results: ScrubResult[]): number {
     const edges = results.flatMap((r) => [
         { at: (r.t as TimedRun).startedAt, delta: 1 },
@@ -61,8 +73,11 @@ describe('startPool', () => {
         // be throughput quietly dropping, which is indistinguishable from the load easing off.
         pool = await startPool(2, FAKE_WORKER)
 
+        // The worker answers before it dies, so wait for the loss itself and then for the recovery:
+        // scrub() returning says nothing about whether the death has happened yet.
         await pool.scrub(Buffer.from('die-when-idle'))
-        await new Promise((resolve) => setTimeout(resolve, 400))
+        await untilUsable(pool, 1)
+        await untilUsable(pool, 2)
 
         const results = await Promise.all(['x', 'y'].map((k) => pool.scrub(Buffer.from(k))))
         expect(peakOverlap(results)).toBe(2)
@@ -88,6 +103,20 @@ describe('startPool', () => {
         pool = await startPool(1, FAKE_WORKER)
 
         await expect(pool.scrub(Buffer.from('undecodable'))).rejects.toBeInstanceOf(UndecodableImageError)
+    })
+
+    it('reclaims a worker that never replies, and keeps serving afterwards', async () => {
+        // A thread stuck inside a native ORT or libvips call answers nothing and cannot be interrupted,
+        // so without a deadline the job never settles. The server only decrements its concurrency count
+        // when it does, which means one wedge permanently costs one of maxConcurrency: after enough of
+        // them the sidecar sheds every request with a 503 until the pod is restarted.
+        pool = await startPool(1, FAKE_WORKER, 100)
+
+        await expect(pool.scrub(Buffer.from('hang'))).rejects.toThrow(/timed out/)
+
+        await untilUsable(pool, 1)
+        const after = await pool.scrub(Buffer.from('after'))
+        expect(after.out.toString()).toMatch(/^done:after/)
     })
 
     it('fails the in-flight job when a worker dies, and keeps serving afterwards', async () => {

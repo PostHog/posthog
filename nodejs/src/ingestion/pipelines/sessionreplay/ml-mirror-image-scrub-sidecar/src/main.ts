@@ -1,7 +1,7 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
 import { loadConfig } from './config.ts'
 import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
-import { ScrubMetrics } from './metrics.ts'
+import { ScrubMetrics, trackPool } from './metrics.ts'
 import { startPool } from './pool.ts'
 import { startServer } from './server.ts'
 
@@ -20,7 +20,8 @@ console.log(
 
 // Every worker loads its models before this resolves, so no listener exists until the whole pool can
 // scrub and the readiness probe cannot pass on a half-started pool.
-const pool = await startPool(SCRUB_WORKERS, WORKER_URL)
+const pool = await startPool(SCRUB_WORKERS, WORKER_URL, cfg.jobTimeoutMs)
+trackPool(pool)
 
 const { scrub, metrics } = startServer(
     cfg.port,
@@ -31,7 +32,8 @@ const { scrub, metrics } = startServer(
         const { out, t } = await pool.scrub(input)
         ScrubMetrics.observeScrubOutcome(t)
         return out
-    }
+    },
+    () => pool.usableWorkers() > 0
 )
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

@@ -10,6 +10,12 @@ parentPort.on('message', async (job) => {
     if (kind === 'crash') {
         process.exit(7)
     }
+    if (kind === 'hang') {
+        // Never replies, standing in for a thread stuck inside a native ORT or libvips call. Cannot be
+        // a real block (a busy loop or Atomics.wait) because then terminate() could not stop it either
+        // and the test would hang on cleanup rather than assert anything.
+        return
+    }
     if (kind === 'undecodable') {
         parentPort.postMessage({ id: job.id, failure: { message: 'bad bytes', undecodable: true } })
         return

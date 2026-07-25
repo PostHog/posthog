@@ -8,6 +8,10 @@ export interface Config {
     maxConcurrency: number
     // 413 above the ~10 MiB Kafka message ceiling — bigger is anomalous. The service owns its own memory bound.
     maxBodyBytes: number
+    // How long one image may hold a worker before that worker is treated as wedged and replaced.
+    // Sits inside the consumer's whole-batch scrub budget (SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS,
+    // 120s), so the sidecar reclaims the worker before the consumer gives up on the batch.
+    jobTimeoutMs: number
 }
 
 // Validated like every other knob: a mistyped IMAGE_SCRUB_CONCURRENCY parsed to NaN leaves
@@ -19,5 +23,6 @@ export function loadConfig(): Config {
         metricsPort: numFromEnv('IMAGE_SCRUB_METRICS_PORT', 9011, 1, 65535),
         maxConcurrency: numFromEnv('IMAGE_SCRUB_CONCURRENCY', 8, 1, 256),
         maxBodyBytes: numFromEnv('IMAGE_SCRUB_MAX_BODY_BYTES', 20 * 1024 * 1024, 1024, 512 * 1024 * 1024),
+        jobTimeoutMs: numFromEnv('IMAGE_SCRUB_JOB_TIMEOUT_MS', 60_000, 1000, 600_000),
     }
 }

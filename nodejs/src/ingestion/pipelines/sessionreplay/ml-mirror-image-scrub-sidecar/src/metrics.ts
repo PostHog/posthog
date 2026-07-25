@@ -1,4 +1,4 @@
-import { Counter, Histogram, Registry } from 'prom-client'
+import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
 import { type StageTimings } from './scrub.ts'
 
@@ -98,7 +98,50 @@ const codesRedacted = new Counter({
     registers: [register],
 })
 
+// Pool health. Throughput is the product of how many workers are alive and how long each job holds
+// one, and neither is visible from the request counters: a pod down to one worker still answers
+// every request, just eight times slower, which reads as the load easing off.
+const workerRestarts = new Counter({
+    name: 'ml_mirror_image_scrub_worker_restarts_total',
+    help: 'Inference workers replaced after dying or wedging (a nonzero rate means jobs are being lost and capacity rebuilt)',
+    registers: [register],
+})
+interface PoolProbe {
+    usableWorkers(): number
+    queueDepth(): number
+}
+// Set after the pool starts, so the gauges have to reach for it at scrape time rather than close
+// over it at construction.
+let pool: PoolProbe | null = null
+
+/** Both values change with every job, far too often to push, so they are sampled when scraped. */
+export function trackPool(started: PoolProbe): void {
+    pool = started
+}
+
+new Gauge({
+    name: 'ml_mirror_image_scrub_workers_usable',
+    help: 'Inference workers able to take a job now, against SCRUB_WORKERS',
+    registers: [register],
+    collect() {
+        if (pool) {
+            this.set(pool.usableWorkers())
+        }
+    },
+})
+new Gauge({
+    name: 'ml_mirror_image_scrub_queue_depth',
+    help: 'Jobs accepted but waiting for a free worker (sustained depth means the pod is undersized, not that a worker is stuck)',
+    registers: [register],
+    collect() {
+        if (pool) {
+            this.set(pool.queueDepth())
+        }
+    },
+})
+
 export const ScrubMetrics = {
+    incWorkerRestart: () => workerRestarts.inc(),
     incScrubbed: () => scrubbed.inc(),
     incFailed: () => failed.inc(),
     incUndecodable: () => undecodable.inc(),

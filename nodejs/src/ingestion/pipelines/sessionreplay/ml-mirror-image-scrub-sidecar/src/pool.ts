@@ -2,9 +2,11 @@
 import { Worker } from 'node:worker_threads'
 
 import { UndecodableImageError } from './blur.ts'
+import { ScrubMetrics } from './metrics.ts'
 import { type StageTimings } from './scrub.ts'
 import { type ScrubReply } from './worker-protocol.ts'
 
+const WORKER_READY_TIMEOUT_MS = 120_000
 const RESTART_BACKOFF_BASE_MS = 500
 const RESTART_BACKOFF_MAX_MS = 30_000
 
@@ -15,6 +17,10 @@ export interface ScrubResult {
 
 export interface ScrubPool {
     scrub(input: Buffer): Promise<ScrubResult>
+    /** Workers able to take a job now. The liveness probe reads this: with inference off the main
+     *  thread, a process whose workers are all dead still answers probes perfectly well. */
+    usableWorkers(): number
+    queueDepth(): number
     close(): Promise<void>
 }
 
@@ -46,7 +52,7 @@ interface Slot {
  * module containing import.meta, the same constraint qr.ts documents. Entry points run under tsx,
  * where it works.
  */
-export async function startPool(size: number, workerUrl: URL): Promise<ScrubPool> {
+export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_000): Promise<ScrubPool> {
     const slots: Slot[] = []
     const queue: { id: number; input: Buffer; pending: Pending }[] = []
     let nextJobId = 0
@@ -73,17 +79,39 @@ export async function startPool(size: number, workerUrl: URL): Promise<ScrubPool
         slots[index] = slot
 
         // Startup failures reject rather than retire, so a worker that cannot load fails startPool
-        // instead of respawning forever against whatever is broken.
+        // instead of respawning forever against whatever is broken. All three exits are covered
+        // deliberately: a worker killed while loading models (an OOM, an external terminate) emits
+        // `exit` with no `error`, and waiting only on `error` would leave this promise unsettled, so
+        // startPool would never resolve, no listener would ever bind, and the pod would sit wedged
+        // with nothing logged.
         await new Promise<void>((ready, failed) => {
             const onReady = (msg: ScrubReply): void => {
                 if ('ready' in msg) {
-                    worker.off('message', onReady)
-                    worker.off('error', failed)
+                    cleanup()
                     ready()
                 }
             }
+            const onError = (error: Error): void => {
+                cleanup()
+                failed(error)
+            }
+            const onExit = (code: number): void => {
+                cleanup()
+                failed(new Error(`scrub worker exited with code ${code} before it was ready`))
+            }
+            const timer = setTimeout(() => {
+                cleanup()
+                failed(new Error(`scrub worker did not become ready within ${WORKER_READY_TIMEOUT_MS}ms`))
+            }, WORKER_READY_TIMEOUT_MS)
+            const cleanup = (): void => {
+                clearTimeout(timer)
+                worker.off('message', onReady)
+                worker.off('error', onError)
+                worker.off('exit', onExit)
+            }
             worker.on('message', onReady)
-            worker.once('error', failed)
+            worker.once('error', onError)
+            worker.once('exit', onExit)
         })
 
         worker.on('message', (msg: ScrubReply) => {
@@ -130,6 +158,7 @@ export async function startPool(size: number, workerUrl: URL): Promise<ScrubPool
         slot.usable = false
         slot.job?.pending.reject(error)
         slot.job = null
+        ScrubMetrics.incWorkerRestart()
         void slot.worker.terminate().catch(() => {})
 
         // Backoff, because a worker that dies on every start (an OOM loading models, a corrupt model
@@ -160,9 +189,45 @@ export async function startPool(size: number, workerUrl: URL): Promise<ScrubPool
                 return Promise.reject(new Error('scrub pool is closing'))
             }
             return new Promise<ScrubResult>((resolve, reject) => {
-                queue.push({ id: nextJobId++, input, pending: { resolve, reject } })
+                const id = nextJobId++
+                // A worker wedged inside a native ONNX or libvips call would otherwise hold its slot
+                // forever, and the server only releases its concurrency count when this settles, so
+                // every wedge would permanently cost one of maxConcurrency until the pod restarted.
+                const deadline = setTimeout(() => {
+                    const holder = slots.find((s) => s?.job?.id === id)
+                    if (holder) {
+                        retireAndReplace(slots.indexOf(holder), holder, new Error(`scrub job ${id} timed out`))
+                        return
+                    }
+                    const queued = queue.findIndex((j) => j.id === id)
+                    if (queued !== -1) {
+                        queue.splice(queued, 1)
+                        reject(new Error(`scrub job ${id} timed out while queued`))
+                    }
+                }, jobTimeoutMs)
+                deadline.unref()
+                queue.push({
+                    id,
+                    input,
+                    pending: {
+                        resolve: (result) => {
+                            clearTimeout(deadline)
+                            resolve(result)
+                        },
+                        reject: (error) => {
+                            clearTimeout(deadline)
+                            reject(error)
+                        },
+                    },
+                })
                 pump()
             })
+        },
+        usableWorkers(): number {
+            return slots.filter((s) => s?.usable).length
+        },
+        queueDepth(): number {
+            return queue.length
         },
         async close(): Promise<void> {
             closing = true
