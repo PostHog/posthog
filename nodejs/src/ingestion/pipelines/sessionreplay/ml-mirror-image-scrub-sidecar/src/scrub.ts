@@ -66,6 +66,8 @@ export interface StageTimings {
     encodeMs: number
     totalMs: number
     blanked: boolean
+    /** Frame was a single flat colour, so detection was skipped as provably vacuous. */
+    uniform: boolean
     faces: number
     textBoxes: number
     codes: number
@@ -129,6 +131,7 @@ export async function advancedScrub(
         encodeMs: 0,
         totalMs: 0,
         blanked: false,
+        uniform: false,
         faces: 0,
         textBoxes: 0,
         codes: 0,
@@ -149,6 +152,18 @@ export async function advancedScrub(
     timings.decodeMs = performance.now() - tDec
     timings.format = src.format
     timings.inputPixels = src.inputPixels
+
+    // A frame of one exact colour holds no text, face, code or anything the safety gate could trip
+    // on, so every model below can only return nothing. Replay captures plenty of them: blank page
+    // loads, transitions, cleared views. Ahead of the gate rather than after it because the gate is a
+    // fixed-cost inference on every frame, which makes it the largest single thing this skips.
+    if (isUniform(src)) {
+        timings.uniform = true
+        const flat = await forStorage(src, W, H, [])
+        const out = await compose(flat.src, flat.W, flat.H, [], timings)
+        timings.totalMs = performance.now() - t0
+        return { out, t: timings }
+    }
 
     // 1. NSFW / gore gate FIRST: if it trips we skip all detection. Running it first (rather than
     //    overlapping detection) keeps each worker ~1 core, which packs better under multi-process
@@ -213,6 +228,26 @@ export async function advancedScrub(
     const out = await compose(stored.src, stored.W, stored.H, stored.boxes, timings)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
+}
+
+/** Whether every pixel is the same exact colour.
+ *
+ *  Exact rather than near-uniform, and at full resolution rather than over a thumbnail, because both
+ *  shortcuts skip frames that do hold text: a downscale averages a single 14px line into its
+ *  background, and a tolerance admits any faint watermark. Costs nothing on a frame with content,
+ *  which differs from its first pixel within the first few, and a full pass only on frames it is
+ *  about to save an entire detection round on. */
+export function isUniform(src: Src): boolean {
+    const d = src.data
+    const r = d[0]
+    const g = d[1]
+    const b = d[2]
+    for (let i = 3; i < d.length; i += 3) {
+        if (d[i] !== r || d[i + 1] !== g || d[i + 2] !== b) {
+            return false
+        }
+    }
+    return true
 }
 
 /** Shrink the frame to the storage budget once detection is done with it, carrying the boxes across.

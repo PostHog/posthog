@@ -82,6 +82,11 @@ const blanked = new Counter({
     help: 'Images irreversibly replaced with a blank PNG by the NSFW/gore gate (alert on rate spikes)',
     registers: [register],
 })
+const uniformFrames = new Counter({
+    name: 'ml_mirror_image_scrub_uniform_frames_total',
+    help: 'Frames of a single flat colour, where detection was skipped as provably vacuous (against scrubbed_total, this is what the skip is worth)',
+    registers: [register],
+})
 const facesRedacted = new Counter({
     name: 'ml_mirror_image_scrub_faces_redacted_total',
     help: 'Face regions solid-filled (alert on a sustained zero rate under traffic: detector outage)',
@@ -153,6 +158,9 @@ export const ScrubMetrics = {
     observeScrubOutcome: (t: StageTimings): void => {
         if (t.blanked) {
             blanked.inc()
+        }
+        if (t.uniform) {
+            uniformFrames.inc()
         }
         facesRedacted.inc(t.faces)
         textBoxesRedacted.inc(t.textBoxes)
