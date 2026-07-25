@@ -1,6 +1,6 @@
 import { totalmem } from 'node:os'
 
-import { memoryLimitBytes, quotaCores } from './cores.ts'
+import { memoryLimitBytes, quotaCores, workersForMemoryLimit } from './cores.ts'
 
 const reader =
     (files: Record<string, string>) =>
@@ -61,5 +61,20 @@ describe('memoryLimitBytes', () => {
 
     it('ignores a limit at or above the host, which is what an uncapped container reads', () => {
         expect(memoryLimitBytes(reader({ [V2]: `${totalmem()}\n` }))).toBeNull()
+    })
+})
+
+describe('memoryBoundedWorkers', () => {
+    // The reserve is what stops the arithmetic handing every byte of the limit to workers, leaving
+    // the main thread and the overlap during a replacement unbudgeted. On the deployed 4-core/2Gi
+    // shape the cores bound already gives 4, so the reserve costs nothing there and only binds where
+    // memory is the scarcer side.
+    it.each([
+        ['2Gi, the deployed shape', 2 * 1024 ** 3, 3],
+        ['4Gi', 4 * 1024 ** 3, 7],
+        ['1Gi, too small for two', 1024 ** 3, 1],
+        ['256Mi, below even the reserve', 256 * 1024 ** 2, 1],
+    ])('allows %s to hold %d workers', (_case, limit, expected) => {
+        expect(workersForMemoryLimit(limit)).toBe(expected)
     })
 })

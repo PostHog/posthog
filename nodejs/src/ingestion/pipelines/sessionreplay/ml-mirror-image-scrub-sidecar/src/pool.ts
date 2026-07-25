@@ -2,6 +2,7 @@
 import { Worker } from 'node:worker_threads'
 
 import { UndecodableImageError } from './blur.ts'
+import { WORKER_HEAP_MB } from './cores.ts'
 import { ScrubMetrics } from './metrics.ts'
 import { type StageTimings } from './scrub.ts'
 import { type ScrubReply } from './worker-protocol.ts'
@@ -9,6 +10,8 @@ import { type ScrubReply } from './worker-protocol.ts'
 const WORKER_READY_TIMEOUT_MS = 120_000
 const RESTART_BACKOFF_BASE_MS = 500
 const RESTART_BACKOFF_MAX_MS = 30_000
+/** How long a replacement must stay up before its slot's failure streak is forgiven. */
+const RESTART_HEALTHY_MS = 60_000
 
 export interface ScrubResult {
     out: Buffer
@@ -17,8 +20,9 @@ export interface ScrubResult {
 
 export interface ScrubPool {
     scrub(input: Buffer): Promise<ScrubResult>
-    /** Workers able to take a job now. The liveness probe reads this: with inference off the main
-     *  thread, a process whose workers are all dead still answers probes perfectly well. */
+    /** Workers alive and able to serve, busy ones included. The liveness probe reads this: with
+     *  inference off the main thread, a process whose workers are all dead still answers probes
+     *  perfectly well. */
     usableWorkers(): number
     queueDepth(): number
     close(): Promise<void>
@@ -31,13 +35,17 @@ interface Pending {
 
 interface Slot {
     worker: Worker
-    /** The job this worker is running, since it takes exactly one at a time: `run` blocks its thread. */
-    job: { id: number; pending: Pending } | null
+    /** The job this worker is running, since it takes exactly one at a time: `run` blocks its thread.
+     *  `deadline` is armed here rather than at enqueue so it measures execution, not queue wait. */
+    job: { id: number; pending: Pending; deadline: NodeJS.Timeout } | null
     /** False until the worker reports ready and again once retired. A worker that never finished
      *  starting will not answer, so dispatching to it strands the job until the consumer times out. */
     usable: boolean
     /** A crash raises both `error` and `exit`, so replacement has to be idempotent per slot. */
     retired: boolean
+    /** When this worker became ready, so the restart backoff can tell a worker that recovered from
+     *  one that is flapping. */
+    readyAt: number
 }
 
 /**
@@ -52,7 +60,12 @@ interface Slot {
  * module containing import.meta, the same constraint qr.ts documents. Entry points run under tsx,
  * where it works.
  */
-export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_000): Promise<ScrubPool> {
+export async function startPool(
+    size: number,
+    workerUrl: URL,
+    jobTimeoutMs = 15_000,
+    workerData: Record<string, unknown> = {}
+): Promise<ScrubPool> {
     const slots: Slot[] = []
     const queue: { id: number; input: Buffer; pending: Pending }[] = []
     let nextJobId = 0
@@ -68,15 +81,33 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
                 continue
             }
             const next = queue.shift()!
-            slot.job = { id: next.id, pending: next.pending }
+            // A worker wedged inside a native ONNX or libvips call answers nothing and cannot be
+            // interrupted, so without this the job never settles and the server never releases the
+            // concurrency slot it is holding. Armed here, at dispatch, because a deadline armed at
+            // enqueue charges queue wait to whichever worker happens to hold the job when it expires:
+            // under the overload that causes queueing that destroys healthy workers, which removes
+            // capacity and lengthens the queue further.
+            const deadline = setTimeout(() => {
+                retireAndReplace(slots.indexOf(slot), slot, new Error(`scrub job ${next.id} timed out`))
+            }, jobTimeoutMs)
+            deadline.unref()
+            slot.job = { id: next.id, pending: next.pending, deadline }
             slot.worker.postMessage({ id: next.id, input: next.input })
         }
     }
 
     const spawn = async (index: number): Promise<void> => {
-        const worker = new Worker(workerUrl, { workerData: { index } })
-        const slot: Slot = { worker, job: null, usable: false, retired: false }
+        const worker = new Worker(workerUrl, {
+            workerData: { ...workerData, index },
+            resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
+        })
+        const slot: Slot = { worker, job: null, usable: false, retired: false, readyAt: 0 }
         slots[index] = slot
+
+        // An 'error' with no listener is rethrown as an uncaught exception, so one worker's failure
+        // would take the whole sidecar down. This sink covers the worker's entire life, including
+        // the window after the ready race stops listening and before the handlers below are attached.
+        worker.on('error', (error) => console.error(`[image-scrub] worker ${index}: ${String(error)}`))
 
         // Startup failures reject rather than retire, so a worker that cannot load fails startPool
         // instead of respawning forever against whatever is broken. All three exits are covered
@@ -112,6 +143,11 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
             worker.on('message', onReady)
             worker.once('error', onError)
             worker.once('exit', onExit)
+        }).catch((error: unknown) => {
+            // Terminate before rethrowing: a worker that timed out is still running, and would go on
+            // to finish loading and idle forever holding three ONNX sessions and a thread.
+            void worker.terminate().catch(() => {})
+            throw error
         })
 
         worker.on('message', (msg: ScrubReply) => {
@@ -125,9 +161,15 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
                 console.error(`[image-scrub] worker ${index} replied for job ${msg.id} with none in flight`)
                 return
             }
-            const { pending } = slot.job
+            const { pending, deadline } = slot.job
+            clearTimeout(deadline)
             slot.job = null
-            restartFailures[index] = 0
+            // Only a worker that has been up a while counts as recovered. Resetting on the first
+            // reply would let a worker that alternates crash and success never accumulate failures,
+            // so the backoff below would never engage for exactly the flapping this guards against.
+            if (performance.now() - slot.readyAt > RESTART_HEALTHY_MS) {
+                restartFailures[index] = 0
+            }
             if ('failure' in msg) {
                 const error = msg.failure.undecodable
                     ? new UndecodableImageError(msg.failure.message)
@@ -147,6 +189,7 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
         // idle carries no job to fail, and leaving it would shrink the pool with nothing to show it.
         worker.on('error', (error) => retireAndReplace(index, slot, error))
         worker.on('exit', (code) => retireAndReplace(index, slot, new Error(`scrub worker exited with code ${code}`)))
+        slot.readyAt = performance.now()
         slot.usable = true
     }
 
@@ -156,19 +199,39 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
         }
         slot.retired = true
         slot.usable = false
-        slot.job?.pending.reject(error)
+        if (slot.job) {
+            clearTimeout(slot.job.deadline)
+            slot.job.pending.reject(error)
+        }
         slot.job = null
-        ScrubMetrics.incWorkerRestart()
         void slot.worker.terminate().catch(() => {})
+        scheduleReplacement(index, error)
+    }
 
-        // Backoff, because a worker that dies on every start (an OOM loading models, a corrupt model
-        // file) would otherwise respawn in a tight loop, spending the CPU the survivors need and
-        // burying the first failure in log noise. Reset once a replacement completes a job.
+    /**
+     * Keep trying to rebuild this slot, on a backoff, until one attempt sticks.
+     *
+     * A replacement that itself fails to start is the same condition as a worker that died, and has
+     * to be retried the same way. Giving up after one attempt loses the slot for the process's
+     * lifetime: `spawn` writes its slot before it can know the worker is good, so a failed attempt
+     * leaves one that is never usable and never retired, which nothing else will ever replace. The
+     * pod then serves at reduced capacity indefinitely, and since the liveness probe only fails at
+     * zero usable workers nothing restarts it.
+     *
+     * The backoff exists because a worker that dies on every start (an OOM loading models, a corrupt
+     * model file) would otherwise respawn in a tight loop, spending the CPU the survivors need and
+     * burying the first failure in log noise.
+     */
+    const scheduleReplacement = (index: number, error: Error): void => {
+        if (closing) {
+            return
+        }
+        ScrubMetrics.incWorkerRestart()
         const failures = (restartFailures[index] ?? 0) + 1
         restartFailures[index] = failures
         const delayMs = Math.min(RESTART_BACKOFF_MAX_MS, RESTART_BACKOFF_BASE_MS * 2 ** (failures - 1))
         console.error(
-            `[image-scrub] worker ${index} died (${failures} in a row), replacing in ${delayMs}ms: ${error.message}`
+            `[image-scrub] worker ${index} lost (${failures} in a row), replacing in ${delayMs}ms: ${error.message}`
         )
         const timer = setTimeout(() => {
             if (closing) {
@@ -176,7 +239,10 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
             }
             spawn(index)
                 .then(pump)
-                .catch((e: unknown) => console.error(`[image-scrub] worker ${index} could not restart: ${String(e)}`))
+                .catch((e: unknown) => {
+                    ScrubMetrics.incWorkerRestartFailure()
+                    scheduleReplacement(index, e instanceof Error ? e : new Error(String(e)))
+                })
         }, delayMs)
         timer.unref()
     }
@@ -189,37 +255,7 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
                 return Promise.reject(new Error('scrub pool is closing'))
             }
             return new Promise<ScrubResult>((resolve, reject) => {
-                const id = nextJobId++
-                // A worker wedged inside a native ONNX or libvips call would otherwise hold its slot
-                // forever, and the server only releases its concurrency count when this settles, so
-                // every wedge would permanently cost one of maxConcurrency until the pod restarted.
-                const deadline = setTimeout(() => {
-                    const holder = slots.find((s) => s?.job?.id === id)
-                    if (holder) {
-                        retireAndReplace(slots.indexOf(holder), holder, new Error(`scrub job ${id} timed out`))
-                        return
-                    }
-                    const queued = queue.findIndex((j) => j.id === id)
-                    if (queued !== -1) {
-                        queue.splice(queued, 1)
-                        reject(new Error(`scrub job ${id} timed out while queued`))
-                    }
-                }, jobTimeoutMs)
-                deadline.unref()
-                queue.push({
-                    id,
-                    input,
-                    pending: {
-                        resolve: (result) => {
-                            clearTimeout(deadline)
-                            resolve(result)
-                        },
-                        reject: (error) => {
-                            clearTimeout(deadline)
-                            reject(error)
-                        },
-                    },
-                })
+                queue.push({ id: nextJobId++, input, pending: { resolve, reject } })
                 pump()
             })
         },
@@ -236,7 +272,10 @@ export async function startPool(size: number, workerUrl: URL, jobTimeoutMs = 60_
             }
             // Slots can be absent while a replacement is still waiting out its backoff.
             for (const slot of slots) {
-                slot?.job?.pending.reject(new Error('scrub pool is closing'))
+                if (slot?.job) {
+                    clearTimeout(slot.job.deadline)
+                    slot.job.pending.reject(new Error('scrub pool is closing'))
+                }
             }
             await Promise.all(slots.filter(Boolean).map((s) => s.worker.terminate()))
         },

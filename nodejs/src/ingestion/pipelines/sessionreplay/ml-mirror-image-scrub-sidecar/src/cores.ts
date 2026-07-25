@@ -22,6 +22,15 @@ const SCRUB_WORKERS_MAX = 32
 const WORKER_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
 
 /**
+ * Held back from the worker budget for everything that is not a worker: the main thread's own heap,
+ * express and prom-client, and the overlap while a retiring worker's terminate() is still pending on
+ * a native call that cannot be interrupted, which is exactly when a replacement is being started.
+ * Without it the arithmetic hands every byte of the limit to workers and the guard cannot prevent
+ * the OOM it exists to prevent.
+ */
+const MAIN_THREAD_RESERVE_BYTES = 384 * 1024 * 1024
+
+/**
  * Inference worker threads, one per core by default, capped by the memory limit.
  *
  * onnxruntime-node's `run` blocks the thread that calls it, so a single-threaded process can only
@@ -38,6 +47,15 @@ export const SCRUB_WORKERS = numFromEnv(
     1,
     SCRUB_WORKERS_MAX
 )
+
+/**
+ * Heap ceiling handed to each worker, so V8 sizes its isolate against its share rather than against
+ * the whole container. Without it every worker independently believes it may grow into the entire
+ * limit, and N of them collectively promise N times what exists: the first one to actually take it
+ * gets the pod OOM-killed instead of hitting its own GC. Reported in MB, which is what
+ * worker_threads' resourceLimits expects.
+ */
+export const WORKER_HEAP_MB = Math.max(256, Math.floor(WORKER_MEMORY_BUDGET_BYTES / (1024 * 1024)) - 128)
 
 /**
  * Intra-op threads for every ONNX session, defined once so the three models cannot drift apart.
@@ -79,14 +97,18 @@ export function containerCores(): number {
     return Math.min(NO_QUOTA_CORES, availableParallelism())
 }
 
-/** Workers the memory limit can hold, or SCRUB_WORKERS_MAX when there is no limit to read: an
- *  unreadable limit must not cap the pool below what the cores support. */
+/** Workers the memory limit can hold once the main thread's reserve is set aside, or
+ *  SCRUB_WORKERS_MAX when there is no limit to read: an unreadable limit must not cap the pool below
+ *  what the cores support. */
 export function memoryBoundedWorkers(): number {
     const limit = memoryLimitBytes((path) => readFileSync(path, 'utf8'))
-    if (limit === null) {
-        return SCRUB_WORKERS_MAX
-    }
-    return Math.max(1, Math.floor(limit / WORKER_MEMORY_BUDGET_BYTES))
+    return limit === null ? SCRUB_WORKERS_MAX : workersForMemoryLimit(limit)
+}
+
+/** Split out so the arithmetic is testable without a cgroup filesystem: getting it wrong is a silent
+ *  under- or over-provision rather than an error. */
+export function workersForMemoryLimit(limitBytes: number): number {
+    return Math.max(1, Math.floor((limitBytes - MAIN_THREAD_RESERVE_BYTES) / WORKER_MEMORY_BUDGET_BYTES))
 }
 
 /**

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { UndecodableImageError } from './blur.ts'
@@ -103,6 +106,27 @@ describe('startPool', () => {
         pool = await startPool(1, FAKE_WORKER)
 
         await expect(pool.scrub(Buffer.from('undecodable'))).rejects.toBeInstanceOf(UndecodableImageError)
+    })
+
+    it('keeps retrying a replacement that cannot start', async () => {
+        // spawn() writes its slot before it can know the worker is good, so an attempt that fails
+        // leaves one that is never usable and never retired. If the failure is not retried, nothing
+        // else ever will be: the slot is gone for the process's lifetime, the pod serves at reduced
+        // capacity, and liveness only fails at zero usable workers so nothing restarts it.
+        const dir = mkdtempSync(join(tmpdir(), 'scrub-pool-'))
+        try {
+            pool = await startPool(2, FAKE_WORKER, 5000, { failReadyOnce: join(dir, 'died') })
+            await untilUsable(pool, 2)
+
+            // Kill one worker. Its first replacement dies before signalling ready; the second must land.
+            await expect(pool.scrub(Buffer.from('crash'))).rejects.toThrow(/exited with code 7/)
+            await untilUsable(pool, 2)
+
+            const results = await Promise.all(['x', 'y'].map((k) => pool.scrub(Buffer.from(k))))
+            expect(peakOverlap(results)).toBe(2)
+        } finally {
+            rmSync(dir, { recursive: true, force: true })
+        }
     })
 
     it('reclaims a worker that never replies, and keeps serving afterwards', async () => {

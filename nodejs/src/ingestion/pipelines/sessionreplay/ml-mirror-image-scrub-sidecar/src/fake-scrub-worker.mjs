@@ -1,7 +1,20 @@
 // Stand-in worker for pool.test.ts: speaks the same protocol without loading any model. Plain .mjs
 // so spawning it needs no TypeScript loader, which keeps the test measuring the pool rather than the
 // runner. The input bytes select the behaviour.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parentPort, workerData } from 'node:worker_threads'
+
+// failReadyOnce makes a slot's SECOND life die before signalling ready, so the first replacement of
+// a dead worker fails and the pool has to keep retrying rather than lose the slot. The generation
+// count lives on disk because each life is a fresh worker with no memory of the last.
+if (workerData.failReadyOnce) {
+    const marker = `${workerData.failReadyOnce}.${workerData.index}`
+    const generation = existsSync(marker) ? Number(readFileSync(marker, 'utf8')) : 0
+    writeFileSync(marker, String(generation + 1))
+    if (generation === 1) {
+        process.exit(9)
+    }
+}
 
 parentPort.postMessage({ ready: true })
 

@@ -73,6 +73,14 @@ const sourceFormat = new Counter({
     labelNames: ['format'],
     registers: [register],
 })
+// The permanent record's own resolution, which SCRUB_OUT_MAX_PIXELS can now move independently of
+// the source. output_bytes alone cannot show it, being confounded by how compressible the content is.
+const storedMegapixels = new Histogram({
+    name: 'ml_mirror_image_scrub_stored_megapixels',
+    help: 'Megapixels of the image actually written, after any SCRUB_OUT_MAX_PIXELS downscale',
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16],
+    registers: [register],
+})
 const sourceMegapixels = new Histogram({
     name: 'ml_mirror_image_scrub_source_megapixels',
     help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the SCRUB_MAX_PIXELS budget is the traffic that actually gets downscaled',
@@ -124,7 +132,14 @@ const codesRedacted = new Counter({
 // every request, just eight times slower, which reads as the load easing off.
 const workerRestarts = new Counter({
     name: 'ml_mirror_image_scrub_worker_restarts_total',
-    help: 'Inference workers replaced after dying or wedging (a nonzero rate means jobs are being lost and capacity rebuilt)',
+    help: 'Replacement attempts after a worker died or wedged (a nonzero rate means jobs are being lost and capacity rebuilt)',
+    registers: [register],
+})
+// Separate from the attempt counter because a replacement that cannot start is retried, so the two
+// diverging is what distinguishes a pool rebuilding itself from one failing to.
+const workerRestartFailures = new Counter({
+    name: 'ml_mirror_image_scrub_worker_restart_failures_total',
+    help: 'Replacement attempts that failed to become ready and were themselves retried',
     registers: [register],
 })
 interface PoolProbe {
@@ -142,7 +157,7 @@ export function trackPool(started: PoolProbe): void {
 
 new Gauge({
     name: 'ml_mirror_image_scrub_workers_usable',
-    help: 'Inference workers able to take a job now, against SCRUB_WORKERS',
+    help: 'Inference workers alive and able to serve, against SCRUB_WORKERS. Counts busy ones too: it is capacity, not idleness',
     registers: [register],
     collect() {
         if (pool) {
@@ -163,6 +178,7 @@ new Gauge({
 
 export const ScrubMetrics = {
     incWorkerRestart: () => workerRestarts.inc(),
+    incWorkerRestartFailure: () => workerRestartFailures.inc(),
     incScrubbed: () => scrubbed.inc(),
     incFailed: () => failed.inc(),
     incUndecodable: () => undecodable.inc(),
@@ -180,6 +196,7 @@ export const ScrubMetrics = {
             uniformFrameBytes.inc(t.inputBytes)
         }
         inputBytes.observe(t.inputBytes)
+        storedMegapixels.observe(t.storedPixels / 1e6)
         facesRedacted.inc(t.faces)
         textBoxesRedacted.inc(t.textBoxes)
         codesRedacted.inc(t.codes)
