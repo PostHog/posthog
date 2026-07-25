@@ -5,9 +5,9 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from products.signals.backend.temporal.drop_telemetry import (
     CaptureSignalDroppedInput,
-    _summarize_drop_error,
     capture_signal_dropped,
     capture_signal_dropped_activity,
+    summarize_drop_error,
 )
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -178,7 +178,7 @@ async def test_helper_swallows_activity_failure():
     ],
 )
 def test_summarize_drop_error(error, expected_type, expected_message):
-    error_type, message = _summarize_drop_error(error)
+    error_type, message = summarize_drop_error(error)
     assert error_type == expected_type
     assert expected_message in message
     assert "\n" not in message
