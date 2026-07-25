@@ -1624,7 +1624,9 @@ class SignalReportViewSet(
     def _promote_dismissal_note(
         self,
         *,
-        reports: list[SignalReport],
+        # `Sequence`, not `list`: this class defines a `list` action, which shadows the builtin for
+        # annotations evaluated in the class body at import time.
+        reports: Sequence[SignalReport],
         target: str,
         dismissal_reason: str | None,
         dismissal_note: str | None,
