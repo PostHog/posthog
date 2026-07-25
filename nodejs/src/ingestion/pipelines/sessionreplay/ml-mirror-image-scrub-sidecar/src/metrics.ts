@@ -40,13 +40,13 @@ const duration = new Histogram({
     // Out to 60s: under IMAGE_SCRUB_CONCURRENCY-way contention a single scrub's wall time runs to
     // seconds, and a quantile whose true value sits in the +Inf bucket reports the highest finite
     // edge instead. A ceiling that traffic actually reaches reads as a flat line at that ceiling.
-    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 60],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 60],
     registers: [register],
 })
 const outputBytes = new Histogram({
     name: 'ml_mirror_image_scrub_output_bytes',
     help: 'Scrubbed output size — a collapse toward zero flags an output regression',
-    buckets: [64, 256, 1024, 4096, 16384, 65536],
+    buckets: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304],
     registers: [register],
 })
 // The total duration above says the scrub is slow; these say which stage to attack. Every one of
@@ -55,7 +55,7 @@ const stageDuration = new Histogram({
     name: 'ml_mirror_image_scrub_stage_duration_seconds',
     help: 'Scrub wall time by stage. Sums to roughly the total, so the stage with the largest rate() share is where the CPU goes',
     labelNames: ['stage'],
-    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
     registers: [register],
 })
 // Which decoder we actually pay for. Only formats with a multi-resolution decode (JPEG, WebP) can
@@ -69,7 +69,7 @@ const sourceFormat = new Counter({
 })
 const sourceMegapixels = new Histogram({
     name: 'ml_mirror_image_scrub_source_megapixels',
-    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the 1 MP budget bucket is the traffic that actually gets downscaled',
+    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the SCRUB_MAX_PIXELS budget is the traffic that actually gets downscaled',
     labelNames: ['format'],
     buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
     registers: [register],

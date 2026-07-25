@@ -51,11 +51,18 @@ RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
 
-# One thread per native pool: the sidecar bounds parallelism by its request-concurrency ceiling
-# (IMAGE_SCRUB_CONCURRENCY), so per-op pools sized to host cores would oversubscribe a CPU-limited
-# pod. sharp is pinned at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
-# by every scrub path); ORT is pinned per-session (ORT_THREADS).
+# Native pools are bounded so they cannot oversubscribe a CPU-limited pod. sharp is pinned to one
+# thread per operation at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
+# by every scrub path), and OpenMP likewise; ORT sizes its per-session pool from the cgroup quota
+# (src/cores.ts) because onnxruntime-node's run is synchronous, so only one inference executes at a
+# time however many requests are in flight.
 ENV OMP_NUM_THREADS=1
+
+# libuv reads this when it first creates its thread pool and never resizes, which happens before any
+# entry-module code under a loader like tsx, so it cannot be set from JS. Every sharp operation is
+# queued onto this pool, so it wants to cover IMAGE_SCRUB_CONCURRENCY in-flight requests rather than
+# the libuv default of 4. Keep the two in step if either changes.
+ENV UV_THREADPOOL_SIZE=8
 
 # Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
 # end — a broken model download or prebuilt-binary mismatch fails the image build, not the deploy.

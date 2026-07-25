@@ -6,18 +6,17 @@ import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 
 // Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
-// unconditionally. Three reasons: (1) memory, because compose holds a few full-frame buffers and
-// bytes are proportional to area, so the budget bounds the per-image working set; (2) fidelity
-// honesty, because text detection runs under its own area budget, so storing pixels above it would
-// preserve exactly the detail the detectors never certified as clean; (3) cost, because decode,
-// compose and encode are all linear in area and DBNet's input side scales with sqrt(area), which
-// makes this the one dial that reduces most of the pipeline at once.
+// unconditionally. Two reasons: (1) memory, because compose holds a few full-frame buffers and bytes
+// are proportional to area, so the budget bounds the per-image working set; (2) fidelity honesty,
+// because text detection runs under the same area budget, so storing pixels above it would preserve
+// exactly the detail the detectors never certified as clean. An area budget rather than a long-side
+// cap so tall pages keep legible native resolution instead of being squashed.
 //
-// Lowering it below 1 MP buys less than it looks: adaptiveDetLimit floors at 736, which
-// sqrt(1 MP) * DET_FACTOR reaches exactly, so text detection costs the same at any smaller budget
-// while the stored frame keeps getting less legible to the model that reads it. An area budget
-// rather than a long-side cap so tall pages keep legible native resolution instead of being squashed.
-export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1000 * 1000, 96 * 96, LIMIT_INPUT_PIXELS)
+// Lowering this is a redaction-recall change, not a cost one: adaptiveDetLimit derives its input
+// side from the already-downscaled frame and floors at 736, so any budget at or below 1 MP pins
+// detection at that floor and shrinks text relative to it. Re-run `npm run eval` and compare box
+// counts, not just leak percentage, before moving it.
+export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
 
 export interface Src {
     data: Buffer

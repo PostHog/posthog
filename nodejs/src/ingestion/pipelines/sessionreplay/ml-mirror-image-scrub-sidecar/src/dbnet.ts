@@ -43,8 +43,6 @@ export interface DbnetModel {
     outputName: string
 }
 
-// 1 intra-op thread by default so we scale by running many images in parallel (one core each).
-
 export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
     const session = await ort.InferenceSession.create(modelPath, {
         graphOptimizationLevel: 'all',
