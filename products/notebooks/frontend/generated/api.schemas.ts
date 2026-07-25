@@ -354,6 +354,11 @@ export interface NotebookSQLV2MediaApi {
     data: string
 }
 
+/**
+ * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
+ */
+export type NotebookSQLV2EnvelopeApiTimings = { [key: string]: number }
+
 export interface NotebookSQLV2EnvelopeApi {
     /** Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop). */
     status: string
@@ -385,6 +390,8 @@ export interface NotebookSQLV2EnvelopeApi {
      * @nullable
      */
     error?: string | null
+    /** Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics. */
+    timings?: NotebookSQLV2EnvelopeApiTimings
 }
 
 export interface NotebookSQLV2RunStatusResponseApi {
