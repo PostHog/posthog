@@ -329,7 +329,10 @@ async def _finalize_report(
         final = await llm_with_final_report.ainvoke(messages, config=config)
     except Exception as err:
         logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-        return _fallback_report(f"LLM finalize call failed: {err}")
+        # Keep the raw exception out of `summary` — it flows to user-facing surfaces
+        # (notebook, Slack/email, the Signals inbox). The full error is in the log above;
+        # the exception class name is a bounded, safe triage signal.
+        return _fallback_report(f"LLM finalize call failed ({type(err).__name__}); see logs for details.")
     messages.append(final)
     return _parse_report_message(final) or _parse_report_or_none(getattr(final, "content", ""))
 

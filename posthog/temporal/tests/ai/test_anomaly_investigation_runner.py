@@ -237,8 +237,9 @@ def _final_report_call(verdict: str) -> dict:
 
 
 async def _run_with_scripted_llm(
-    tool_turn_responses: list[_StubMessage],
-    final_turn_responses: list[_StubMessage],
+    # Items are _StubMessage responses, or exceptions to raise (AsyncMock.side_effect semantics).
+    tool_turn_responses: list[Any],
+    final_turn_responses: list[Any],
 ) -> tuple[Any, AsyncMock]:
     tools_runnable = MagicMock()
     tools_runnable.ainvoke = AsyncMock(side_effect=tool_turn_responses)
@@ -296,3 +297,16 @@ async def test_run_investigation_falls_back_when_nudge_also_yields_no_report() -
 
     assert result.report.verdict == "inconclusive"
     assert result.report.summary == "Agent returned no final message."
+
+
+@pytest.mark.asyncio
+async def test_run_investigation_finalize_error_keeps_raw_exception_out_of_summary() -> None:
+    # summary flows to user-facing surfaces (notebook, Slack/email, Signals inbox), so a
+    # failing finalize call must degrade gracefully without leaking the raw exception string
+    # (which can carry conversation/anomaly context) into it.
+    secret = "raw anomaly context that must not surface"
+    result, _ = await _run_with_scripted_llm([_StubMessage(content="")], [RuntimeError(secret)])
+
+    assert result.report.verdict == "inconclusive"
+    assert secret not in result.report.summary
+    assert "finalize" in result.report.summary.lower()
