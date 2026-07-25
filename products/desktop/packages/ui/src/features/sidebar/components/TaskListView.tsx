@@ -203,17 +203,6 @@ export function TaskListView({
     [flatTasks, timestampKey],
   );
 
-  // Pinned rows float above the per-project groups, so each one carries its own
-  // context line. Without it a long pinned list gives no clue which repository
-  // — let alone which branch — a task belongs to.
-  const pinnedContexts = useMemo(
-    () =>
-      new Map(
-        pinnedTasks.map((task) => [task.id, formatTaskContext(task, folders)]),
-      ),
-    [pinnedTasks, folders],
-  );
-
   return (
     <Flex direction="column">
       {pinnedTasks.length > 0 && (
@@ -223,7 +212,10 @@ export function TaskListView({
             <TaskRow
               key={task.id}
               task={task}
-              subtitle={pinnedContexts.get(task.id) ?? undefined}
+              // Pinned rows float above the per-project groups, so each one
+              // restates its own context. Without it a long pinned list gives no
+              // clue which repository — let alone which branch — a task is in.
+              subtitle={formatTaskContext(task, folders) ?? undefined}
               isActive={activeTaskId === task.id}
               isSelected={selectedIdSet.has(task.id)}
               hideHoverActions={hasMultiSelection}

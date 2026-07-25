@@ -16,6 +16,17 @@ export interface GroupableTask {
   originProduct?: string;
 }
 
+/** The registered-folder fields that decide which group a folder belongs to. */
+export interface GroupableFolder {
+  path: string;
+  remoteUrl: string | null;
+  /**
+   * Root of the main checkout when this folder is a linked git worktree, null
+   * or absent for a main clone.
+   */
+  mainRepoPath?: string | null;
+}
+
 export const CUSTOM_IMAGES_GROUP_ID = "custom-images";
 export const CUSTOM_IMAGES_GROUP_NAME = "Custom images";
 
@@ -54,10 +65,9 @@ export function getRepositoryInfo(
   return null;
 }
 
-export function folderGroupId(folder: {
-  path: string;
-  remoteUrl: string | null;
-}): string {
+export function folderGroupId(
+  folder: Pick<GroupableFolder, "path" | "remoteUrl">,
+): string {
   if (folder.remoteUrl) {
     return normalizeRepoKey(folder.remoteUrl).toLowerCase();
   }
@@ -71,13 +81,10 @@ export function folderGroupId(folder: {
  * so prefer a folder that is not a linked worktree (`mainRepoPath` is set only
  * on linked worktrees).
  */
-export function findGroupFolder<
-  F extends {
-    path: string;
-    remoteUrl: string | null;
-    mainRepoPath?: string | null;
-  },
->(folders: F[], groupId: string): F | undefined {
+export function findGroupFolder<F extends GroupableFolder>(
+  folders: F[],
+  groupId: string,
+): F | undefined {
   const matches = folders.filter((f) => folderGroupId(f) === groupId);
   return matches.find((f) => !f.mainRepoPath) ?? matches[0];
 }

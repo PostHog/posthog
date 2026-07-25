@@ -1,4 +1,8 @@
-import { CUSTOM_IMAGES_GROUP_NAME, findGroupFolder } from "./groupTasks";
+import {
+  CUSTOM_IMAGES_GROUP_NAME,
+  findGroupFolder,
+  type GroupableFolder,
+} from "./groupTasks";
 import type { TaskData } from "./sidebarData.types";
 
 /** The `TaskData` fields a context line reads. */
@@ -11,12 +15,9 @@ export type TaskContextTask = Pick<
   | "linkedBranch"
 >;
 
-/** The registered-folder fields needed to label a task's repository. */
-export interface TaskContextFolder {
+/** A registered folder, plus the display name the group header would use. */
+export interface TaskContextFolder extends GroupableFolder {
   name: string;
-  path: string;
-  remoteUrl: string | null;
-  mainRepoPath?: string | null;
 }
 
 function repositoryLabel(
