@@ -88,44 +88,60 @@ describe('uploadToS3', () => {
         expect(mockOn).not.toHaveBeenCalled()
     })
 
-    it('propagates upload errors', async () => {
-        const uploadError = new Error('AccessDenied')
-        mockDone.mockRejectedValue(uploadError)
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(uploadError)
-    })
-
     it.each([
         {
-            status: '5xx',
-            message: "char 'E' is not expected.:1:1\n  Deserialization error",
-            statusCode: 502,
-            body: 'Error: bad gateway',
+            failure: 'a 5xx response the SDK could not parse',
+            // The SDK reports its parser's confusion, and hides the gateway's real body on $response.
+            error: Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
+                $response: { statusCode: 502, body: '<html>502 Bad Gateway</html>' },
+            }),
             retryable: true,
-            expectedDetail: /status 502.*bad gateway/,
+            expectedMessage: /status 502.*response body: <html>502 Bad Gateway/,
         },
         {
-            status: '4xx',
-            message: 'Deserialization error: to see the raw response, inspect …',
-            statusCode: 403,
-            body: 'AccessDenied',
+            failure: 'a 4xx response the SDK could not parse',
+            error: Object.assign(new Error('Deserialization error: to see the raw response, inspect …'), {
+                $response: { statusCode: 403, body: 'AccessDenied' },
+            }),
             retryable: false,
-            expectedDetail: /status 403.*AccessDenied/,
+            expectedMessage: /status 403.*response body: AccessDenied/,
+        },
+        {
+            failure: 'a modeled service error carrying only $metadata',
+            error: Object.assign(new Error('Access Denied'), {
+                name: 'AccessDenied',
+                $metadata: { httpStatusCode: 403 },
+            }),
+            retryable: false,
+            expectedMessage: /status 403.*Access Denied/,
+        },
+        {
+            failure: 'a failure with no HTTP response at all',
+            error: new Error('socket hang up'),
+            retryable: true,
+            expectedMessage: /status unknown.*socket hang up/,
         },
     ])(
-        'translates an undecodable (non-XML) $status response into a RasterizationError with retryable=$retryable',
-        async ({ message, statusCode, body, retryable, expectedDetail }) => {
-            const smithyErr = Object.assign(new Error(message), { $response: { statusCode, body } })
-            mockDone.mockRejectedValue(smithyErr)
+        'reports $failure as a RasterizationError with retryable=$retryable',
+        async ({ error, retryable, expectedMessage }) => {
+            mockDone.mockRejectedValue(error)
 
             await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
                 name: 'RasterizationError',
-                code: 'S3_UPLOAD_UNDECODABLE_RESPONSE',
+                code: 'S3_UPLOAD_FAILED',
                 retryable,
-                cause: smithyErr,
-                message: expect.stringMatching(expectedDetail),
+                cause: error,
+                message: expect.stringMatching(expectedMessage),
             })
         }
     )
+
+    it('names the upload target in the failure message', async () => {
+        mockDone.mockRejectedValue(new Error('socket hang up'))
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toThrow(
+            'S3 upload to s3://bucket/prefix/id.mp4 failed'
+        )
+    })
 })
 
 jest.mock('https-proxy-agent', () => ({

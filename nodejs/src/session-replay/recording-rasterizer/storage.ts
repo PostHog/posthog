@@ -11,24 +11,32 @@ import { createLogger } from './logger'
 
 const log = createLogger()
 
-function undecodableS3ResponseError(err: unknown): RasterizationError | null {
-    if (!(err instanceof Error) || !/Deserialization error|is not expected/i.test(err.message)) {
-        return null
-    }
+// The AWS SDK keeps the HTTP response off its public error type and hangs it on non-enumerable
+// $response / $metadata properties instead. Reading them is the only way to say anything useful about a
+// failure whose body the SDK could not parse: an object store or proxy answering with plaintext or an
+// HTML error page rather than S3's XML makes the SDK's parser throw, and the error it raises then
+// describes the parser's confusion instead of the request. $response.body holds the raw body in that
+// case, so it is where the actual reason lives.
+type AwsResponseError = {
+    $response?: { statusCode?: number; body?: unknown }
+    $metadata?: { httpStatusCode?: number }
+}
 
-    // The AWS SDK stashes the raw response the XML parser choked on under $response, a property its
-    // public error type omits, so read it defensively to recover the real status and body.
-    const { statusCode, body } = (err as { $response?: { statusCode?: number; body?: unknown } }).$response ?? {}
-    const details = [`status ${statusCode ?? 'unknown'}`]
-    if (typeof body === 'string' && body.length > 0) {
-        details.push(`body: ${sanitizeForUTF8(body.slice(0, 500))}`)
-    }
-    // Without a status we cannot tell a client error from a server one, so retry rather than fail the render.
-    const retryable = statusCode === undefined || statusCode >= 500 || statusCode === 429
+function toUploadError(err: unknown, target: string): RasterizationError {
+    const { $response, $metadata } = (err ?? {}) as AwsResponseError
+    const status = $response?.statusCode ?? $metadata?.httpStatusCode
+    // $response.body is a string only when the SDK failed to parse it; otherwise it is the response stream.
+    const rawBody = $response?.body
+    const body = typeof rawBody === 'string' && rawBody.length > 0 ? sanitizeForUTF8(rawBody.slice(0, 500)) : null
+    // SDK messages run to several lines, and this one ends up as a Temporal failure message.
+    const reason = err instanceof Error ? err.message.replace(/\s+/g, ' ').slice(0, 300) : String(err)
+    // A 4xx will fail the same way on the next attempt. No status at all means a network or credential
+    // failure rather than a verdict from the store, so it gets the benefit of the doubt.
+    const retryable = status === undefined || status >= 500 || status === 429
     return new RasterizationError(
-        `S3 upload returned an undecodable (non-XML) response (${details.join(', ')})`,
+        `S3 upload to ${target} failed (status ${status ?? 'unknown'}): ${reason}${body ? `, response body: ${body}` : ''}`,
         retryable,
-        'S3_UPLOAD_UNDECODABLE_RESPONSE',
+        'S3_UPLOAD_FAILED',
         err
     )
 }
@@ -100,16 +108,12 @@ export async function uploadToS3(
         upload.on('httpUploadProgress', () => onProgress())
     }
 
+    const target = `s3://${bucket}/${key}`
     try {
         await upload.done()
     } catch (err) {
-        const undecodable = undecodableS3ResponseError(err)
-        if (!undecodable) {
-            throw err
-        }
-        log.warn({ err, bucket, key }, 'S3 upload returned an undecodable response')
-        throw undecodable
+        throw toUploadError(err, target)
     }
 
-    return `s3://${bucket}/${key}`
+    return target
 }
