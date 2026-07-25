@@ -1,6 +1,24 @@
 import { readFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 
+import { numFromEnv } from './env.ts'
+
+/** Max threads a single ONNX session may use. Matches the ceiling numFromEnv enforces below. */
+const ORT_THREADS_MAX = 32
+
+/**
+ * Intra-op threads for every ONNX session, defined once so the three models cannot drift apart.
+ *
+ * The default is clamped because `numFromEnv` validates the default as strictly as an env override:
+ * an unclamped `containerCores()` above the ceiling would throw at module load and refuse to start
+ * the sidecar, which is reachable whenever there is no quota to read and the host is large.
+ *
+ * Sized to the whole allotment because onnxruntime-node's `run` is synchronous, so inferences cannot
+ * overlap and exactly one is ever executing. Divide this by the number of inference threads if that
+ * ever stops being true, or the sessions will oversubscribe each other.
+ */
+export const ORT_THREADS = numFromEnv('ORT_THREADS', Math.min(ORT_THREADS_MAX, containerCores()), 1, ORT_THREADS_MAX)
+
 /**
  * Cores this process may actually use, as opposed to the ones it can see.
  *
@@ -32,7 +50,8 @@ export function containerCores(): number {
     return availableParallelism()
 }
 
-/** Rounds rather than floors so a fractional limit still yields the cores it mostly has. */
+/** Floors so a fractional quota never yields more threads than the quota allows: exceeding it is
+ *  paid back as CFS throttling, which is the cost this sizing exists to avoid. */
 function clampCores(cores: number): number {
-    return Number.isFinite(cores) ? Math.max(1, Math.round(cores)) : availableParallelism()
+    return Number.isFinite(cores) ? Math.max(1, Math.floor(cores)) : availableParallelism()
 }

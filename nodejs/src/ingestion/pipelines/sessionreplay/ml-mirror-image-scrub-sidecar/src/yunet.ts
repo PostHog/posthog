@@ -7,7 +7,7 @@
  */
 import * as ort from 'onnxruntime-node'
 
-import { containerCores } from './cores.ts'
+import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
@@ -17,7 +17,6 @@ const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const PAD = 0.25 // expand each detected face box so hairline/chin/ears are covered
-const ORT_THREADS = numFromEnv('ORT_THREADS', containerCores(), 1, 32)
 
 export interface YunetModel {
     session: ort.InferenceSession

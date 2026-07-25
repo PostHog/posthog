@@ -6,12 +6,10 @@
  */
 import * as ort from 'onnxruntime-node'
 
-import { containerCores } from './cores.ts'
-import { numFromEnv } from './env.ts'
+import { ORT_THREADS } from './cores.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SAFETY_SIZE = 224 // fixed model input; pixel values 0-255 (normalization is baked into the graph)
-const ORT_THREADS = numFromEnv('ORT_THREADS', containerCores(), 1, 32)
 
 export interface SafetyModel {
     session: ort.InferenceSession
