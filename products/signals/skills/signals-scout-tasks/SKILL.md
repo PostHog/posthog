@@ -27,7 +27,7 @@ You watch both, through two lenses, and file a report only when a finding clears
 
 **The discriminator (internalize this): failure concentration × spread.**
 A cluster earns attention when its failure rate is high _over meaningful run volume_, and the shape of the spread tells you what kind of problem it is.
-The cheap, decisive ratio is **runs ÷ distinct tasks** within a cluster:
+The cheap, decisive ratio is **failed runs ÷ distinct tasks that failed** within a cluster:
 
 | Shape                              | What it means                                                                                   |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -35,6 +35,9 @@ The cheap, decisive ratio is **runs ÷ distinct tasks** within a cluster:
 | ratio ≫ 1, few distinct tasks      | **Retry storm** — one or two stuck tasks hammering. Usually one bad input, not a fleet problem. |
 | ratio ≈ 1, few distinct tasks      | Below the bar. Remember it, don't file it.                                                      |
 | 100% failure on a whole repository | **Config/readiness break** — file it even at low volume, it's total.                            |
+
+Scope both sides of that ratio to failures.
+Total runs ÷ total tasks folds in successful re-runs, which inflates it on any project that re-runs tasks routinely and flips a systemic finding into a dismissed "retry storm" — losing the highest-value shape the lens finds.
 
 Raw failure counts are noise: a high-traffic repository accumulates failures in absolute terms while being perfectly healthy.
 Rate over volume, then the ratio, then reach.
@@ -90,6 +93,8 @@ If tasks exist but nothing changed — no failure cluster past your `pattern:tas
 - `scout-project-profile-get` — orientation on the project's repositories and integrations.
 - `inbox-reports-list` (`ordering=-updated_at`, `search` = a repo or failure class) — what's already filed.
   Your own report-channel reports persist under `source_product=signals_scout`, so don't filter that out or you'll miss every report you authored.
+- Cookbook **query 0** — the origin mix and field coverage on _this_ project.
+  Never assume the full origin enum is present; a project may have no machine origins at all, or none of the human ones the demand lens reads.
 
 ## The two lenses
 
@@ -123,6 +128,7 @@ Query 2, then read the error class in query 3 — clone and auth breaks name the
 Group failures by error-message prefix (query 3) and check the systemic-vs-retry-storm ratio.
 A class at ratio ≈ 1 across many distinct tasks is one defect in a shared code path — the agent's output contract, sandbox startup, a delivery step.
 This is the highest-value shape the lens finds, and the message prefix usually localizes it to a component on its own.
+Query 4 settles the report grain: a class confined to one repository is that repo's config problem, one spread across repos is systemic.
 
 #### A retry storm
 
@@ -133,7 +139,7 @@ It's worth a `noise:` or `dedupe:` entry, and worth escalating only if the retry
 #### Silent non-completion
 
 Runs that never reach `completed` without being `failed` either: a `queued` or `in_progress` backlog with old `created_at`, or a cancellation rate well above this project's baseline.
-Query 4.
+Query 5.
 A rising cancellation rate is usually a quality signal (humans abandoning runs that went wrong), so treat it as a prompt to look at what those tasks had in common, not as a finding on its own.
 
 ## Lens B — demand (gated, ~weekly)
@@ -142,7 +148,7 @@ Only when the gate entry is stale.
 The output is usually **memory, not a report** — see Decide.
 
 Read titles at scale and descriptions only for a sampled subset: descriptions on real projects run to thousands of characters, so pulling them in bulk will exhaust the run's budget for nothing.
-Query 5 gives you the human-origin volume and its spread; query 6 samples titles over the window.
+Query 6 gives you the human-origin volume and its spread; query 7 samples titles over the window.
 
 Look for a **recurring ask with no product surface behind it** — the same capability requested by several distinct people across separate tasks.
 Two things must hold before it's worth anything:
@@ -152,7 +158,7 @@ Two things must hold before it's worth anything:
 2. **Not already served.**
    If the project's product already does this and the tasks are just work _using_ it, that's throughput, not demand.
 
-The strongest variants: a manual task repeated on a schedule by hand (a Loop waiting to be created), a capability people keep asking agents to work around, or a cluster of tasks that all fail the same way in lens A _and_ share a theme in lens B — the intersection is the most actionable thing this scout can find.
+The strongest variants: a manual task repeated on a schedule by hand (a Loop waiting to be created), a capability people keep asking agents to work around, or a cluster of tasks that all fail the same way in lens A _and_ share a theme in lens B — the intersection (query 8) is the most actionable thing this scout can find.
 
 ## Save memory as you go
 

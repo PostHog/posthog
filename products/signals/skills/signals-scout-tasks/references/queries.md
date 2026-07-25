@@ -71,16 +71,20 @@ ORDER BY runs DESC
 ## 2 — Failure concentration by repository (lens A detect)
 
 The primary report grain for lens A.
-`runs_per_task` is the systemic-vs-retry-storm ratio: ≈ 1 with many tasks is systemic, ≫ 1 over few tasks is a retry storm.
+`failed_runs_per_task` is the systemic-vs-retry-storm ratio: ≈ 1 across many failing tasks is systemic, ≫ 1 over few is a retry storm.
 A repo at `fail_pct = 100` is a readiness break worth filing at any volume.
+
+**The ratio must be computed over failed runs only.** Dividing total runs by total tasks folds successful re-runs into the numerator, so a repo whose tasks are routinely re-run on success reads as a retry storm even when its failures are spread 1:1 across many distinct tasks — exactly inverting the discriminator on the systemic case it exists to catch. `uniqIf` scopes the denominator to the tasks that actually failed; `nullIf` keeps a repo with zero failures from dividing by zero. Query 3 gets this for free from its `status = 'failed'` WHERE clause, so its plain `count() / uniq(task_id)` is already failure-scoped — don't "fix" it to match this one.
 
 ```sql
 SELECT
     t.repository                                                 AS repo,
     count()                                                      AS runs,
     uniq(r.task_id)                                              AS tasks,
-    round(count() / uniq(r.task_id), 1)                          AS runs_per_task,
     countIf(r.status = 'failed')                                 AS failed,
+    uniqIf(r.task_id, r.status = 'failed')                       AS failed_tasks,
+    round(countIf(r.status = 'failed')
+          / nullIf(uniqIf(r.task_id, r.status = 'failed'), 0), 1) AS failed_runs_per_task,
     round(100.0 * countIf(r.status = 'failed') / count(), 1)     AS fail_pct,
     uniq(t.created_by_id)                                        AS users
 FROM system.task_runs AS r
@@ -100,14 +104,15 @@ Grouping on a message prefix collapses the variable tail (ids, paths, timings) a
 60 characters is a good default: long enough to separate classes, short enough that per-task detail doesn't fragment them.
 Widen to 100 if two distinct classes collapse together.
 
-`runs_per_task` here is the same discriminator applied per class.
+`failed_runs_per_task` here is the same discriminator applied per class.
+The `status = 'failed'` filter below already scopes every row to a failure, so the plain `count() / uniq(task_id)` is failure-scoped as written — no `uniqIf` needed, unlike query 2.
 
 ```sql
 SELECT
     substring(r.error_message, 1, 60)                            AS err_prefix,
     count()                                                      AS runs,
     uniq(r.task_id)                                              AS tasks,
-    round(count() / uniq(r.task_id), 1)                          AS runs_per_task,
+    round(count() / uniq(r.task_id), 1)                          AS failed_runs_per_task,
     uniq(t.repository)                                           AS repos,
     uniq(t.created_by_id)                                        AS users
 FROM system.task_runs AS r
