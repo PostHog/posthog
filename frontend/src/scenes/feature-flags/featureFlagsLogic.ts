@@ -256,8 +256,8 @@ export interface featureFlagsLogicActions {
         id: number,
         active: boolean
     ) => {
-        id: number
         active: boolean
+        id: number
     }
     updateFeatureFlag: ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
         id: number
