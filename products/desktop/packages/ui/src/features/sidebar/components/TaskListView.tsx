@@ -11,6 +11,7 @@ import type {
   TaskData,
   TaskGroup,
 } from "@posthog/core/sidebar/sidebarData.types";
+import { formatTaskContext } from "@posthog/core/sidebar/taskContext";
 import { MenuLabel } from "@posthog/quill";
 import { builderHog } from "@posthog/ui/assets/hedgehogs";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
@@ -61,6 +62,7 @@ function SectionLabel({ label }: { label: string }) {
 
 function TaskRow({
   task,
+  subtitle,
   isActive,
   isSelected,
   hideHoverActions,
@@ -76,6 +78,7 @@ function TaskRow({
   depth = 0,
 }: {
   task: TaskData;
+  subtitle?: string;
   isActive: boolean;
   isSelected: boolean;
   hideHoverActions: boolean;
@@ -105,6 +108,7 @@ function TaskRow({
       depth={depth}
       taskId={task.id}
       label={task.title}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       isArchiving={isArchiving}
@@ -199,6 +203,17 @@ export function TaskListView({
     [flatTasks, timestampKey],
   );
 
+  // Pinned rows float above the per-project groups, so each one carries its own
+  // context line. Without it a long pinned list gives no clue which repository
+  // — let alone which branch — a task belongs to.
+  const pinnedContexts = useMemo(
+    () =>
+      new Map(
+        pinnedTasks.map((task) => [task.id, formatTaskContext(task, folders)]),
+      ),
+    [pinnedTasks, folders],
+  );
+
   return (
     <Flex direction="column">
       {pinnedTasks.length > 0 && (
@@ -208,6 +223,7 @@ export function TaskListView({
             <TaskRow
               key={task.id}
               task={task}
+              subtitle={pinnedContexts.get(task.id) ?? undefined}
               isActive={activeTaskId === task.id}
               isSelected={selectedIdSet.has(task.id)}
               hideHoverActions={hasMultiSelection}

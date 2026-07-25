@@ -17,6 +17,7 @@ export interface GroupableTask {
 }
 
 export const CUSTOM_IMAGES_GROUP_ID = "custom-images";
+export const CUSTOM_IMAGES_GROUP_NAME = "Custom images";
 
 export interface TaskGroup<T extends GroupableTask> {
   id: string;
@@ -95,7 +96,7 @@ export function groupByRepository<T extends GroupableTask>(
       ? CUSTOM_IMAGES_GROUP_ID
       : (repository?.fullPath ?? "other");
     const groupName = isImageBuilder
-      ? "Custom images"
+      ? CUSTOM_IMAGES_GROUP_NAME
       : (repository?.name ?? "Other");
 
     let group = groupMap.get(groupId);

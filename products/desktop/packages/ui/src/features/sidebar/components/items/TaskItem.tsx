@@ -33,6 +33,8 @@ interface TaskItemProps {
   depth?: number;
   taskId: string;
   label: string;
+  /** Second line under the title, e.g. the task's `repository · branch`. */
+  subtitle?: string;
   isActive: boolean;
   isSelected?: boolean;
   /** Archive request in flight: show a spinner and suppress hover actions. */
@@ -106,6 +108,7 @@ export function TaskItem({
   depth = 0,
   taskId,
   label,
+  subtitle,
   isActive,
   isSelected = false,
   isArchiving = false,
@@ -208,6 +211,7 @@ export function TaskItem({
       depth={depth}
       icon={icon}
       label={label}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       isDimmed={isArchiving}
