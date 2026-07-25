@@ -13,10 +13,20 @@ const cfg = loadConfig()
 // Thread sizing is derived (workers and ORT threads from the cgroup quota) or set outside the process
 // (UV_THREADPOOL_SIZE in the Dockerfile), so log what this process actually resolved: a pool sized
 // wrong shows up as latency rather than as an error, with no other way to tell from a running pod.
+const uvThreadpoolSize = Number(process.env.UV_THREADPOOL_SIZE ?? 4)
 console.log(
     `[image-scrub] concurrency=${cfg.maxConcurrency} workers=${SCRUB_WORKERS} ortThreads=${ORT_THREADS} ` +
         `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'}`
 )
+// The pool is process-wide and every worker's sharp stages queue onto it, so below the worker count
+// those stages re-serialise however many workers there are. It cannot be fixed from here: libuv
+// builds the pool before any entry-module code runs, so this can only say so.
+if (uvThreadpoolSize < SCRUB_WORKERS) {
+    console.error(
+        `[image-scrub] UV_THREADPOOL_SIZE=${uvThreadpoolSize} is below workers=${SCRUB_WORKERS}, so sharp stages ` +
+            `will serialise; raise it in the image and rebuild`
+    )
+}
 
 // Every worker loads its models before this resolves, so no listener exists until the whole pool can
 // scrub and the readiness probe cannot pass on a half-started pool.
