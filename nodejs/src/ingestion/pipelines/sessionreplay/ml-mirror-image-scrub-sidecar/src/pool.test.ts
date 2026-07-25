@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { UndecodableImageError } from './blur.ts'
-import { type ScrubPool, type ScrubResult, startPool } from './pool.ts'
+import { ScrubAbandonedError, type ScrubPool, type ScrubResult, startPool } from './pool.ts'
 
 // cwd-relative rather than import.meta, which jest's CJS transform cannot load (see qr.ts).
 const FAKE_WORKER = pathToFileURL(`${process.cwd()}/src/fake-scrub-worker.mjs`)
@@ -106,6 +106,25 @@ describe('startPool', () => {
         pool = await startPool(1, FAKE_WORKER)
 
         await expect(pool.scrub(Buffer.from('undecodable'))).rejects.toBeInstanceOf(UndecodableImageError)
+    })
+
+    it('drops a queued job whose caller has hung up, without occupying a worker', async () => {
+        // The consumer gives up after 10s and retries, but its queue entry outlives it. Dispatching
+        // it anyway spends a full scrub on a response nobody reads, and the server holds one of its
+        // concurrency slots until that scrub settles, so a backlog of abandoned work sheds live
+        // requests with 503s while the pool is busy with dead ones.
+        pool = await startPool(1, FAKE_WORKER)
+        const hungUp = new AbortController()
+
+        // One worker, so everything after the first job waits in the queue behind it.
+        const running = pool.scrub(Buffer.from('first'))
+        const abandonedJob = pool.scrub(Buffer.from('abandoned'), hungUp.signal)
+        const wanted = pool.scrub(Buffer.from('wanted'))
+        hungUp.abort()
+
+        await expect(abandonedJob).rejects.toBeInstanceOf(ScrubAbandonedError)
+        expect((await running).out.toString()).toMatch(/^done:first/)
+        expect((await wanted).out.toString()).toMatch(/^done:wanted/)
     })
 
     it('keeps retrying a replacement that cannot start', async () => {

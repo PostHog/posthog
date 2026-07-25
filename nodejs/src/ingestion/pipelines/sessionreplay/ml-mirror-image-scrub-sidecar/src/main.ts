@@ -38,8 +38,8 @@ const { scrub, metrics } = startServer(
     cfg.metricsPort,
     cfg.maxConcurrency,
     cfg.maxBodyBytes,
-    async (input) => {
-        const { out, t } = await pool.scrub(input)
+    async (input, signal) => {
+        const { out, t } = await pool.scrub(input, signal)
         ScrubMetrics.observeScrubOutcome(t)
         return out
     },

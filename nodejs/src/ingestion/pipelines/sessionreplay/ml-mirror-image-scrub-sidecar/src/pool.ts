@@ -15,13 +15,20 @@ const RESTART_HEALTHY_MS = 60_000
 /** How long a retired worker may take to terminate before that is worth a log line. */
 const TERMINATE_GRACE_MS = 30_000
 
+/** Nobody was waiting for this job by the time it could have run, so it was never dispatched. Not a
+ *  failure of the scrub: the caller has already moved on. */
+export class ScrubAbandonedError extends Error {}
+
 export interface ScrubResult {
     out: Buffer
     t: StageTimings
 }
 
 export interface ScrubPool {
-    scrub(input: Buffer): Promise<ScrubResult>
+    /** `signal` is the caller's, so a job whose requester has already hung up is dropped from the
+     *  queue instead of being dispatched. A job already running cannot be cancelled: its worker is
+     *  inside a native call that does not observe signals. */
+    scrub(input: Buffer, signal?: AbortSignal): Promise<ScrubResult>
     /** Workers alive and able to serve, busy ones included. The liveness probe reads this: with
      *  inference off the main thread, a process whose workers are all dead still answers probes
      *  perfectly well. */
@@ -69,7 +76,7 @@ export async function startPool(
     workerData: Record<string, unknown> = {}
 ): Promise<ScrubPool> {
     const slots: Slot[] = []
-    const queue: { id: number; input: Buffer; pending: Pending }[] = []
+    const queue: { id: number; input: Buffer; pending: Pending; signal?: AbortSignal; queuedAt: number }[] = []
     let nextJobId = 0
     let closing = false
     const restartFailures: number[] = []
@@ -77,6 +84,15 @@ export async function startPool(
     const pump = (): void => {
         if (closing) {
             return
+        }
+        // Drop from the front anything nobody is waiting for any more, before looking for a worker.
+        // The consumer gives up on a request after 10s and retries, but its queue entry outlived it:
+        // the job would still be dispatched, occupy a worker for a full scrub, and hold one of the
+        // server's concurrency slots the whole time, so a backlog of abandoned work would shed live
+        // requests with 503s while the pool burned CPU on results nobody would read.
+        while (queue.length > 0 && abandoned(queue[0])) {
+            const dead = queue.shift()!
+            dead.pending.reject(new ScrubAbandonedError(`scrub job ${dead.id} was abandoned before it ran`))
         }
         for (const slot of slots) {
             if (!slot?.usable || slot.job || queue.length === 0) {
@@ -97,6 +113,11 @@ export async function startPool(
             slot.worker.postMessage({ id: next.id, input: next.input })
         }
     }
+
+    /** Nobody is waiting: either the caller hung up, or it has been queued past the point where the
+     *  caller's own timeout must already have fired even if we were never told. */
+    const abandoned = (job: { signal?: AbortSignal; queuedAt: number }): boolean =>
+        job.signal?.aborted === true || performance.now() - job.queuedAt > jobTimeoutMs
 
     const spawn = async (index: number): Promise<void> => {
         const worker = new Worker(workerUrl, {
@@ -270,12 +291,21 @@ export async function startPool(
     await Promise.all(Array.from({ length: size }, (_unused, i) => spawn(i)))
 
     return {
-        scrub(input: Buffer): Promise<ScrubResult> {
+        scrub(input: Buffer, signal?: AbortSignal): Promise<ScrubResult> {
             if (closing) {
                 return Promise.reject(new Error('scrub pool is closing'))
             }
+            if (signal?.aborted) {
+                return Promise.reject(new ScrubAbandonedError('scrub requested by a caller that had already hung up'))
+            }
             return new Promise<ScrubResult>((resolve, reject) => {
-                queue.push({ id: nextJobId++, input, pending: { resolve, reject } })
+                queue.push({
+                    id: nextJobId++,
+                    input,
+                    pending: { resolve, reject },
+                    signal,
+                    queuedAt: performance.now(),
+                })
                 pump()
             })
         },

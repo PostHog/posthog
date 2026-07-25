@@ -4,12 +4,15 @@ import { type Server } from 'node:http'
 
 import { UndecodableImageError } from './blur.ts'
 import { ScrubMetrics, register } from './metrics.ts'
+import { ScrubAbandonedError } from './pool.ts'
 
 class ConsumerHungUpError extends Error {}
 
 /** The scrub implementation is injected (main.ts wires advancedScrub over its loaded models; tests
- *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. */
-export type ScrubFn = (input: Buffer) => Promise<Buffer>
+ *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. The
+ *  signal carries the caller hanging up, which is what lets queued work be dropped rather than run
+ *  for a response nobody will read. */
+export type ScrubFn = (input: Buffer, signal: AbortSignal) => Promise<Buffer>
 
 export interface SidecarServers {
     // /scrub, bound to loopback — the pod IP must never expose it.
@@ -30,7 +33,7 @@ export function startServer(
         if (signal.aborted) {
             throw new ConsumerHungUpError()
         }
-        return scrubFn(input)
+        return scrubFn(input, signal)
     }
 
     let inFlight = 0
@@ -97,7 +100,9 @@ export function startServer(
     })
 
     app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
-        if (err instanceof ConsumerHungUpError) {
+        // Both mean the caller stopped waiting: one noticed at the HTTP layer, the other in the pool
+        // when the job came up for dispatch. Neither is a scrub failure, so neither counts as one.
+        if (err instanceof ConsumerHungUpError || err instanceof ScrubAbandonedError) {
             ScrubMetrics.incAborted()
             return
         }
