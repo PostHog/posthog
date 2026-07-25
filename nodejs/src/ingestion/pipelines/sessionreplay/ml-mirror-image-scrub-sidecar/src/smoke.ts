@@ -12,8 +12,10 @@ import sharp from 'sharp'
 
 import { startPool } from './pool.ts'
 
+const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
+
 async function main(): Promise<void> {
-    const pool = await startPool(2)
+    const pool = await startPool(2, WORKER_URL)
     const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#fff' } })
         .png()
         .toBuffer()

@@ -19,10 +19,15 @@ parentPort.on('message', async (job) => {
     const startedAt = performance.now()
     await new Promise((resolve) => setTimeout(resolve, 25))
     const finishedAt = performance.now()
-    const out = new Uint8Array(Buffer.from(`done:${kind}:w${workerData.index}`))
-    parentPort.postMessage({ id: job.id, out, timings: { totalMs: finishedAt - startedAt, startedAt, finishedAt } }, [
-        out.buffer,
-    ])
+    // Buffer.from(string) under 4 KiB comes out of Node's shared pool, which is the BLANK_PNG shape:
+    // the backing ArrayBuffer is 8 KiB and is not transferable.
+    const out =
+        kind === 'pooled-buffer'
+            ? Buffer.from('blank')
+            : new Uint8Array(Buffer.from(`done:${kind}:w${workerData.index}`))
+    // No transfer list, mirroring the real worker: a pool-backed ArrayBuffer cannot be transferred,
+    // and attempting it would throw here rather than exercising the path under test.
+    parentPort.postMessage({ id: job.id, out, timings: { totalMs: finishedAt - startedAt, startedAt, finishedAt } })
     if (kind === 'die-when-idle') {
         // Answers first, then dies holding no job: the pool has nothing to fail and has to notice
         // the loss on its own. Replacements get a different kind, so they stay healthy.

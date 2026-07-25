@@ -1,7 +1,10 @@
+import { pathToFileURL } from 'node:url'
+
 import { UndecodableImageError } from './blur.ts'
 import { type ScrubPool, type ScrubResult, startPool } from './pool.ts'
 
-const FAKE_WORKER = new URL('./fake-scrub-worker.mjs', import.meta.url)
+// cwd-relative rather than import.meta, which jest's CJS transform cannot load (see qr.ts).
+const FAKE_WORKER = pathToFileURL(`${process.cwd()}/src/fake-scrub-worker.mjs`)
 
 /** The stand-in worker reports its own interval on top of the real timings, so the test can assert
  *  overlap rather than infer it from elapsed wall time, which only measures how loaded the runner is. */
@@ -63,6 +66,19 @@ describe('startPool', () => {
 
         const results = await Promise.all(['x', 'y'].map((k) => pool.scrub(Buffer.from(k))))
         expect(peakOverlap(results)).toBe(2)
+    })
+
+    it('survives a reply whose buffer is pool-backed', async () => {
+        // A small Buffer shares Node's 8 KiB pool, and that pool ArrayBuffer cannot be transferred.
+        // BLANK_PNG is exactly this shape, so transferring the reply threw DataCloneError on the
+        // NSFW-gated path, killing the worker and turning a successful blank into a retriable 500.
+        pool = await startPool(1, FAKE_WORKER)
+
+        const result = await pool.scrub(Buffer.from('pooled-buffer'))
+
+        expect(result.out.length).toBeGreaterThan(0)
+        const again = await pool.scrub(Buffer.from('still-alive'))
+        expect(again.out.toString()).toMatch(/^done:still-alive/)
     })
 
     it('rebuilds an UndecodableImageError from the wire', async () => {

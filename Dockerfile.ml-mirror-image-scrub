@@ -53,16 +53,22 @@ RUN groupadd -g 10001 posthog && \
 
 # Native pools are bounded so they cannot oversubscribe a CPU-limited pod. sharp is pinned to one
 # thread per operation at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
-# by every scrub path), and OpenMP likewise; ORT sizes its per-session pool from the cgroup quota
-# (src/cores.ts) because onnxruntime-node's run is synchronous, so only one inference executes at a
-# time however many requests are in flight.
+# by every scrub path), and OpenMP likewise. ORT is sized in src/cores.ts as cores/SCRUB_WORKERS,
+# since onnxruntime-node's run blocks its thread: each worker runs one inference at a time, so it is
+# threads times workers that has to fit the quota. With one worker per core that lands on 1 each.
 ENV OMP_NUM_THREADS=1
 
 # libuv reads this when it first creates its thread pool and never resizes, which happens before any
-# entry-module code under a loader like tsx, so it cannot be set from JS. Every sharp operation is
-# queued onto this pool, so it wants to cover IMAGE_SCRUB_CONCURRENCY in-flight requests rather than
-# the libuv default of 4. Keep the two in step if either changes.
+# entry-module code under a loader like tsx, so it cannot be set from JS. The pool is process-wide
+# and shared by every worker thread, and each worker's sharp stages queue onto it, so size it by
+# SCRUB_WORKERS (one core per worker) rather than by request concurrency. Below the worker count the
+# sharp stages re-serialise on a pod with more cores than this.
 ENV UV_THREADPOOL_SIZE=8
+
+# Each worker loads its own three ONNX sessions, zxing wasm module and V8 isolate, because sessions
+# cannot be shared across isolates. Memory therefore scales with SCRUB_WORKERS, which defaults to the
+# core count: size the pod's memory limit against cores, not against a single process, or a
+# many-core node OOM-kills the sidecar into a crash loop. Set SCRUB_WORKERS to cap it explicitly.
 
 # Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
 # end — a broken model download or prebuilt-binary mismatch fails the image build, not the deploy.

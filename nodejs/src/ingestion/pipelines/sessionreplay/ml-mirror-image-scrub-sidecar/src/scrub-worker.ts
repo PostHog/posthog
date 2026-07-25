@@ -22,17 +22,25 @@ port.postMessage({ ready: true } satisfies ScrubReply)
 
 port.on('message', (job: ScrubJob) => {
     const input = Buffer.from(job.input.buffer, job.input.byteOffset, job.input.byteLength)
-    advancedScrub(input, models).then(
-        ({ out, t }) => port.postMessage({ id: job.id, out, timings: t } satisfies ScrubReply, [out.buffer]),
-        (error: unknown) =>
+    // Catch rather than pass a rejection handler, so a throw while replying is reported as a failed
+    // job instead of becoming an unhandled rejection that takes the whole worker down with it.
+    advancedScrub(input, models)
+        .then(({ out, t }) => {
+            // Deliberately copied rather than transferred. The output can be the shared BLANK_PNG
+            // constant, which lives in Node's small-buffer pool, and an 8 KiB pool ArrayBuffer is not
+            // transferable: attempting it throws DataCloneError on exactly the NSFW-gated path this
+            // service exists to handle. A PNG-sized copy costs microseconds against a scrub.
+            port.postMessage({ id: job.id, out, timings: t } satisfies ScrubReply)
+        })
+        .catch((error: unknown) => {
+            // Structured clone drops the prototype, so the one distinction the HTTP layer acts on
+            // (422 permanent versus 500 retriable) has to travel as data rather than as a class.
             port.postMessage({
                 id: job.id,
-                // Structured clone drops the prototype, so the one distinction the HTTP layer acts on
-                // (422 permanent versus 500 retriable) has to travel as data rather than as a class.
                 failure: {
                     message: error instanceof Error ? error.message : String(error),
                     undecodable: error instanceof UndecodableImageError,
                 },
             } satisfies ScrubReply)
-    )
+        })
 })
