@@ -22,6 +22,8 @@ Conventions used throughout:
   Always pair it with `status = 'failed'` when measuring failures.
 - **Status values are lowercase**: `not_started`, `queued`, `in_progress`, `completed`, `failed`, `cancelled`.
   `not_started` is the model default, so a run that never advances past creation sits there — the non-terminal set is all three of `not_started` / `queued` / `in_progress`, never just the latter two.
+- **Never substitute task-derived text into SQL — use the numeric fingerprints.**
+  Both `error_message` and `repository` are attacker-influenceable: error text is arbitrary tool output, and `validate_repository` only requires two non-empty slash-separated parts, so a quote survives it. Queries 2 and 3 emit `repo_fingerprint` / `err_fingerprint` (`cityHash64(...)`) precisely so downstream predicates carry an integer instead. Escaping by hand mid-run is not a control — if you find yourself pasting a quoted string into a predicate, derive a fingerprint instead.
 - **`created_by_id` is an internal integer.**
   Good for counting distinct people; it does **not** resolve to a reviewer.
   Use `tasks-retrieve` on one task id in the cluster and read `created_by.uuid`.
@@ -90,6 +92,7 @@ A repo at `fail_pct = 100` is a readiness break worth filing at any volume.
 
 ```sql
 SELECT
+    cityHash64(t.repository)                                     AS repo_fingerprint,
     t.repository                                                 AS repo,
     count()                                                      AS runs,
     uniq(r.task_id)                                              AS tasks,
@@ -103,7 +106,7 @@ FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
-GROUP BY repo
+GROUP BY repo_fingerprint, repo
 -- The floor applies to *partial* failure rates. A repo where every run fails is a
 -- readiness break the body says to file at any volume, so it must survive the floor.
 HAVING runs > 20 OR (failed = runs AND runs >= 3)
@@ -141,7 +144,7 @@ WHERE r.created_at > now() - interval 14 day
   -- Project-wide by default. When query 2 named a candidate repository, re-run this
   -- scoped to it — a repo's own worst class is often outside the global top 20, and
   -- without this the query 2 -> query 3 -> query 4 chain stalls with nothing to localize:
-  -- AND t.repository = 'owner/repo'
+  -- AND cityHash64(t.repository) = 0000000000000000000  -- repo_fingerprint from query 2
 GROUP BY err_fingerprint, err_prefix
 ORDER BY runs DESC
 LIMIT 20
@@ -319,7 +322,7 @@ WHERE t.origin_product != 'signals_scout'
   AND r.status = 'failed'
   AND r.created_at > now() - interval 14 day
   -- Narrow to the cluster you are filing, e.g.:
-  -- AND t.repository = 'owner/repo'
+  -- AND cityHash64(t.repository) = 0000000000000000000  -- repo_fingerprint from query 2
   -- AND cityHash64(substring(r.error_message, 1, 60)) = 0000000000000000000  -- err_fingerprint from query 3
 ORDER BY r.created_at DESC
 LIMIT 5
