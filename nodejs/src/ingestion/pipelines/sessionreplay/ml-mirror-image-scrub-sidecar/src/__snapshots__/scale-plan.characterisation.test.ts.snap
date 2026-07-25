@@ -1,0 +1,100 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`scale geometry, as it currently behaves a 4K desktop frame 1`] = `
+{
+  "frame": "894x503",
+  "stored": "213x120",
+  "textCanvas": "896x512",
+  "textContent": "894x503",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a 1080p desktop frame 1`] = `
+{
+  "frame": "894x503",
+  "stored": "213x120",
+  "textCanvas": "896x512",
+  "textContent": "894x503",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a banner past the tiling threshold 1`] = `
+{
+  "frame": "7746x58",
+  "stored": "213x1",
+  "textCanvas": "7776x64",
+  "textContent": "7746x58",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a degenerate column 1`] = `
+{
+  "frame": "7x67082",
+  "stored": "1x213",
+  "textCanvas": "32x16928",
+  "textContent": "7x16928",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a degenerate strip 1`] = `
+{
+  "frame": "67082x7",
+  "stored": "213x1",
+  "textCanvas": "16928x32",
+  "textContent": "16928x7",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a mobile portrait frame 1`] = `
+{
+  "frame": "390x844",
+  "stored": "98x213",
+  "textCanvas": "416x864",
+  "textContent": "390x844",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a retina laptop frame 1`] = `
+{
+  "frame": "849x530",
+  "stored": "213x133",
+  "textCanvas": "864x544",
+  "textContent": "849x530",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a small sprite under every cap 1`] = `
+{
+  "frame": "200x200",
+  "stored": "66x66",
+  "textCanvas": "224x224",
+  "textContent": "200x200",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a square at the cap 1`] = `
+{
+  "frame": "671x671",
+  "stored": "213x213",
+  "textCanvas": "672x672",
+  "textContent": "671x671",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a tiny favicon 1`] = `
+{
+  "frame": "32x32",
+  "stored": "10x10",
+  "textCanvas": "32x32",
+  "textContent": "32x32",
+}
+`;
+
+exports[`scale geometry, as it currently behaves a wide banner 1`] = `
+{
+  "frame": "2048x219",
+  "stored": "213x22",
+  "textCanvas": "2048x224",
+  "textContent": "2048x219",
+}
+`;
