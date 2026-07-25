@@ -6,7 +6,14 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-const HOGFUNCTION_METRIC_KEYS = ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'] as const
+const HOGFUNCTION_METRIC_KEYS = [
+    'succeeded',
+    'failed',
+    'inputs_failed',
+    'filtered',
+    'disabled_permanently',
+    'quota_limited',
+] as const
 
 export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
@@ -18,6 +25,12 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
         name: 'Failure',
         description: 'Total number of events that had errors during processing',
         color: getColorVar('danger'),
+    },
+    inputs_failed: {
+        name: 'Input errors',
+        description:
+            'Total number of events dropped because their input mapping could not be built (for example, a property mapping threw an error)',
+        color: getColorVar('warning'),
     },
     filtered: {
         name: 'Filtered',
@@ -69,7 +82,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
                         previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                         color={HOGFUNCTION_METRICS_INFO[key].color}
                         colorIfZero={getColorVar('muted')}
-                        hideIfZero={!['succeeded', 'failed', 'filtered'].includes(key)}
+                        hideIfZero={!['succeeded', 'failed', 'inputs_failed', 'filtered'].includes(key)}
                     />
                 ))}
             </div>
