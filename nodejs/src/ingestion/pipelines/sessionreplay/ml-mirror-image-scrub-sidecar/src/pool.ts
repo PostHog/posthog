@@ -12,6 +12,8 @@ const RESTART_BACKOFF_BASE_MS = 500
 const RESTART_BACKOFF_MAX_MS = 30_000
 /** How long a replacement must stay up before its slot's failure streak is forgiven. */
 const RESTART_HEALTHY_MS = 60_000
+/** How long a retired worker may take to terminate before that is worth a log line. */
+const TERMINATE_GRACE_MS = 30_000
 
 export interface ScrubResult {
     out: Buffer
@@ -204,8 +206,26 @@ export async function startPool(
             slot.job.pending.reject(error)
         }
         slot.job = null
-        void slot.worker.terminate().catch(() => {})
-        scheduleReplacement(index, error)
+
+        // Replace only once the old worker is actually gone. terminate() cannot interrupt a thread
+        // sitting inside a native ONNX or libvips call, and that is precisely the case the job
+        // deadline retires a worker for, so spawning on a timer regardless would add a worker while
+        // the one it replaces is still holding its isolate, its three sessions and a frame's buffers.
+        // A sender able to keep producing images that breach the deadline could then walk the pod
+        // past the memory its worker count was sized for, one live-but-retired worker at a time,
+        // until it OOMs. Waiting bounds the pool at its configured size: a wedged worker costs its
+        // own slot until the native call returns, which is the same capacity it was already failing
+        // to provide, and if every slot ends up wedged the liveness probe restarts the pod.
+        const terminated = slot.worker.terminate().catch(() => undefined)
+        const stillGoing = setTimeout(
+            () => console.error(`[image-scrub] worker ${index} has not terminated; its slot stays down until it does`),
+            TERMINATE_GRACE_MS
+        )
+        stillGoing.unref()
+        void terminated.then(() => {
+            clearTimeout(stillGoing)
+            scheduleReplacement(index, error)
+        })
     }
 
     /**
