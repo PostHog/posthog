@@ -77,6 +77,64 @@ describe("buildSandboxDocument", () => {
   });
 });
 
+describe("content security policy", () => {
+  // Pull the CSP out of the <meta http-equiv> tag and index it by directive.
+  const cspDirectives = (html: string): Map<string, string[]> => {
+    const match = html.match(
+      /<meta http-equiv="Content-Security-Policy" content="([^"]*)"/,
+    );
+    if (!match) throw new Error("no CSP meta tag in document");
+    const directives = new Map<string, string[]>();
+    for (const part of match[1].split(";")) {
+      const [name, ...values] = part.trim().split(/\s+/).filter(Boolean);
+      if (name) directives.set(name, values);
+    }
+    return directives;
+  };
+
+  it.each([
+    { name: "without analytics host", analyticsApiHost: undefined },
+    { name: "with analytics host", analyticsApiHost: "https://us.posthog.com" },
+  ])(
+    "does not expose a bare https: wildcard on img-src in edit mode ($name)",
+    ({ analyticsApiHost }) => {
+      const directives = cspDirectives(
+        buildSandboxDocument("edit", analyticsApiHost),
+      );
+      const imgSrc = directives.get("img-src") ?? [];
+      // A bare `https:` token allows every https origin, which is the exfiltration
+      // channel, because img loads are not governed by connect-src. Scheme-scoped host
+      // entries like `https://esm.sh` are fine; the standalone `https:` is not.
+      expect(imgSrc).not.toContain("https:");
+    },
+  );
+
+  it.each([
+    { name: "without analytics host", analyticsApiHost: undefined },
+    { name: "with analytics host", analyticsApiHost: "https://us.posthog.com" },
+  ])(
+    "keeps img-src host egress mirrored to connect-src in edit mode ($name)",
+    ({ analyticsApiHost }) => {
+      const directives = cspDirectives(
+        buildSandboxDocument("edit", analyticsApiHost),
+      );
+      const imgSrc = directives.get("img-src") ?? [];
+      const connectSrc = directives.get("connect-src") ?? [];
+      // Inline images may use data:/blob:; every remote host img-src permits must
+      // also be a connect-src host, so image egress can't exceed connect egress.
+      expect(imgSrc).toEqual(expect.arrayContaining(["data:", "blob:"]));
+      const imgHosts = imgSrc.filter((v) => v !== "data:" && v !== "blob:");
+      expect(imgHosts).toEqual(connectSrc);
+    },
+  );
+
+  it("locks img-src to self plus data:/blob: in view mode", () => {
+    const directives = cspDirectives(buildSandboxDocument("view"));
+    expect(directives.get("img-src")).toEqual(["data:", "blob:", "'self'"]);
+    expect(directives.get("img-src")).not.toContain("https:");
+  });
+});
+
 describe("resolveExternalAnchorUrl", () => {
   const clickTarget = (html: string, selector: string): Element => {
     const container = document.createElement("div");

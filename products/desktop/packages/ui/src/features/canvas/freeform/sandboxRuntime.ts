@@ -502,6 +502,12 @@ function contentSecurityPolicy(
       TAILWIND_ENGINE === "v4"
         ? "https://cdn.jsdelivr.net/npm/@tailwindcss/"
         : "https://cdn.tailwindcss.com";
+    // The single egress allowlist shared by `connect-src` and `img-src`. A bare
+    // `https:` wildcard on img-src is an exfiltration channel that connect-src
+    // cannot close, because connect-src does not govern image loads: canvas code
+    // can beacon query results out with `new Image().src` on mount. Keeping the
+    // two directives mirrored means image egress can never exceed connect egress.
+    const egressHosts = `${esm} ${twCdn} ${ph}`;
     return [
       "default-src 'none'",
       // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
@@ -511,11 +517,12 @@ function contentSecurityPolicy(
       `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
       `style-src 'unsafe-inline' ${esm}`,
       `font-src data: ${esm}`,
-      "img-src data: blob: https:",
+      // Inline images (data:/blob:) plus the same allowlisted hosts as egress.
+      `img-src data: blob: ${egressHosts}`,
       `worker-src blob:`,
       // esm.sh + Tailwind CDN sub-fetches; canvas DATA goes over postMessage (not
       // connect), but posthog-js events/replay DO use connect to the PostHog hosts.
-      `connect-src ${esm} ${twCdn} ${ph}`,
+      `connect-src ${egressHosts}`,
     ].join("; ");
   }
   // view / published: self-hosted, frozen. Only egress is PostHog analytics.
