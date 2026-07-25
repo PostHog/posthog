@@ -93,7 +93,9 @@ function TaskRow({
                     to={taskUrl}
                     aria-label={`Open ${purposeLabel} run in Tasks`}
                     title="Open run in Tasks"
-                    className="shrink-0 text-tertiary opacity-60 transition-opacity hover:text-primary group-hover:opacity-100"
+                    // A 24px box keeps the tap target clear of the expand button on touch; the negative
+                    // margin absorbs it back into the row so rows keep their height.
+                    className="-my-1 flex size-6 shrink-0 items-center justify-center rounded text-tertiary opacity-60 transition-opacity hover:text-primary group-hover:opacity-100"
                 >
                     <IconExternal className="size-3.5" />
                 </Link>
