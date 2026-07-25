@@ -17,6 +17,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    extract_uuid_constants,
+    get_events_session_id_table_type,
+)
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -588,39 +592,6 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
-    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
-        """If the expression resolves to $session_id on the events table, return the table type."""
-        from posthog.hogql.database.schema.events import EventsTable
-
-        expr_type = resolve_field_type(node)
-
-        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
-            table_type = expr_type.table_type
-        elif (
-            isinstance(expr_type, ast.PropertyType)
-            and expr_type.chain == ["$session_id"]
-            and expr_type.field_type.name == "properties"
-        ):
-            table_type = expr_type.field_type.table_type
-        elif (
-            isinstance(node, ast.JsonSubcolumnAccess)
-            and node.keys == ["$session_id"]
-            and isinstance(resolve_field_type(node.expr), ast.FieldType)
-        ):
-            field_type = cast(ast.FieldType, resolve_field_type(node.expr))
-            if field_type.name != "properties":
-                return None
-            table_type = field_type.table_type
-        else:
-            return None
-
-        original_table_type = table_type
-        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-            return cast(ast.BaseTableType, original_table_type)
-        return None
-
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
         op_name = {
@@ -635,13 +606,13 @@ class ClickHousePrinter(BasePrinter):
         session_id_table: ast.BaseTableType | None = None
         constants: list[ast.Constant] = []
 
-        if table := self._get_events_session_id_table_type(node.left):
+        if table := get_events_session_id_table_type(node.left):
             session_id_table = table
-            constants = self._extract_uuid_constants(node.right)
+            constants = extract_uuid_constants(node.right)
         elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            if table := self._get_events_session_id_table_type(node.right):
+            if table := get_events_session_id_table_type(node.right):
                 session_id_table = table
-                constants = self._extract_uuid_constants(node.left)
+                constants = extract_uuid_constants(node.left)
 
         if session_id_table is None or not constants:
             return None
@@ -652,20 +623,6 @@ class ClickHousePrinter(BasePrinter):
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return f"{op_name}({field_sql}, {wrapped[0]})"
         return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
-
-    @staticmethod
-    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
-        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
-        if isinstance(node, ast.Constant):
-            return [node] if UUIDT.is_valid_uuid(node.value) else []
-        if isinstance(node, (ast.Tuple, ast.Array)):
-            result: list[ast.Constant] = []
-            for expr in node.exprs:
-                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
-                    return []
-                result.append(expr)
-            return result
-        return []
 
     @staticmethod
     def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:

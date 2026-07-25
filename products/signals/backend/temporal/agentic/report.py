@@ -226,6 +226,8 @@ def _build_reviewers_content(
                 github_name=reviewer.name,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
                 reason=None,
+                # Pipeline reviewers are commit-authorship-derived, never owner-injected.
+                is_skill_owner=False,
             )
         )
     return reviewers_content

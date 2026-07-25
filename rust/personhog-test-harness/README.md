@@ -35,8 +35,30 @@ target/debug/personhog-test-harness gate --external-router-url http://127.0.0.1:
 ```
 
 The spawned stack is isolated from the dev stack: its own port range (24xxx, kept below the ephemeral range so outbound connections cannot steal a listen port), its own etcd prefix (`/personhog-test-harness/`), and a per-run changelog topic (`personhog_test_harness_<run_id>`, deleted on teardown).
-Persons are seeded directly in Postgres for a reserved harness team id (SQL is the interim seeding mechanism until the create RPC's future is settled; `src/seed.rs` is the swap seam).
+Persons are seeded directly in Postgres for a reserved harness team id by default; `--create-via-identity` (below) creates them through the identity service instead.
 Service logs land in `<bin-dir>/harness-logs/<run_id>/`.
+
+### Creating persons via the identity service
+
+`--create-via-identity` swaps SQL seeding for the personhog-identity get-or-create path: the spawned stack also runs `personhog-identity`, persons are created through `GetOrCreatePersonsByDistinctIds` (stub insert on the Postgres primary, then initial `$set` properties through the router to the owning leader), and the update traffic then targets the created persons.
+Each create ack is journaled like any other write, so the gate holds create visibility — the initial properties and the acked version — to the same invariant as update visibility, in strong reads and in Postgres.
+
+```bash
+# Create through identity, then update through the router
+target/debug/personhog-test-harness gate --create-via-identity \
+  --duration 10s --persons 100 --concurrency 10
+
+# The create path composes with chaos like any other run
+target/debug/personhog-test-harness gate --create-via-identity \
+  --leaders 3 --partitions 8 --duration 15s --kill-after 5s --scale-up-after 8s
+
+# Against an already-running stack, point at its identity service too
+# (the dev stack runs it at 50055)
+target/debug/personhog-test-harness gate --create-via-identity \
+  --external-router-url http://127.0.0.1:50054 \
+  --external-identity-url http://127.0.0.1:50055 \
+  --pg-target-table personhog_person_tmp
+```
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).
 

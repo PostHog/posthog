@@ -51,6 +51,8 @@ import type {
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
+    SignalScoutCreateApi,
+    SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
@@ -482,6 +484,27 @@ export const signalsReportsRefundSummaryRetrieve = async (
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/`
+}
+
+/**
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * @summary Create a scout
+ */
+export const signalsScoutCreate = async (
+    projectId: string,
+    signalScoutCreateApi: SignalScoutCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutCreateResponseApi> => {
+    return apiMutator<SignalScoutCreateResponseApi>(getSignalsScoutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutCreateApi),
     })
 }
 

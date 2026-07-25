@@ -21,6 +21,7 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV2,
+    build_session_id_literal_pushdown_predicate,
     build_session_id_v7_pushdown_predicate,
     build_session_property_pre_aggregation_predicate,
 )
@@ -656,14 +657,21 @@ def join_events_table_to_sessions_table_v2(
     extra_where: Optional[ast.Expr] = None
     # Only push down in UUID join mode — the `$session_id` string mode would require wrapping
     # the IN-subquery output in `_toUInt128(toUUID(...))` and isn't needed for the common path.
-    if context.modifiers.sessionIdPushdown and context.modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
-        extra_where = build_session_id_v7_pushdown_predicate(
+    if context.modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
+        # literal id sets push down ungated: no extra events scan, prune-only
+        extra_where = build_session_id_literal_pushdown_predicate(
             node,
             join_to_add,
-            context,
             session_id_v7_field=ast.Field(chain=["raw_sessions", "session_id_v7"]),
-            events_session_id_field=["$session_id_uuid"],
         )
+        if extra_where is None and context.modifiers.sessionIdPushdown:
+            extra_where = build_session_id_v7_pushdown_predicate(
+                node,
+                join_to_add,
+                context,
+                session_id_v7_field=ast.Field(chain=["raw_sessions", "session_id_v7"]),
+                events_session_id_field=["$session_id_uuid"],
+            )
 
     if context.modifiers.sessionPropertyPreAggregation:
         pre_agg_where = build_session_property_pre_aggregation_predicate(

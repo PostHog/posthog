@@ -450,6 +450,18 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
 
+    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
+    # this sweep recovers from, so dispatching without re-seeding would silently start
+    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
+    # is treated like any other transient recovery error: retried next sweep, with the
+    # 24h killer as the terminal backstop.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        ensure_loop_skill_bundles_seeded,
+    )
+
+    if not ensure_loop_skill_bundles_seeded(task_run):
+        return "error"
+
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
     _capture_run_feature_flags(run_id)
     try:

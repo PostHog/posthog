@@ -36,7 +36,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -214,6 +214,44 @@ class TestSkillLoader(BaseTest):
         skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
         skill.save()
         assert load_skill_for_run(self.team, "signals-scout-general", include_authors=True).authors == []
+
+    def test_authors_prefer_explicit_owners_over_version_history(self) -> None:
+        # With an explicit owner set, ownership is authoritative and stable: a later editor never
+        # displaces the owner. Here ben owns the skill but self.user is the latest editor — the
+        # version-history reconstruction would surface self.user, the owner set must not.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name="signals-scout-errors", user=ben)
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("owner", "ben@posthog.com")]
+
+    def test_owned_skill_with_all_owners_revoked_returns_no_authors(self) -> None:
+        # A skill with owner rows is authoritatively owned. If every owner loses access, the reviewer
+        # path must return NO authors, not silently drift back to the version-history editor — the
+        # exact misroute the owner primitive exists to prevent. self.user is a valid version author
+        # here, so a regression that falls through would surface them.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        skill = self._create_skill("signals-scout-errors")
+        skill.created_by = self.user
+        skill.save()
+        LLMSkillOwner.objects.for_team(self.team.id, canonical=True).create(
+            team=self.team, skill_name="signals-scout-errors", user=ben
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert loaded.authors == []
 
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")

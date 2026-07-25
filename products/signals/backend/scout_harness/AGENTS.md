@@ -59,24 +59,35 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   feedback leaves the customer's project, so it must carry the pattern, never the project's
   data (no PII, values, URLs, numbers, or custom event/property names); tool/harness friction
   still routes via the shared operational-friction section. A _report-channel_ custom scout's run identity also
-  carries a **skill authors** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
-  creator + recent editors resolved server-side from the skill's version rows, which the
-  escalation guidance points `suggested_reviewers` at (creator first, via `scout-members-list`) —
-  without it a scout only sees its pinned version's `created_by`, i.e. the last editor,
-  and would route ownership to whoever most recently touched the skill. The line is gated on
-  the report channel: a signal-channel scout has no `suggested_reviewers` field, so member
-  names/emails (PII) must not reach its prompt.
+  carries a **skill owners** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
+  the skill's explicit owners when set (else the version-history creator + recent editors,
+  resolved server-side), which the escalation guidance points `suggested_reviewers` at (owner
+  first, via `scout-members-list`) — without it a scout only sees its pinned version's
+  `created_by`, i.e. the last editor, and would route ownership to whoever most recently touched
+  the skill. The scout owns routing: this line is context, not a rule, so a skill body can steer
+  `suggested_reviewers` elsewhere (a named reviewer, a team convention) or say "don't route to me"
+  and be honoured — `tools/report.py._build_suggested_reviewers` injects nothing, it only takes
+  the scout's picks. Owners feed exactly one code rule there — a picked reviewer who is a current
+  owner is stamped `is_skill_owner=True` so autostart never mints its session under an
+  editor-controlled owner (`auto_start._resolve_autostart_assignee`); the stamp changes identity
+  eligibility, never who reviews. The line is gated on the report channel: a
+  signal-channel scout has no `suggested_reviewers` field, so member names/emails (PII) must not
+  reach its prompt.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
   `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin + authors), plus
   `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
   predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
-  `resolve_skill_authors` aggregates distinct non-null `created_by` across a skill's version rows
-  (creator = earliest first-authored, then editors by last-edit recency, capped), restricted to
-  `team.all_users_with_access()` so a revoked author's profile stops flowing into a privileged
-  prompt. Resolution is opt-in via `load_skill_for_run(..., include_authors=True)` — only the
-  runner's prompt-building path pays for it; the report-authorization gate in `views.py` loads
-  the skill per report write just to check `allowed_tools` and skips it.
+  `resolve_skill_authors` prefers the skill's **explicit owner set** (`LLMSkillOwner`, keyed on the
+  logical `(team, name)` so it never drifts when the body is edited) — returned as `role="owner"`,
+  seed-creator first. Only when a skill has no explicit owners does it fall back to reconstructing
+  authorship from version rows (distinct non-null `created_by`: creator = earliest first-authored,
+  then editors by last-edit recency, capped). Both paths are restricted to
+  `team.all_users_with_access()` so a revoked user's profile stops flowing into a privileged prompt.
+  `resolve_skill_owner_user_uuids` exposes the owner set (seed-creator first) to the report tools'
+  reviewer provenance stamp (`is_skill_owner`). Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
+  — only the runner's prompt-building path pays for it; the report-authorization gate in `views.py`
+  loads the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
@@ -160,9 +171,12 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
-  `SignalScoutMembersViewSet`.
-  Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
+  `SignalScoutMembersViewSet`, `SignalScoutViewSet`.
+  Routed under `project_signals_scout_*` basenames in `products/signals/backend/routes.py`
   and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutViewSet` backs `scout-create`: it creates a custom `signals-scout-*` skill
+  and its runnable config atomically, grants the report-channel tools server-side, and
+  treats an identical definition as a retry while rejecting conflicting definitions.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
   it returns the project's members (those with access to the team) with `user_uuid` / `email` /
   `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
@@ -175,8 +189,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
   so private-project access control is honored), the project-nested path that the org-nested
   `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
-  The config viewset is the no-wait creation path: `create` registers (upserts) a
-  config for an already-authored skill with its schedule/emit posture in one call.
+  The config viewset remains the lower-level no-wait creation path: `create` registers
+  (upserts) a config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
   mints config rows. The metadata viewset is the read-only `scout/metadata/current/`
   endpoint that reports enrollment + banner + enforced limits via
