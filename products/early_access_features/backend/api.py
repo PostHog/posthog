@@ -84,7 +84,7 @@ def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
                 feature_flag_id=feature_flag.id,
                 error=str(exc),
             )
-    feature_flag.filters = cleared_filters
+    feature_flag.filters = cleared_filters  # nosemgrep: feature-flags-no-raw-filters-access -- deliberate never-fail cleanup fallback when the gated write can't validate stored legacy filter shapes
     feature_flag.save(update_fields=["filters"])
 
 

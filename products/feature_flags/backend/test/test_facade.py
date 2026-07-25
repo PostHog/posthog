@@ -634,6 +634,14 @@ class TestSetFeatureEnrollment:
     def test_transform(self, _name, current_filters, enrolled, groups, expected):
         assert set_feature_enrollment(current_filters, enrolled, groups=groups) == expected
 
+    def test_does_not_alias_groups_input(self):
+        groups = [{"properties": [], "rollout_percentage": 100}]
+
+        result = set_feature_enrollment({}, None, groups=groups)
+        result["groups"][0]["rollout_percentage"] = 0
+
+        assert groups == [{"properties": [], "rollout_percentage": 100}]
+
 
 class TestExperimentRuleFromFilters:
     @parameterized.expand(
