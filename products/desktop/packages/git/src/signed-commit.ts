@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { mapWithConcurrency } from "./concurrency";
 import { execGh, execGhWithRetry, type GhExecResult } from "./gh";
 import { buildPostHogTrailers } from "./trailers";
+import { gitTransportSecurityArgs } from "./transport-security";
 import { parseGithubUrl } from "./utils";
 
 /**
@@ -104,7 +105,10 @@ function runGit(args: string[], cwd: string): Promise<GitRunResult> {
   return new Promise((resolve) => {
     childProcess.execFile(
       "git",
-      args,
+      // Prefix transport hardening so remote-touching commands routed through
+      // this raw seam (e.g. `ls-remote origin`) can't be turned into RCE by a
+      // malicious `ext::` remote in the repo config. Harmless for local ops.
+      [...gitTransportSecurityArgs(), ...args],
       { cwd, maxBuffer: MAX_GIT_BUFFER, encoding: "buffer" },
       (error, stdout, stderr) => {
         const err = error as (Error & { code?: number | string }) | null;
