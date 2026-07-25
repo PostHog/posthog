@@ -1139,11 +1139,9 @@ class _SlowDescribeClient(_EmptyArrowClient):
 
 class TestHogqlTableResolutionDeadline:
     async def test_slow_describe_does_not_exhaust_the_resolution_deadline(self, ateam):
-        # regression: a DateTime column sends hogql_table back through prepare_ast_for_printing
-        # to wrap the select in toTimeZone. That second pass used to share the first pass's
-        # deadline anchor, which is stamped before the DESCRIBE round trip — so a DESCRIBE
-        # slower than the deadline made the re-prepare raise ResolutionTimeoutError on its
-        # first visit, blaming the user's view for time spent in ClickHouse.
+        # regression: a DateTime column sends hogql_table back through prepare_ast_for_printing to
+        # wrap the select in toTimeZone. That second pass used to share the first pass's deadline
+        # anchor, so a DESCRIBE slower than the deadline made it raise ResolutionTimeoutError.
         deadline_seconds = 1.0
         client = _SlowDescribeClient(
             pa.schema([pa.field("ts", pa.timestamp("us"))]), describe_seconds=deadline_seconds + 0.2
