@@ -226,7 +226,9 @@ class ClickHousePrinter(BasePrinter):
                 first_arg is not None
                 and first_arg.type is not None
                 and (
-                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                    first_arg_was_alias
+                    or isinstance(first_arg, ast.Call)
+                    or isinstance(first_arg.type, ast.FieldType | ast.FieldAliasType)
                 )
             ):
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)

@@ -2831,6 +2831,20 @@ class TestPrinter(BaseTest):
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
         self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
 
+    def test_to_datetime_does_not_double_parse_cte_datetime_column_reference(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="dt_prop", property_type="DateTime", type=PropertyDefinition.Type.EVENT
+        )
+        # The outer toDateTime arg is a bare column reference to `d`, whose type is a
+        # FieldAliasType (a CTE/subquery column), not a plain FieldType. The printer must
+        # look through it to see the column is already a datetime — otherwise it falls back
+        # to the stale recorded arg type and re-parses an already-datetime value with the
+        # string-only parseDateTime64BestEffortOrNull, which fails in ClickHouse.
+        printed = self._select(
+            "WITH stage_events AS (SELECT properties.dt_prop AS d, toDateTime(d) AS ts FROM events) SELECT ts FROM stage_events"
+        )
+        self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
+
     def test_window_functions(self):
         self.assertEqual(
             self._select(
