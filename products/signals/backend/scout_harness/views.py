@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
@@ -226,7 +227,7 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     session caller carries no scopes for the first leg to inspect.
     """
     authenticator = request.successful_authenticator
-    scopes: list[str] | None = None
+    scopes: Sequence[str] | None = None
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         scopes = authenticator.personal_api_key.scopes or []
     elif isinstance(authenticator, OAuthAccessTokenAuthentication):
