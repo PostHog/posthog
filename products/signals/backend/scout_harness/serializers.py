@@ -23,7 +23,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutNote
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -559,8 +559,10 @@ class ScoutNoteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Display name of the user who left the note, or null when unavailable.",
     )
-    origin = serializers.ChoiceField(
-        choices=SignalScoutNote.Origin.choices,
+    # A plain CharField rather than a ChoiceField: `origin` is a collision-prone enum field name
+    # (a saved query carries one too), and the generated enum component isn't worth an
+    # ENUM_NAME_OVERRIDES entry for a two-value read-only projection with no frontend consumer.
+    origin = serializers.CharField(
         help_text=(
             "Where the note came from: `human` for one left directly through this API, or "
             "`report_dismissal` for one derived from the note someone typed when they dismissed, "

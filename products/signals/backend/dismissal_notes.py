@@ -9,6 +9,13 @@ by name at cold start (`scout-notes-list`, see the run prompt's *Notes left for 
 
 The note is a derived convenience, never the record of truth: the `dismissal` artefact on the
 report is. So promotion is best-effort and never allowed to fail a dismissal.
+
+Authorization is the writer's, not the dismisser's. Dismissing a report needs `task:write`, while
+this table is otherwise gated to skill-authoring authorization because scouts read note content
+verbatim while holding privileged sandbox tools. So promotion re-checks that the dismisser could
+have left the note by hand (`_may_steer_scouts`), against the canonical project whose scouts will
+read it. A dismisser who can't clear that bar still gets their feedback recorded on the report; it
+just doesn't enter the steering channel.
 """
 
 from __future__ import annotations
@@ -20,7 +27,8 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.signals.backend.models import SignalReport, SignalScoutNote, SignalScoutRun
 from products.signals.backend.scout_harness.tools.notes import leave_note
@@ -34,11 +42,19 @@ logger = logging.getLogger(__name__)
 # its scratchpad, and the artefact on the report stays the durable record either way.
 DERIVED_NOTE_TTL = timedelta(days=30)
 
-# What the target state of the transition means to the scout reading the note.
-_STATE_VERBS = {
-    "suppressed": "dismissed",
-    "potential": "snoozed",
-    "resolved": "resolved",
+# What the report's resulting status means to the scout reading the note. Keyed on the status the
+# report actually landed in rather than the requested target, because `state="potential"` on a
+# suppressed report restores it to whatever researched status it held before being archived, and
+# telling a scout its report was snoozed when it was restored to ready teaches it the opposite of
+# what happened. Statuses this API can't reach (candidate, in_progress, deleted) have no verb, and
+# a report in one is skipped rather than described wrongly.
+_STATUS_VERBS = {
+    SignalReport.Status.SUPPRESSED: "dismissed",
+    SignalReport.Status.POTENTIAL: "snoozed",
+    SignalReport.Status.RESOLVED: "resolved",
+    SignalReport.Status.READY: "restored to ready",
+    SignalReport.Status.PENDING_INPUT: "restored to awaiting input",
+    SignalReport.Status.FAILED: "restored to failed",
 }
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
@@ -51,58 +67,102 @@ def promote_dismissal_note(
     *,
     team: Team,
     reports: Sequence[SignalReport],
-    state: str,
     reason: str | None,
     note: str | None,
-    user_id: int | None,
+    user: object,
 ) -> list[str]:
     """Leave the dismissal note as a scout note. Returns the ids of the notes created.
 
-    `reports` is every report the caller actually transitioned in this request, so a bulk dismissal
-    that applied one note to 40 reports produces one note per targeted scout instead of 40 near
-    identical ones. Reports are grouped by the scout that authored them, so each scout is told
-    about its own reports and only reports with no resolvable author fall back to the whole fleet.
+    `reports` is every report the caller actually transitioned in this request, already carrying
+    its new status, so a bulk dismissal that applied one note to 40 reports produces one note per
+    targeted scout instead of 40 near identical ones. Reports are grouped by the scout that authored
+    them, so each scout is told about its own reports and only reports with no resolvable author
+    fall back to the whole fleet.
 
-    Best-effort by contract: any failure is logged and swallowed, because the caller has already
-    committed the state transition the user asked for and the `dismissal` artefact that records it.
+    Best-effort by contract: every failure here is logged and swallowed, because the caller has
+    already committed the state transition the user asked for along with the `dismissal` artefact
+    that records the feedback. Nothing in this module may turn a successful dismissal into a 5xx.
     """
-    if not note or not note.strip():
-        return []
-    verb = _STATE_VERBS.get(state)
-    if verb is None or not reports:
+    if not note or not note.strip() or not reports:
         return []
 
-    # Scout models persist under the canonical parent team (`RootTeamMixin.save` rewrites child
-    # writes), and it is the parent's scouts that read the note, so resolve every lookup against
-    # the canonical id rather than the possibly-child team the request came in on.
-    team_id = team.parent_team_id or team.id
+    # Scout rows persist under the canonical parent team (`RootTeamMixin.save` rewrites child
+    # writes), and it is the parent project's scouts that read the note, so both the authorization
+    # check and every lookup resolve against the canonical team rather than the possibly-child team
+    # the request came in on.
+    canonical_team = team.parent_team or team
+    if not _may_steer_scouts(user, canonical_team):
+        return []
 
-    targets = _target_skill_names(team_id, [str(report.id) for report in reports])
-    grouped: dict[str, list[SignalReport]] = {}
-    for report in reports:
-        grouped.setdefault(targets[str(report.id)], []).append(report)
+    try:
+        grouped = _group_reports(canonical_team.id, reports)
+    except Exception:
+        # Resolution is two DB reads. Inside the same failure boundary as the write, because a
+        # failure after the transition committed would 500 a dismissal that actually succeeded,
+        # and a client retry would then hit the report in its new state and get a 409.
+        logger.exception(
+            "Failed to resolve scout note targets for dismissal feedback",
+            extra={"team_id": canonical_team.id, "report_count": len(reports)},
+        )
+        return []
 
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     created_ids: list[str] = []
-    for skill_name, skill_reports in grouped.items():
+    for (skill_name, verb), skill_reports in grouped.items():
         content = _build_note_content(verb=verb, reason=reason, note=note.strip(), reports=skill_reports)
         try:
             created = leave_note(
-                team_id=team_id,
+                team_id=canonical_team.id,
                 content=content,
                 skill_name=skill_name,
-                created_by_id=user_id,
+                created_by_id=user.id if isinstance(user, User) else None,
                 expires_at=expires_at,
                 origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
             )
         except Exception:
             logger.exception(
                 "Failed to promote dismissal note to a scout note",
-                extra={"team_id": team_id, "skill_name": skill_name, "report_count": len(skill_reports)},
+                extra={"team_id": canonical_team.id, "skill_name": skill_name, "report_count": len(skill_reports)},
             )
             continue
         created_ids.append(created.id)
     return created_ids
+
+
+def _may_steer_scouts(user: object, canonical_team: Team) -> bool:
+    """Whether this caller could have left the same note by hand through the notes API.
+
+    Mirrors the two write gates on `SignalScoutNoteViewSet`, both anchored to the canonical team
+    because that is whose scouts read the row: `ScoutCanonicalTeamAccessPermission` (a caller
+    scoped to a child environment must still have access to the parent project) and
+    `_assert_can_steer_scouts` (the `llm_skill` editor level that authoring a scout's skill body
+    requires). Synthetic service principals (project secret API keys) have no RBAC identity, so
+    they never steer scouts.
+
+    Deliberately not enforced: the `llm_skill:write` API key scope the notes endpoint also demands.
+    An agent dismissing a report holds `task:write`, and its dismissal text already reaches run
+    context verbatim through the `dismissal_note` field on the reports API that every scout is told
+    to read before emitting, so requiring the scope here would drop the feedback without closing a
+    path. The RBAC leg is what stops a member an admin restricted from skill editing.
+    """
+    if not isinstance(user, User):
+        return False
+    if not canonical_team.all_users_with_access().filter(pk=user.pk).exists():
+        return False
+    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
+
+
+def _group_reports(team_id: int, reports: Sequence[SignalReport]) -> dict[tuple[str, str], list[SignalReport]]:
+    """Bucket reports by the scout to tell and what happened to them, skipping undescribable ones."""
+    describable = [report for report in reports if SignalReport.Status(report.status) in _STATUS_VERBS]
+    if not describable:
+        return {}
+    targets = _target_skill_names(team_id, [str(report.id) for report in describable])
+    grouped: dict[tuple[str, str], list[SignalReport]] = {}
+    for report in describable:
+        key = (targets[str(report.id)], _STATUS_VERBS[SignalReport.Status(report.status)])
+        grouped.setdefault(key, []).append(report)
+    return grouped
 
 
 def _target_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:

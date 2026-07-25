@@ -1614,7 +1614,6 @@ class SignalReportViewSet(
 
         self._promote_dismissal_note(
             reports=[report],
-            target=data["state"],
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
         )
@@ -1627,7 +1626,6 @@ class SignalReportViewSet(
         # `Sequence`, not `list`: this class defines a `list` action, which shadows the builtin for
         # annotations evaluated in the class body at import time.
         reports: Sequence[SignalReport],
-        target: str,
         dismissal_reason: str | None,
         dismissal_note: str | None,
     ) -> None:
@@ -1635,19 +1633,17 @@ class SignalReportViewSet(
 
         Called once per request with every report that transitioned, so one note applied to a bulk
         dismissal reaches each affected scout once instead of once per report. Runs after the
-        transition has committed, because the note is derived context and the `dismissal` artefact
-        written alongside the transition remains the record of the feedback.
+        transitions have committed, because the note is derived context and the `dismissal` artefact
+        written alongside each transition remains the record of the feedback. Promotion resolves the
+        reports' resulting status itself, and authorizes the caller against the scout-note write
+        gates, so this call site only hands it the request's principal.
         """
-        user = self.request.user
         promote_dismissal_note(
             team=self.team,
             reports=reports,
-            state=target,
             reason=dismissal_reason,
             note=dismissal_note,
-            # Synthetic service principals (project secret API keys) authenticate with `id` None,
-            # so the note is left unattributed rather than pointing at a user row that isn't there.
-            user_id=getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+            user=self.request.user,
         )
 
     def _request_attribution(self) -> ArtefactAttribution:
@@ -1859,7 +1855,6 @@ class SignalReportViewSet(
 
         self._promote_dismissal_note(
             reports=transitioned,
-            target=target,
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
         )

@@ -800,7 +800,10 @@ Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 When the caller typed a note, that feedback is _also_ promoted to a `SignalScoutNote` (`dismissal_notes.promote_dismissal_note`).
 The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
 Promotion targets the scout that authored the report (resolved in Postgres from `SignalScoutRun.emitted_report_ids`, then `edited_report_ids`) and addresses the whole fleet when no run claims it, and it writes one note per targeted scout per request, so a bulk dismissal of 40 reports under one note does not write 40 notes.
+Each note describes the status the report actually landed in, not the requested target, so a restore out of the archive is never reported to a scout as a snooze.
 Derived notes carry `origin=report_dismissal` and a 30-day TTL so they cannot permanently crowd out deliberate human steering, and a failure to write one never fails the transition the caller asked for.
+Because the notes table is otherwise gated to skill-authoring authorization (scouts read note content verbatim while holding privileged sandbox tools), promotion re-checks that the dismisser could have left the note by hand: canonical-project access plus the `llm_skill` editor level, mirroring `SignalScoutNoteViewSet` (`dismissal_notes._may_steer_scouts`).
+A dismisser who can't clear that bar still gets their feedback recorded on the report; it just doesn't enter the steering channel.
 
 #### `SignalReportArtefactViewSet`
 

@@ -1405,12 +1405,14 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    One writer sits outside that gate: dismissing an inbox report with a note derives a
-    `REPORT_DISMISSAL` row (see `dismissal_notes.py`), and dismissing a report only needs
-    `task:write`. That widens who can put a row in this table, but not what a scout can be
-    told, because the same text already reaches run context verbatim through the
-    `dismissal_note` field on the inbox reports API that every scout is told to read before
-    emitting. `origin` keeps the two apart so the run prompt can frame a derived row as one
+    A second writer derives rows from elsewhere: dismissing an inbox report with a note also
+    leaves it here as a `REPORT_DISMISSAL` row (see `dismissal_notes.py`). Dismissing needs
+    only `task:write`, so that path re-checks the RBAC leg of this gate itself before writing,
+    against the canonical project whose scouts read the row. It does not re-check the
+    `llm_skill:write` key scope, because a dismissal's text already reaches run context
+    verbatim through the `dismissal_note` field on the inbox reports API that every scout is
+    told to read before emitting, so demanding the scope would drop feedback without closing a
+    path. `origin` keeps the two kinds apart so the run prompt can frame a derived row as one
     reviewer's verdict on one report rather than as fleet-level steering.
     """
 

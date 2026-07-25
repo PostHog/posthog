@@ -10,6 +10,9 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
+
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutNote, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
@@ -163,12 +166,59 @@ class TestDismissalScoutNotes(APIBaseTest):
             assert str(report.id) in notes[SCOUT_SKILL].content
         assert str(unauthored.id) in notes[""].content
 
-    def test_dismissal_still_succeeds_when_the_note_cannot_be_written(self) -> None:
+    def test_restore_out_of_the_archive_is_not_described_as_a_snooze(self) -> None:
+        report = self._create_report()
+        self._dismiss(report, dismissal_note="archiving for now")
+        SignalScoutNote.objects.filter(team=self.team).delete()
+
+        # `state="potential"` on a suppressed report restores it to the status it held before being
+        # archived, so the note must not tell the scout its report was snoozed.
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "dismissal_note": "back to ready, this is real"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        content = self._notes()[0].content
+        assert "restored to ready" in content
+        assert "snoozed" not in content
+
+    @parameterized.expand(
+        [
+            ("dismissal_note_cannot_be_written", "products.signals.backend.dismissal_notes.leave_note"),
+            ("note_targets_cannot_be_resolved", "products.signals.backend.dismissal_notes._target_skill_names"),
+        ]
+    )
+    def test_dismissal_still_succeeds_when_promotion_fails(self, _name: str, target: str) -> None:
         report = self._create_report()
 
-        with patch("products.signals.backend.dismissal_notes.leave_note", side_effect=RuntimeError("boom")):
+        with patch(target, side_effect=RuntimeError("boom")):
             self._dismiss(report, dismissal_note="feedback that never made it to a note")
 
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert self._notes() == []
+
+    def test_no_note_when_the_dismisser_may_not_steer_scouts(self) -> None:
+        # Promotion re-checks the `llm_skill` editor bar that `SignalScoutNoteViewSet` requires, so a
+        # member an admin restricted from skill editing can't reach the steering channel by
+        # dismissing instead. Deny only that resource: a blanket False breaks the request cycle.
+        report = self._create_report()
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel):
+            if resource == "llm_skill":
+                return False
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
+            mock_check.side_effect = deny_llm_skill
+            self._dismiss(report, dismissal_reason="wontfix_irrelevant", dismissal_note="not worth it")
+
+        # The dismissal still stands and the artefact still records the feedback.
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert self._notes() == []
