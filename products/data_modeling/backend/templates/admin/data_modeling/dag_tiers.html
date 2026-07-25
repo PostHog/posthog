@@ -13,6 +13,8 @@
   .pill-suspended { background: #fbe6c2; color: #7a4a00; }
   .pill-blocked { background: #ececec; color: #555; }
   .pill-missing { background: #f2ddff; color: #5b1d80; }
+  .pill-running { background: #dceaf7; color: #1f4d75; }
+  .pill-cancelled { background: #fbe6c2; color: #7a4a00; }
   .pill-not_materializing { background: #f5f5f5; color: #888; }
   .tier-heading { margin-bottom: 4px; }
   .tier-meta { color: #666; margin: 0 0 10px; }
@@ -27,7 +29,7 @@
 <table class="tier-summary">
   <tr>
     <th>Tier</th><th>Schedule</th><th>Declared</th><th>Ran</th>
-    <th>OK</th><th>Failed</th><th>Suspended</th><th>Blocked</th><th>No job</th>
+    <th>OK</th><th>Failed</th><th>Running</th><th>Cancelled</th><th>Suspended</th><th>Blocked</th><th>No job</th>
     <th>Non-materializing</th><th>Last run</th>
   </tr>
   {% for tier in tiers %}
@@ -42,13 +44,15 @@
     <td>{{ tier.ran }}</td>
     <td>{{ tier.counts.ok }}</td>
     <td>{{ tier.counts.failed }}</td>
+    <td>{{ tier.counts.running }}</td>
+    <td>{{ tier.counts.cancelled }}</td>
     <td>{{ tier.counts.suspended }}</td>
     <td>{{ tier.counts.blocked }}</td>
     <td>{{ tier.counts.missing }}</td>
     <td>{{ tier.counts.not_materializing }}</td>
     <td>
       {% if tier.parent_workflow_id %}
-        {{ tier.started_at }}
+        {% if tier.run_is_legacy %}<strong>legacy</strong> {% endif %}{{ tier.started_at }}
         {% if temporal_ui_host %}
           <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ tier.parent_workflow_id }}" target="_blank" rel="noreferrer">↗</a>
         {% endif %}
@@ -56,14 +60,18 @@
     </td>
   </tr>
   {% empty %}
-  <tr><td colspan="11">No node on this DAG declares a freshness target, so it has no tiers.</td></tr>
+  <tr><td colspan="13">No node on this DAG declares a freshness target, so it has no tiers.</td></tr>
   {% endfor %}
 </table>
 
 {% for tier in tiers %}
 <h2 class="tier-heading" id="tier-{{ tier.seconds }}">{{ tier.label }} — {{ tier.declared }} materializing node{{ tier.declared|pluralize }}</h2>
 <p class="tier-meta">
-  {% if tier.parent_workflow_id %}
+  {% if tier.run_is_legacy %}
+    This DAG has no schedule for this tier. The statuses below come from its pre-tier
+    <strong>single DAG-wide schedule</strong>, <code>{{ tier.parent_workflow_id }}</code>, started
+    {{ tier.started_at }} — so the nodes may well be materializing, just not on a per-tier schedule.
+  {% elif tier.parent_workflow_id %}
     Last run <code>{{ tier.parent_workflow_id }}</code> started {{ tier.started_at }}.
   {% else %}
     This tier has never produced a job. Either its schedule does not exist or it has not fired yet.
