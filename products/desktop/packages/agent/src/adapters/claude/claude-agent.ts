@@ -525,10 +525,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // A cancel counted during setup targets this prompt. It is not queued yet, so
     // `interrupt()` had nothing to stop and armed no backstop; returning here,
-    // before the message reaches the SDK, is what actually cancels it. Leave
-    // `cancelled` standing: an earlier turn may still be settling against it, and
-    // `activateTurn` clears it for the next turn that runs.
-    if (this.session.cancelSeq > cancelSeqAtEntry && this.session.cancelled) {
+    // before the message reaches the SDK, is what actually cancels it. The counter
+    // alone decides: `session.cancelled` belongs to the session, and `activateTurn`
+    // clears it for whichever turn runs next, so a prompt that raced past this one
+    // into the queue would otherwise erase the cancel this check exists to catch.
+    // The flag is left standing here, because an earlier turn may still be settling
+    // against it.
+    if (this.session.cancelSeq > cancelSeqAtEntry) {
       return this.cancelledResponse();
     }
 

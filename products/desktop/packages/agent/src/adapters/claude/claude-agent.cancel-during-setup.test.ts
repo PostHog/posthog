@@ -1,5 +1,8 @@
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockQuery,
@@ -42,9 +45,15 @@ interface Harness {
   finishSetup: () => void;
   /** Drives the queued turn to a normal completion. */
   completeTurn: () => Promise<void>;
+  /** Promotes the queued turn the way a local-only command's output does. */
+  activateQueuedTurn: () => Promise<void>;
+  /** Ends the active turn with the SDK's terminal result. */
+  finishTurn: () => void;
   /** Whether anything was handed to the SDK. */
   sdkReceivedMessage: () => boolean;
-  prompt: () => Promise<{ stopReason: string; _meta?: unknown }>;
+  /** The text of every message handed to the SDK, in order. */
+  sdkPromptTexts: () => string[];
+  prompt: (text?: string) => Promise<{ stopReason: string; _meta?: unknown }>;
 }
 
 /**
@@ -124,11 +133,22 @@ function makeHarness(): Harness {
     session,
     inSetup,
     finishSetup: () => releaseSetup([]),
-    prompt: () =>
+    prompt: (text = "do the thing") =>
       agent.prompt({
         sessionId: SESSION_ID,
-        prompt: [{ type: "text", text: "do the thing" }],
+        prompt: [{ type: "text", text }],
       }) as Promise<{ stopReason: string; _meta?: unknown }>,
+    activateQueuedTurn: async () => {
+      query._mockHelpers.sendMessage({
+        type: "system",
+        subtype: "local_command_output",
+        content: "context report",
+        uuid: crypto.randomUUID(),
+        session_id: SESSION_ID,
+      } as SDKMessage);
+      await tick();
+    },
+    finishTurn: () => query._mockHelpers.complete(createSuccessResult()),
     // Echo the turn's own user message back, then send the terminal result, the
     // way the SDK would for a turn that ran to completion.
     completeTurn: async () => {
@@ -138,6 +158,16 @@ function makeHarness(): Harness {
       query._mockHelpers.complete(createSuccessResult());
     },
     sdkReceivedMessage: () => pushToSdk.mock.calls.length > 0,
+    sdkPromptTexts: () =>
+      pushToSdk.mock.calls.map(([message]) => {
+        const content = message.message.content;
+        if (typeof content === "string") {
+          return content;
+        }
+        return content
+          .map((block) => (block.type === "text" ? block.text : ""))
+          .join("");
+      }),
   };
 }
 
@@ -216,6 +246,30 @@ describe("cancel arriving while a prompt is being set up", () => {
 
     await expect(pending).resolves.toMatchObject({ stopReason: "end_turn" });
     expect(h.session.cancelled).toBe(false);
+  });
+
+  it("drops the prompt even when a later turn activates during setup", async () => {
+    const h = makeHarness();
+
+    const cancelled = h.prompt();
+    await h.inSetup;
+    await h.agent.cancel({ sessionId: SESSION_ID });
+
+    // A local-only command skips the pre-prompt status check the first prompt is
+    // parked in, so it queues and activates while that prompt is still stalled.
+    // Activation clears `session.cancelled`, leaving the count as the only record
+    // that a cancel landed.
+    const local = h.prompt("/context");
+    await h.activateQueuedTurn();
+    expect(h.session.cancelled).toBe(false);
+
+    h.finishSetup();
+
+    await expect(cancelled).resolves.toMatchObject({ stopReason: "cancelled" });
+    expect(h.sdkPromptTexts()).toEqual(["/context"]);
+
+    h.finishTurn();
+    await expect(local).resolves.toMatchObject({ stopReason: "end_turn" });
   });
 
   it("leaves a mismatched cancel uncounted", async () => {
