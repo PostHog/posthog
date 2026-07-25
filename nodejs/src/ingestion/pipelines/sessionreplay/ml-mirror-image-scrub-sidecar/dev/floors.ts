@@ -25,7 +25,7 @@ import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
 import { detectCodes } from '../src/qr.ts'
-import { decodeSrc } from '../src/src-image.ts'
+import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
 
 const wasmFile = createRequire(`${process.cwd()}/`).resolve('zxing-wasm/writer/zxing_writer.wasm')
@@ -50,13 +50,23 @@ async function place(subject: Buffer, sidePx: number): Promise<Buffer> {
         .toBuffer()
 }
 
-/** The frame as the detectors see it, and as the artifact keeps it. */
-async function atScale(frame: Buffer, targetPx: number): Promise<Buffer> {
+/**
+ * The frame at an exact pixel budget, as raw pixels rather than through decodeSrc.
+ *
+ * decodeSrc re-applies SCRUB_MAX_PIXELS, so handing it an already-scaled PNG downscales twice and
+ * the run silently measures a different ratio than the one it prints: at the shipped defaults a
+ * "0.9 MP" detection frame arrived at 0.45 MP, making this benchmark report 3x while measuring 2.12x.
+ */
+async function atScale(frame: Buffer, targetPx: number): Promise<Src> {
     const scale = Math.sqrt(targetPx / (FRAME_W * FRAME_H))
-    return sharp(frame)
-        .resize(Math.round(FRAME_W * scale), Math.round(FRAME_H * scale))
-        .png()
-        .toBuffer()
+    const W = Math.max(1, Math.round(FRAME_W * scale))
+    const H = Math.max(1, Math.round(FRAME_H * scale))
+    const { data } = await sharp(frame)
+        .resize(W, H, { fit: 'fill' })
+        .flatten({ background: '#ffffff' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    return { data, W, H, format: 'raw', inputPixels: FRAME_W * FRAME_H }
 }
 
 async function faceFloors(): Promise<void> {
@@ -72,8 +82,8 @@ async function faceFloors(): Promise<void> {
         let survives = 0
         for (const f of files) {
             const frame = await place(await readFile(join(dir, f)), sidePx)
-            const det = await decodeSrc(await atScale(frame, DETECT_PX))
-            const art = await decodeSrc(await atScale(frame, STORE_PX))
+            const det = await atScale(frame, DETECT_PX)
+            const art = await atScale(frame, STORE_PX)
             if ((await detectFacesYunet(yunet, det, det.W, det.H)).length > 0) {
                 detected++
             }
@@ -100,8 +110,8 @@ async function codeFloors(): Promise<void> {
     const code = await sharp(Buffer.from(svg)).png().toBuffer()
     for (const sidePx of [48, 64, 96, 128, 192, 280]) {
         const frame = await place(code, sidePx)
-        const det = await decodeSrc(await atScale(frame, DETECT_PX))
-        const art = await decodeSrc(await atScale(frame, STORE_PX))
+        const det = await atScale(frame, DETECT_PX)
+        const art = await atScale(frame, STORE_PX)
         const detected = (await detectCodes(det)).length > 0
         const decodable = (await detectCodes(art)).length > 0
         const inArtifact = sidePx * Math.sqrt(STORE_PX / (FRAME_W * FRAME_H))
@@ -112,7 +122,10 @@ async function codeFloors(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    console.log(`  detection at ${DETECT_PX / 1e6} MP, artifact at ${STORE_PX / 1e6} MP`)
+    console.log(
+        `  detection at ${DETECT_PX / 1e6} MP, artifact at ${STORE_PX / 1e6} MP ` +
+            `(ratio ${Math.sqrt(DETECT_PX / STORE_PX).toFixed(2)}x per axis)`
+    )
     await faceFloors()
     await codeFloors()
 }

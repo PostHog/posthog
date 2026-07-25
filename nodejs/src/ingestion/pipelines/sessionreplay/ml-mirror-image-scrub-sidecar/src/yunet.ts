@@ -58,6 +58,13 @@ export interface FaceOpts {
 // some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
 // ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
 // at >=107px and a quarter-width face at >=27px, both comfortably detectable.
+/** How much of the frame YuNet actually sees, for the resolution invariant. Its input is a fixed
+ *  square, so on a frame longer than that it works from a downscaled copy and its effective scale is
+ *  lower than the text detector's. Capped at 1 because a small frame is letterboxed, not cropped. */
+export function yunetFrameScale(W: number, H: number): number {
+    return Math.min(1, YUNET_SIDE / Math.max(W, H))
+}
+
 const MAX_ASPECT = 3
 const TILE_ASPECT = 6
 

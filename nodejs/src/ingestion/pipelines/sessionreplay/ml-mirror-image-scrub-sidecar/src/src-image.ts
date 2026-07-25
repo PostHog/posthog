@@ -14,13 +14,16 @@ import { numFromEnv } from './env.ts'
  * structural rather than a pair of constants that happen to be compatible today.
  *
  * Measured floors, both in font-size px (ink is about 0.72x that, see dev/glyph-floor.ts):
- *   ~3px in the stored image is where a person stops reading text
- *   ~9px at the model input is where DBNet reliably finds it
+ *   ~3px in the STORED image is where a person stops reading text
+ *   ~4.9px at the MODEL INPUT is where DBNet starts finding it, ~7px before it finds it every time
  *
- * So the model has to see every frame at least 3x larger, per axis, than we store it. Anything
- * legible in the artifact is then comfortably above what the detector needs. The same benchmark run
- * for faces and codes (dev/floors.ts) shows both clearing this ratio with margin, so text is what
- * binds.
+ * Text readable in the artifact is at least 3px there, so requiring 7px at the model means the model
+ * must see every frame at least 7/3 = 2.33x larger per axis. This enforces 3x, which is deliberate
+ * margin: both floors came from one font at near-black on white, and low-contrast or condensed text
+ * moves the detection floor up, which is the direction that eats the margin rather than pads it.
+ *
+ * The same question asked of faces and codes (dev/floors.ts) shows both clearing this with more room
+ * than text has, so text is what binds.
  */
 export const DETECT_OVER_STORE = numFromEnv('SCRUB_DETECT_OVER_STORE', 3, 2, 8)
 
@@ -71,9 +74,16 @@ export function storedDimsFor(
     frameH: number,
     modelW: number,
     modelH: number,
-    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
+    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS,
+    weakestDetectorScale = 1
 ): { width: number; height: number } {
-    const byInvariant = Math.min(modelW / (DETECT_OVER_STORE * frameW), modelH / (DETECT_OVER_STORE * frameH))
+    // The weakest detector sets the guarantee, not the text detector. YuNet letterboxes the whole
+    // frame into a fixed 640 square, so on anything wider than that it sees less of the frame than
+    // DBNet does: a 1080p frame reaches DBNet whole and YuNet at 0.72x, which against a stored 0.33x
+    // is 2.15x for faces where the text path has 3x. Deriving from DBNet alone published a guarantee
+    // that held for one of the three.
+    const byDetector = Math.min(modelW / frameW, modelH / frameH, weakestDetectorScale)
+    const byInvariant = byDetector / DETECT_OVER_STORE
     const byCap = Math.sqrt(outMaxPixels / (frameW * frameH))
     // Never above 1: a frame smaller than the cap is kept as it is, not stretched up to it.
     const scale = Math.min(1, byInvariant, byCap)

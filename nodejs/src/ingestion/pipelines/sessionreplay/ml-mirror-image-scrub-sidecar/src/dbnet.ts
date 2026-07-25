@@ -76,10 +76,28 @@ export function modelInputDims(
     H: number,
     detLimit: number
 ): { cw: number; ch: number; rw: number; rh: number } {
-    const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
-    const cw = Math.max(1, Math.floor(W * ratio))
-    const ch = Math.max(1, Math.floor(H * ratio))
-    return { cw, ch, rw: ceilTo32(cw), rh: ceilTo32(ch) }
+    const budget = detLimit * detLimit
+    const ratio = Math.min(1, Math.sqrt(budget / (W * H)))
+    let cw = Math.max(1, Math.floor(W * ratio))
+    let ch = Math.max(1, Math.floor(H * ratio))
+    let rw = ceilTo32(cw)
+    let rh = ceilTo32(ch)
+
+    // The budget bounds the CONTENT area, but the tensor that gets allocated is the padded canvas,
+    // and padding a collapsed axis up to the stride multiplies it back: a 400000x4 source clears the
+    // area cap at 212132x2 and then pads to 212160x32, fifteen times the budget asked for. That is a
+    // ~100 KB PNG turning into a multi-megapixel tensor, and these images come from the DOM of
+    // arbitrary sites. Shrink the long axis against the short one's padded size until the canvas fits.
+    for (let guard = 0; guard < 4 && rw * rh > budget; guard++) {
+        if (rw >= rh) {
+            cw = Math.max(1, Math.floor(budget / rh / 32) * 32)
+            rw = ceilTo32(cw)
+        } else {
+            ch = Math.max(1, Math.floor(budget / rw / 32) * 32)
+            rh = ceilTo32(ch)
+        }
+    }
+    return { cw, ch, rw, rh }
 }
 
 async function preprocess(

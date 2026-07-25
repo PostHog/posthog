@@ -20,7 +20,8 @@
 import sharp from 'sharp'
 import { createWorker } from 'tesseract.js'
 
-import { detectTextDbnet, loadDbnet } from '../src/dbnet.ts'
+import { detectTextDbnet, loadDbnet, modelInputDims } from '../src/dbnet.ts'
+import { adaptiveDetLimit } from '../src/scrub.ts'
 import { decodeSrc } from '../src/src-image.ts'
 
 const FRAME_W = 1280
@@ -49,10 +50,17 @@ function frameAt(fontPx: number): Promise<Buffer> {
 async function main(): Promise<void> {
     const dbnet = await loadDbnet('models/dbnet_det.onnx')
     const tess = await createWorker('eng')
-    // The production budget for a frame this size, so the ratio matches what the sidecar really uses.
-    const detLimit = Math.max(736, Math.round((Math.sqrt(FRAME_W * FRAME_H) * 0.75) / 32) * 32)
-    const atModel = detLimit / Math.sqrt(FRAME_W * FRAME_H)
-    console.log(`frame ${FRAME_W}x${FRAME_H}, detLimit ${detLimit} -> glyphs reach DBNet at ${atModel.toFixed(3)}x\n`)
+    // Measured against the rendered frame through the real pipeline, not from the detection budget
+    // alone. decodeSrc applies SCRUB_MAX_PIXELS first, so a glyph passes through two reductions
+    // before the model sees it; taking only the second overstated this column by about 10% and the
+    // floors quoted from it are what DETECT_OVER_STORE is derived from.
+    const probe = await decodeSrc(await frameAt(16))
+    const detLimit = adaptiveDetLimit(probe.W, probe.H)
+    const atModel = modelInputDims(probe.W, probe.H, detLimit).cw / FRAME_W
+    console.log(
+        `frame ${FRAME_W}x${FRAME_H} -> decoded ${probe.W}x${probe.H} -> model ${modelInputDims(probe.W, probe.H, detLimit).cw}px wide; ` +
+            `glyphs reach DBNet at ${atModel.toFixed(3)}x\n`
+    )
     console.log(
         `  ${'font px'.padStart(8)}${'at model'.padStart(10)}${'boxes'.padStart(7)}${'OCR words'.padStart(11)}   verdict`
     )
@@ -60,7 +68,7 @@ async function main(): Promise<void> {
     for (const fontPx of SIZES) {
         const png = await frameAt(fontPx)
         const src = await decodeSrc(png)
-        const boxes = await detectTextDbnet(dbnet, src, src.W, src.H, { detLimit })
+        const boxes = await detectTextDbnet(dbnet, src, src.W, src.H, { detLimit: adaptiveDetLimit(src.W, src.H) })
         const { data } = await tess.recognize(png, {}, { blocks: true })
         const words = (data.blocks ?? []).flatMap((b: any) =>
             (b.paragraphs ?? []).flatMap((p: any) => (p.lines ?? []).flatMap((l: any) => l.words ?? []))

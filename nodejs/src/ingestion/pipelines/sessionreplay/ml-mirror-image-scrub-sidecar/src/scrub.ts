@@ -19,7 +19,7 @@ import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
 import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp, storedDimsFor } from './src-image.ts'
-import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
+import { type YunetModel, detectFacesYunet, loadYunet, yunetFrameScale } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
 
@@ -114,7 +114,7 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 // so assertResolutionInvariant is given this value rather than assuming it.
 export const DET_FACTOR = numFromEnv('DET_FACTOR', 1, 0.1, 1)
 const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
-function adaptiveDetLimit(W: number, H: number): number {
+export function adaptiveDetLimit(W: number, H: number): number {
     const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32
     return Math.max(736, Math.min(DET_CAP, target))
 }
@@ -433,7 +433,7 @@ async function encodeStored(
     outMaxPixels: number,
     timings?: StageTimings
 ): Promise<Buffer> {
-    const { width: outW, height: outH } = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels)
+    const { width: outW, height: outH } = storedDimsFor(W, H, model.cw, model.ch, outMaxPixels, yunetFrameScale(W, H))
     if (timings) {
         timings.storedPixels = outW * outH
     }
