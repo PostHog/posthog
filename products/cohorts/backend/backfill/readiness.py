@@ -51,8 +51,17 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
 
     This update intentionally bypasses signals. B5 must explicitly invalidate feature-flag and
     behavioral-cohort caches after a successful stamp.
+
+    Call inside a transaction: the cohort stamp and the participation CAS that ratifies it must
+    commit or roll back together.
     """
     participation = CohortBackfillRunCohort.objects.for_team(run.team_id).get(run_id=run.id, cohort_id=cohort_id)
+    if participation.superseded_at is not None:
+        # A superseded participation is terminal. Refuse even when its pinned behavioral hash matches
+        # the cohort's current one again (A->B->A edit-revert): the events backfill it covered is gone.
+        logger.info("cohort_backfill_readiness_stamp_refused_superseded", run_id=str(run.id), cohort_id=cohort_id)
+        return False
+
     updated = Cohort.objects.filter(
         id=cohort_id,
         team_id=run.team_id,
@@ -60,10 +69,23 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
         last_backfill_events_at__isnull=True,
     ).update(last_backfill_events_at=Now())
     if updated:
-        CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(
-            stamped_at=Now(), error=""
+        # ``superseded_at__isnull`` guards a supersession racing in after the up-front check; a
+        # 0-row stamp then means the participation lost the race, so refuse (finalizer treats it
+        # as superseded) rather than claim success.
+        stamped = (
+            CohortBackfillRunCohort.objects.for_team(run.team_id)
+            .filter(id=participation.id, superseded_at__isnull=True)
+            .update(stamped_at=Now(), error="")
         )
-        return True
+        if not stamped:
+            # The cohort stamp above is this transaction's own uncommitted write, so take it back:
+            # leaving it would open ``is_flag_compatible`` on a backfill that just lost the race.
+            Cohort.objects.filter(
+                id=cohort_id,
+                team_id=run.team_id,
+                behavioral_filters_shape_hash=participation.behavioral_filters_shape_hash,
+            ).update(last_backfill_events_at=None)
+        return bool(stamped)
 
     current_readiness = (
         Cohort.objects.filter(id=cohort_id, team_id=run.team_id)
@@ -75,15 +97,20 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
         and current_readiness[0] == participation.behavioral_filters_shape_hash
         and current_readiness[1] is not None
     ):
-        CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(
-            stamped_at=Now(), error=""
+        stamped = (
+            CohortBackfillRunCohort.objects.for_team(run.team_id)
+            .filter(id=participation.id, superseded_at__isnull=True)
+            .update(stamped_at=Now(), error="")
         )
-        return True
+        return bool(stamped)
 
     error = "Cohort definition changed before readiness was stamped"
-    CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(
-        superseded_at=Now(), error=error
-    )
+    # ``superseded_at__isnull`` keeps an earlier supersession's timestamp and message rather than
+    # clobbering them with this later, less specific diagnosis (the Rust side COALESCEs for the
+    # same reason). Either way the participation ends up terminal, which is what INV-2 needs.
+    CohortBackfillRunCohort.objects.for_team(run.team_id).filter(
+        id=participation.id, superseded_at__isnull=True
+    ).update(superseded_at=Now(), error=error)
     if run.scope == CohortBackfillScope.COHORT:
         CohortBackfillRun.objects.for_team(run.team_id).filter(
             id=run.id,

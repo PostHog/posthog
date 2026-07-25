@@ -70,6 +70,17 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
     pinned = models.JSONField(default=dict)
     preconditions = models.JSONField(default=dict)
     reconcile_hwms = models.JSONField(null=True, blank=True)
+    chunks_planned_at = models.DateTimeField(null=True, blank=True)
+    reconcile_dispatched_at = models.DateTimeField(null=True, blank=True)
+    reconcile_observed_at = models.DateTimeField(null=True, blank=True)
+    marker_watch = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Opaque watcher resume state written by the Rust seeder, shape "
+            '{"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.'
+        ),
+    )
     blocked_reason = models.TextField(blank=True, default="")
     error = models.TextField(blank=True, default="")
     superseded_by = models.ForeignKey(
@@ -108,6 +119,16 @@ class CohortBackfillRunCohort(TeamScopedRootMixin, UUIDModel):
     pinned_filters = models.JSONField()
     stamped_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
+    reconcile_completed_at = models.DateTimeField(null=True, blank=True)
+    reconcile_marker_bits = models.BigIntegerField(
+        default=0,
+        db_default=0,
+        help_text=(
+            "Bitmap of seed partitions whose reconcile_complete marker was observed, maintained "
+            "as an i64 by the Rust seeder (bits |= 1 << partition; all 64 partitions full is -1). "
+            "Django never interprets the bits."
+        ),
+    )
     error = models.TextField(blank=True, default="")
 
     class Meta:
