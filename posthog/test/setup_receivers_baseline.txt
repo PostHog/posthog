@@ -89,6 +89,7 @@ post_delete:products.feature_flags.backend.local_evaluation.evaluation_context_c
 post_delete:products.feature_flags.backend.local_evaluation.experiment_changed
 post_delete:products.feature_flags.backend.local_evaluation.feature_flag_changed
 post_delete:products.feature_flags.backend.models.feature_flag.refresh_flag_cache_on_updates
+post_delete:products.signals.backend.receivers.reconcile_report_embedding_on_verdict_deleted
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
@@ -185,8 +186,8 @@ post_save:products.review_hog.backend.receivers.handle_task_run_saved
 post_save:products.signals.backend.receivers.capture_status_change_analytics
 post_save:products.signals.backend.receivers.close_pr_when_report_dismissed
 post_save:products.signals.backend.receivers.emit_report_embedding_on_document_change
+post_save:products.signals.backend.receivers.reconcile_report_embedding_on_verdict_saved
 post_save:products.signals.backend.receivers.tombstone_report_embedding_on_delete
-post_save:products.signals.backend.receivers.tombstone_report_embedding_on_unsafe_verdict
 post_save:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_save:products.slack_app.backend.signals.onboard_slack_inbox_on_install
 post_save:products.surveys.backend.models.survey_changed

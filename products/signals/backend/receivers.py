@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -249,7 +249,15 @@ def emit_report_embedding_on_document_change(
     # A save can touch title/summary without changing them: the grouping pipeline rewrites `title`
     # for every signal that joins the report. Re-embedding identical text would spend an embedding
     # call to write a row identical to the one already stored.
-    if getattr(instance, "_prior_document", None) == content:
+    #
+    # Restricted to saves that carry no status transition, because unchanged text does not imply a live
+    # row. An unreviewed edit tombstones the report while Postgres keeps the edited text, so when the
+    # next research run judges that same text and writes it back, the text matches but the current row
+    # is a tombstone. Skipping there would leave the report retracted forever. A judged write always
+    # carries `status`, and re-emitting on it is cheap because it happens once per research run, unlike
+    # the per-joining-signal title rewrite this shortcut exists for.
+    carries_status_transition = update_fields is None or "status" in update_fields
+    if not carries_status_transition and getattr(instance, "_prior_document", None) == content:
         return
 
     def _emit() -> None:
@@ -309,14 +317,8 @@ def tombstone_report_embedding_on_delete(
     )
 
 
-@receiver(post_save, sender=SignalReportArtefact)
-def tombstone_report_embedding_on_unsafe_verdict(
-    sender: type[SignalReportArtefact],
-    instance: SignalReportArtefact,
-    created: bool,
-    **kwargs: Any,
-) -> None:
-    """Retract a report's embedding when a later safety verdict rejects it.
+def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> None:
+    """Retract a report's embedding when its canonical safety verdict is unsafe.
 
     The summary workflow re-judges safety on every run, and a READY report runs research again whenever
     new signals join it, so a report can be embedded while safe and only later be judged unsafe, on the
@@ -324,13 +326,17 @@ def tombstone_report_embedding_on_unsafe_verdict(
     the vector already written stays a semantic-search candidate, which is the boundary the judge exists
     to hold. The unsafe path marks the report FAILED without rewriting its text, so neither report-level
     receiver fires for it.
+
+    Reconciles from the report's *latest* verdict rather than from the row that changed, because the row
+    and the canonical verdict are not the same thing. Editing a superseded row to unsafe must not retract
+    a report the latest verdict still approves, and deleting the latest safe row promotes an older unsafe
+    one (see the artefact DELETE endpoint) without any write to that older row to announce it.
+
+    Restoration is deliberately not symmetric. A report corrected back to safe stays unindexed until the
+    pipeline next writes judged text, which re-emits it. Retraction is immediate and restoration is
+    eventual, which is the right way round for a safety boundary.
     """
-    # Not gated on `created`: `update_content` edits a verdict row in place, so a safe verdict flipped
-    # to unsafe arrives as an update. Ignoring those would let the canonical verdict turn unsafe while
-    # the vector it approved stays searchable. Re-tombstoning an already-retracted report is harmless.
     if instance.type != SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT:
-        return
-    if not _verdict_is_unsafe(instance.content):
         return
 
     # Team-scoped: an artefact and the report it judges always belong to the same team, so filtering on
@@ -344,12 +350,45 @@ def tombstone_report_embedding_on_unsafe_verdict(
     if report is None:
         return
 
-    _schedule_tombstone(
-        team_id=instance.team_id,
-        report_id=str(instance.report_id),
-        created_at=report["created_at"],
-        reason="unsafe verdict",
-    )
+    team_id = instance.team_id
+    report_id = str(instance.report_id)
+    created_at = report["created_at"]
+
+    def _emit() -> None:
+        try:
+            # Evaluated post-commit: only then is the canonical verdict settled, whether this change was
+            # an append, an in-place edit, or a delete that promoted an older row.
+            if not _is_safety_suppressed(report_id, team_id):
+                return
+            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=created_at)
+        except Exception:
+            logger.exception(
+                "Failed to tombstone signal report embedding", report_id=report_id, tombstone_reason="unsafe verdict"
+            )
+
+    transaction.on_commit(_emit)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def reconcile_report_embedding_on_verdict_saved(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Not gated on `created`: `update_content` edits a verdict row in place, so a safe verdict flipped
+    to unsafe arrives as an update rather than an append."""
+    _reconcile_report_embedding_with_verdict(instance)
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def reconcile_report_embedding_on_verdict_deleted(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    **kwargs: Any,
+) -> None:
+    """Deleting the latest verdict reverts the report to the previous one, which can be unsafe."""
+    _reconcile_report_embedding_with_verdict(instance)
 
 
 @receiver(post_save, sender=SignalReport)

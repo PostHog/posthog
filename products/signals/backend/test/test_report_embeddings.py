@@ -223,6 +223,63 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.tombstone.call_count == 1
         assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
 
+    def test_judged_text_is_re_emitted_after_an_edit_tombstone(self):
+        # An unreviewed edit retracts while Postgres keeps the edited text. When research judges that
+        # same text and writes it back, the text matches the prior document but the current row is a
+        # tombstone, so the no-op shortcut must not apply or the report stays retracted forever.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(status=SignalReport.Status.IN_PROGRESS)
+        with self.captureOnCommitCallbacks(execute=True):
+            report.title = REPORT_TITLE
+            report.summary = REPORT_SUMMARY
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "summary", "updated_at"])
+        assert self.tombstone.call_count == 1
+        self.embed.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = report.transition_to(SignalReport.Status.READY, title=REPORT_TITLE, summary=REPORT_SUMMARY)
+            report.save(update_fields=updated)
+        assert self.embed.call_count == 1
+        assert self.embed.call_args.kwargs["content"] == REPORT_DOCUMENT
+
+    def test_editing_a_superseded_verdict_does_not_retract(self):
+        # Only the latest verdict is canonical, so flipping an older row to unsafe must not retract a
+        # report the current verdict still approves.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+            self._write_verdict(report, safe=False)
+        superseded = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self._write_verdict(report, safe=True)
+        self.tombstone.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            superseded.update_content({"choice": False, "explanation": "still unsafe"})
+        assert self.tombstone.call_count == 0
+
+    def test_deleting_the_latest_safe_verdict_retracts_when_an_unsafe_one_remains(self):
+        # The artefact DELETE endpoint reverts a status type to its previous row, which no write to that
+        # older row announces.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+            self._write_verdict(report, safe=False)
+        with self.captureOnCommitCallbacks(execute=True):
+            self._write_verdict(report, safe=True)
+        latest = (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+            .order_by("-created_at")
+            .first()
+        )
+        self.tombstone.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            latest.delete()  # type: ignore[union-attr]
+        assert self.tombstone.call_count == 1
+        assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
+
     def test_unreviewed_edit_retracts_instead_of_indexing(self):
         # What the PATCH endpoint and the scout edit channel do: the new text has never been judged,
         # and the report's existing verdict was reached on the text being replaced.
