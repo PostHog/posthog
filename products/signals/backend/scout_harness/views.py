@@ -58,6 +58,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutNote,
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
@@ -209,6 +210,27 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+def _may_read_reports(request: Request) -> bool:
+    """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
+
+    Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
+    report API gates on `task:read`. The notes surface rides the narrower `signal_scout:read`, so
+    without this a scout-only token could read report content it can't reach canonically. Mirrors
+    the reasoning behind the `signal_scout:read` + `task:read` pair on `emission_reports`.
+
+    Only token auth carries API scopes. Session callers have none and are governed by team access
+    and RBAC instead, so they pass here and see everything the team can see.
+    """
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = authenticator.personal_api_key.scopes or []
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scopes = (authenticator.access_token.scope or "").split()
+    else:
+        return True
+    return "*" in scopes or "task:read" in scopes or "task:write" in scopes
 
 
 class Conflict(exceptions.APIException):
@@ -1210,6 +1232,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
             content_max_chars=validated.get("content_max_chars"),
+            exclude_origins=() if _may_read_reports(request) else (SignalScoutNote.Origin.REPORT_DISMISSAL,),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
 

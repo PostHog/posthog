@@ -13,6 +13,7 @@ dismissed an inbox report (see `dismissal_notes.py`).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -64,6 +65,7 @@ def list_notes(
     date_to: datetime | None = None,
     limit: int = DEFAULT_NOTES_LIST_LIMIT,
     content_max_chars: int | None = None,
+    exclude_origins: Sequence[str] = (),
 ) -> list[ScoutNote]:
     """Return notes for a team, newest first.
 
@@ -81,9 +83,16 @@ def list_notes(
     against notes stacking up to `MAX_NOTE_CONTENT_LENGTH × limit` characters of
     prose (a plain Python slice; note volume is small, unlike the scratchpad's
     SQL-projected equivalent).
+
+    `exclude_origins` drops whole classes of note before the cap is applied, so a caller
+    who may not see one class still gets a full page of what it may see. The read surface
+    uses it to withhold `report_dismissal` notes (which quote report content) from callers
+    without report read access.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")
+    if exclude_origins:
+        qs = qs.exclude(origin__in=list(exclude_origins))
     if skill_name is not None:
         target = Q(skill_name=skill_name)
         if include_general:
