@@ -12,7 +12,6 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, Budget, FailureKind, QueryFailureRecord
-from posthog.query_cache.single_flight import FlightFailure
 
 # The app-side mapping between failure kinds and exception classes; the breaker itself only
 # knows kinds. The stored failure details get shown to users, including on public share links,
@@ -69,28 +68,3 @@ def build_failure_exception(record: QueryFailureRecord) -> APIException:
     error = FAILURE_KIND_EXCEPTIONS[record.kind](detail=" ".join(sentences))
     error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
     return error
-
-
-class ReplayedQueryError(APIException):
-    """A concurrent identical query's failure, replayed to a waiting follower. Carries the
-    leader's status, code, and detail; the original exception class is not part of the HTTP
-    contract and is deliberately not reconstructed."""
-
-    def __init__(self, failure: FlightFailure) -> None:
-        self.status_code = failure.status_code
-        super().__init__(detail=failure.detail, code=failure.code)
-        self.replayed_from_single_flight = True
-
-
-def flight_failure_from_exception(error: Exception) -> Optional[FlightFailure]:
-    """The shareable identity of a leader's failure, or None when sharing is unsafe. Only 5xx
-    API exceptions are shared: 4xx are per-caller and cheap to reproduce, and replayed or
-    breaker-served errors were never this leader's own execution."""
-    if not isinstance(error, APIException) or error.status_code < 500:
-        return None
-    if getattr(error, "served_from_query_failure_cache", False) or getattr(error, "replayed_from_single_flight", False):
-        return None
-    codes = error.get_codes()
-    if not isinstance(codes, str) or not isinstance(error.detail, str):
-        return None
-    return FlightFailure(status_code=error.status_code, code=codes, detail=str(error.detail))

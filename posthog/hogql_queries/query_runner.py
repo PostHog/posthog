@@ -118,11 +118,9 @@ from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown,
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
-    ReplayedQueryError,
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
-    flight_failure_from_exception,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
@@ -146,7 +144,6 @@ from posthog.query_cache.single_flight import (
     FLIGHT_WAIT_SECONDS,
     QUERY_SINGLE_FLIGHT_COUNTER,
     QUERY_SINGLE_FLIGHT_FLAG,
-    FlightFailure,
     QuerySingleFlight,
 )
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
@@ -1946,10 +1943,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # classified and captured when it happened.
                         slo.succeed(error_category="query_failure_cache")
                         raise
-                    if getattr(exc, "replayed_from_single_flight", False):
-                        # The leader already classified, captured, and recorded its failure.
-                        slo.succeed(error_category="single_flight")
-                        raise
                     # Don't pass execution_path here: whichever branch tag was set before the raise
                     # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
                     # dashboards can attribute errors to the path they happened in. Errors that fire
@@ -1990,8 +1983,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR:
         # The single gate for all blocking execution, forced refreshes included: an open
         # breaker that covers this run's execution budget forbids touching ClickHouse.
-        if self._query_failure_caching_enabled:
-            self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+        self._raise_if_breaker_forbids(cache_manager)
 
         flight: Optional[QuerySingleFlight] = None
         if self._query_single_flight_enabled:
@@ -2000,7 +1992,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 served = self._await_flight(flight, cache_manager)
                 if served is not None:
                     return served
-                # The leader vanished or left nothing usable; run without leadership.
+                # The leader failed or vanished, so this run executes the query itself. Its
+                # failure may have just opened the breaker, hence the recheck.
+                self._raise_if_breaker_forbids(cache_manager)
                 flight = None
         try:
             return self._calculate_and_cache_blocking(
@@ -2014,27 +2008,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 start_time=start_time,
                 analytics_props=analytics_props,
             )
-        except Exception as exc:
-            if flight is not None:
-                shared = flight_failure_from_exception(exc)
-                if shared is not None:
-                    # The envelope must land before the lock is released, so waiting
-                    # followers never observe a released flight with no outcome.
-                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader_error_shared").inc()
-                    flight.record_failure(shared)
-            raise
         finally:
             if flight is not None:
                 flight.release()
 
+    def _raise_if_breaker_forbids(self, cache_manager: QueryCache) -> None:
+        """Failure-polarity read for paths that skip the success read, applied to this run's
+        own execution budget."""
+        if not self._query_failure_caching_enabled:
+            return
+        self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+
     def _await_flight(self, flight: QuerySingleFlight, cache_manager: QueryCache) -> Optional[CR]:
-        outcome = flight.wait(FLIGHT_WAIT_SECONDS)
-        if isinstance(outcome, FlightFailure):
-            QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_error").inc()
-            raise ReplayedQueryError(outcome)
-        # Released or timed out: serve only a fresh entry, meaning the leader's own write. A
-        # stale entry means the leader failed without a shareable envelope, and running the
-        # query ourselves surfaces that failure instead of masking it with old data.
+        flight.wait(FLIGHT_WAIT_SECONDS)
+        # Serve only a fresh entry, meaning the leader's own write. Anything else means the
+        # leader failed or vanished; the caller runs the query itself and surfaces whatever
+        # happens, with repeated failures suppressed by the circuit breaker, never by replays.
         entry = cache_manager.lookup().entry
         full = entry.as_full_response() if entry else None
         if full is not None:

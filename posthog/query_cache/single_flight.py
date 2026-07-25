@@ -1,6 +1,5 @@
 import time
-from dataclasses import dataclass
-from typing import Any, Literal, Optional, Union
+from typing import Literal
 
 from django.core.cache import caches
 
@@ -25,31 +24,19 @@ QUERY_SINGLE_FLIGHT_COUNTER = Counter(
 FLIGHT_LOCK_TTL = 90
 FLIGHT_WAIT_SECONDS = 65
 FLIGHT_POLL_INTERVAL = 0.25
-# Failures are only relevant to followers already waiting; they poll every FLIGHT_POLL_INTERVAL.
-FLIGHT_FAILURE_TTL = 5
-
-
-@dataclass(frozen=True)
-class FlightFailure:
-    """The externally observable identity of a leader's failure: everything a follower needs
-    to render a byte-identical error response, and nothing else."""
-
-    status_code: int
-    code: str
-    detail: str
 
 
 class QuerySingleFlight:
     """Collapses concurrent blocking executions of the same cache key onto one leader.
 
-    Followers wait for the leader and then serve the fresh cache entry (success) or replay the
-    failure envelope. Success needs no envelope: the leader's cache write is the publication.
-    Storage errors always fail open to independent execution, never to a query failure.
+    Followers wait for the leader, then either serve the fresh cache entry it wrote or run the
+    query themselves. Failures are never transported: a leader's repeated failures are the
+    circuit breaker's concern. Storage errors always fail open to independent execution,
+    never to a query failure.
     """
 
     def __init__(self, cache_key: str) -> None:
         self.lock_key = f"query_flight:{cache_key}"
-        self.failure_key = f"query_flight_failure:{cache_key}"
 
     def acquire(self) -> bool:
         try:
@@ -70,35 +57,10 @@ class QuerySingleFlight:
         except Exception:
             return False
 
-    def record_failure(self, failure: FlightFailure) -> None:
-        try:
-            data: dict[str, Any] = {
-                "status_code": failure.status_code,
-                "code": failure.code,
-                "detail": failure.detail,
-            }
-            caches[QUERY_CACHE_ALIAS].set(self.failure_key, data, FLIGHT_FAILURE_TTL)
-        except Exception:
-            logger.exception("query_single_flight_record_failed", key=self.failure_key)
-
-    def get_failure(self) -> Optional[FlightFailure]:
-        try:
-            data = caches[QUERY_CACHE_ALIAS].get(self.failure_key)
-            if not isinstance(data, dict):
-                return None
-            return FlightFailure(status_code=data["status_code"], code=data["code"], detail=data["detail"])
-        except Exception:
-            logger.exception("query_single_flight_read_failed", key=self.failure_key)
-            return None
-
-    def wait(self, timeout_seconds: float) -> Union[FlightFailure, Literal["released", "timeout"]]:
-        """Poll until the leader shares a failure, releases the lock, or the timeout elapses.
-        The failure check comes first each round: the leader writes the envelope before releasing."""
+    def wait(self, timeout_seconds: float) -> Literal["released", "timeout"]:
+        """Poll until the leader releases the lock or the timeout elapses."""
         deadline = time.monotonic() + timeout_seconds
         while True:
-            failure = self.get_failure()
-            if failure is not None:
-                return failure
             if not self.in_flight():
                 return "released"
             remaining = deadline - time.monotonic()
