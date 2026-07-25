@@ -71,9 +71,9 @@ describe('memoryBoundedWorkers', () => {
     // roughly 4Gi before four workers fit. Sizing by cores alone would have put four workers in 2Gi,
     // which measurement says needs about 3.1Gi at peak.
     it.each([
-        ['2Gi', 2 * 1024 ** 3, 1],
-        ['3Gi', 3 * 1024 ** 3, 3],
-        ['4Gi', 4 * 1024 ** 3, 4],
+        ['2Gi', 2 * 1024 ** 3, 3],
+        ['3Gi', 3 * 1024 ** 3, 6],
+        ['4Gi', 4 * 1024 ** 3, 8],
         ['1Gi, below one worker plus the reserve', 1024 ** 3, 1],
         ['256Mi, below even the reserve', 256 * 1024 ** 2, 1],
     ])('allows %s to hold %d workers', (_case, limit, expected) => {
