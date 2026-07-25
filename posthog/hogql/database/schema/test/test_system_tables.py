@@ -16,7 +16,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
+from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
@@ -135,6 +135,9 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_resource_notebooks",
             "_account_tagged_items",
             "_account_custom_property_values",
+            # Hidden backing table for the system.tasks public-channel visibility subquery;
+            # isolation and the visibility gate it powers are covered by TestSystemTablesTaskVisibility.
+            "task_channels",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -820,6 +823,15 @@ class TestSystemTablesTaskInternalExclusion(BaseTest):
         assert "system__tasks.internal" in query
         assert f"equals(system__tasks.team_id, {self.team.pk})" in query
 
+    def test_generated_sql_includes_visibility_gate(self):
+        # The visibility gate is user-dependent, so it must be threaded off context.user — a fast
+        # guard that the personal-channel read gate isn't silently dropped from the generated SQL.
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, user=self.user, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
+        assert "system__tasks.created_by_id" in query
+        assert "system__tasks.channel_id" in query
+
 
 class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
     """End-to-end check that internal tasks are never returned via HogQL."""
@@ -849,6 +861,107 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesTaskVisibility(NonAtomicBaseTest):
+    """End-to-end check that system.tasks and system.task_runs apply the Tasks REST API's read
+    gate: a teammate's personal-channel ('#me') task (and its runs) is never readable via HogQL,
+    while own, public-channel, and team-readable-origin tasks stay visible."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_personal_channel_tasks_are_creator_only(self):
+        Task = apps.get_model("tasks", "Task")
+        Channel = apps.get_model("tasks", "Channel")
+
+        other_user = User.objects.create_and_join(self.organization, "teammate-tasks@posthog.com", None)
+
+        my_personal = Channel.objects.create(
+            team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+        )
+        their_personal = Channel.objects.create(
+            team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=other_user
+        )
+        public_channel = Channel.objects.create(
+            team=self.team, name="general", channel_type=Channel.ChannelType.PUBLIC, created_by=other_user
+        )
+
+        my_task = Task.objects.create(
+            team=self.team,
+            title="mine",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            channel=my_personal,
+        )
+        their_private_task = Task.objects.create(
+            team=self.team,
+            title="theirs",
+            description="secret",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+            channel=their_personal,
+        )
+        public_task = Task.objects.create(
+            team=self.team,
+            title="public",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+            channel=public_channel,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(my_task.pk) in ids
+        assert str(public_task.pk) in ids
+        assert str(their_private_task.pk) not in ids
+
+    def test_task_runs_follow_task_visibility_and_exclude_internal(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        Channel = apps.get_model("tasks", "Channel")
+
+        other_user = User.objects.create_and_join(self.organization, "teammate-runs@posthog.com", None)
+        their_personal = Channel.objects.create(
+            team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=other_user
+        )
+
+        visible_task = Task.objects.create(
+            team=self.team,
+            title="mine",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        hidden_task = Task.objects.create(
+            team=self.team,
+            title="theirs",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+            channel=their_personal,
+        )
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="internal",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            internal=True,
+        )
+
+        visible_run = TaskRun.objects.create(task=visible_task, team=self.team, status=TaskRun.Status.QUEUED)
+        hidden_run = TaskRun.objects.create(task=hidden_task, team=self.team, status=TaskRun.Status.QUEUED)
+        internal_run = TaskRun.objects.create(task=internal_task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        response = execute_hogql_query("SELECT id FROM system.task_runs", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(visible_run.pk) in ids
+        assert str(hidden_run.pk) not in ids
+        assert str(internal_run.pk) not in ids
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):

@@ -1,6 +1,8 @@
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
+from posthog.hogql.base import Expr
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -21,6 +23,9 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.parser import parse_expr
 
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
@@ -1781,17 +1786,71 @@ usage_metrics: PostgresTable = PostgresTable(
 )
 
 
-tasks: PostgresTable = PostgresTable(
+class TasksSystemTable(PostgresTable):
+    """`system.tasks` with a per-user visibility gate mirroring the Tasks REST API.
+
+    Static ``predicates`` can't see the querying user, so the read gate — which keeps
+    personal-channel ("#me") tasks creator-only — is built per query from ``context.user``.
+    """
+
+    def get_predicates(self, context: "HogQLContext") -> list[Expr]:
+        # Deferred: keeps the tasks product (and its heavy model imports) off this module's
+        # import path until a query actually reads the table.
+        from products.tasks.backend.facade.hogql import task_visibility_predicates  # noqa: PLC0415
+
+        user_id = context.user.id if context.user is not None else None
+        return task_visibility_predicates(user_id)
+
+
+class TaskRunsSystemTable(PostgresTable):
+    """`system.task_runs`, visible only for tasks the querying user may read (and never
+    internal pipeline runs) — scoped through the already-gated ``system.tasks``."""
+
+    def get_predicates(self, context: "HogQLContext") -> list[Expr]:
+        from products.tasks.backend.facade.hogql import task_run_visibility_predicates  # noqa: PLC0415
+
+        return task_run_visibility_predicates()
+
+
+# Channels back the `system.tasks` public-channel visibility subquery; hidden from the SQL
+# editor (registered with hidden=True) but resolvable so that subquery can reference it.
+task_channels: PostgresTable = PostgresTable(
+    name="task_channels",
+    postgres_table_name="posthog_task_channel",
+    # No access_scope: object-level ACL is scoped to tasks, not channels. Team isolation (the
+    # auto team_id guard) plus the public/deleted subquery filter is all this backing table needs.
+    description="Internal federated table (PostgreSQL `posthog_task_channel`) of task channels; backs the `system.tasks` visibility filter and is not intended for direct querying.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Channel UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the channel."
+        ),
+        "name": StringDatabaseField(name="name", description="Channel name (rendered as '#<name>')."),
+        "channel_type": StringDatabaseField(
+            name="channel_type", description="Channel type: 'public' (team feed) or 'personal' ('#me')."
+        ),
+        # Raw boolean (not a toInt ExpressionField): `NOT deleted` in the visibility subquery is
+        # pushed into the federated PostgreSQL query, where a boolean column reads cleanly.
+        "deleted": BooleanDatabaseField(name="deleted", description="Whether the channel has been deleted."),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the channel was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the channel was last updated."),
+    },
+)
+
+tasks: TasksSystemTable = TasksSystemTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
-    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
-    # exposed to end users. They are excluded entirely from HogQL.
-    predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task. Internal pipeline tasks and tasks the querying user isn't allowed to see (e.g. teammates' personal-channel tasks) are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
+        "channel_id": StringDatabaseField(
+            name="channel_id",
+            nullable=True,
+            description="Channel the task was kicked off in; joins to task_channels.id.",
+        ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the task."
         ),
@@ -1838,11 +1897,11 @@ tasks: PostgresTable = PostgresTable(
     },
 )
 
-task_runs: PostgresTable = PostgresTable(
+task_runs: TaskRunsSystemTable = TaskRunsSystemTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
-    description="Execution runs of a task; one row per run attempt, with status and outputs.",
+    description="Execution runs of a task; one row per run attempt, with status and outputs. Runs whose parent task the querying user can't see (including internal pipeline tasks) are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2096,6 +2155,7 @@ class SystemTables(TableNode):
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "task_channels": TableNode(name="task_channels", table=task_channels, hidden=True),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),

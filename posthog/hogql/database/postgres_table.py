@@ -95,7 +95,7 @@ class PostgresTable(FunctionCallTable):
     access_control_id_field: Optional[str] = None
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: HogQLContext) -> list[Expr]:
         return self.predicates
 
     @property
