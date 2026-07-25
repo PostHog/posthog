@@ -9,7 +9,7 @@ import {
   hasRef,
 } from "../queries";
 import { forceRemove, safeSymlink } from "../utils";
-import { processWorktreeInclude, runPostCheckoutHook } from "../worktree";
+import { processWorktreeInclude } from "../worktree";
 
 export interface CreateWorktreeInput extends GitSagaInput {
   worktreePath: string;
@@ -114,11 +114,10 @@ export class CreateWorktreeSaga extends GitSaga<
       rollback: async () => {},
     });
 
-    await this.step({
-      name: "run-post-checkout-hook",
-      execute: () => runPostCheckoutHook(baseDir, worktreePath),
-      rollback: async () => {},
-    });
+    // The repo's post-checkout hook is intentionally NOT run. Hooks are
+    // suppressed during `git worktree add` (core.hooksPath=/dev/null) because
+    // repo-supplied hooks are untrusted; auto-running one for an app-created
+    // worktree would reintroduce the RCE risk (H4).
 
     return { worktreePath, branchName, baseBranch: base };
   }
@@ -203,11 +202,10 @@ export class CreateWorktreeForBranchSaga extends GitSaga<
       rollback: async () => {},
     });
 
-    await this.step({
-      name: "run-post-checkout-hook",
-      execute: () => runPostCheckoutHook(baseDir, worktreePath),
-      rollback: async () => {},
-    });
+    // The repo's post-checkout hook is intentionally NOT run. Hooks are
+    // suppressed during `git worktree add` (core.hooksPath=/dev/null) because
+    // repo-supplied hooks are untrusted; auto-running one for an app-created
+    // worktree would reintroduce the RCE risk (H4).
 
     return { worktreePath, branchName };
   }

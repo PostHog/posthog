@@ -12,7 +12,6 @@ import {
   branchExists,
   fetchRef,
   getDefaultBranch,
-  getHeadSha,
   hasRef,
   listWorktrees as listWorktreesRaw,
 } from "./queries";
@@ -44,7 +43,6 @@ const noopLogger: SagaLogger = {
 const WORKTREE_FOLDER_NAME = ".posthog-code";
 
 const WORKTREE_ADD_TIMEOUT_MS = 120_000;
-const POST_CHECKOUT_HOOK_TIMEOUT_MS = 300_000;
 const GIT_FETCH_TIMEOUT_MS = 120_000;
 export const KILL_GRACE_MS = 5_000;
 
@@ -404,8 +402,13 @@ export class WorktreeManager {
 
   /**
    * Runs the post-create steps shared by every worktree: link local Claude
-   * instructions, then process the worktree link/include files and the
-   * post-checkout hook.
+   * instructions, then process the worktree link/include files.
+   *
+   * The repository's `post-checkout` hook is intentionally NOT run. Hooks are
+   * suppressed during `git worktree add` (via `core.hooksPath=/dev/null`)
+   * because a repo-supplied hook is untrusted code, so auto-running it
+   * afterward for an app-created worktree would reintroduce that code-execution
+   * risk. Repos relying on `post-checkout` side effects must run them manually.
    */
   private async finalizeWorktree(
     worktreePath: string,
@@ -425,17 +428,6 @@ export class WorktreeManager {
     );
     for (const warning of [...linkWarnings, ...includeWarnings]) {
       this.log.warn("Worktree setup warning", { worktreePath, ...warning });
-    }
-    const hookWarning = await runPostCheckoutHook(
-      this.mainRepoPath,
-      worktreePath,
-      { onOutput },
-    );
-    if (hookWarning) {
-      this.log.warn("post-checkout hook failed", {
-        worktreePath,
-        ...hookWarning,
-      });
     }
     this.log.info("Worktree finalized", { worktreePath });
   }
@@ -1067,101 +1059,4 @@ export async function processWorktreeLink(
   }
 
   return warnings;
-}
-
-function findPostCheckoutHook(mainRepoPath: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      ["rev-parse", "--git-path", "hooks/post-checkout"],
-      { cwd: mainRepoPath },
-      async (error, stdout) => {
-        if (error || !stdout.trim()) {
-          resolve(null);
-          return;
-        }
-        const resolved = stdout.trim();
-        const hookPath = path.isAbsolute(resolved)
-          ? resolved
-          : path.join(mainRepoPath, resolved);
-
-        try {
-          await fs.access(hookPath, fs.constants.X_OK);
-          resolve(hookPath);
-        } catch {
-          resolve(null);
-        }
-      },
-    );
-  });
-}
-
-/**
- * run post-checkout hook in the worktree
- *
- * hooks are intentionally skipped during worktree creation to avoid
- * potentially wonky behavior
- */
-export async function runPostCheckoutHook(
-  mainRepoPath: string,
-  worktreePath: string,
-  options?: { onOutput?: (data: string) => void },
-): Promise<WorktreeSetupWarning | null> {
-  const hookPath = await findPostCheckoutHook(mainRepoPath);
-  if (!hookPath) return null;
-
-  options?.onOutput?.(`Running post-checkout hook...\n`);
-
-  const head = await getHeadSha(worktreePath);
-  const nullSha = "0000000000000000000000000000000000000000";
-
-  return new Promise((resolve) => {
-    const chunks: string[] = [];
-    const shell = process.env.SHELL || "/bin/sh";
-    const proc = spawn(shell, ["-lc", `${hookPath} ${nullSha} ${head} 1`], {
-      cwd: worktreePath,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const handleData = (data: Buffer) => {
-      const text = data.toString();
-      chunks.push(text);
-      options?.onOutput?.(text);
-    };
-
-    proc.stdout.on("data", handleData);
-    proc.stderr.on("data", handleData);
-
-    const timeout = armProcessTimeout(proc, POST_CHECKOUT_HOOK_TIMEOUT_MS);
-
-    const warn = (error: string): WorktreeSetupWarning => {
-      options?.onOutput?.(`Warning: ${error}\n`);
-      return { path: hookPath, error };
-    };
-
-    proc.on("error", (err) => {
-      timeout.clear();
-      resolve(warn(`post-checkout hook failed to spawn: ${err.message}`));
-    });
-    proc.on("close", (code) => {
-      timeout.clear();
-      if (timeout.timedOut()) {
-        resolve(
-          warn(
-            `post-checkout hook timed out after ${POST_CHECKOUT_HOOK_TIMEOUT_MS}ms`,
-          ),
-        );
-        return;
-      }
-      if (code !== 0) {
-        resolve(
-          warn(
-            `post-checkout hook exited with code ${code}: ${chunks.join("")}`.trim(),
-          ),
-        );
-        return;
-      }
-      resolve(null);
-    });
-  });
 }

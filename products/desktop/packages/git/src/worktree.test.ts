@@ -1,4 +1,5 @@
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -141,6 +142,15 @@ describe("WorktreeManager.createWorktree fetchBeforeCreate", () => {
 });
 
 async function dirExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fileExists(p: string): Promise<boolean> {
   try {
     await stat(p);
     return true;
@@ -336,6 +346,27 @@ describe("WorktreeManager worktree link/include processing", () => {
 
     const linked = await lstat(path.join(info.worktreePath, ".claude"));
     expect(linked.isSymbolicLink()).toBe(true);
+  });
+
+  it("does not run the repo's post-checkout hook when creating a worktree", async () => {
+    // A repo delivered with an executable post-checkout hook must not run it
+    // when the app creates a worktree. Hooks are suppressed during
+    // `git worktree add` because repo-supplied hooks are untrusted, so the app
+    // must not re-run them afterward.
+    const hookPath = path.join(localDir, ".git", "hooks", "post-checkout");
+    await writeFile(hookPath, "#!/bin/sh\ntouch HOOK_RAN\n");
+    await chmod(hookPath, 0o755);
+
+    const manager = new WorktreeManager({
+      mainRepoPath: localDir,
+      worktreeBasePath: worktreeBaseDir,
+    });
+
+    const info = await manager.createWorktree({ baseBranch: "main" });
+
+    expect(await fileExists(path.join(info.worktreePath, "HOOK_RAN"))).toBe(
+      false,
+    );
   });
 });
 
