@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -112,9 +112,11 @@ const configDir = mkdtempSync(
 const permissionCwd = mkdtempSync(
   path.join(os.tmpdir(), "claude-agent-permission-test-cwd-"),
 );
-mkdirSync(path.join(permissionCwd, ".claude"), { recursive: true });
+// User-level settings, not the repo's `.claude/settings.json`: SettingsManager
+// treats the opened repo's project layer as untrusted for policy, so a
+// permission granted there would never take effect.
 writeFileSync(
-  path.join(permissionCwd, ".claude", "settings.json"),
+  path.join(configDir, "settings.json"),
   JSON.stringify({ permissions: { allow: ["mcp__posthog__exec"] } }),
 );
 const savedEnv = {

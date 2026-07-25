@@ -4,7 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveMainRepoPath } from "./repo-path";
-import { mergeAvailableModels, SettingsManager } from "./settings";
+import {
+  approvalStorePath,
+  mergeAvailableModels,
+  SettingsManager,
+} from "./settings";
 
 function runGit(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
@@ -14,6 +18,8 @@ describe("SettingsManager per-repo persistence", () => {
   let mainRepo: string;
   let worktree: string;
   let tmpRoot: string;
+  let storePath: string;
+  let originalConfigDir: string | undefined;
 
   beforeEach(async () => {
     tmpRoot = await fs.promises.realpath(
@@ -28,13 +34,24 @@ describe("SettingsManager per-repo persistence", () => {
     runGit(mainRepo, ["config", "user.name", "test"]);
     runGit(mainRepo, ["commit", "--allow-empty", "-m", "init"]);
     runGit(mainRepo, ["worktree", "add", "-b", "feat", worktree]);
+
+    // The approval store now lives under CLAUDE_CONFIG_DIR, so point it at the
+    // temp root rather than writing into the developer's real ~/.claude.
+    originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = path.join(tmpRoot, "config");
+    storePath = approvalStorePath(mainRepo);
   });
 
   afterEach(async () => {
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
+    }
     await fs.promises.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("persists allow rules to the primary worktree when invoked from a secondary worktree", async () => {
+  it("persists allow rules outside the repo when invoked from a secondary worktree", async () => {
     const manager = new SettingsManager(worktree);
     await manager.initialize();
 
@@ -42,18 +59,16 @@ describe("SettingsManager per-repo persistence", () => {
       { toolName: "Bash", ruleContent: "pnpm test:*" },
     ]);
 
-    const repoLocalPath = path.join(mainRepo, ".claude", "settings.local.json");
-    const contents = JSON.parse(
-      await fs.promises.readFile(repoLocalPath, "utf-8"),
-    );
+    const contents = JSON.parse(await fs.promises.readFile(storePath, "utf-8"));
     expect(contents.permissions.allow).toContain("Bash(pnpm test:*)");
 
-    const worktreeLocalPath = path.join(
-      worktree,
-      ".claude",
-      "settings.local.json",
-    );
-    expect(fs.existsSync(worktreeLocalPath)).toBe(false);
+    // Neither the primary worktree nor the secondary one gains a settings file:
+    // an approval written into the repo would be committable by that repo.
+    for (const dir of [mainRepo, worktree]) {
+      expect(
+        fs.existsSync(path.join(dir, ".claude", "settings.local.json")),
+      ).toBe(false);
+    }
   });
 
   it("sees rules persisted by a sibling worktree after re-initialization", async () => {
@@ -114,7 +129,7 @@ describe("SettingsManager per-repo persistence", () => {
     const manager = new SettingsManager(worktree);
     await manager.initialize();
 
-    const filePath = path.join(mainRepo, ".claude", "settings.local.json");
+    const filePath = storePath;
     const original = "{ this is not valid json";
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
     await fs.promises.writeFile(filePath, original);
@@ -132,7 +147,7 @@ describe("SettingsManager per-repo persistence", () => {
     await writer.initialize();
     await writer.addPostHogExecApproval("experiment-update");
 
-    const filePath = path.join(mainRepo, ".claude", "settings.local.json");
+    const filePath = storePath;
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     expect(contents.posthogApprovedExecTools).toEqual(["experiment-update"]);
 
@@ -152,7 +167,7 @@ describe("SettingsManager per-repo persistence", () => {
     await manager.addPostHogExecApproval("foo-update");
     await manager.addPostHogExecApproval("bar-delete");
 
-    const filePath = path.join(mainRepo, ".claude", "settings.local.json");
+    const filePath = storePath;
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     expect(contents.posthogApprovedExecTools).toEqual([
       "foo-update",
@@ -170,7 +185,7 @@ describe("SettingsManager per-repo persistence", () => {
       manager.addPostHogExecApproval("c-destroy"),
     ]);
 
-    const filePath = path.join(mainRepo, ".claude", "settings.local.json");
+    const filePath = storePath;
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     expect(contents.posthogApprovedExecTools).toEqual(
       expect.arrayContaining(["a-update", "b-delete", "c-destroy"]),
@@ -187,7 +202,7 @@ describe("SettingsManager per-repo persistence", () => {
       manager.addAllowRules([{ toolName: "C" }]),
     ]);
 
-    const filePath = path.join(mainRepo, ".claude", "settings.local.json");
+    const filePath = storePath;
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     expect(contents.permissions.allow).toEqual(
       expect.arrayContaining(["A", "B", "C"]),
@@ -386,9 +401,11 @@ describe("SettingsManager repo-trust boundary", () => {
     expect(manager.hasPostHogExecApproval("experiment-delete")).toBe(false);
   });
 
-  it("still honors allow rules from the app's own local settings store", async () => {
-    // settings.local.json is where the app persists user approvals
-    // (addAllowRules), so its rules stay trusted — only project settings drop.
+  it("ignores allow rules committed to the opened repo's local settings", async () => {
+    // The app's approval store lives OUTSIDE the repo (getLocalSettingsPath), so
+    // a settings.local.json committed inside the repo is never read and cannot
+    // pre-approve a tool — the decision falls through to "ask". A malicious repo
+    // can no longer bypass the prompt by shipping settings.local.json.
     await writeLocalSettings({ permissions: { allow: ["Bash"] } });
 
     const manager = new SettingsManager(cwd);
@@ -396,6 +413,23 @@ describe("SettingsManager repo-trust boundary", () => {
 
     expect(
       manager.checkPermission("mcp__acp__Bash", { command: "pnpm test" })
+        .decision,
+    ).toBe("ask");
+  });
+
+  it("honors and persists approvals the app itself writes via addAllowRules", async () => {
+    // The app persists its own "always allow" decisions to the app-owned store;
+    // they stay trusted and survive across sessions (a fresh manager reads them
+    // back), independent of anything in the opened repo.
+    const writer = new SettingsManager(cwd);
+    await writer.initialize();
+    await writer.addAllowRules([{ toolName: "Bash" }]);
+
+    const reader = new SettingsManager(cwd);
+    await reader.initialize();
+
+    expect(
+      reader.checkPermission("mcp__acp__Bash", { command: "pnpm test" })
         .decision,
     ).toBe("allow");
   });

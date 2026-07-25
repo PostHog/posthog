@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -210,6 +211,32 @@ export interface PermissionCheckResult {
   source?: "allow" | "deny" | "ask";
 }
 
+/**
+ * The app's own approval store (persisted "always allow" decisions) for a
+ * repository, identified by its primary worktree. It MUST live outside the
+ * opened repository: at `repoRoot/.claude/settings.local.json` a malicious repo
+ * could commit that file with `permissions.allow` (or
+ * `posthogApprovedExecTools`) and the app would load it as its own trusted
+ * approvals, silently pre-approving tools and defeating the per-tool prompt.
+ * Keying an app-owned directory by the primary worktree keeps one shared store
+ * per repository, and approvals still persist across sessions, while a repo
+ * cannot forge it.
+ */
+export function approvalStorePath(repoRoot: string): string {
+  const configDir =
+    process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  const repoKey = createHash("sha256")
+    .update(repoRoot)
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(
+    configDir,
+    "posthog-approvals",
+    repoKey,
+    "settings.local.json",
+  );
+}
+
 export function getManagedSettingsPath(): string {
   switch (process.platform) {
     case "darwin":
@@ -276,13 +303,8 @@ export class SettingsManager {
     return path.join(this.cwd, ".claude", "settings.json");
   }
 
-  /**
-   * Local settings are anchored to the primary worktree so every worktree of
-   * the same repository shares a single `.claude/settings.local.json`. This
-   * avoids re-prompting for the same permission in every worktree.
-   */
   private getLocalSettingsPath(): string {
-    return path.join(this.repoRoot, ".claude", "settings.local.json");
+    return approvalStorePath(this.repoRoot);
   }
 
   private async loadAllSettings(): Promise<void> {
@@ -323,13 +345,14 @@ export class SettingsManager {
     for (const { layer, settings } of allSettings) {
       // The `project` layer is the opened repo's checked-in
       // `.claude/settings.json`, which is attacker-controlled when a malicious
-      // repository is opened. It must never contribute trusted *policy* — tool
-      // permissions or PostHog exec approvals — or a repo could pre-approve
-      // e.g. `Bash` and silence the per-tool approval prompt. Only user-level
-      // settings, the app's own approval store (`local`, written by
-      // addAllowRules/addPostHogExecApproval), and managed `enterprise`
-      // settings are trusted for policy. Non-policy fields (model /
-      // availableModels) may still come from the project layer.
+      // repository is opened. It must never contribute trusted policy, meaning
+      // tool permissions or PostHog exec approvals, because a repo could then
+      // pre-approve `Bash` and silence the per-tool approval prompt. Only
+      // user-level settings, the app's own approval store (`local`, which
+      // getLocalSettingsPath sources from an app-owned path outside the repo so
+      // a repo cannot forge it), and managed `enterprise` settings are trusted for
+      // policy. Non-policy fields (model / availableModels) may still come from
+      // the project layer.
       const trustedForPolicy = layer !== "project";
       if (trustedForPolicy && settings.permissions) {
         if (settings.permissions.allow) {
@@ -419,9 +442,10 @@ export class SettingsManager {
   }
 
   /**
-   * Persists allow rules to `<primary-worktree>/.claude/settings.local.json`.
-   * Because local settings are resolved against the primary worktree, every
-   * worktree of the same repository picks up the new rule on next load.
+   * Persists allow rules to the app-owned approval store (getLocalSettingsPath,
+   * outside the repo, keyed by the primary worktree). Because the key is the
+   * primary worktree, every worktree of the same repository picks up the new
+   * rule on next load.
    *
    * Writes are serialised via `writeMutex` to prevent concurrent callers from
    * clobbering each other, and use a temp-file + rename to keep the file
