@@ -71,7 +71,7 @@ def _verdict_is_unsafe(content: str | None) -> bool:
     return isinstance(data, dict) and data.get("choice") is False
 
 
-def _is_safety_suppressed(report_id: str) -> bool:
+def _is_safety_suppressed(report_id: str, team_id: int) -> bool:
     """Whether the safety judge marked this report unsafe.
 
     An unsafe report's backing signals are deliberately never indexed: `create_scout_report` is passed
@@ -89,7 +89,7 @@ def _is_safety_suppressed(report_id: str) -> bool:
     """
     content = (
         SignalReportArtefact.objects.using("default")
-        .filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+        .filter(report_id=report_id, team_id=team_id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
         .order_by("-created_at")
         .values_list("content", flat=True)
         .first()
@@ -132,7 +132,10 @@ def capture_prior_state(
         for name, wanted in (("status", wants_status), ("title", wants_document), ("summary", wants_document))
         if wanted
     ]
-    prior = sender.objects.filter(pk=instance.pk).values(*fields).first()
+    # Writer-pinned for the same reason as the safety verdict read: this runs against a row the caller
+    # is about to overwrite, and a lagging replica could report stale text. That would make an A -> B -> A
+    # edit look unchanged on the final save and skip re-emitting A over the B vector already published.
+    prior = sender.objects.using("default").filter(pk=instance.pk).values(*fields).first()
     instance._prior_status = prior["status"] if prior and wants_status else None  # type: ignore[attr-defined]
     instance._prior_document = (  # type: ignore[attr-defined]
         render_report_document(prior["title"], prior["summary"]) if prior and wants_document else None
@@ -253,7 +256,7 @@ def emit_report_embedding_on_document_change(
         try:
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
-            if _is_safety_suppressed(report_id):
+            if _is_safety_suppressed(report_id, team_id):
                 return
             emit_report_embedding(team_id=team_id, report_id=report_id, content=content, created_at=created_at)
         except Exception:
@@ -322,19 +325,27 @@ def tombstone_report_embedding_on_unsafe_verdict(
     to hold. The unsafe path marks the report FAILED without rewriting its text, so neither report-level
     receiver fires for it.
     """
-    if not created:
-        return
+    # Not gated on `created`: `update_content` edits a verdict row in place, so a safe verdict flipped
+    # to unsafe arrives as an update. Ignoring those would let the canonical verdict turn unsafe while
+    # the vector it approved stays searchable. Re-tombstoning an already-retracted report is harmless.
     if instance.type != SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT:
         return
     if not _verdict_is_unsafe(instance.content):
         return
 
-    report = SignalReport.objects.using("default").filter(pk=instance.report_id).values("team_id", "created_at").first()
+    # Team-scoped: an artefact and the report it judges always belong to the same team, so filtering on
+    # it keeps this lookup from reaching across tenants.
+    report = (
+        SignalReport.objects.using("default")
+        .filter(pk=instance.report_id, team_id=instance.team_id)
+        .values("created_at")
+        .first()
+    )
     if report is None:
         return
 
     _schedule_tombstone(
-        team_id=report["team_id"],
+        team_id=instance.team_id,
         report_id=str(instance.report_id),
         created_at=report["created_at"],
         reason="unsafe verdict",

@@ -74,6 +74,22 @@ class TestEmittedRow(SimpleTestCase):
         assert self._emit(tombstone=False)["content"] == REPORT_DOCUMENT
 
 
+class TestUpdateAuthoredContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # An idempotent re-send must not read as a change: it would otherwise retract a safe
+            # embedding and leave the unchanged report unindexed.
+            ("unchanged_title", REPORT_TITLE, None, []),
+            ("unchanged_both", REPORT_TITLE, REPORT_SUMMARY, []),
+            ("changed_title", "Checkout errors on mobile", None, ["title", "updated_at"]),
+            ("changed_summary", None, "Rate quadrupled", ["summary", "updated_at"]),
+        ]
+    )
+    def test_only_real_changes_are_reported(self, _name, title, summary, expected):
+        report = SignalReport(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        assert sorted(report.update_authored_content(title=title, summary=summary)) == sorted(expected)
+
+
 class TestReportEmbeddingReceiver(BaseTest):
     def setUp(self):
         super().setUp()
@@ -190,6 +206,22 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.tombstone.call_count == 1
         assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
         assert self.tombstone.call_args.kwargs["created_at"] == report.created_at
+
+    def test_editing_a_verdict_to_unsafe_retracts_the_embedding(self):
+        # `update_content` rewrites the verdict row in place, so this arrives as an update rather than
+        # a create. The canonical verdict turning unsafe has to retract whatever it previously approved.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+            self._write_verdict(report, safe=True)
+        assert self.tombstone.call_count == 0
+
+        verdict = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            verdict.update_content({"choice": False, "explanation": "prompt injection"})
+        assert self.tombstone.call_count == 1
+        assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
 
     def test_unreviewed_edit_retracts_instead_of_indexing(self):
         # What the PATCH endpoint and the scout edit channel do: the new text has never been judged,
