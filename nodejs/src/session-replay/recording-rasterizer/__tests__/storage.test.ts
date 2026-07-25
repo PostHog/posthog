@@ -91,8 +91,8 @@ describe('uploadToS3', () => {
     it('reports a response the SDK could not read, leaving it retryable', async () => {
         // All the SDK reports is its parser's confusion; the raw body it choked on is on $responseBodyText.
         const undecodable = Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
-            $responseBodyText: 'Error: proxy denied',
-            $response: { statusCode: 407, body: 'Error: proxy denied' },
+            $responseBodyText: 'Error: proxy denied for s3://secret-bucket/tenant-42.mp4',
+            $response: { statusCode: 407 },
         })
         mockDone.mockRejectedValue(undecodable)
 
@@ -102,8 +102,9 @@ describe('uploadToS3', () => {
             // Translating the failure must not make it terminal.
             retryable: true,
             cause: undecodable,
-            message:
-                'S3 upload to s3://bucket/prefix/id.mp4 failed with an unreadable (non-XML) response (status 407): Error: proxy denied',
+            // This message is shown to team users as ReplayObservation.error_reason, so it must carry
+            // neither the bucket and key nor anything the object store put in the body.
+            message: 'S3 upload failed: the object store returned an unreadable (non-XML) response (status 407)',
         })
     })
 

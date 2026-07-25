@@ -19,19 +19,12 @@ type UndecodableS3Response = {
     $response?: { statusCode?: number }
 }
 
-function undecodableResponseError(err: unknown, target: string): RasterizationError | null {
+function undecodableResponse(err: unknown): { status?: number; body: string } | null {
     const { $responseBodyText, $response } = (err ?? {}) as UndecodableS3Response
     if (typeof $responseBodyText !== 'string') {
         return null
     }
-    // Retryability is untouched: the workflow's retry policy keeps deciding, as it does for any other
-    // upload failure.
-    return new RasterizationError(
-        `S3 upload to ${target} failed with an unreadable (non-XML) response (status ${$response?.statusCode ?? 'unknown'}): ${$responseBodyText.slice(0, 500)}`,
-        true,
-        'S3_UPLOAD_UNDECODABLE_RESPONSE',
-        err
-    )
+    return { status: $response?.statusCode, body: $responseBodyText.slice(0, 500) }
 }
 
 let s3Client: S3Client | null = null
@@ -105,7 +98,24 @@ export async function uploadToS3(
     try {
         await upload.done()
     } catch (err) {
-        throw undecodableResponseError(err, target) ?? err
+        const undecodable = undecodableResponse(err)
+        if (!undecodable) {
+            throw err
+        }
+        // Bucket, key and the raw body stay in this log line. The thrown message reaches team users as
+        // ReplayObservation.error_reason, and the body is whatever an upstream proxy or gateway chose to
+        // return, so only the status code goes into it. Retryability is untouched: the workflow's retry
+        // policy keeps deciding, as it does for any other upload failure.
+        log.warn(
+            { bucket, key, status: undecodable.status, response_body: undecodable.body },
+            'S3 upload returned an unreadable response'
+        )
+        throw new RasterizationError(
+            `S3 upload failed: the object store returned an unreadable (non-XML) response (status ${undecodable.status ?? 'unknown'})`,
+            true,
+            'S3_UPLOAD_UNDECODABLE_RESPONSE',
+            err
+        )
     }
 
     return target
