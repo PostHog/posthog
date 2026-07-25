@@ -60555,6 +60555,8 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
+      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one derived from the note someone typed when they dismissed, snoozed, or resolved an inbox report. A `report_dismissal` note is one reviewer's verdict on the single report its content names, so weigh it as evidence about that report rather than as fleet-level steering. */
+      origin: string;
     }
 
     /**
