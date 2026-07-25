@@ -15231,6 +15231,11 @@ export namespace Schemas {
       readonly task: ConversationTask | null;
     }
 
+    export interface ConversationsTicketImage {
+      url: string;
+      author: string;
+    }
+
     export interface ConversationsTicketSignalExtra {
       ticket_number: number;
       channel_source: string;
@@ -15239,6 +15244,7 @@ export namespace Schemas {
       priority: string | null;
       created_at: string;
       email_subject: string | null;
+      images?: ConversationsTicketImage[] | null;
     }
 
     export interface ConversionGoalSummary {
