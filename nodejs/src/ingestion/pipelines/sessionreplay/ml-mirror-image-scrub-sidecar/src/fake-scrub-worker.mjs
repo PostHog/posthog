@@ -23,4 +23,9 @@ parentPort.on('message', async (job) => {
     parentPort.postMessage({ id: job.id, out, timings: { totalMs: finishedAt - startedAt, startedAt, finishedAt } }, [
         out.buffer,
     ])
+    if (kind === 'die-when-idle') {
+        // Answers first, then dies holding no job: the pool has nothing to fail and has to notice
+        // the loss on its own. Replacements get a different kind, so they stay healthy.
+        setTimeout(() => process.exit(11), 5)
+    }
 })

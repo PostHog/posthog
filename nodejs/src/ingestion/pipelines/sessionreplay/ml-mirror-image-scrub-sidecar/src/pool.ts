@@ -6,6 +6,8 @@ import { type StageTimings } from './scrub.ts'
 import { type ScrubReply } from './worker-protocol.ts'
 
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
+const RESTART_BACKOFF_BASE_MS = 500
+const RESTART_BACKOFF_MAX_MS = 30_000
 
 export interface ScrubResult {
     out: Buffer
@@ -26,6 +28,11 @@ interface Slot {
     worker: Worker
     /** The job this worker is running, since it takes exactly one at a time: `run` blocks its thread. */
     job: { id: number; pending: Pending } | null
+    /** False until the worker reports ready and again once retired. A worker that never finished
+     *  starting will not answer, so dispatching to it strands the job until the consumer times out. */
+    usable: boolean
+    /** A crash raises both `error` and `exit`, so replacement has to be idempotent per slot. */
+    retired: boolean
 }
 
 /**
@@ -41,13 +48,14 @@ export async function startPool(size: number, workerUrl: URL = WORKER_URL): Prom
     const queue: { id: number; input: Buffer; pending: Pending }[] = []
     let nextJobId = 0
     let closing = false
+    const restartFailures: number[] = []
 
     const pump = (): void => {
         if (closing) {
             return
         }
         for (const slot of slots) {
-            if (slot.job || queue.length === 0) {
+            if (!slot?.usable || slot.job || queue.length === 0) {
                 continue
             }
             const next = queue.shift()!
@@ -58,9 +66,11 @@ export async function startPool(size: number, workerUrl: URL = WORKER_URL): Prom
 
     const spawn = async (index: number): Promise<void> => {
         const worker = new Worker(workerUrl, { workerData: { index } })
-        const slot: Slot = { worker, job: null }
+        const slot: Slot = { worker, job: null, usable: false, retired: false }
         slots[index] = slot
 
+        // Startup failures reject rather than retire, so a worker that cannot load fails startPool
+        // instead of respawning forever against whatever is broken.
         await new Promise<void>((ready, failed) => {
             const onReady = (msg: ScrubReply): void => {
                 if ('ready' in msg) {
@@ -79,6 +89,7 @@ export async function startPool(size: number, workerUrl: URL = WORKER_URL): Prom
             }
             const { pending } = slot.job
             slot.job = null
+            restartFailures[index] = 0
             if ('failure' in msg) {
                 const error = msg.failure.undecodable
                     ? new UndecodableImageError(msg.failure.message)
@@ -93,27 +104,42 @@ export async function startPool(size: number, workerUrl: URL = WORKER_URL): Prom
             pump()
         })
 
-        // A worker that dies takes its in-flight job with it, so fail that request rather than let it
-        // hang until the consumer's timeout, and replace the worker or the pool shrinks silently.
-        worker.on('error', (error) => failSlotAndReplace(index, slot, error))
-        worker.on('exit', (code) => {
-            if (!closing && slot.job) {
-                failSlotAndReplace(index, slot, new Error(`scrub worker exited with code ${code}`))
-            }
-        })
+        // A worker that dies takes any in-flight job with it, so fail that request rather than let it
+        // hang until the consumer's timeout. Replacement is unconditional: a worker that dies while
+        // idle carries no job to fail, and leaving it would shrink the pool with nothing to show it.
+        worker.on('error', (error) => retireAndReplace(index, slot, error))
+        worker.on('exit', (code) => retireAndReplace(index, slot, new Error(`scrub worker exited with code ${code}`)))
+        slot.usable = true
     }
 
-    const failSlotAndReplace = (index: number, slot: Slot, error: Error): void => {
-        if (closing) {
+    const retireAndReplace = (index: number, slot: Slot, error: Error): void => {
+        if (closing || slot.retired) {
             return
         }
+        slot.retired = true
+        slot.usable = false
         slot.job?.pending.reject(error)
         slot.job = null
-        console.error(`[image-scrub] worker ${index} died, replacing: ${error.message}`)
         void slot.worker.terminate().catch(() => {})
-        spawn(index)
-            .then(pump)
-            .catch((e: unknown) => console.error(`[image-scrub] worker ${index} could not restart: ${String(e)}`))
+
+        // Backoff, because a worker that dies on every start (an OOM loading models, a corrupt model
+        // file) would otherwise respawn in a tight loop, spending the CPU the survivors need and
+        // burying the first failure in log noise. Reset once a replacement completes a job.
+        const failures = (restartFailures[index] ?? 0) + 1
+        restartFailures[index] = failures
+        const delayMs = Math.min(RESTART_BACKOFF_MAX_MS, RESTART_BACKOFF_BASE_MS * 2 ** (failures - 1))
+        console.error(
+            `[image-scrub] worker ${index} died (${failures} in a row), replacing in ${delayMs}ms: ${error.message}`
+        )
+        const timer = setTimeout(() => {
+            if (closing) {
+                return
+            }
+            spawn(index)
+                .then(pump)
+                .catch((e: unknown) => console.error(`[image-scrub] worker ${index} could not restart: ${String(e)}`))
+        }, delayMs)
+        timer.unref()
     }
 
     await Promise.all(Array.from({ length: size }, (_unused, i) => spawn(i)))
@@ -130,10 +156,14 @@ export async function startPool(size: number, workerUrl: URL = WORKER_URL): Prom
         },
         async close(): Promise<void> {
             closing = true
-            for (const { job } of slots) {
-                job?.pending.reject(new Error('scrub pool is closing'))
+            for (const pendingJob of queue.splice(0)) {
+                pendingJob.pending.reject(new Error('scrub pool is closing'))
             }
-            await Promise.all(slots.map((s) => s.worker.terminate()))
+            // Slots can be absent while a replacement is still waiting out its backoff.
+            for (const slot of slots) {
+                slot?.job?.pending.reject(new Error('scrub pool is closing'))
+            }
+            await Promise.all(slots.filter(Boolean).map((s) => s.worker.terminate()))
         },
     }
 }

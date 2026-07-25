@@ -52,6 +52,19 @@ describe('startPool', () => {
         expect(results.map((r) => r.out.toString().split(':')[1])).toEqual(['q0', 'q1', 'q2', 'q3', 'q4', 'q5'])
     })
 
+    it('replaces a worker that dies while idle', async () => {
+        // A worker holding no job leaves nothing to reject, so a pool that only reacts to in-flight
+        // failures loses it silently and never recovers the capacity. The only visible symptom would
+        // be throughput quietly dropping, which is indistinguishable from the load easing off.
+        pool = await startPool(2, FAKE_WORKER)
+
+        await pool.scrub(Buffer.from('die-when-idle'))
+        await new Promise((resolve) => setTimeout(resolve, 400))
+
+        const results = await Promise.all(['x', 'y'].map((k) => pool.scrub(Buffer.from(k))))
+        expect(peakOverlap(results)).toBe(2)
+    })
+
     it('rebuilds an UndecodableImageError from the wire', async () => {
         // Structured clone drops the prototype, and this class is what the HTTP layer keys the
         // permanent 422 on. Lose it and every undecodable image becomes a retriable 500 that the
