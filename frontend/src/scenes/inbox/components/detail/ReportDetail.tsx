@@ -48,6 +48,7 @@ import {
 } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -341,6 +342,8 @@ export function InboxDetailFrame({
                     )}
                 </DetailSection>
                 {summaryFooter}
+                {/* Sits at the end of the read, so the rating is asked for once the report has been read. */}
+                <ReportFeedbackFooter report={report} />
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
@@ -440,15 +443,18 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {/* A resolved report past its refund window has no secondary actions at all. */}
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
                     </div>
                 </div>
             </div>
