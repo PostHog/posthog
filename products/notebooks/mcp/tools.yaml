@@ -146,9 +146,6 @@ tools:
         description: >
             Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and
             creation/modification metadata.
-    # The sql_v2 tools ship disabled: the cell-tools plan replaces the standalone run
-    # tool with add/update cells (add always runs), and result/interrupt get enabled
-    # alongside those so agents never see a poll tool with nothing to poll.
     notebooks-run-cell:
         operation: notebooks_sql_v2_run_create
         enabled: false
