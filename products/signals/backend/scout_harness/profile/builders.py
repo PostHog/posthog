@@ -323,7 +323,8 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     deleted, superseded, or withheld never runs. Reporting it as enabled would tell a reading
     scout that a surface has active coverage when nothing is watching it, which is the exact
     hole the prompt's fleet-seams guidance asks scouts not to defer into. `not_running_reason`
-    keeps the two causes distinguishable without a third bucket.
+    keeps the two causes distinguishable without a third bucket. Held-back scouts are the one
+    case dropped rather than classified, so this payload can't disclose them (see below).
 
     Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
     flag payload for the holdback denylist, and one grouped pass over recent run rows for the
@@ -346,10 +347,15 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
         .values("skill_name")
         .annotate(last_emitted_at=Max("created_at"))
     }
-    live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_skills_for_team(team.id))
+    # Held-back scouts are excluded outright rather than classified, matching
+    # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
+    # listing a withheld row (even as not-running) would disclose the name and rollout status of
+    # an unreleased scout to the very team it is withheld from.
+    withheld = withheld_skills_for_team(team.id)
+    live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
     enabled: list[dict[str, Any]] = []
     disabled: list[dict[str, Any]] = []
-    for config in SignalScoutConfig.objects.for_team(team.id).order_by("skill_name"):
+    for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
         last_emitted_at = last_emitted_by_skill.get(config.skill_name)
         # `enabled` is what an operator set, so it names the reason when it's off; a skill that
         # can't dispatch is the residual case where the operator left the scout on.

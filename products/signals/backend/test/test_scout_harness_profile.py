@@ -315,6 +315,21 @@ class TestScoutFleet(BaseTest):
         assert [entry["skill_name"] for entry in result["disabled"]] == ["signals-scout-logs"]
         assert result["disabled"][0]["not_running_reason"] == "skill_unavailable"
 
+    def test_withheld_scout_is_absent_from_both_buckets(self) -> None:
+        # The profile is readable with `signal_scout:read`, so listing a withheld scout even as
+        # not-running would disclose an unreleased scout's name to the team it's held back from.
+        self._config("signals-scout-unreleased")
+        self._config("signals-scout-apm")
+
+        with patch(
+            "products.signals.backend.scout_harness.profile.builders.withheld_skills_for_team",
+            return_value={"signals-scout-unreleased"},
+        ):
+            result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-apm"]
+        assert result["disabled"] == []
+
     def test_operator_disabled_scout_is_distinguishable_from_an_undispatchable_one(self) -> None:
         self._config("signals-scout-logs", enabled=False)
 
