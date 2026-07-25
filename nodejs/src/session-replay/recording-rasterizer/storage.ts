@@ -4,9 +4,37 @@ import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
 import { config } from './config'
+import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 
 const log = createLogger()
+
+// A non-XML body from the object store (a proxy/gateway error page, a plaintext "Error…") makes the AWS SDK's
+// XML parser blow up with an opaque "char 'E' is not expected" / "Deserialization error … $response" — the raw
+// response is hidden on `err.$response`. Recover the real status + body so the failure is diagnosable instead of
+// surfacing the parser's confusion as the user-facing reason.
+function describeUndecodableS3Response(err: unknown): { message: string; retryable: boolean } | null {
+    if (!(err instanceof Error)) {
+        return null
+    }
+    const raw = (err as { $response?: unknown }).$response
+    const looksUndecodable = /Deserialization error|is not expected/i.test(err.message)
+    if (!raw && !looksUndecodable) {
+        return null
+    }
+    const response = (raw ?? {}) as { statusCode?: number; body?: unknown }
+    const status = response.statusCode ?? (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
+    const bodyPreview = typeof response.body === 'string' ? response.body.slice(0, 500) : undefined
+    const detail = [status !== undefined ? `status ${status}` : null, bodyPreview ? `body: ${bodyPreview}` : null]
+        .filter(Boolean)
+        .join(', ')
+    // No status usually means a gateway/transport hiccup; 5xx/429 are transient too. Retry those, give up on 4xx.
+    const retryable = status === undefined || status >= 500 || status === 429
+    return {
+        message: `S3 upload returned an undecodable (non-XML) response${detail ? ` (${detail})` : ''}`,
+        retryable,
+    }
+}
 
 let s3Client: S3Client | null = null
 
@@ -75,7 +103,16 @@ export async function uploadToS3(
         upload.on('httpUploadProgress', () => onProgress())
     }
 
-    await upload.done()
+    try {
+        await upload.done()
+    } catch (err) {
+        const described = describeUndecodableS3Response(err)
+        if (described) {
+            log.warn({ err, bucket, key }, 'S3 upload returned an undecodable response')
+            throw new RasterizationError(described.message, described.retryable, 'S3_UPLOAD_UNDECODABLE_RESPONSE', err)
+        }
+        throw err
+    }
 
     return `s3://${bucket}/${key}`
 }

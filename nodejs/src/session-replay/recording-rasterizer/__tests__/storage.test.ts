@@ -92,6 +92,32 @@ describe('uploadToS3', () => {
         mockDone.mockRejectedValue(new Error('AccessDenied'))
         await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toThrow('AccessDenied')
     })
+
+    it('translates an undecodable (non-XML) response into a clear retryable RasterizationError', async () => {
+        // The AWS XML parser's opaque failure when the object store returns a non-XML body (e.g. a proxy error page).
+        const smithyErr = Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
+            $response: { statusCode: 502, body: 'Error: bad gateway' },
+        })
+        mockDone.mockRejectedValue(smithyErr)
+
+        const promise = uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')
+        await expect(promise).rejects.toMatchObject({
+            name: 'RasterizationError',
+            code: 'S3_UPLOAD_UNDECODABLE_RESPONSE',
+            retryable: true,
+            cause: smithyErr,
+        })
+        // The real upstream status + body surface instead of the parser's confusion.
+        await expect(promise).rejects.toThrow(/status 502.*bad gateway/)
+    })
+
+    it('marks a 4xx undecodable response as non-retryable', async () => {
+        const smithyErr = Object.assign(new Error('Deserialization error: to see the raw response, inspect …'), {
+            $response: { statusCode: 403, body: 'AccessDenied' },
+        })
+        mockDone.mockRejectedValue(smithyErr)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({ retryable: false })
+    })
 })
 
 jest.mock('https-proxy-agent', () => ({
