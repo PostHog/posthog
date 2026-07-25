@@ -104,7 +104,9 @@ JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
 GROUP BY repo
-HAVING runs > 20
+-- The floor applies to *partial* failure rates. A repo where every run fails is a
+-- readiness break the body says to file at any volume, so it must survive the floor.
+HAVING runs > 20 OR (failed = runs AND runs >= 3)
 ORDER BY failed DESC
 LIMIT 25
 ```
@@ -133,6 +135,10 @@ WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
   AND r.status = 'failed'
   AND isNotNull(r.error_message)
+  -- Project-wide by default. When query 2 named a candidate repository, re-run this
+  -- scoped to it — a repo's own worst class is often outside the global top 20, and
+  -- without this the query 2 -> query 3 -> query 4 chain stalls with nothing to localize:
+  -- AND t.repository = 'owner/repo'
 GROUP BY err_prefix
 ORDER BY runs DESC
 LIMIT 20
@@ -153,6 +159,8 @@ Classes seen in the wild, as a rough taxonomy to orient against — expect a pro
 
 Once queries 2 and 3 name a candidate, this confirms whether the class is repo-specific (a config problem on that repo) or spread across repos (systemic).
 **Paste the candidate prefix from query 3 into the predicate below** — without it this returns the global top 30 pairs and the class you are chasing may not be among them.
+
+**Escape it first.** An error message is arbitrary tool output, not a trusted constant: an apostrophe in the prefix breaks the literal, and a crafted message (`x' OR 1=1 --`) would alter the predicate. Double every single quote (`'` becomes `''`) when you substitute, and never interpolate the raw string unmodified. If a prefix resists clean escaping, match on a shorter leading fragment that avoids the quote rather than hand-editing the SQL around it.
 
 ```sql
 SELECT
@@ -213,6 +221,9 @@ JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.status IN ('not_started', 'queued', 'in_progress')
   AND r.created_at < now() - interval 1 day
   AND t.origin_product != 'signals_scout'
+  -- `Task.soft_delete()` does not transition its runs, so without this a deleted task's
+  -- stuck run stays "backlog" forever. This scan is unbounded, so that false finding never ages out.
+  AND t.deleted = 0
 GROUP BY repo, status
 ORDER BY stuck_runs DESC
 LIMIT 20
@@ -284,6 +295,10 @@ FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 30 day
   AND r.status = 'failed'
+  -- Lens B anchors on task creation, so bound the task too. Without this an old or
+  -- soft-deleted request retried inside the window reads as current demand.
+  AND t.created_at > now() - interval 30 day
+  AND t.deleted = 0
   AND t.origin_product IN ('user_created', 'slack', 'posthog_ai', 'hogdesk')
 GROUP BY title, task_id, repo, creator, err_prefix
 ORDER BY failed_runs DESC
@@ -294,6 +309,7 @@ LIMIT 30
 
 Every other lens-A query aggregates, but a report has to cite concrete ids and the body sends you to `tasks-runs-retrieve`, which needs both a task id and a run id.
 Run this once per cluster you're about to file, substituting the repository or error prefix that defines it, and cite what it returns.
+It covers backlog findings as well as failures: query 5b returns no ids, and its stuck runs are neither `failed` nor inside a 14-day window, so the status and time predicates below are written to accept them.
 
 ```sql
 SELECT
@@ -305,9 +321,13 @@ SELECT
     r.created_at                                                 AS run_created_at
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
-WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+WHERE t.origin_product != 'signals_scout'
+  AND t.deleted = 0
+  -- Failure clusters: keep both lines. Backlog clusters (query 5b): swap the status list
+  -- for ('not_started', 'queued', 'in_progress') and drop the time bound entirely, since
+  -- the oldest stuck runs are the ones worth citing.
   AND r.status = 'failed'
+  AND r.created_at > now() - interval 14 day
   -- Narrow to the cluster you are filing, e.g.:
   -- AND t.repository = 'owner/repo'
   -- AND substring(r.error_message, 1, 60) = 'PASTE THE CANDIDATE PREFIX HERE'

@@ -78,10 +78,14 @@ A run that forgets this exclusion is mostly measuring the scout fleet, and the d
 
 ## Quick close-out: does this project run tasks?
 
-If a 30-day count of non-`signals_scout` tasks is ~0, this project isn't using Tasks.
+Close out on **runs, not task creation**.
+A project that creates no new tasks can still be running old ones daily, and those runs are exactly what lens A exists to watch — closing out on a task-creation count would skip today's failures entirely.
+So: if a 14-day count of non-`signals_scout` _runs_ is ~0, this project isn't using Tasks.
 Write one scratchpad entry and stop:
 
-- key `not-in-use:tasks` — _"checked {timestamp}, no non-scout tasks in 30d"_
+- key `not-in-use:tasks` — _"checked {timestamp}, no non-scout task runs in 14d"_
+
+The task-creation window is lens B's anchor only. No new tasks with runs still executing means skip the demand pass, not close out the whole scout.
 
 If tasks exist but nothing changed — no failure cluster past your `pattern:tasks:baseline` bands, and `pattern:tasks:last-demand-pass` is under 7 days old — refresh the baseline entry and close out empty.
 
