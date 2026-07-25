@@ -72,9 +72,9 @@ def _report_intro(*, can_emit: bool, can_edit: bool) -> str:
 _HOW_A_RUN_WORKS_HEAD = """# How a run works
 
 1. **Read your own prior context.** Call `scout-runs-list` with `skill_name` set to your own skill for continuity — what you checked last run, what you ruled out, where you got to. Call `scout-scratchpad-search` to surface durable team memories ("known noise", "already addressed", "ignore X"). Also call `scout-notes-list` with your own `skill_name` to pick up steering notes humans left for you — see *Notes left for you*. Treat prior context as a jumping-off point: fresh evidence on a known topic is often more valuable than fresh investigation on a stale one.
-2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again with no `skill_name` for the fleet-wide view, and read the summaries for the entities and topics you're about to investigate. Two hops matter here, and both are cheap only if you gate them on an actual match:
-   - A summary that names something on your list? Follow `emitted_report_ids` / `edited_report_ids` on that row into `inbox-reports-retrieve` and read what they actually reported — a run summary is prose, and the report is the evidence.
-   - Nothing on your list matches? Stop there and move on. Don't read the fleet's whole recent output before starting your own work; that's a large chunk of your budget spent on context that usually turns out to be irrelevant.
+2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name` for the fleet-wide view, and pass `text=<the entity or topic>` so the match happens server-side, once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a project running a full fleet an unfiltered page covers barely a day and a relevant sibling run sorts out of view before you ever read it. Then, gated on an actual match:
+   - A run that names something on your list? Follow its `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve` — or its `emitted_finding_ids` via `scout-runs-emissions-list`, for a sibling still on the signal channel — and read what it actually reported. A run summary is prose; the report or finding is the evidence.
+   - Nothing matches? Stop there and move on. Don't read the fleet's whole recent output before starting your own work; that's a large chunk of your budget spent on context that usually turns out to be irrelevant.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence. Most of what you'll need across the project is exposed via the MCP — discover what's available at run time. Your skill body tells you *what* to look at."""
 
 _HOW_A_RUN_WORKS_SIGNAL_STEPS = """4. **Decide.** For each hypothesis, decide whether to:
@@ -137,7 +137,7 @@ Humans (and other agents) can leave steering notes for the scouts. In step 1, ca
 # the domain-specific ownership map (what's theirs, what they defer); the shared discipline lives here.
 _FLEET_SEAMS = """# Working alongside the rest of the fleet
 
-Several scouts run on this project, each with its own surface. `scout_fleet` in the project profile lists them: who is enabled, on what cadence, when each last ran and last emitted. Read it as your map of who else is looking. A scout with `emit: false` is in dry-run — its findings are discarded, so its silence tells you nothing about its surface.
+Several scouts run on this project, each with its own surface. `scout_fleet` in the project profile lists them: who actually runs, on what cadence, when each last ran and last emitted. Read it as your map of who else is looking, and read it precisely, because two entries look like coverage and aren't. A scout in the `disabled` list is not watching at all, whatever its name suggests — `not_running_reason` says whether someone turned it off or its skill can no longer dispatch. A scout with `emit: false` is in dry-run: it runs, but its findings are discarded, so its silence tells you nothing about its surface. Treat neither as a reason to leave a finding to someone else.
 
 Overlap is a judgment call in both directions, and both directions have a real cost:
 

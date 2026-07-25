@@ -60,7 +60,9 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -313,12 +315,21 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
 
 
 def _scout_fleet(team: Team) -> dict[str, Any]:
-    """The other scouts configured on this team, split by `enabled`.
+    """The other scouts configured on this team, split by whether they actually run.
 
-    Two queries: the config rows (schedule + emit posture, authoritative), and one grouped
-    pass over recent run rows for the last time each scout produced output. `last_run_at`
-    comes off the config because the coordinator stamps it at dispatch, so it stays correct
-    for a scout whose runs have aged out of the run-history window.
+    The split is on dispatchability, not on `SignalScoutConfig.enabled` alone. The coordinator
+    dispatches only configs whose skill is in `live_scout_skill_names` (latest, non-deleted,
+    not held back by the `signals-scout` flag's denylist), so an enabled config whose skill was
+    deleted, superseded, or withheld never runs. Reporting it as enabled would tell a reading
+    scout that a surface has active coverage when nothing is watching it, which is the exact
+    hole the prompt's fleet-seams guidance asks scouts not to defer into. `not_running_reason`
+    keeps the two causes distinguishable without a third bucket.
+
+    Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
+    flag payload for the holdback denylist, and one grouped pass over recent run rows for the
+    last time each scout produced output. `last_run_at` comes off the config because the
+    coordinator stamps it at dispatch, so it stays correct for a scout whose runs have aged out
+    of the run-history window.
     """
     emitted_since = timezone.now() - timedelta(days=SCOUT_FLEET_EMITTED_LOOKBACK_DAYS)
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
@@ -335,10 +346,18 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
         .values("skill_name")
         .annotate(last_emitted_at=Max("created_at"))
     }
+    live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_skills_for_team(team.id))
     enabled: list[dict[str, Any]] = []
     disabled: list[dict[str, Any]] = []
     for config in SignalScoutConfig.objects.for_team(team.id).order_by("skill_name"):
         last_emitted_at = last_emitted_by_skill.get(config.skill_name)
+        # `enabled` is what an operator set, so it names the reason when it's off; a skill that
+        # can't dispatch is the residual case where the operator left the scout on.
+        not_running_reason = None
+        if not config.enabled:
+            not_running_reason = "turned_off"
+        elif config.skill_name not in live_skills:
+            not_running_reason = "skill_unavailable"
         entry = {
             "skill_name": config.skill_name,
             "run_interval_minutes": config.run_interval_minutes,
@@ -346,8 +365,9 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
             "emit": config.emit,
             "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
             "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
+            "not_running_reason": not_running_reason,
         }
-        (enabled if config.enabled else disabled).append(entry)
+        (disabled if not_running_reason else enabled).append(entry)
     return {
         "enabled": enabled,
         "disabled": disabled,

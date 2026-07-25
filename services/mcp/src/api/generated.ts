@@ -55175,15 +55175,20 @@ export namespace Schemas {
          * @nullable
          */
       last_emitted_at: string | null;
+      /**
+         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * @nullable
+         */
+      not_running_reason: string | null;
     }
 
     /**
      * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
      */
     export interface ScoutFleet {
-      /** Scouts scheduled to run on this team. */
+      /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
       enabled: ScoutFleetEntry[];
-      /** Scouts explicitly turned off (different from a surface no scout ever covered). */
+      /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
       disabled: ScoutFleetEntry[];
       /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
       emitted_lookback_days: number;

@@ -78,6 +78,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
+from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -269,7 +270,11 @@ class TestEmitEligibility(BaseTest):
 
 
 class TestScoutFleet(BaseTest):
-    def _config(self, skill_name: str, **kwargs: object) -> SignalScoutConfig:
+    def _config(self, skill_name: str, *, with_skill: bool = True, **kwargs: object) -> SignalScoutConfig:
+        # A config only dispatches when a live skill backs it, so seed one unless the test is
+        # exercising the orphaned-config case.
+        if with_skill:
+            LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="b")
         return SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, **kwargs)
 
     def _run(self, team: Team, skill_name: str, **kwargs: object) -> SignalScoutRun:
@@ -294,6 +299,28 @@ class TestScoutFleet(BaseTest):
         assert [entry["skill_name"] for entry in result["disabled"]] == ["signals-scout-apm"]
         assert result["disabled"][0]["emit"] is False
         assert result["disabled"][0]["run_cron_schedule"] == "0 9 * * *"
+        assert result["disabled"][0]["not_running_reason"] == "turned_off"
+
+    def test_enabled_config_whose_skill_cannot_dispatch_is_not_reported_as_running(self) -> None:
+        # The coordinator dispatches only configs whose skill is live, so an enabled config
+        # backed by a deleted skill never runs. Reporting it as enabled would tell a reading
+        # scout the surface is covered when nothing is watching it.
+        self._config("signals-scout-logs", with_skill=False, enabled=True)
+        self._config("signals-scout-apm", enabled=True)
+
+        result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-apm"]
+        assert result["enabled"][0]["not_running_reason"] is None
+        assert [entry["skill_name"] for entry in result["disabled"]] == ["signals-scout-logs"]
+        assert result["disabled"][0]["not_running_reason"] == "skill_unavailable"
+
+    def test_operator_disabled_scout_is_distinguishable_from_an_undispatchable_one(self) -> None:
+        self._config("signals-scout-logs", enabled=False)
+
+        entry = _scout_fleet(self.team)["disabled"][0]
+
+        assert entry["not_running_reason"] == "turned_off"
 
     @parameterized.expand(
         [
@@ -328,6 +355,7 @@ class TestScoutFleet(BaseTest):
 
     def test_team_isolated(self) -> None:
         other = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other, name="signals-scout-logs", description="d", body="b")
         SignalScoutConfig.objects.create(team=other, skill_name="signals-scout-logs")
         self._config("signals-scout-apm")
         self._run(other, "signals-scout-apm", emitted_count=3)

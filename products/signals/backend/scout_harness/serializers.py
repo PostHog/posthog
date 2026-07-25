@@ -1097,6 +1097,14 @@ class ScoutFleetEntrySerializer(serializers.Serializer):
             "that window, not never."
         ),
     )
+    not_running_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or "
+            "`skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it "
+            "never dispatches). Null for scouts that actually run."
+        ),
+    )
 
 
 class ScoutFleetSerializer(serializers.Serializer):
@@ -1104,11 +1112,14 @@ class ScoutFleetSerializer(serializers.Serializer):
 
     enabled = serializers.ListField(
         child=ScoutFleetEntrySerializer(),
-        help_text="Scouts scheduled to run on this team.",
+        help_text="Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches.",
     )
     disabled = serializers.ListField(
         child=ScoutFleetEntrySerializer(),
-        help_text="Scouts explicitly turned off (different from a surface no scout ever covered).",
+        help_text=(
+            "Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a "
+            "skill that can't dispatch. Different from a surface no scout ever covered."
+        ),
     )
     emitted_lookback_days = serializers.IntegerField(
         help_text="The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'.",

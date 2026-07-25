@@ -96,16 +96,20 @@ class ScoutFleetEntry(_Section):
     # authored/edited report), within the run-history window `_scout_fleet` scans. Null means
     # the scout has been quiet for at least that window, not that it has never emitted.
     last_emitted_at: str | None
+    # Why this scout is in the `disabled` bucket: `turned_off` (an operator set `enabled=False`)
+    # or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so the
+    # coordinator never dispatches it). Null for scouts that actually run.
+    not_running_reason: str | None
 
 
 class ScoutFleet(_Section):
     """The other `signals-scout-*` scouts configured on this team.
 
-    Split by `enabled` for the same reason `SignalSourceConfigs` is: a scout that was
-    deliberately turned off is different from a surface nobody ever covered. Without this
-    section a running scout can only infer its fleet from `scout-runs-list` skill names,
-    which under-reports any scout whose schedule hasn't come due yet and can't distinguish
-    a disabled scout from one that never existed.
+    Split on whether the scout actually runs, for the same reason `SignalSourceConfigs` splits
+    on `enabled`: a scout deliberately turned off is different from a surface nobody ever
+    covered. Without this section a running scout can only infer its fleet from
+    `scout-runs-list` skill names, which under-reports any scout whose schedule hasn't come due
+    yet and can't distinguish a disabled scout from one that never existed.
     """
 
     enabled: list[ScoutFleetEntry]
