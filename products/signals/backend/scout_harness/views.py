@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
@@ -50,7 +49,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission
+from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
@@ -225,13 +224,12 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
     team, because an admin can grant a member scout access while withholding task access, and a
     session caller carries no scopes for the first leg to inspect.
+
+    Scopes come from `get_authenticator_scopes` rather than a local isinstance ladder: this
+    viewset also admits ID-JAG tokens, and a ladder that misses an authenticator returns no
+    scopes, which reads as "session caller" and skips the first leg entirely.
     """
-    authenticator = request.successful_authenticator
-    scopes: Sequence[str] | None = None
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        scopes = authenticator.personal_api_key.scopes or []
-    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-        scopes = (authenticator.access_token.scope or "").split()
+    scopes = get_authenticator_scopes(request.successful_authenticator)
     if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
         return False
 
