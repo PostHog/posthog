@@ -27,8 +27,12 @@ function repositoryLabel(
   if (task.originProduct === "image_builder") return CUSTOM_IMAGES_GROUP_NAME;
   const repository = task.repository;
   if (!repository) return null;
-  // Prefer the registered folder's name so the line reads exactly like the
-  // group header this task would sit under in "by-project" mode.
+  // Prefer the registered folder's name, which is what the group header for
+  // this repo reads when a folder is registered. Without one we take the bare
+  // repo name and skip the organization prefix `groupByRepository` adds when
+  // two groups collide on a name: that is a decision across the whole group
+  // set, and pinned tasks are partitioned out before the groups are built, so
+  // a pinned task's repo may have no group to borrow a name from at all.
   return findGroupFolder(folders, repository.fullPath)?.name ?? repository.name;
 }
 
