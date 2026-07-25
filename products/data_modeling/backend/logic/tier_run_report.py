@@ -151,38 +151,37 @@ def _build_tier(dag: DAG, interval: timedelta, nodes: list[Node], downstream: di
 
 
 def _node_run(node: Node, *, job: DataModelingJob | None, suspension: str, blocked_by: str) -> NodeRun:
-    saved_query_id = str(node.saved_query_id) if node.saved_query_id else None
-    common = {
-        "node_id": str(node.id),
-        "name": node.name,
-        "node_type": node.type,
-        "saved_query_id": saved_query_id,
-    }
+    def run(status: str, detail: str, job: DataModelingJob | None = None) -> NodeRun:
+        return NodeRun(
+            node_id=str(node.id),
+            name=node.name,
+            node_type=node.type,
+            saved_query_id=str(node.saved_query_id) if node.saved_query_id else None,
+            status=status,
+            detail=detail,
+            job_id=str(job.id) if job else None,
+            workflow_id=job.workflow_id if job else None,
+            workflow_run_id=job.workflow_run_id if job else None,
+        )
 
     if node.type not in MATERIALIZING_TYPES:
-        detail = (
+        return run(
+            NOT_MATERIALIZING,
             "view node — a run marks it successful and materializes nothing"
             if node.type == NodeType.VIEW.value
-            else "source node — nothing to materialize"
+            else "source node — nothing to materialize",
         )
-        return NodeRun(**common, status=NOT_MATERIALIZING, detail=detail)
 
     if job is not None:
         failed = job.status == DataModelingJobStatus.FAILED
-        return NodeRun(
-            **common,
-            status=FAILED if failed else OK,
-            detail=_first_line(job.error) if failed else f"{job.rows_materialized or 0} rows",
-            job_id=str(job.id),
-            workflow_id=job.workflow_id,
-            workflow_run_id=job.workflow_run_id,
-        )
+        detail = _first_line(job.error) if failed else f"{job.rows_materialized or 0} rows"
+        return run(FAILED if failed else OK, detail, job)
 
     if suspension:
-        return NodeRun(**common, status=SUSPENDED, detail=suspension)
+        return run(SUSPENDED, suspension)
     if blocked_by:
-        return NodeRun(**common, status=BLOCKED, detail=f"upstream {blocked_by} failed or is suspended")
-    return NodeRun(**common, status=MISSING, detail="declared on this tier but the run produced no job")
+        return run(BLOCKED, f"upstream {blocked_by} failed or is suspended")
+    return run(MISSING, "declared on this tier but the run produced no job")
 
 
 def _latest_run(team_id: int, schedule_id: str) -> tuple[str | None, datetime | None]:

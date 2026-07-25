@@ -71,4 +71,4 @@ class TestDataModelingDAGAdminTiers(BaseTest):
         response = self.client.get(reverse("admin:data_modeling_dag_tiers", args=[self.dag.id]))
 
         assert response.status_code == 302
-        assert "/admin/login/" in response.url
+        assert "/admin/login/" in response["Location"]
