@@ -69,6 +69,25 @@ export function applyScale(dims: Dims, scale: number): Dims {
     return { width: atLeastOne(dims.width * scale), height: atLeastOne(dims.height * scale) }
 }
 
+/**
+ * Scale into an area budget and stay there.
+ *
+ * `applyScale` alone does not: an axis that scales below one pixel is floored to one, which leaves
+ * the other axis at its full scaled length and the product above the budget by any factor. A
+ * 1x50,000,000 source, a few hundred KB of PNG, plans a 1x4,796,123 frame at ten times the budget,
+ * and the per-worker memory model is derived from that budget. Clamp the long axis against the
+ * floored short one.
+ */
+export function fitToArea(dims: Dims, budgetPixels: number): Dims {
+    const scaled = applyScale(dims, scaleToArea(dims, budgetPixels))
+    if (scaled.width * scaled.height <= budgetPixels) {
+        return scaled
+    }
+    return scaled.width >= scaled.height
+        ? { ...scaled, width: atLeastOne(budgetPixels / scaled.height) }
+        : { ...scaled, height: atLeastOne(budgetPixels / scaled.width) }
+}
+
 const upToStride = (n: number, stride: number): number => Math.max(stride, Math.ceil(n / stride) * stride)
 
 /**
@@ -82,7 +101,7 @@ const upToStride = (n: number, stride: number): number => Math.max(stride, Math.
  * against the short one's padded size until the canvas itself fits.
  */
 export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): { content: Dims; canvas: Dims } {
-    let content = applyScale(dims, scaleToArea(dims, budgetPixels))
+    let content = fitToArea(dims, budgetPixels)
     let canvas = { width: upToStride(content.width, stride), height: upToStride(content.height, stride) }
     for (let guard = 0; guard < 4 && canvas.width * canvas.height > budgetPixels; guard++) {
         if (canvas.width >= canvas.height) {
@@ -119,7 +138,7 @@ export function fixedInputScale(dims: Dims, side: number): number {
  * what each model really saw rather than against the budgets that were asked for.
  */
 export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
-    const frame = applyScale(source, scaleToArea(source, limits.framePixels))
+    const frame = fitToArea(source, limits.framePixels)
     const text = fitToCanvas(frame, limits.textCanvasPixels, limits.stride)
     const faceScale = fixedInputScale(frame, limits.faceInputSide)
 

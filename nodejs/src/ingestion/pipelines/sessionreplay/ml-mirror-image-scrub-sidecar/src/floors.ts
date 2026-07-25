@@ -38,30 +38,39 @@ export const TEXT_FLOOR: Floor = {
 }
 
 /**
- * Faces, from `dev/floors.ts`: a subject placed at a range of sizes, detected at the detection
- * resolution and re-detected in the artifact.
+ * Faces, from `dev/floors.ts`. Both numbers are converted from the sweep's source-pixel column, and
+ * the arithmetic is written out because getting these two into the same frame is exactly where the
+ * previous version went wrong: it paired a figure measured at the detection frame with one measured
+ * in the artifact and called the ratio 43/21.
  *
- * Reliable detection lands around 43px at YuNet's own input; a face is still findable in the
- * artifact down to about 21px. The readable figure uses YuNet-on-the-artifact as the stand-in for
- * re-identification, which is stricter than a person recognising someone and so errs safe.
+ * The sweep runs at 0.9 MP detection and 0.1 MP storage from a 1920x1080 source, so a face of S
+ * source px reaches YuNet at S x sqrt(0.9/2.07) x (640/1265) = 0.333 S, and is kept in the artifact
+ * at S x sqrt(0.1/2.07) = 0.220 S.
+ *
+ * Every face is found at 192 source px, which is 64px at YuNet's input. A face is still findable in
+ * the artifact at 96 source px, which is 21px there. The readable figure uses YuNet-on-the-artifact
+ * as the stand-in for re-identification, which is stricter than a person recognising someone.
  */
 export const FACE_FLOOR: Floor = {
-    detectedAt: 43,
+    detectedAt: 64,
     readableAt: 21,
-    unit: 'face px at the stage input',
-    measuredBy: 'dev/floors.ts',
+    unit: "face px, detected at YuNet's own input, readable in the stored image",
+    measuredBy: 'dev/floors.ts: a face placed at 24-192px in a 1920x1080 source',
 }
 
 /**
- * Codes are the loosest by a wide margin: zxing finds them from about 96px while a code has to reach
- * roughly 61px in the artifact before it decodes at all. A code too degraded to decode carries
- * nothing, which makes this subject self-limiting rather than a constraint on the pipeline.
+ * Codes are the loosest by a wide margin, and the only subject whose two numbers are both source px:
+ * zxing runs on the frame directly, so there is no separate input scale to convert through.
+ *
+ * Detected from 96 source px; not decodable out of the artifact until 280. Requiring detection to be
+ * 96/280 as large as readability is no constraint at all, since that is below 1: a code degraded past
+ * decoding carries nothing, which makes this subject self-limiting.
  */
 export const CODE_FLOOR: Floor = {
     detectedAt: 96,
-    readableAt: 61,
-    unit: 'code px at the stage input',
-    measuredBy: 'dev/floors.ts',
+    readableAt: 280,
+    unit: 'code px in the SOURCE, both columns, since zxing works on the frame directly',
+    measuredBy: 'dev/floors.ts: a QR placed at 48-280px in a 1920x1080 source',
 }
 
 export const FLOORS = { text: TEXT_FLOOR, face: FACE_FLOOR, code: CODE_FLOOR } as const

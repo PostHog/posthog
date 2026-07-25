@@ -37,6 +37,15 @@ describe('scale-plan', () => {
         expect(plan.stored.height).toBeLessThanOrEqual(plan.frame.height)
     })
 
+    it.each(SHAPES)('keeps the frame inside its own budget for %s', (_case, width, height) => {
+        // An axis that scales below one pixel floors to one, which leaves the other at full length
+        // and the product above the budget by any factor: a 1x50,000,000 source planned ten times it.
+        // The per-worker memory model is derived from this budget, so an unbounded frame is an OOM.
+        const { frame } = planScales({ width, height }, LIMITS)
+
+        expect(frame.width * frame.height).toBeLessThanOrEqual(LIMITS.framePixels)
+    })
+
     it.each(SHAPES)('bounds the allocated tensor for %s', (_case, width, height) => {
         // Rule 2: a budget on content area does not bound the tensor once a collapsed axis is padded
         // up to the stride. A 100 KB PNG allocated fifteen times the budget this way.
