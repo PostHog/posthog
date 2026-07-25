@@ -1643,7 +1643,7 @@ class SignalReportViewSet(
             reports=reports,
             reason=dismissal_reason,
             note=dismissal_note,
-            user=self.request.user,
+            request=self.request,
         )
 
     def _request_attribution(self) -> ArtefactAttribution:

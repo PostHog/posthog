@@ -10,6 +10,9 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
@@ -201,6 +204,38 @@ class TestDismissalScoutNotes(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert self._notes() == []
+
+    def test_no_note_when_the_token_is_scoped_to_a_child_environment(self) -> None:
+        # Notes canonicalize to the parent project, so a token confined to a child environment must
+        # not steer the parent's scouts through a dismissal, even though its user has parent access.
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, name="Child environment"
+        )
+        report = SignalReport.objects.create(
+            team=environment, status=SignalReport.Status.READY, title="Child report", summary="Test summary"
+        )
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Child-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:write", "task:read"],
+            scoped_teams=[environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.post(
+            f"/api/projects/{environment.id}/signals/reports/{report.id}/state/",
+            data=json.dumps({"state": "suppressed", "dismissal_note": "steering the parent's fleet"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        # `all_teams` so the assertion holds wherever the row would have landed.
+        assert not SignalScoutNote.all_teams.exists()
 
     def test_no_note_when_the_dismisser_may_not_steer_scouts(self) -> None:
         # Promotion re-checks the `llm_skill` editor bar that `SignalScoutNoteViewSet` requires, so a
