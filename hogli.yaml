@@ -863,6 +863,9 @@ tools:
     doctor:ports:
         click: hogli_commands.doctor:doctor_ports
         description: Pre-flight check for host ports the dev stack needs
+    doctor:migrate-volumes:
+        click: hogli_commands.doctor:doctor_migrate_volumes
+        description: Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes
     doctor:report:
         click: hogli_commands.doctor:doctor_report
         description: Dump a paste-ready dev-environment diagnostics report for devex triage

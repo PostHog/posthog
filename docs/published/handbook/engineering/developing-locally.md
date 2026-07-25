@@ -215,13 +215,14 @@ The feature-flags container needs the GeoLite database in `/share`. If it's miss
 
 **Local ClickHouse suddenly empty (July 2026 named-volume switch)**
 ClickHouse and ZooKeeper store their data in named docker volumes (`clickhouse-data`, `zookeeper-data`), so their state survives container recreation.
-The first `hogli start` after updating past the July 2026 switch to named volumes recreates both containers with fresh volumes (the data previously lived in anonymous volumes that container recreation discards), so local ClickHouse data is reset once.
-Run `hogli migrations:run` to recreate the ClickHouse schema, or `hogli dev:reset` for a full wipe plus demo data.
-This happens once per machine, since the docker stack is shared across worktrees.
-The old anonymous volumes are left dangling; reclaim the disk space with `docker volume prune` (check first with `docker volume ls -f dangling=true`).
+The first `hogli start` after updating past the July 2026 switch to named volumes would otherwise recreate both containers with fresh volumes (the data previously lived in anonymous volumes that container recreation discards).
+`hogli start` runs `hogli doctor:migrate-volumes` before bringing the stack up, which salvages the old anonymous volumes into the new named ones automatically whenever it can prove the mapping is unambiguous — no action needed, and it's a no-op on every subsequent start once migrated.
 
-If you had local ClickHouse data you still need, it isn't gone until you prune — it sits in those dangling volumes.
-To salvage it, stop the stack (`hogli docker:services:down`), then identify the old volumes by peeking inside each dangling candidate:
+If it prints a warning instead of migrating (an ambiguous or missing old container — for example two clickhouse containers left over under this same compose project, or the old container already removed by a prior cleanup), it deliberately didn't guess, and local ClickHouse data resets once instead.
+Run `hogli migrations:run` to recreate the ClickHouse schema, or `hogli dev:reset` for a full wipe plus demo data.
+The old anonymous volumes are left dangling in that case; reclaim the disk space with `docker volume prune` (check first with `docker volume ls -f dangling=true`) once you're done, or salvage them manually if you still need that data:
+
+Stop the stack (`hogli docker:services:down`), then identify the old volumes by peeking inside each dangling candidate:
 
 ```bash
 docker volume ls -qf dangling=true
@@ -232,7 +233,7 @@ The ClickHouse volume contains `store` and `metadata`; the ZooKeeper snapshot vo
 Copy each old volume into its named replacement. The `posthog_` prefix below is the compose project name (`$COMPOSE_PROJECT_NAME`, `posthog` by default); substitute yours if you've overridden it:
 
 ```bash
-docker run --rm -v <old-clickhouse-volume>:/from -v posthog_clickhouse-data:/to alpine sh -c 'rm -rf /to/* && cp -a /from/. /to/'
+docker run --rm -v <old-clickhouse-volume>:/from:ro -v posthog_clickhouse-data:/to alpine sh -c 'rm -rf /to/* && cp -a /from/. /to/'
 ```
 
 Repeat for `posthog_zookeeper-data` (snapshots) and `posthog_zookeeper-datalog` (transaction logs).
