@@ -107,6 +107,9 @@ REFRESH_BACKOFF_BASE_SECONDS = 120
 REFRESH_BACKOFF_MAX_SECONDS = 3600
 REFRESH_TERMINAL_FAILURE_COUNT = 5
 
+# `config` key flagging a grant that only the legacy fallback credentials can refresh.
+CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
@@ -179,6 +182,49 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
 def record_refresh_success(integration: "Integration") -> None:
     for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
         integration.config.pop(key, None)
+
+
+def record_oauth_client_used(integration: "Integration", *, used_fallback: bool) -> None:
+    """Track whether the grant still depends on the legacy (fallback) OAuth credentials.
+
+    A refresh token minted by a since-migrated app can only be refreshed by that app's
+    credentials, so a successful fallback refresh identifies exactly the connections that break
+    when the legacy app is retired. The flag rides on `config`, which the API exposes, so the
+    product can tell those teams to reconnect. Reconnecting mints a grant on the primary
+    credentials and replaces `config` wholesale, which clears the flag.
+    """
+    if used_fallback:
+        integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+    else:
+        integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
+
+
+def issuing_oauth_client_ids(integration: "Integration") -> list[str]:
+    """The OAuth client ids the connection was established with. Empty when that can't be read.
+
+    OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
+    authorization exchange - refreshes only overwrite the access and refresh tokens. So this reads
+    the app the customer actually connected through, which is knowable for connections that already
+    exist, without waiting for a refresh to reveal it.
+
+    `aud` is a string or a list of strings per RFC 7519, so both shapes are normalized here.
+    Callers should test membership rather than assume a single value: treating a list-shaped
+    audience as unreadable would silently drop those connections from the reconnect campaign.
+    """
+    id_token = integration.sensitive_config.get("id_token")
+    if not id_token:
+        return []
+    try:
+        claims = _decode_jwt_payload(id_token) or {}
+    except Exception:
+        logger.warning("Failed to decode id_token", integration_id=integration.id, kind=integration.kind)
+        return []
+    audience = claims.get("aud")
+    if isinstance(audience, str):
+        return [audience]
+    if isinstance(audience, list):
+        return [entry for entry in audience if isinstance(entry, str)]
+    return []
 
 
 def refresh_backoff_active(integration: "Integration") -> bool:
@@ -1559,6 +1605,7 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             record_refresh_success(self.integration)
+            record_oauth_client_used(self.integration, used_fallback=used_fallback)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
