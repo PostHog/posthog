@@ -118,11 +118,14 @@ Grouping on a message prefix collapses the variable tail (ids, paths, timings) a
 60 characters is a good default: long enough to separate classes, short enough that per-task detail doesn't fragment them.
 Widen to 100 if two distinct classes collapse together.
 
+`err_fingerprint` is what downstream queries filter on — carry the **number**, never the text (see query 4).
+
 `failed_runs_per_task` here is the same discriminator applied per class.
 The `status = 'failed'` filter below already scopes every row to a failure, so the plain `count() / uniq(task_id)` is failure-scoped as written — no `uniqIf` needed, unlike query 2.
 
 ```sql
 SELECT
+    cityHash64(substring(r.error_message, 1, 60))                AS err_fingerprint,
     substring(r.error_message, 1, 60)                            AS err_prefix,
     count()                                                      AS runs,
     uniq(r.task_id)                                              AS tasks,
@@ -139,7 +142,7 @@ WHERE r.created_at > now() - interval 14 day
   -- scoped to it — a repo's own worst class is often outside the global top 20, and
   -- without this the query 2 -> query 3 -> query 4 chain stalls with nothing to localize:
   -- AND t.repository = 'owner/repo'
-GROUP BY err_prefix
+GROUP BY err_fingerprint, err_prefix
 ORDER BY runs DESC
 LIMIT 20
 ```
@@ -158,9 +161,9 @@ Classes seen in the wild, as a rough taxonomy to orient against — expect a pro
 ## 4 — Cross: repository × error class (lens A group)
 
 Once queries 2 and 3 name a candidate, this confirms whether the class is repo-specific (a config problem on that repo) or spread across repos (systemic).
-**Paste the candidate prefix from query 3 into the predicate below** — without it this returns the global top 30 pairs and the class you are chasing may not be among them.
+**Filter by the `err_fingerprint` integer query 3 returned** — without a predicate this returns the global top 30 pairs and the class you are chasing may not be among them.
 
-**Escape it first.** An error message is arbitrary tool output, not a trusted constant: an apostrophe in the prefix breaks the literal, and a crafted message (`x' OR 1=1 --`) would alter the predicate. Double every single quote (`'` becomes `''`) when you substitute, and never interpolate the raw string unmodified. If a prefix resists clean escaping, match on a shorter leading fragment that avoids the quote rather than hand-editing the SQL around it.
+**Never interpolate the error text itself.** An error message is arbitrary tool output, not a trusted constant: an apostrophe breaks the literal, and a crafted message (`x' OR 1=1 --`) would rewrite the predicate and pull in unrelated runs. Escaping-by-hand is not a control you should rely on mid-run, so the cookbook removes the need for it — substitute the **numeric** fingerprint and no attacker-controlled string ever reaches the SQL. If you genuinely need to match text, derive a fresh fingerprint in the query rather than pasting a literal.
 
 ```sql
 SELECT
@@ -174,8 +177,8 @@ WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
   AND r.status = 'failed'
   AND isNotNull(r.error_message)
-  -- Replace with the exact prefix query 3 returned:
-  AND substring(r.error_message, 1, 60) = 'PASTE THE CANDIDATE PREFIX HERE'
+  -- Substitute the integer from query 3's err_fingerprint column (digits only):
+  AND cityHash64(substring(r.error_message, 1, 60)) = 0000000000000000000
 GROUP BY repo, err_prefix
 HAVING runs > 0
 ORDER BY runs DESC
@@ -330,7 +333,7 @@ WHERE t.origin_product != 'signals_scout'
   AND r.created_at > now() - interval 14 day
   -- Narrow to the cluster you are filing, e.g.:
   -- AND t.repository = 'owner/repo'
-  -- AND substring(r.error_message, 1, 60) = 'PASTE THE CANDIDATE PREFIX HERE'
+  -- AND cityHash64(substring(r.error_message, 1, 60)) = 0000000000000000000  -- err_fingerprint from query 3
 ORDER BY r.created_at DESC
 LIMIT 5
 ```
