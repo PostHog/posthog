@@ -152,30 +152,41 @@ fi
 # containers fails to bind — and that aborts the entire `docker compose up`,
 # sometimes leaving a container detached from the compose network. In a TTY, offer
 # to tear foreign stacks down; otherwise stay advisory. Delegated to hogli (tested
-# there, see doctor_ports in hogli_commands/doctor.py); skipped if hogli isn't on
-# PATH, same as doctor:zombies above.
+# there, see doctor_ports in hogli_commands/doctor.py).
+#
+# Also runs the one-time migration for the July 2026 named-volume switch: the named
+# volume is absent until the first `up` after the switch, which would otherwise
+# reset a clickhouse container's data that already exists under this project.
+# Auto-salvages the old anonymous volumes when the mapping is unambiguous, otherwise
+# prints the same manual-salvage warning as before. Must run before `docker compose
+# up` below (see doctor_migrate_volumes in hogli_commands/doctor.py).
+#
+# Both skipped if hogli isn't on PATH, same as doctor:zombies above. Without hogli
+# there's no auto-migration either, so warn plainly instead of silently losing data.
 if command -v hogli &>/dev/null; then
     hogli doctor:ports || true
+    hogli doctor:migrate-volumes || true
+else
+    named_volume_reset_notice() {
+        command -v docker &>/dev/null || return 0
+        docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
+        if ! docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
+            --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+            | grep -qx "$COMPOSE_PROJECT_NAME"; then
+            # No clickhouse container left — either a fresh clone (nothing to lose) or
+            # `docker compose down` (removes containers but keeps volumes). Postgres has
+            # no profile gate, so its volume surviving is a reliable "not a fresh clone"
+            # signal, same as _has_prior_install in hogli_commands/doctor.py.
+            docker volume inspect "${COMPOSE_PROJECT_NAME}_postgres-15-data" &>/dev/null || return 0
+        fi
+        echo "⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start"
+        echo "   recreates them empty, so local ClickHouse data resets once (happens once"
+        echo "   per machine). Install hogli to auto-migrate your existing data instead. See"
+        echo "   'Local ClickHouse suddenly empty' in"
+        echo "   docs/published/handbook/engineering/developing-locally.md to salvage old data."
+    }
+    named_volume_reset_notice || true
 fi
-
-# One-time notice for the July 2026 named-volume switch: the named volume is
-# absent until the first `up` after the switch, and if a clickhouse container
-# already exists under this project, its data is about to be reset. See the
-# "Local ClickHouse suddenly empty" gotcha in developing-locally.md. Fail-open,
-# like the port pre-flight above.
-named_volume_reset_notice() {
-    command -v docker &>/dev/null || return 0
-    docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
-    docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
-        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
-        | grep -qx "$COMPOSE_PROJECT_NAME" || return 0
-    echo "⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start"
-    echo "   recreates them empty, so local ClickHouse data resets once (happens once"
-    echo "   per machine). Run 'hogli migrations:run' after, or 'hogli dev:reset' for a"
-    echo "   full wipe plus demo data. See 'Local ClickHouse suddenly empty' in"
-    echo "   docs/published/handbook/engineering/developing-locally.md to salvage old data."
-}
-named_volume_reset_notice || true
 
 # Geo files
 ./bin/download-mmdb
