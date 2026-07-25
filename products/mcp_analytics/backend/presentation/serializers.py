@@ -309,15 +309,21 @@ class MCPIntentThemeSerializer(serializers.Serializer):
         read_only=True, help_text="One concrete sentence describing what agents in this theme are doing."
     )
     intent_count = serializers.IntegerField(
-        read_only=True, help_text="How many of the analysed intents belong to this theme."
+        read_only=True,
+        help_text=(
+            "How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather "
+            "than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more "
+            "than the digest's intent_count."
+        ),
     )
     example_intent = serializers.CharField(
-        read_only=True, help_text="One of the recorded intents, verbatim, representative of the theme."
+        read_only=True,
+        help_text="The first recorded intent in this theme, verbatim from the corpus.",
     )
     tools = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
-        help_text="MCP tool names that appear alongside this theme's intents.",
+        help_text="The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus.",
     )
 
 
@@ -338,7 +344,7 @@ class MCPIntentDigestSerializer(serializers.Serializer):
     themes = MCPIntentThemeSerializer(
         many=True,
         read_only=True,
-        help_text="2-5 semantic groupings of the analysed intents, largest first. Empty when digest is null.",
+        help_text="Up to 5 semantic groupings of the analysed intents, largest first. Empty when digest is null.",
     )
 
 

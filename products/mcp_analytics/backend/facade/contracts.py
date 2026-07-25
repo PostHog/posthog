@@ -155,7 +155,11 @@ class IntentClusterSnapshot:
 
 @dataclass(frozen=True)
 class IntentTheme:
-    """One semantic grouping of agent intents in the project digest."""
+    """One semantic grouping of agent intents in the project digest.
+
+    ``name`` and ``description`` come from the LLM; ``intent_count``, ``example_intent``, and
+    ``tools`` are resolved from the intents it grouped, so no figure on the card is invented.
+    """
 
     name: str
     description: str

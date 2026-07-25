@@ -1,5 +1,6 @@
 import json
 import hashlib
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -339,43 +340,49 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
 INTENT_DIGEST_CACHE_TTL = 60 * 60
 
 
+def _cached_digest_themes(cached: dict) -> list[contracts.IntentTheme] | None:
+    """Rehydrate cached themes, or None when the payload predates the current shape.
+
+    Returning None sends the caller back to the LLM rather than raising, so a shape change that
+    outlives its cache key degrades into one extra generation instead of a 500.
+    """
+    themes = cached.get("themes")
+    if not isinstance(themes, list):
+        return None
+    try:
+        return [contracts.IntentTheme(**theme) for theme in themes]
+    except TypeError:
+        return None
+
+
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
 
-    Structured output: a one-sentence summary plus 2-5 semantic themes (name, description,
-    count, verbatim example, tools). Content-addressed cache: keyed by the current intent
-    corpus, so it only regenerates when new intents arrive (and at most refreshes hourly via
-    the TTL). A project with no recorded intents returns a null digest without an LLM call.
-    Raises ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
+    A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
+    names each group; counts, tools, and the verbatim example are resolved from the corpus by
+    ``intent_generation.resolve_themes``, so nothing countable on the card is model-generated.
+    Content-addressed cache: keyed by the current intent corpus, so it only regenerates when new
+    intents arrive (and at most refreshes hourly via the TTL). A project with no recorded intents
+    returns a null digest without an LLM call. Raises ``contracts.IntentGenerationUnavailable``
+    if the LLM is unreachable.
     """
     intents = intent_generation.fetch_recent_project_intents(team)
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0, themes=[])
 
     corpus_hash = hashlib.sha256("\n".join(intent for intent, _ in intents).encode()).hexdigest()
-    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest_v2/{corpus_hash}")
+    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
-        return contracts.IntentDigest(
-            digest=cached.get("summary"),
-            intent_count=len(intents),
-            themes=[contracts.IntentTheme(**theme) for theme in cached.get("themes", [])],
-        )
+        cached_themes = _cached_digest_themes(cached)
+        if cached_themes is not None:
+            return contracts.IntentDigest(digest=cached.get("summary"), intent_count=len(intents), themes=cached_themes)
 
     parsed = intent_generation.summarize_project_intents(intents, team)
-    themes = [
-        contracts.IntentTheme(
-            name=theme.name,
-            description=theme.description,
-            intent_count=theme.intent_count,
-            example_intent=theme.example_intent,
-            tools=theme.tools,
-        )
-        for theme in parsed.themes
-    ]
+    themes = intent_generation.resolve_themes(parsed, intents)
     cache.set(
         cache_key,
-        {"summary": parsed.summary, "themes": [vars(theme) | {"tools": list(theme.tools)} for theme in themes]},
+        {"summary": parsed.summary, "themes": [dataclasses.asdict(theme) for theme in themes]},
         INTENT_DIGEST_CACHE_TTL,
     )
     return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)

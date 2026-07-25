@@ -198,19 +198,22 @@ function LiveActivityCard(): JSX.Element {
     )
 }
 
-// The AI digest is the product here: real intents are all worded differently, so
-// verbatim grouping can't answer "what are agents trying to do". We ask the LLM to
-// group them into themes and render those as structured cards; the raw frequency
-// list is strictly the degraded state for when generation is unavailable (no LLM key).
-function IntentThemeRow({ theme, maxCount }: { theme: DigestTheme; maxCount: number }): JSX.Element {
+// `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
+// assigns each intent to at most one theme, which is what keeps the shares adding up.
+function IntentThemeRow({ theme, total }: { theme: DigestTheme; total: number }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-base font-medium">{theme.name}</span>
                 <span className="text-muted text-sm shrink-0">{formatNumber(theme.intentCount)}</span>
             </div>
-            <LemonProgress percent={maxCount > 0 ? (theme.intentCount / maxCount) * 100 : 0} />
+            <LemonProgress percent={total > 0 ? (theme.intentCount / total) * 100 : 0} />
             <p className="text-muted text-sm m-0">{theme.description}</p>
+            {theme.exampleIntent ? (
+                <p className="text-muted text-sm italic m-0 truncate" title={theme.exampleIntent}>
+                    “{theme.exampleIntent}”
+                </p>
+            ) : null}
             {theme.tools.length > 0 ? (
                 <div className="flex gap-1 flex-wrap">
                     {theme.tools.slice(0, 4).map((tool) => (
@@ -224,17 +227,20 @@ function IntentThemeRow({ theme, maxCount }: { theme: DigestTheme; maxCount: num
     )
 }
 
+// The AI digest is the product here: real intents are all worded differently, so
+// verbatim grouping can't answer "what are agents trying to do". We ask the LLM to
+// group them into themes and render those as structured rows; the raw frequency
+// list is strictly the degraded state for when generation is unavailable (no LLM key).
 function IntentsCard(): JSX.Element {
     const { intentDigest, intentDigestLoading, intentFrequencies } = useValues(mcpEarlyDataLogic)
-    const maxThemeCount = intentDigest?.themes[0]?.intentCount ?? 0
 
     return (
         <Card title="What agents are trying to do">
-            {intentDigest?.themes.length ? (
+            {intentDigest?.digest ? (
                 <div className="flex flex-col gap-3">
-                    {intentDigest.digest ? <p className="text-base m-0">{intentDigest.digest}</p> : null}
-                    {intentDigest.themes.map((theme) => (
-                        <IntentThemeRow key={theme.name} theme={theme} maxCount={maxThemeCount} />
+                    <p className="text-base m-0">{intentDigest.digest}</p>
+                    {intentDigest.themes.map((theme, index) => (
+                        <IntentThemeRow key={`${index}-${theme.name}`} theme={theme} total={intentDigest.intentCount} />
                     ))}
                     <span className="text-muted text-sm">
                         AI grouping of the last {formatNumber(intentDigest.intentCount)} agent intents

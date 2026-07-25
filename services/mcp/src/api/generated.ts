@@ -39215,11 +39215,11 @@ export namespace Schemas {
       readonly name: string;
       /** One concrete sentence describing what agents in this theme are doing. */
       readonly description: string;
-      /** How many of the analysed intents belong to this theme. */
+      /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
       readonly intent_count: number;
-      /** One of the recorded intents, verbatim, representative of the theme. */
+      /** The first recorded intent in this theme, verbatim from the corpus. */
       readonly example_intent: string;
-      /** MCP tool names that appear alongside this theme's intents. */
+      /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
       readonly tools: readonly string[];
     }
 
@@ -39231,7 +39231,7 @@ export namespace Schemas {
       readonly digest: string | null;
       /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
       readonly intent_count: number;
-      /** 2-5 semantic groupings of the analysed intents, largest first. Empty when digest is null. */
+      /** Up to 5 semantic groupings of the analysed intents, largest first. Empty when digest is null. */
       readonly themes: readonly MCPIntentTheme[];
     }
 
