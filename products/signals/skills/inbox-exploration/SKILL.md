@@ -377,6 +377,9 @@ inbox-reports-set-state
   fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
   so a future reader knows _why_.
+- A `dismissal_note` is also promoted to a steering note for the scout that filed the report, which
+  every scout run reads at cold start, so what you write there is what stops the same report being
+  filed again. Write it for that reader: name the evidence that settles it, not just the verdict.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
   report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
   the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is

@@ -1404,7 +1404,19 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     note could therefore already steer the fleet by editing its skills; notes add a cheaper
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
+
+    One writer sits outside that gate: dismissing an inbox report with a note derives a
+    `REPORT_DISMISSAL` row (see `dismissal_notes.py`), and dismissing a report only needs
+    `task:write`. That widens who can put a row in this table, but not what a scout can be
+    told, because the same text already reaches run context verbatim through the
+    `dismissal_note` field on the inbox reports API that every scout is told to read before
+    emitting. `origin` keeps the two apart so the run prompt can frame a derived row as one
+    reviewer's verdict on one report rather than as fleet-level steering.
     """
+
+    class Origin(models.TextChoices):
+        HUMAN = "human", "Left directly"
+        REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -1434,6 +1446,11 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     # Optional TTL — expired notes drop out of the default list view, so time-boxed steering
     # ("watch checkout closely this week") retires itself without a delete.
     expires_at = models.DateTimeField(null=True, blank=True)
+    # How the row got here, surfaced to the run so a scout can weigh a reviewer's verdict on one
+    # report differently from a skill author's fleet steering (see the trust model above). Carries
+    # a `db_default` because the nodejs/rust test schema is built straight from model definitions
+    # with migrations disabled, where a Python-only `default` is invisible.
+    origin = models.CharField(max_length=32, choices=Origin, default=Origin.HUMAN, db_default=Origin.HUMAN)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

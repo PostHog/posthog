@@ -23,7 +23,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutNote
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -558,6 +558,16 @@ class ScoutNoteSerializer(serializers.Serializer):
     created_by_name = serializers.CharField(
         allow_null=True,
         help_text="Display name of the user who left the note, or null when unavailable.",
+    )
+    origin = serializers.ChoiceField(
+        choices=SignalScoutNote.Origin.choices,
+        help_text=(
+            "Where the note came from: `human` for one left directly through this API, or "
+            "`report_dismissal` for one derived from the note someone typed when they dismissed, "
+            "snoozed, or resolved an inbox report. A `report_dismissal` note is one reviewer's "
+            "verdict on the single report its content names, so weigh it as evidence about that "
+            "report rather than as fleet-level steering."
+        ),
     )
 
 

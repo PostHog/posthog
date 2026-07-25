@@ -84,6 +84,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
+from products.signals.backend.dismissal_notes import promote_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -1611,7 +1612,41 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        self._promote_dismissal_note(
+            reports=[report],
+            target=data["state"],
+            dismissal_reason=data.get("dismissal_reason"),
+            dismissal_note=data.get("dismissal_note"),
+        )
+
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    def _promote_dismissal_note(
+        self,
+        *,
+        reports: list[SignalReport],
+        target: str,
+        dismissal_reason: str | None,
+        dismissal_note: str | None,
+    ) -> None:
+        """Leave the caller's dismissal note where scout runs actually read it.
+
+        Called once per request with every report that transitioned, so one note applied to a bulk
+        dismissal reaches each affected scout once instead of once per report. Runs after the
+        transition has committed, because the note is derived context and the `dismissal` artefact
+        written alongside the transition remains the record of the feedback.
+        """
+        user = self.request.user
+        promote_dismissal_note(
+            team=self.team,
+            reports=reports,
+            state=target,
+            reason=dismissal_reason,
+            note=dismissal_note,
+            # Synthetic service principals (project secret API keys) authenticate with `id` None,
+            # so the note is left unattributed rather than pointing at a user row that isn't there.
+            user_id=getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+        )
 
     def _request_attribution(self) -> ArtefactAttribution:
         """Attribution for this request, resolved once and reused.
@@ -1792,6 +1827,7 @@ class SignalReportViewSet(
 
         results: list[dict] = []
         counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkStateOutcome}
+        transitioned: list[SignalReport] = []
         for report_id in ordered_ids:
             report = reports_by_id.get(report_id)
             if report is None:
@@ -1807,6 +1843,8 @@ class SignalReportViewSet(
                     snooze_for=snooze_for,
                 )
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
+                    transitioned.append(report)
             results.append(
                 {
                     "id": report_id,
@@ -1816,6 +1854,13 @@ class SignalReportViewSet(
                 }
             )
             counts[outcome.value] += 1
+
+        self._promote_dismissal_note(
+            reports=transitioned,
+            target=target,
+            dismissal_reason=dismissal_reason,
+            dismissal_note=dismissal_note,
+        )
 
         return Response(
             {
