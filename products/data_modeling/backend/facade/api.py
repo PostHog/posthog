@@ -24,6 +24,8 @@ _LAZY = {
     "tiered_schedules_enabled": "logic.schedule_reconcile",
     "declared_targets_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",
+    "build_tier_runs": "logic.tier_run_report",
+    "untargeted_nodes": "logic.tier_run_report",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
