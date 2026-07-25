@@ -73,23 +73,11 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'standard',
         filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
     },
-    'mcp-missing-capability': {
-        sub_template_id: 'mcp-missing-capability',
-        type: 'destination',
-        context_id: 'standard',
-        filters: { events: [{ id: '$mcp_missing_capability', type: 'events' }] },
-    },
     'mcp-tool-error': {
         sub_template_id: 'mcp-tool-error',
         type: 'destination',
         context_id: 'standard',
         filters: { events: [mcpFailedToolCallEvent()] },
-    },
-    'mcp-auth-error': {
-        sub_template_id: 'mcp-auth-error',
-        type: 'destination',
-        context_id: 'standard',
-        filters: { events: [mcpFailedToolCallEvent('permission')] },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
@@ -386,35 +374,19 @@ function hogFieldRenderer(escape: ChatEscaper): MCPFieldRenderer {
 
 // The message copy lives here once; the Hog templates and the in-app preview differ only in how
 // fields are rendered, so the preview can never drift from what actually gets delivered.
-function mcpMissingCapabilityMessage(field: MCPFieldRenderer, bold: string): string {
+function mcpToolFailureMessage(field: MCPFieldRenderer, bold: string): string {
     return (
-        `An agent using ${bold}${field('clientName')}${bold} looked for a capability your MCP server ` +
-        `${bold}${field('serverName')}${bold} doesn't have: _${field('intent')}_`
-    )
-}
-
-// The failure notifications share one sentence and differ only in the verb, so the wording can't
-// drift apart between them.
-function mcpToolFailureMessage(field: MCPFieldRenderer, bold: string, verb: string): string {
-    return (
-        `${bold}${field('toolName')}${bold} ${verb} on your MCP server ` +
+        `${bold}${field('toolName')}${bold} failed on your MCP server ` +
         `${bold}${field('serverName')}${bold} ` +
         `(client: ${field('clientName')}). ` +
         `Agent intent: _${field('intent')}_`
     )
 }
 
-const MCP_FAILURE_VERBS = {
-    'mcp-tool-error': 'failed',
-    'mcp-auth-error': 'was denied',
-} as const
-
-export type MCPNotificationSubTemplateId = 'mcp-missing-capability' | 'mcp-tool-error' | 'mcp-auth-error'
+export type MCPNotificationSubTemplateId = 'mcp-tool-error'
 
 export const MCP_NOTIFICATION_BUTTON_LABELS: Record<MCPNotificationSubTemplateId, string> = {
-    'mcp-missing-capability': 'View MCP activity',
     'mcp-tool-error': 'View tool detail',
-    'mcp-auth-error': 'View tool detail',
 }
 
 /**
@@ -433,24 +405,13 @@ export const MCP_MESSAGE_FIELD_LIMITS: Record<MCPMessageField, number> = {
  * The Slack message a notification will post, rendered with sample values in place of the Hog
  * expressions — for previewing the real copy before wiring a destination up.
  */
-export function mcpNotificationPreviewMessage(
-    subTemplateId: MCPNotificationSubTemplateId,
-    values: Record<MCPMessageField, string>
-): string {
+export function mcpNotificationPreviewMessage(values: Record<MCPMessageField, string>): string {
     const field: MCPFieldRenderer = (name) => values[name]
-    return subTemplateId === 'mcp-missing-capability'
-        ? mcpMissingCapabilityMessage(field, '*')
-        : mcpToolFailureMessage(field, '*', MCP_FAILURE_VERBS[subTemplateId])
+    return mcpToolFailureMessage(field, '*')
 }
 
-const MCP_MISSING_CAPABILITY_SLACK_MESSAGE = mcpMissingCapabilityMessage(hogFieldRenderer(slackEscapeExpr), '*')
-const MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE = mcpMissingCapabilityMessage(hogFieldRenderer(markdownEscapeExpr), '**')
-const MCP_MISSING_CAPABILITY_LINK = '{project.url}/mcp-analytics/activity'
-
-const mcpFailureSlackMessage = (id: keyof typeof MCP_FAILURE_VERBS): string =>
-    mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*', MCP_FAILURE_VERBS[id])
-const mcpFailureMarkdownMessage = (id: keyof typeof MCP_FAILURE_VERBS): string =>
-    mcpToolFailureMessage(hogFieldRenderer(markdownEscapeExpr), '**', MCP_FAILURE_VERBS[id])
+const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*')
+const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(markdownEscapeExpr), '**')
 
 const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
 // Deep-links to the failing tool, falling back to the tool list when the encoded name would
@@ -462,7 +423,7 @@ const MCP_TOOL_ERROR_LINK =
     ` ? concat('/', ${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) : ''}`
 
 interface MCPNotificationVariantsOptions {
-    subTemplateId: MCPNotificationSubTemplateId
+    subTemplateId: HogFunctionSubTemplateIdType
     nameSuffix: string
     description: string
     webhookDescription: string
@@ -537,38 +498,15 @@ function mcpNotificationVariants({
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
-    'mcp-missing-capability': mcpNotificationVariants({
-        subTemplateId: 'mcp-missing-capability',
-        nameSuffix: 'when agents ask for a missing capability',
-        description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-        webhookDescription: 'Send the full missing-capability report to your own endpoint',
-        slackMessage: MCP_MISSING_CAPABILITY_SLACK_MESSAGE,
-        slackFallbackText: 'An agent hit a missing capability on your MCP server',
-        markdownMessage: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
-        slackButton: {
-            url: MCP_MISSING_CAPABILITY_LINK,
-            label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-missing-capability'],
-        },
-    }),
     'mcp-tool-error': mcpNotificationVariants({
         subTemplateId: 'mcp-tool-error',
         nameSuffix: 'when an MCP tool call fails',
         description: 'Know the moment agents hit an error on one of your tools',
         webhookDescription: 'Send failing tool calls to your own endpoint',
-        slackMessage: mcpFailureSlackMessage('mcp-tool-error'),
+        slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
         slackFallbackText: 'An MCP tool call failed',
-        markdownMessage: `${mcpFailureMarkdownMessage('mcp-tool-error')}\n\n${MCP_TOOL_ERROR_LINK}`,
+        markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
-    }),
-    'mcp-auth-error': mcpNotificationVariants({
-        subTemplateId: 'mcp-auth-error',
-        nameSuffix: 'when an MCP tool call is denied',
-        description: "Agents are being refused by your auth, so they can't do what they came for",
-        webhookDescription: 'Send denied tool calls to your own endpoint',
-        slackMessage: mcpFailureSlackMessage('mcp-auth-error'),
-        slackFallbackText: 'An MCP tool call was denied',
-        markdownMessage: `${mcpFailureMarkdownMessage('mcp-auth-error')}\n\n${MCP_TOOL_ERROR_LINK}`,
-        slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-auth-error'] },
     }),
     'survey-response': [
         {

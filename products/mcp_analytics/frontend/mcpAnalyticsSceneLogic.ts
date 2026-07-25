@@ -37,9 +37,9 @@ export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
     'tool-quality':
         'Which of my MCP tools are least reliable? Break down $mcp_tool_call error rate and p95 $mcp_duration_ms by $mcp_tool_name.',
     'intent-clustering':
-        "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_missing_capability and $mcp_intent.",
+        "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_intent on failing tool calls.",
     notifications:
-        'What MCP events should I be notified about? Summarize recent $mcp_missing_capability reports and failing $mcp_tool_call events.',
+        'What MCP events should I be notified about? Summarize what agents were trying to do on failing $mcp_tool_call events.',
 }
 
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {

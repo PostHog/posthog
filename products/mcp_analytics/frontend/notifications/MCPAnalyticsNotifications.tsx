@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconLock, IconMCP, IconPlus, IconWarning } from '@posthog/icons'
+import { IconPlus, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
@@ -47,21 +47,6 @@ interface MCPUseCaseConfig {
 
 const USE_CASES: MCPUseCaseConfig[] = [
     {
-        useCase: 'missing-capability',
-        subTemplateId: 'mcp-missing-capability',
-        icon: <IconMCP />,
-        headline: "Agents asked for something you can't do",
-        lead: "Their own words. The closest thing you'll get to a roadmap.",
-        dialogTitle: 'Notify me about missing capabilities',
-        sample: {
-            clientName: 'Cursor',
-            serverName: 'acme-mcp',
-            intent: 'export the signups dashboard to PDF every Monday',
-            toolName: '',
-        },
-        realCaption: 'Your most recent',
-    },
-    {
         useCase: 'tool-error',
         subTemplateId: 'mcp-tool-error',
         icon: <IconWarning />,
@@ -73,21 +58,6 @@ const USE_CASES: MCPUseCaseConfig[] = [
             serverName: 'acme-mcp',
             intent: 'find out why signups dropped after Tuesday’s release',
             toolName: 'query-events',
-        },
-        realCaption: 'Your most recent',
-    },
-    {
-        useCase: 'auth-error',
-        subTemplateId: 'mcp-auth-error',
-        icon: <IconLock />,
-        headline: 'Your auth turned an agent away',
-        lead: 'A scope or token problem, not a broken tool — and a different fix.',
-        dialogTitle: 'Notify me about denied tool calls',
-        sample: {
-            clientName: 'Claude Code',
-            serverName: 'acme-mcp',
-            intent: 'turn off the beta flag for EU users',
-            toolName: 'update-feature-flag',
         },
         realCaption: 'Your most recent',
     },
@@ -172,7 +142,7 @@ function UseCaseCard({ config, notifications, onAdd, addDisabledReason, example 
             </div>
 
             <MCPNotificationPreview
-                message={mcpNotificationPreviewMessage(config.subTemplateId, example ?? config.sample)}
+                message={mcpNotificationPreviewMessage(example ?? config.sample)}
                 buttonLabel={MCP_NOTIFICATION_BUTTON_LABELS[config.subTemplateId]}
                 caption={example ? config.realCaption : 'Example'}
             />
@@ -210,19 +180,11 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     }
 
     // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
-    const { openDialog: openMissingCapabilityDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'mcp-missing-capability', onCreated })
-    )
     const { openDialog: openToolErrorDialog } = useActions(
         newNotificationDialogLogic({ subTemplateId: 'mcp-tool-error', onCreated })
     )
-    const { openDialog: openAuthErrorDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'mcp-auth-error', onCreated })
-    )
     const openDialogFor: Record<MCPNotificationSubTemplateId, () => void> = {
-        'mcp-missing-capability': openMissingCapabilityDialog,
         'mcp-tool-error': openToolErrorDialog,
-        'mcp-auth-error': openAuthErrorDialog,
     }
 
     // Anything the filters matched but we can't classify still needs a home, so it can't be

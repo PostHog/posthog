@@ -23,11 +23,7 @@ export type MCPNotificationExamples = Partial<Record<MCPNotificationUseCase, MCP
 // the single-exec wrapper, else the directly-registered name.
 const EXAMPLES_QUERY = `
 SELECT
-    multiIf(
-        event = '$mcp_missing_capability', 'missing-capability',
-        toString(properties.$mcp_error_type) = 'permission', 'auth-error',
-        'tool-error'
-    ) AS use_case,
+    'tool-error' AS use_case,
     argMax(toString(properties.$mcp_client_name), timestamp) AS client_name,
     argMax(toString(properties.$mcp_server_name), timestamp) AS server_name,
     argMax(toString(properties.$mcp_intent), timestamp) AS intent,
@@ -37,21 +33,16 @@ SELECT
     ) AS tool_name
 FROM events
 WHERE timestamp >= now() - INTERVAL 90 DAY
-  AND (
-    event = '$mcp_missing_capability'
-    OR (event = '$mcp_tool_call' AND toBool(properties.$mcp_is_error))
-  )
-GROUP BY use_case
+  AND event = '$mcp_tool_call'
+  AND toBool(properties.$mcp_is_error)
 `
 
-const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['missing-capability', 'tool-error', 'auth-error']
+const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['tool-error']
 
 // Every field the message renders must be present, otherwise the "real" example would be a mix of
 // the project's data and our invented copy — more misleading than an honest sample.
 const REQUIRED_FIELDS: Record<MCPNotificationUseCase, MCPMessageField[]> = {
-    'missing-capability': ['clientName', 'serverName', 'intent'],
     'tool-error': ['clientName', 'serverName', 'intent', 'toolName'],
-    'auth-error': ['clientName', 'serverName', 'intent', 'toolName'],
 }
 
 // Array.from so a cut can't land inside a surrogate pair and render as a replacement character.

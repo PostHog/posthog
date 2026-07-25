@@ -7,16 +7,16 @@ showTitle: true
 MCP analytics can reach you in Slack, Microsoft Teams, Discord, email, or any webhook, in two ways: a recurring written summary, or an instant alert on a single event.
 
 Which one you want depends on the question.
-Use a recurring report for anything you'd think about periodically, like what agents keep asking for.
-Use an instant alert for things you'd want to know about immediately, like your auth turning agents away.
+Use a recurring report for anything you'd think about periodically, like what agents keep trying to do.
+Use an instant alert for something you'd want to know about immediately, like one of your tools breaking.
 
 ## Recurring reports
 
 A recurring report is an AI-written summary of your MCP traffic, delivered on a schedule.
 Two are ready to set up from the **Notifications** tab:
 
-- **What agents keep asking for** (weekly) ranks the capabilities agents wanted and couldn't find, with counts and examples in their own words.
-- **How your tools held up** (daily) covers calls per tool, error rate, the most common error types, and p95 latency.
+- **What agents are trying to do** (weekly) groups and ranks agent goals in their own words, and shows which of them keep ending in failure.
+- **How your tools held up** (weekly) covers calls per tool, error rate, the most common error types, and p95 latency.
 
 To set one up:
 
@@ -34,13 +34,9 @@ Because a report summarizes a window of time, it stays useful on a low-volume se
 
 ## Instant alerts
 
-An instant alert sends one message per matching event, for the moments you'd want to hear about right away:
+An instant alert sends one message per matching event, for something you'd want to hear about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
 
-- **A missing capability**, captured as `$mcp_missing_capability`
-- **A failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`
-- **A denied tool call**, the same event with `$mcp_error_type` set to `permission` — usually a scope or token problem rather than a broken tool
-
-To create one, select **Notify me** on the moment you want under **Instant alerts**, then choose a channel.
+To create one, select **Notify me** under **Instant alerts**, then choose a channel.
 PostHog prefills the message with the tool, your server, the agent's client, and its intent.
 You can customize it later from the alert's own page.
 

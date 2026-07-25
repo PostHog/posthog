@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { HogFunctionType } from '~/types'
 
 import { getMCPNotificationUseCase, mcpAnalyticsNotificationsLogic } from './mcpAnalyticsNotificationsLogic'
 
@@ -64,48 +64,13 @@ describe('mcpAnalyticsNotificationsLogic', () => {
     })
 
     test.each([
-        ['$mcp_missing_capability', 'missing-capability'],
         ['$mcp_tool_call', 'tool-error'],
+        ['$mcp_missing_capability', null],
         ['$pageview', null],
     ])('classifies the %s event as %s', (eventId, expected) => {
         expect(
             getMCPNotificationUseCase({
                 filters: { events: [{ id: eventId, type: 'events' }] },
-            })
-        ).toBe(expected)
-    })
-
-    // All three failure notifications filter $mcp_tool_call, so only the $mcp_error_type filter
-    // tells them apart — misreading it would group a row under the wrong card.
-    test.each([
-        ['permission', 'auth-error'],
-        ['rate_limited', 'tool-error'],
-        ['timeout', 'tool-error'],
-    ])('classifies an errored tool call filtered to %s as %s', (errorType, expected) => {
-        expect(
-            getMCPNotificationUseCase({
-                filters: {
-                    events: [
-                        {
-                            id: '$mcp_tool_call',
-                            type: 'events',
-                            properties: [
-                                {
-                                    key: '$mcp_is_error',
-                                    type: PropertyFilterType.Event,
-                                    value: ['true'],
-                                    operator: PropertyOperator.Exact,
-                                },
-                                {
-                                    key: '$mcp_error_type',
-                                    type: PropertyFilterType.Event,
-                                    value: [errorType],
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                        },
-                    ],
-                },
             })
         ).toBe(expected)
     })
