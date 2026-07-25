@@ -1094,7 +1094,6 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return
         self._free_agent_server_port()
-        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:

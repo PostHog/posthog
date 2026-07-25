@@ -2963,7 +2963,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
@@ -4329,7 +4329,7 @@ export interface ExternalDataSourceCreateApi {
      * * `warehouse` - warehouse
      * * `direct` - direct */
     access_method?: AccessMethodEnumApi
-    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
+    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
@@ -4354,7 +4354,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api

@@ -10,7 +10,6 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { getToolCategory } from '@/tools/toolDefinitions'
 
@@ -216,38 +215,6 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
-            },
-        })
-    } catch {
-        // never break the request for analytics
-    }
-}
-
-/**
- * Captures `skill invoked` when a skill's content is consumed through exec `learn`,
- * whichever read kind delivered it (full load, file read, file search, line range) —
- * the consumption counterpart of the authoring `llma skill *` events emitted by
- * `products/skills`. The caller dedupes per skill identifier per request, so a
- * command that reads one skill several ways still counts once. Keep property keys
- * additive: they feed the same LLMA skills adoption dashboards.
- */
-export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
-    try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
-        const { properties, groups } = buildBaseProperties(state, analyticsContext)
-
-        getPostHogClient().capture({
-            distinctId: state.distinctId,
-            event: 'skill invoked',
-            groups,
-            properties: {
-                ...properties,
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
-                skill_source: invocation.source,
-                skill_name: invocation.skill,
-                skill_identifier: `${invocation.source}:${invocation.skill}`,
-                skill_read_kind: invocation.readKind,
             },
         })
     } catch {

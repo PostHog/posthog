@@ -241,6 +241,136 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+/**
+ * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+ * status, normalized to a common shape.
+ */
+export interface PullRequestCheckApi {
+    /** Check run name or status context. */
+    readonly name: string
+    /**
+     * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+     * @nullable
+     */
+    readonly status: string | null
+    /**
+     * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+     * @nullable
+     */
+    readonly conclusion: string | null
+    /**
+     * Link to the check run / status detail on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+}
+
+/**
+ * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+ */
+export interface PullRequestChecksResponseApi {
+    readonly checks: readonly PullRequestCheckApi[]
+}
+
+/**
+ * * `conversation` - conversation
+ * * `review` - review
+ */
+export type CommentTypeEnumApi = (typeof CommentTypeEnumApi)[keyof typeof CommentTypeEnumApi]
+
+export const CommentTypeEnumApi = {
+    Conversation: 'conversation',
+    Review: 'review',
+} as const
+
+/**
+ * * `LEFT` - LEFT
+ * * `RIGHT` - RIGHT
+ */
+export type SideEnumApi = (typeof SideEnumApi)[keyof typeof SideEnumApi]
+
+export const SideEnumApi = {
+    Left: 'LEFT',
+    Right: 'RIGHT',
+} as const
+
+/**
+ * One comment on a pull request — a conversation comment or an inline review comment.
+ */
+export interface PullRequestCommentApi {
+    /** GitHub comment id. */
+    readonly id: string
+    /**
+     * Comment author's GitHub login.
+     * @nullable
+     */
+    readonly author: string | null
+    /**
+     * Author's GitHub avatar URL.
+     * @nullable
+     */
+    readonly author_avatar_url: string | null
+    /** Comment body (GitHub-flavored markdown). */
+    readonly body: string
+    /**
+     * ISO 8601 creation timestamp.
+     * @nullable
+     */
+    readonly created_at: string | null
+    /**
+     * Link to the comment on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+    /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+     *
+     * * `conversation` - conversation
+     * * `review` - review */
+    readonly comment_type: CommentTypeEnumApi
+    /**
+     * File path the review comment is anchored to (review comments only).
+     * @nullable
+     */
+    readonly path: string | null
+    /**
+     * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+     * @nullable
+     */
+    readonly line: number | null
+    /**
+     * First line of a multi-line review comment's range (review comments only).
+     * @nullable
+     */
+    readonly start_line: number | null
+    /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+     *
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT */
+    readonly side: SideEnumApi | null
+    /**
+     * Diff hunk excerpt the review comment applies to (review comments only).
+     * @nullable
+     */
+    readonly diff_hunk: string | null
+    /**
+     * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+     * @nullable
+     */
+    readonly in_reply_to_id: string | null
+    /**
+     * SHA of the commit the review comment was made against (review comments only).
+     * @nullable
+     */
+    readonly commit_id: string | null
+}
+
+/**
+ * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+ */
+export interface PullRequestCommentsResponseApi {
+    readonly comments: readonly PullRequestCommentApi[]
+}
+
 export interface SignalReportRefundRequestApi {
     /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
      *
@@ -540,6 +670,11 @@ export interface JiraIssueSignalExtraApi {
     updated: string | null
 }
 
+export interface ConversationsTicketImageApi {
+    url: string
+    author: string
+}
+
 export interface ConversationsTicketSignalExtraApi {
     ticket_number: number
     channel_source: string
@@ -548,6 +683,7 @@ export interface ConversationsTicketSignalExtraApi {
     priority: string | null
     created_at: string
     email_subject: string | null
+    images?: ConversationsTicketImageApi[] | null
 }
 
 export interface ErrorTrackingSignalExtraApi {
@@ -1460,12 +1596,20 @@ export interface SignalReportRefundSummaryResponseApi {
     period_billable_credits: number
 }
 
-export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
-
-export const ScoutOriginEnumApi = {
-    Canonical: 'canonical',
-    Custom: 'custom',
-} as const
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
 
 export interface SignalScoutSlackDestinationApi {
     /**
@@ -1485,6 +1629,68 @@ export interface SignalScoutOutputDestinationsApi {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
     slack?: SignalScoutSlackDestinationApi | null
 }
+
+/**
+ * Schedule, enablement, and delivery options accepted while creating a scout.
+ */
+export interface SignalScoutConfigOptionsApi {
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+     * @minimum 30
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /** Destinations that receive each finding or report this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+}
+
+/**
+ * Create a runnable custom scout and its config in one atomic request.
+ */
+export interface SignalScoutCreateApi {
+    /**
+     * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Short description of the signal or behavior this scout investigates.
+     * @maxLength 4096
+     */
+    description: string
+    /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+    body: string
+    /** Optional reference files bundled with the scout prompt. */
+    files?: LLMSkillFileInputApi[]
+    /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+    config?: SignalScoutConfigOptionsApi
+}
+
+export interface SignalScoutSkillSummaryApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    /** Server-managed report tools granted to this scout. */
+    readonly allowed_tools: readonly string[]
+}
+
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
 
 /**
  * Read shape for a per-(team, skill) scout config.
@@ -1525,6 +1731,13 @@ export interface SignalScoutConfigApi {
     readonly created_at: string
 }
 
+export interface SignalScoutCreateResponseApi {
+    /** True when this request created the missing scout skill or config; false when both already existed. */
+    created: boolean
+    skill: SignalScoutSkillSummaryApi
+    config: SignalScoutConfigApi
+}
+
 /**
  * Request body for registering a scout config without waiting for the coordinator tick.
  *
@@ -1532,11 +1745,6 @@ export interface SignalScoutConfigApi {
  * registered the row, the provided tunables are applied to it instead.
  */
 export interface SignalScoutConfigCreateApi {
-    /**
-     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-     * @maxLength 200
-     */
-    skill_name: string
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -1555,6 +1763,11 @@ export interface SignalScoutConfigCreateApi {
      * @nullable
      */
     run_cron_schedule?: string | null
+    /**
+     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+     * @maxLength 200
+     */
+    skill_name: string
 }
 
 /**

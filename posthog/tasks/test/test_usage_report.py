@@ -3257,6 +3257,70 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
 
+    @parameterized.expand(
+        [
+            # MB is floored to whole decimal MB like logs_mb_in_period.
+            (
+                "with_usage",
+                {"bytes_ingested": 2_500_000, "records_ingested": 40},
+                {
+                    "apm_tracing_bytes_in_period": 2_500_000,
+                    "apm_tracing_spans_in_period": 40,
+                    "apm_tracing_mb_in_period": 2,
+                },
+            ),
+            (
+                "sub_mb_floors_to_zero",
+                {"bytes_ingested": 999_999, "records_ingested": 5},
+                {
+                    "apm_tracing_bytes_in_period": 999_999,
+                    "apm_tracing_spans_in_period": 5,
+                    "apm_tracing_mb_in_period": 0,
+                },
+            ),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_apm_tracing_usage_metrics(
+        self,
+        _name: str,
+        metrics: dict[str, int],
+        expected: dict[str, int],
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
+
+        for metric_name, count in metrics.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="traces",
+                metric_name=metric_name,
+                count=count,
+            )
+        # Same metric names under the logs app_source must not leak into the tracing counters.
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=77_000_000,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
@@ -4549,7 +4613,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # PostHog Code event — should appear only in posthog_code credits
+        # PostHog Desktop event — should appear only in posthog_code credits
         _create_event(
             event="$ai_generation",
             team=analytics_team,
@@ -4601,7 +4665,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     ) -> None:
         """A traceless posthog_code generation bills via the empty-trace fallback only when billable.
 
-        PostHog Code never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
+        PostHog Desktop never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
         empty-trace fallback is what makes posthog_code billable at all — but only for $ai_billable=true.
         """
         from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period

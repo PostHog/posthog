@@ -46,6 +46,31 @@ const outputBytes = new Histogram({
     buckets: [64, 256, 1024, 4096, 16384, 65536],
     registers: [register],
 })
+// The total duration above says the scrub is slow; these say which stage to attack. Every one of
+// these numbers was already being measured per image and thrown away.
+const stageDuration = new Histogram({
+    name: 'ml_mirror_image_scrub_stage_duration_seconds',
+    help: 'Scrub wall time by stage. Sums to roughly the total, so the stage with the largest rate() share is where the CPU goes',
+    labelNames: ['stage'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2],
+    registers: [register],
+})
+// Which decoder we actually pay for. Only formats with a multi-resolution decode (JPEG, WebP) can
+// be shrunk on load; PNG has to be fully inflated whatever the target size, so the value of any
+// decode-side optimization is bounded by this distribution.
+const sourceFormat = new Counter({
+    name: 'ml_mirror_image_scrub_source_format_total',
+    help: 'Decoded images by source container format',
+    labelNames: ['format'],
+    registers: [register],
+})
+const sourceMegapixels = new Histogram({
+    name: 'ml_mirror_image_scrub_source_megapixels',
+    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the 2.56 budget bucket is the only traffic a shrink-on-load path could speed up',
+    labelNames: ['format'],
+    buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
+    registers: [register],
+})
 // The scrub is a privacy control, so its OUTCOME signals matter as much as its error signals: a
 // runaway NSFW gate irreversibly blanking everything, or a detector flatlining at zero (persisting
 // un-redacted screenshots), must be distinguishable from healthy operation.
@@ -86,5 +111,20 @@ export const ScrubMetrics = {
         facesRedacted.inc(t.faces)
         textBoxesRedacted.inc(t.textBoxes)
         codesRedacted.inc(t.codes)
+
+        sourceFormat.labels(t.format).inc()
+        sourceMegapixels.labels(t.format).observe(t.inputPixels / 1e6)
+        stageDuration.labels('decode').observe(t.decodeMs / 1000)
+        stageDuration.labels('nsfw').observe(t.nsfwMs / 1000)
+        // A blanked image returns before detection and compose, so recording their zeros would
+        // drag those stages' quantiles toward zero rather than describing the work they do.
+        if (t.blanked) {
+            return
+        }
+        stageDuration.labels('face').observe(t.faceMs / 1000)
+        stageDuration.labels('text').observe(t.textMs / 1000)
+        stageDuration.labels('codes').observe(t.codesMs / 1000)
+        stageDuration.labels('compose').observe(t.composeMs / 1000)
+        stageDuration.labels('encode').observe(t.encodeMs / 1000)
     },
 }

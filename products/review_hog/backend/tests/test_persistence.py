@@ -45,7 +45,7 @@ def _content_as(model: type[_ContentT], artefact_type: str, content: str) -> _Co
     return parsed
 
 
-def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadata:
+def _pr_metadata(pr_number: int = 123, head_sha: str | None = None, author: str = "a") -> PRMetadata:
     return PRMetadata(
         number=pr_number,
         title="t",
@@ -53,7 +53,7 @@ def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadat
         draft=False,
         created_at="2026-01-01T00:00:00Z",
         updated_at="2026-01-01T00:00:00Z",
-        author="a",
+        author=author,
         base_branch="main",
         head_branch="feat",
         head_sha=head_sha,
@@ -104,6 +104,34 @@ class TestUpsertReviewReport(BaseTest):
         assert report.report_markdown == "# report"
         assert report.status == ReviewReport.Status.IDLE
         assert report.completed_head_sha == "sha-2"  # what the finished turn reviewed, for read anchoring
+
+    def test_author_login_is_stamped_on_create_and_refreshed_each_turn(self) -> None:
+        # The "For you" scope's authored-PRs match rides this stamp. It must track the PR's current
+        # author (the login is the stable fact, not a login→user resolution), and a turn with
+        # unknown authorship must not erase a known one.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "a"
+        upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(author="b"))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "b"
+        upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(author=""))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "b"
+
+    def test_finalize_stamps_the_turns_urgency_threshold(self) -> None:
+        # The detail view buckets published vs held-back findings by this stamp; a finalize that
+        # stops writing it silently reverts the drawer to bucketing by the VIEWER's settings — the
+        # exact lie the stamp exists to fix. Absent (pre-column) turns stay null for the fallback.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).run_urgency_threshold is None
+        finalize_review_report(
+            team_id=self.team.id,
+            report_id=report_id,
+            body_markdown="# r",
+            run_index=1,
+            head_sha="sha-1",
+            urgency_threshold="must_fix",
+        )
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert (report.run_urgency_threshold, report.run_count) == ("must_fix", 1)
 
     def test_finalize_is_idempotent_within_a_turn(self) -> None:
         # build_body_activity retries on worker crash after its finalize committed: the retry must
