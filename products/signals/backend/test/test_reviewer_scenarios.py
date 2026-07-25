@@ -156,15 +156,14 @@ class TestReviewerScenarios:
         lowered = [r.login.lower() for r in reviewers]
         assert len(lowered) == len(set(lowered))
 
-    def test_new_joiner_surfaces_when_all_blame_is_stale(self, seeded_team):
+    def test_stale_blame_still_returns_the_author_not_a_bystander(self, seeded_team):
         reviewers = _resolve(seeded_team, ["f" * 40, "e" * 40])
 
         logins = [r.login for r in reviewers]
-        # Everyone in blame is gone; the area's actual current contributors fill in.
-        assert "mariusandra" in logins
-        assert "new-joiner" in logins
-        if "departedfounder" in logins:
-            assert logins.index("mariusandra") < logins.index("departedfounder")
+        # The blame author is long gone from the area, but they caused the change: we still
+        # return them and never invent an active-nearby bystander in their place.
+        assert logins == ["departedfounder"]
+        assert "mariusandra" not in logins and "new-joiner" not in logins
 
     def test_bots_never_suggested(self, seeded_team):
         # The bot is both the busiest area committer and a blame author.

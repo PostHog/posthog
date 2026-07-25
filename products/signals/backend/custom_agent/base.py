@@ -386,9 +386,9 @@ involvement — the ranking handles that.
         """Re-rank agent-proposed assignees through the recency-aware activity system.
 
         Same scoring as the deterministic reviewer path: the agent's order supplies the
-        evidence weights, cached area activity supplies recency, and active-in-area
-        contributors enter as capped fallbacks. The agent's own list is the fallback when
-        there is no repository or the ranking yields nothing (e.g. no activity map yet).
+        evidence weights and cached area activity supplies recency. No one outside the
+        agent's own list is added. The agent's own list is the fallback when there is no
+        repository or the ranking yields nothing (e.g. no activity map yet).
         """
         if self.repository is None or not (result.assignees or result.relevant_paths):
             return result.assignees

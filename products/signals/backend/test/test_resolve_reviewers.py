@@ -150,80 +150,51 @@ class TestRecencyScoring:
 
         assert scores == {"old-timer": 10.0, "runner-up": 4.0}
 
-    def test_stale_blame_author_loses_to_active_area_contributor(self):
-        weights = Counter({"old-timer": 10})
+    def test_recency_decays_blame_author_absent_from_the_area(self):
+        # Both authored the relevant commits; only "active" has recent commits in the area.
+        weights = Counter({"active": 10, "gone": 10})
         activity = {
-            "active-owner": _AreaContributor(
-                name="Active Owner",
-                commit_count=12,
+            "active": _AreaContributor(
+                name=None,
+                commit_count=5,
                 days_since_last_commit=2,
                 last_commit_sha="a" * 7,
-                last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                last_commit_url="",
                 area="products/signals",
             ),
         }
 
         scores = _score_candidates(weights, activity)
 
-        # old-timer authored the blame commits but has no recent commits in the area.
-        assert scores["active-owner"] > scores["old-timer"]
+        assert scores["active"] == pytest.approx(10.0)
+        assert scores["gone"] == pytest.approx(10.0 * STALE_BLAME_MULTIPLIER)
 
-    def test_recently_active_blame_author_beats_activity_only_contributor(self):
-        def contributor(days_since: float) -> _AreaContributor:
-            return _AreaContributor(
-                name=None,
-                commit_count=12,
-                days_since_last_commit=days_since,
-                last_commit_sha="b" * 7,
-                last_commit_url="https://github.com/acme/app/commit/bbbbbbb",
-                area="products/signals",
-            )
-
-        weights = Counter({"active-author": 10})
+    def test_non_authors_are_never_scored(self):
+        # The area is active, but only people who authored a relevant commit are candidates:
+        # a nearby-active bystander is not invented into the reviewer set.
+        weights = Counter({"author": 4})
         activity = {
-            "active-author": contributor(days_since=5),
-            "bystander": contributor(days_since=1),
-        }
-
-        scores = _score_candidates(weights, activity)
-
-        assert scores["active-author"] > scores["bystander"]
-
-    def test_lightly_active_contributor_beats_stale_blame_even_with_tiny_blame_weight(self):
-        # Regression: a single old blame commit (weight 1) used to crush activity-only
-        # candidates via the cap, so the long-gone author still won the assign.
-        weights = Counter({"long-gone": 1})
-        activity = {
-            "light-owner": _AreaContributor(
+            "author": _AreaContributor(
                 name=None,
                 commit_count=3,
                 days_since_last_commit=1,
-                last_commit_sha="c" * 7,
+                last_commit_sha="a" * 7,
                 last_commit_url="",
-                area="posthog/migrations",
+                area="products/signals",
             ),
-        }
-
-        scores = _score_candidates(weights, activity)
-
-        assert scores["light-owner"] > scores["long-gone"]
-
-    def test_half_stale_bystander_does_not_beat_stale_blame(self):
-        weights = Counter({"long-gone": 1})
-        activity = {
-            "half-stale": _AreaContributor(
+            "busy-bystander": _AreaContributor(
                 name=None,
-                commit_count=3,
-                days_since_last_commit=70,
-                last_commit_sha="c" * 7,
+                commit_count=50,
+                days_since_last_commit=0,
+                last_commit_sha="b" * 7,
                 last_commit_url="",
-                area="posthog/migrations",
+                area="products/signals",
             ),
         }
 
         scores = _score_candidates(weights, activity)
 
-        assert scores["long-gone"] >= scores["half-stale"]
+        assert set(scores) == {"author"}
 
 
 def _seed_area_row(team: Team, area: str, logins: list[str]) -> None:
@@ -305,20 +276,9 @@ class TestRankAssigneeCandidates:
                 refreshed_at=timezone.now(),
             )
 
-    def test_stale_agent_candidate_demoted_below_active_area_owner(self, team):
-        self._seed_area(team, "products/signals", [("active-owner", 12, 2)])
-
-        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
-            ranked = rank_assignee_candidates(
-                team.id, "acme/app", ["old-timer"], ["products/signals/backend/models.py"]
-            )
-
-        assert [candidate.login for candidate in ranked] == ["active-owner", "old-timer"]
-        # activity-only candidate carries generated evidence; the agent candidate keeps none
-        assert "Recently active in `products/signals`" in ranked[0].commits[0].reason
-        assert ranked[1].commits == []
-
-    def test_active_agent_candidate_keeps_top_spot(self, team):
+    def test_only_agent_proposed_candidates_are_ranked(self, team):
+        # "bystander" is the busiest person in the area but the agent did not propose them,
+        # so they are not added to the ranking.
         self._seed_area(team, "products/signals", [("agent-pick", 5, 3), ("bystander", 12, 1)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
@@ -326,15 +286,16 @@ class TestRankAssigneeCandidates:
                 team.id, "acme/app", ["agent-pick"], ["products/signals/backend/models.py"]
             )
 
-        assert ranked[0].login == "agent-pick"
+        assert [candidate.login for candidate in ranked] == ["agent-pick"]
 
-    def test_paths_alone_yield_activity_candidates(self, team):
+    def test_paths_alone_yield_nothing(self, team):
+        # No agent-proposed candidates: area activity alone never invents an assignee.
         self._seed_area(team, "products/signals", [("area-owner", 8, 1)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             ranked = rank_assignee_candidates(team.id, "acme/app", [], ["products/signals/backend/models.py"])
 
-        assert [candidate.login for candidate in ranked] == ["area-owner"]
+        assert ranked == []
 
     def test_no_activity_data_returns_agent_order(self, team):
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
@@ -347,7 +308,7 @@ class TestRankAssigneeCandidates:
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
-    def test_stale_blame_author_demoted_and_active_owner_suggested(self, team):
+    def test_only_commit_authors_are_suggested(self, team):
         class FakeGitHub:
             def get_commit_author_info(self, repository, sha):
                 return GitHubCommitAuthor(
@@ -386,9 +347,6 @@ class TestResolveSuggestedReviewersEndToEnd:
         ):
             reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
 
-        assert [r.login for r in reviewers] == ["active-owner", "old-timer"]
-        # The activity-only candidate carries their latest area commit as evidence.
-        assert reviewers[0].commits[0].sha == "c" * 7
-        assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
-        # The blame author keeps their blame commit evidence, just demoted.
-        assert reviewers[1].commits[0].sha == "d" * 7
+        # Only the commit author is suggested; the nearby-active non-author is never invented in.
+        assert [r.login for r in reviewers] == ["old-timer"]
+        assert reviewers[0].commits[0].sha == "d" * 7

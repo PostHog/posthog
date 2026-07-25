@@ -44,13 +44,10 @@ MAX_COMMIT_LOOKUPS = 15
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
 STALE_BLAME_MULTIPLIER = 0.15
-# Caps activity-only fallbacks below blame candidates: they only win when every blame author is stale.
-ACTIVITY_ONLY_SCORE_CAP = 0.25
-ACTIVITY_BONUS_SATURATION_COMMITS = 10
 # An area only implies ownership when a small set of people account for it. A source root like
 # `frontend/src` has dozens of unrelated committers, so being active there says nothing about
 # owning a given change. Above this many recent contributors we treat the area as a catch-all and
-# don't draw activity-only reviewers from it. Repo-agnostic: it's just a contributor count.
+# ignore it for recency. Repo-agnostic: it's just a contributor count.
 MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP = 15
 GitHubLoginFieldLookup = Literal[
     "extra_data__login",
@@ -209,23 +206,22 @@ def rank_assignee_candidates(
     candidate_logins: list[str],
     touched_paths: list[str],
 ) -> list[_ResolvedReviewer]:
-    """Rank agent-proposed assignees through the area-activity system.
+    """Re-rank agent-proposed assignees through the area-activity system.
 
-    The ordered candidate list is position-weighted like blame commits, blended with
-    cached recent activity for the touched paths, and topped up with active-in-area
-    fallbacks — the same scoring the deterministic reviewer path uses. Returns an empty
-    list when nothing is known (no candidates and no activity data), so callers keep
-    their own ordering as the fallback.
+    The ordered candidate list is position-weighted like blame commits, then decayed by
+    how recently each is active in the touched areas — the same scoring the deterministic
+    reviewer path uses. No one is added who the agent did not propose. Returns an empty
+    list when there are no candidates, so callers keep their own ordering as the fallback.
     """
     deduped = list(dict.fromkeys(login.strip().lower() for login in candidate_logins if login.strip()))
+    if not deduped:
+        return []
     login_weights: Counter[str] = Counter()
     total = len(deduped)
     for i, login in enumerate(deduped):
         login_weights[login] = total - i
 
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
-    if not activity_by_login and not login_weights:
-        return []
     return _rank_scored_candidates(login_weights, activity_by_login, login_commits={}, login_names={})
 
 
@@ -391,32 +387,22 @@ def _score_candidates(
     login_weights: Counter[str],
     activity_by_login: dict[str, _AreaContributor],
 ) -> dict[str, float]:
-    """Blend blame weights with area recency; add capped activity-only fallbacks.
+    """Score blame authors by their weight, decayed by how recently they worked the area.
 
-    Invariants: a freshly-active area contributor always outranks a blame author who is
-    gone from the area (their base starts above the stale floor), and never outranks the
-    *top-weighted* blame author while that author is active in the window (the cap sits
-    below the decay floor). Lower-weighted active blame authors can still be outranked by
-    a very active area owner — deliberate: weight-1 blame is one marginal commit, not a
-    stronger claim than sustained area ownership. With no activity data at all, blame
-    weights pass through unchanged (legacy behavior).
+    Only the people who authored the relevant commits are ever candidates: nobody is
+    invented from area activity. The area signal is used subtractively — an author who is
+    not recently active in a genuinely ownable touched area decays toward the stale floor,
+    so when there are more candidates than seats the irrelevant ones fall off. With no
+    activity data at all, blame weights pass through unchanged.
     """
     if not activity_by_login:
         return {login: float(weight) for login, weight in login_weights.items()}
 
-    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     scores: dict[str, float] = {}
     for login, weight in login_weights.items():
         activity = activity_by_login.get(login)
         multiplier = _recency_multiplier(activity.days_since_last_commit if activity else None)
         scores[login] = float(weight) * multiplier
-
-    for login, activity in activity_by_login.items():
-        if login in scores:
-            continue
-        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
-        base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
-        scores[login] = max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
     return scores
 
 
