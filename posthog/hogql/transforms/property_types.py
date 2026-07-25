@@ -517,6 +517,8 @@ class PropertySwapper(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
 
+        result = self._avoid_unparseable_numeric_constant_cast(result) or result
+
         if (
             not self.setTimeZones
             or result.op not in self._RANGE_OPS
@@ -526,6 +528,48 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _avoid_unparseable_numeric_constant_cast(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
+        """Drop the Numeric-property Float cast when it is compared to a non-numeric string constant.
+
+        visit_field wraps a Numeric-typed property in accurateCastOrNull(..., 'Float64') (via toFloat).
+        When such a property is compared to a string constant that can't parse as a number — e.g. '' from
+        "is set" / "is not equal to" filters — ClickHouse casts the *constant* to Float64 to unify the
+        comparison types and raises CANNOT_PARSE_NUMBER, failing the whole query. Comparing both sides as
+        the raw string value is safe: a numeric value never equals a non-numeric string, so the result is
+        unchanged while the query no longer errors.
+        """
+        for field_is_left in (True, False):
+            field_side = node.left if field_is_left else node.right
+            const_side = node.right if field_is_left else node.left
+
+            unwrapped = self._unwrap_numeric_property_cast(field_side)
+            if unwrapped is None or not self._is_unparseable_number_constant(const_side):
+                continue
+
+            if field_is_left:
+                return ast.CompareOperation(op=node.op, left=unwrapped, right=const_side)
+            return ast.CompareOperation(op=node.op, left=const_side, right=unwrapped)
+
+        return None
+
+    @staticmethod
+    def _unwrap_numeric_property_cast(expr: ast.Expr) -> ast.Expr | None:
+        inner = expr.expr if isinstance(expr, ast.Alias) else expr
+        if isinstance(inner, ast.Call) and inner.name == "toFloat" and len(inner.args) == 1:
+            return inner.args[0]
+        return None
+
+    @staticmethod
+    def _is_unparseable_number_constant(expr: ast.Expr) -> bool:
+        inner = expr.expr if isinstance(expr, ast.Alias) else expr
+        if not isinstance(inner, ast.Constant) or not isinstance(inner.value, str):
+            return False
+        try:
+            float(inner.value)
+        except ValueError:
+            return True
+        return False
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

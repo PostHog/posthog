@@ -720,6 +720,30 @@ class TestPropertyTypes(BaseTest):
 
     @parameterized.expand(
         [
+            # (name, where_clause, cast_kept)
+            ("not_equal_empty_string", "properties.$screen_width != ''", False),
+            ("equal_empty_string", "properties.$screen_width = ''", False),
+            ("equal_non_numeric", "properties.$screen_width = 'abc'", False),
+            ("empty_string_on_left", "'' != properties.$screen_width", False),
+            ("equal_numeric_string", "properties.$screen_width = '5'", True),
+            ("less_than_numeric_string", "properties.$screen_width < '5'", True),
+        ]
+    )
+    def test_numeric_property_cast_dropped_for_unparseable_constant(
+        self, _name: str, where_clause: str, cast_kept: bool
+    ):
+        # A Numeric property is wrapped in accurateCastOrNull(..., 'Float64'). When it is compared to a string
+        # constant that can't parse as a number (e.g. '' from "is set" / "is not equal to" filters), ClickHouse
+        # cast the '' literal to Float64 to unify types and raised CANNOT_PARSE_NUMBER, failing the whole query.
+        # The cast is dropped for those so both sides compare as strings, but kept for numeric constants.
+        printed = self._print_select(f"select uuid from events where {where_clause}")
+        if cast_kept:
+            assert "accurateCastOrNull" in printed
+        else:
+            assert "accurateCastOrNull" not in printed
+
+    @parameterized.expand(
+        [
             ("has", "has(properties.$exception_values, 'x')"),
             ("hasAny", "hasAny(properties.$exception_values, ['x'])"),
             ("hasAll", "hasAll(properties.$exception_values, ['x'])"),
