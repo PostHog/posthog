@@ -108,8 +108,10 @@ WHERE r.created_at > now() - interval 14 day
   AND t.origin_product != 'signals_scout'
 GROUP BY repo_fingerprint, repo
 -- The floor applies to *partial* failure rates. A repo where every run fails is a
--- readiness break the body says to file at any volume, so it must survive the floor.
-HAVING runs > 20 OR (failed = runs AND runs >= 3)
+-- readiness break the body says to file at any volume, so it must survive the floor —
+-- but only with independent spread. `failed_tasks >= 2` is what stops one person
+-- retrying a single task against a fresh repo from minting a team-visible report.
+HAVING runs > 20 OR (failed = runs AND runs >= 3 AND failed_tasks >= 2)
 -- Order by the discriminator, not raw count. `HAVING` is the volume guard, so everything
 -- here already clears the floor; ranking by count would let a high-traffic repo with a
 -- healthy 1% rate push a small repo at 100% past the LIMIT — the exact inversion the body

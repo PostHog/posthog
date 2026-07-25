@@ -30,12 +30,16 @@ You watch both, through two lenses, and file a report only when a finding clears
 A cluster earns attention when its failure rate is high _over meaningful run volume_, and the shape of the spread tells you what kind of problem it is.
 The cheap, decisive ratio is **failed runs ÷ distinct tasks that failed** within a cluster:
 
-| Shape                              | What it means                                                                                   |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| ratio ≈ 1, many distinct tasks     | **Systemic** — a defect in a shared path hitting everyone once. The strongest find.             |
-| ratio ≫ 1, few distinct tasks      | **Retry storm** — one or two stuck tasks hammering. Usually one bad input, not a fleet problem. |
-| ratio ≈ 1, few distinct tasks      | Below the bar. Remember it, don't file it.                                                      |
-| 100% failure on a whole repository | **Config/readiness break** — file it even at low volume, it's total.                            |
+| Shape                              | What it means                                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| ratio ≈ 1, many distinct tasks     | **Systemic** — a defect in a shared path hitting everyone once. The strongest find.              |
+| ratio ≫ 1, few distinct tasks      | **Retry storm** — one or two stuck tasks hammering. Usually one bad input, not a fleet problem.  |
+| ratio ≈ 1, few distinct tasks      | Below the bar. Remember it, don't file it.                                                       |
+| 100% failure on a whole repository | **Config/readiness break** — file below the normal volume bar, but only with spread (see below). |
+
+**When these rows disagree, spread wins.** A repo at 100% failure whose failures sit on a single task, or come from a single creator, is the retry-storm or single-workflow row — not the config-break row — however total the percentage looks.
+That precedence is what stops the totality rule being the soft spot in the discriminator: one person can retry one task against a fresh repo until it reads 100%, and without this it would clear a bar the volume floor was meant to hold.
+Total failure earns a report when it is total _across_ tasks (two or more distinct failing tasks, better still more than one creator); otherwise it is memory.
 
 Scope both sides of that ratio to failures.
 Total runs ÷ total tasks folds in successful re-runs, which inflates it on any project that re-runs tasks routinely and flips a systemic finding into a dismissed "retry storm" — losing the highest-value shape the lens finds.
@@ -134,6 +138,7 @@ Patterns to watch, starting points not a checklist:
 
 A repo at or near 100% failure over any non-trivial run count is a readiness or configuration break — credentials, a missing clone, a sandbox image.
 It is worth filing at volumes far below the normal bar because the failure is total: nothing that targets that repo can succeed.
+That licence is conditional on spread — two or more distinct failing tasks, ideally more than one creator. A single task failing repeatedly against a new repo is one person's workflow and belongs in memory, no matter that the rate reads 100%.
 Query 2, then read the error class in query 3 — clone and auth breaks name themselves in the message.
 
 #### A failure class spread across many tasks
