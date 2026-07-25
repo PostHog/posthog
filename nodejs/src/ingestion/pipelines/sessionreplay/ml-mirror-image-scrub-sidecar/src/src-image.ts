@@ -18,6 +18,12 @@ import { numFromEnv } from './env.ts'
 // counts, not just leak percentage, before moving it.
 export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
 
+// Area budget for the STORED image, applied after detection has run at SCRUB_MAX_PIXELS. Storage
+// resolution and detection resolution are separate questions: what a downstream model needs to read
+// a session is not what DBNet needs to find 14px text, and tying them together means every pixel
+// saved in storage is paid for in recall. Defaults to SCRUB_MAX_PIXELS, which is no downscale at all.
+export const SCRUB_OUT_MAX_PIXELS = numFromEnv('SCRUB_OUT_MAX_PIXELS', SCRUB_MAX_PIXELS, 96 * 96, LIMIT_INPUT_PIXELS)
+
 export interface Src {
     data: Buffer
     W: number

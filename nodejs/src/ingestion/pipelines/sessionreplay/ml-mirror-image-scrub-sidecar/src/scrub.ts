@@ -18,7 +18,7 @@ import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
-import { type Src, decodeSrc, srcSharp } from './src-image.ts'
+import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp } from './src-image.ts'
 import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
@@ -209,9 +209,49 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const out = await compose(src, W, H, fillBoxes, timings)
+    const stored = await forStorage(src, W, H, fillBoxes)
+    const out = await compose(stored.src, stored.W, stored.H, stored.boxes, timings)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
+}
+
+/** Shrink the frame to the storage budget once detection is done with it, carrying the boxes across.
+ *
+ *  Detection has already run at full resolution, so this costs no recall, unlike lowering
+ *  SCRUB_MAX_PIXELS, which shrinks what the detectors get to see. Boxes round outward: a fill that
+ *  lost a pixel on rounding would expose a rim of whatever it was covering. */
+async function forStorage(
+    src: Src,
+    W: number,
+    H: number,
+    boxes: Box[]
+): Promise<{ src: Src; W: number; H: number; boxes: Box[] }> {
+    if (W * H <= SCRUB_OUT_MAX_PIXELS) {
+        return { src, W, H, boxes }
+    }
+    const scale = Math.sqrt(SCRUB_OUT_MAX_PIXELS / (W * H))
+    const { data, info } = await srcSharp(src)
+        .resize(Math.max(1, Math.round(W * scale)), Math.max(1, Math.round(H * scale)), { fit: 'fill' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    const sx = info.width / W
+    const sy = info.height / H
+    const scaled = boxes.map((b) => {
+        const left = Math.floor(b.left * sx)
+        const top = Math.floor(b.top * sy)
+        return {
+            left,
+            top,
+            width: Math.max(1, Math.min(info.width, Math.ceil((b.left + b.width) * sx)) - left),
+            height: Math.max(1, Math.min(info.height, Math.ceil((b.top + b.height) * sy)) - top),
+        }
+    })
+    return {
+        src: { ...src, data, W: info.width, H: info.height },
+        W: info.width,
+        H: info.height,
+        boxes: scaled,
+    }
 }
 
 /**
