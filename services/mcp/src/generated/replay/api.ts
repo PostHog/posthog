@@ -55,7 +55,7 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
     pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
     filters: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
@@ -104,7 +104,7 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
     pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
     filters: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."

@@ -68,7 +68,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         .nullish()
                                         .describe('Group type index when using group-based filters.'),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .describe(
                                             'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                         ),
@@ -78,10 +78,6 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
-                                            'starts_with',
-                                            'not_starts_with',
-                                            'ends_with',
-                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -90,10 +86,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -120,7 +116,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                         ),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .optional()
                                         .describe(
                                             'Optional value. Runtime behavior determines whether this is ignored.'
@@ -242,7 +238,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                         ),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
                                 }),
                                 zod.object({
@@ -267,7 +263,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         .describe(
                                             'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                         ),
-                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                    value: zod.json().describe('Value to compare flag evaluation against.'),
                                 }),
                             ])
                         )
@@ -349,7 +345,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         .nullish()
                                         .describe('Group type index when using group-based filters.'),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .describe(
                                             'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                         ),
@@ -359,10 +355,6 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
-                                            'starts_with',
-                                            'not_starts_with',
-                                            'ends_with',
-                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -371,10 +363,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -401,7 +393,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                         ),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .optional()
                                         .describe(
                                             'Optional value. Runtime behavior determines whether this is ignored.'
@@ -523,7 +515,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                         ),
                                     value: zod
-                                        .unknown()
+                                        .json()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
                                 }),
                                 zod.object({
@@ -548,7 +540,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         .describe(
                                             'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                         ),
-                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                    value: zod.json().describe('Value to compare flag evaluation against.'),
                                 }),
                             ])
                         )
@@ -625,11 +617,11 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Short description of what the metric measures.'),
         query: zod
-            .unknown()
+            .json()
             .describe(
                 "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod.array(zod.json()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -668,12 +660,12 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Short description of what the metric measures.'),
         query: zod
-            .unknown()
+            .json()
             .optional()
             .describe(
                 "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod.array(zod.json()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -887,7 +879,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .nullish()
                                             .describe('Percentage of users who enter the experiment (0-100).'),
                                         properties: zod
-                                            .array(zod.unknown())
+                                            .array(zod.json())
                                             .max(experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax)
                                             .optional()
                                             .describe(
@@ -1058,14 +1050,14 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
-        secondary_metrics: zod.unknown().optional(),
+        secondary_metrics: zod.json().optional(),
         saved_metrics_ids: zod
-            .array(zod.unknown())
+            .array(zod.json())
             .nullish()
             .describe(
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
             ),
-        filters: zod.unknown().optional(),
+        filters: zod.json().optional(),
         archived: zod
             .boolean()
             .default(experimentsCreateBodyArchivedDefault)
@@ -1112,10 +1104,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -1178,10 +1166,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1239,10 +1223,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1302,10 +1282,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1362,10 +1338,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1422,10 +1394,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1489,10 +1457,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -1547,10 +1511,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1607,10 +1567,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1671,10 +1627,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1731,10 +1683,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1840,10 +1788,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1900,10 +1844,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1960,10 +1900,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2020,10 +1956,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2076,10 +2008,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2136,10 +2064,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2192,10 +2116,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2252,10 +2172,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2315,10 +2231,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2464,10 +2376,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2611,10 +2519,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2827,10 +2731,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3019,10 +2919,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -3163,10 +3059,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3306,10 +3198,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3486,10 +3374,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3633,10 +3517,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3849,10 +3729,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4041,10 +3917,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -4185,10 +4057,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4328,10 +4196,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4430,8 +4294,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
-        stats_config: zod.unknown().optional(),
-        scheduling_config: zod.unknown().optional(),
+        stats_config: zod.json().optional(),
+        scheduling_config: zod.json().optional(),
         allow_unknown_events: zod
             .boolean()
             .default(experimentsCreateBodyAllowUnknownEventsDefault)
@@ -4464,8 +4328,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod.json().optional(),
+        secondary_metrics_ordered_uuids: zod.json().optional(),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -4638,7 +4502,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .nullish()
                                             .describe('Percentage of users who enter the experiment (0-100).'),
                                         properties: zod
-                                            .array(zod.unknown())
+                                            .array(zod.json())
                                             .max(
                                                 experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax
                                             )
@@ -4811,14 +4675,14 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
-        secondary_metrics: zod.unknown().optional(),
+        secondary_metrics: zod.json().optional(),
         saved_metrics_ids: zod
-            .array(zod.unknown())
+            .array(zod.json())
             .nullish()
             .describe(
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
             ),
-        filters: zod.unknown().optional(),
+        filters: zod.json().optional(),
         archived: zod.boolean().optional().describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
@@ -4862,10 +4726,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -4928,10 +4788,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -4989,10 +4845,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5052,10 +4904,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5112,10 +4960,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5172,10 +5016,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5239,10 +5079,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -5297,10 +5133,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5357,10 +5189,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5421,10 +5249,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5481,10 +5305,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5590,10 +5410,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5650,10 +5466,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5710,10 +5522,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5770,10 +5578,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5826,10 +5630,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5886,10 +5686,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5942,10 +5738,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -6002,10 +5794,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -6065,10 +5853,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -6214,10 +5998,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6361,10 +6141,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6577,10 +6353,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6769,10 +6541,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -6913,10 +6681,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7056,10 +6820,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7236,10 +6996,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7383,10 +7139,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7603,10 +7355,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7795,10 +7543,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -7939,10 +7683,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -8082,10 +7822,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -8188,8 +7924,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
-        stats_config: zod.unknown().optional(),
-        scheduling_config: zod.unknown().optional(),
+        stats_config: zod.json().optional(),
+        scheduling_config: zod.json().optional(),
         allow_unknown_events: zod
             .boolean()
             .optional()
@@ -8222,8 +7958,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod.json().optional(),
+        secondary_metrics_ordered_uuids: zod.json().optional(),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -8538,14 +8274,14 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
-        secondary_metrics: zod.unknown().optional(),
+        secondary_metrics: zod.json().optional(),
         saved_metrics_ids: zod
-            .array(zod.unknown())
+            .array(zod.json())
             .nullish()
             .describe(
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
             ),
-        filters: zod.unknown().optional(),
+        filters: zod.json().optional(),
         archived: zod
             .boolean()
             .default(experimentsDuplicateCreateBodyArchivedDefault)
@@ -8592,10 +8328,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -8658,10 +8390,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8719,10 +8447,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8782,10 +8506,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8842,10 +8562,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8902,10 +8618,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8969,10 +8681,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -9027,10 +8735,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9087,10 +8791,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9151,10 +8851,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9211,10 +8907,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9320,10 +9012,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9380,10 +9068,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9440,10 +9124,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9500,10 +9180,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9556,10 +9232,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9616,10 +9288,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9672,10 +9340,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9732,10 +9396,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9795,10 +9455,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9944,10 +9600,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10091,10 +9743,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10307,10 +9955,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10499,10 +10143,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -10643,10 +10283,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10786,10 +10422,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10966,10 +10598,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11113,10 +10741,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11333,10 +10957,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11525,10 +11145,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -11669,10 +11285,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11812,10 +11424,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11918,8 +11526,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
-        stats_config: zod.unknown().optional(),
-        scheduling_config: zod.unknown().optional(),
+        stats_config: zod.json().optional(),
+        scheduling_config: zod.json().optional(),
         allow_unknown_events: zod
             .boolean()
             .default(experimentsDuplicateCreateBodyAllowUnknownEventsDefault)
@@ -11952,8 +11560,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod.json().optional(),
+        secondary_metrics_ordered_uuids: zod.json().optional(),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -12002,7 +11610,6 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
 export const experimentsEndCreateBodyConclusionCommentMax = 4000
 
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
-export const experimentsEndCreateBodyRepositoryMax = 255
 
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
@@ -12028,13 +11635,6 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
             "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
-        ),
-    repository: zod
-        .string()
-        .max(experimentsEndCreateBodyRepositoryMax)
-        .nullish()
-        .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
 })
 
@@ -12229,8 +11829,6 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
 export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 
 export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
-export const experimentsShipVariantCreateBodyRepositoryMax = 255
-
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -12257,13 +11855,6 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
             "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
-        ),
-    repository: zod
-        .string()
-        .max(experimentsShipVariantCreateBodyRepositoryMax)
-        .nullish()
-        .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod

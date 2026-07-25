@@ -224,7 +224,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
                         ),
                     properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                        .array(zod.record(zod.string(), zod.json()))
                         .optional()
                         .describe(
                             'Property filters (event or person) that scope which generations match this condition set.'
@@ -436,7 +436,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
                         ),
                     properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                        .array(zod.record(zod.string(), zod.json()))
                         .optional()
                         .describe(
                             'Property filters (event or person) that scope which generations match this condition set.'
@@ -581,7 +581,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .default(evaluationsTestHogCreateBodyAllowsNaDefault)
         .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
     conditions: zod
-        .array(zod.record(zod.string(), zod.unknown()))
+        .array(zod.record(zod.string(), zod.json()))
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
     target: zod
@@ -628,7 +628,7 @@ export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = /* @__PUR
 
 export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
     event_filters: zod
-        .array(zod.record(zod.string(), zod.unknown()))
+        .array(zod.record(zod.string(), zod.json()))
         .describe(
             'PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.'
         ),
@@ -668,7 +668,7 @@ export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod.json().optional(),
     enabled: zod.boolean().optional(),
 })
 
@@ -704,7 +704,7 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.o
         .enum(['trace', 'generation', 'evaluation'])
         .optional()
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod.json().optional(),
     enabled: zod.boolean().optional(),
 })
 
@@ -805,7 +805,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
             "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
@@ -899,7 +899,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
             "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
@@ -1473,7 +1473,7 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
             "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n\* `minimal` - minimal\n\* `detailed` - detailed"
         ),
     data: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             'Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id.'
@@ -1657,25 +1657,17 @@ export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsListQueryContentDefault = `full`
-export const llmPromptsListQueryOrderByDefault = `-created_at`
 
 export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    order_by: zod
-        .string()
-        .min(1)
-        .default(llmPromptsListQueryOrderByDefault)
-        .describe(
-            "Field to sort the prompt list by. Prefix with '-' for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `version` - version\n\* `-version` - -version\n\* `latest_version` - latest_version\n\* `-latest_version` - -latest_version\n\* `version_count` - version_count\n\* `-version_count` - -version_count\n\* `first_version_created_at` - first_version_created_at\n\* `-first_version_created_at` - -first_version_created_at\n\* `prompt_size_bytes` - prompt_size_bytes\n\* `-prompt_size_bytes` - -prompt_size_bytes"
-        ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
@@ -1696,13 +1688,7 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
-    prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-    config: zod
-        .looseObject({})
-        .nullish()
-        .describe(
-            "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt."
-        ),
+    prompt: zod.json().describe('Prompt payload as JSON or string data.'),
     version_description: zod
         .string()
         .max(llmPromptsCreateBodyVersionDescriptionMax)
@@ -1729,7 +1715,7 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     label: zod
         .string()
@@ -1761,7 +1747,7 @@ export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     prompt: zod
-        .unknown()
+        .json()
         .optional()
         .describe('Full prompt payload to publish as a new version. Mutually exclusive with edits.'),
     edits: zod
@@ -1774,12 +1760,6 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
-        ),
-    config: zod
-        .looseObject({})
-        .nullish()
-        .describe(
-            "JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt."
         ),
     base_version: zod
         .number()
@@ -1975,7 +1955,7 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                     .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
                     .describe('Percentage of matching events to apply this condition to'),
                 properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
+                    .array(zod.record(zod.string(), zod.json()))
                     .optional()
                     .describe('Property filters that scope when this condition fires'),
             })

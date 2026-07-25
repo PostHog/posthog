@@ -61,7 +61,7 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.json().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -105,7 +105,7 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.json().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -131,7 +131,7 @@ export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
 export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -142,63 +142,31 @@ export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
+export const notebooksKernelConfigCreateBodyTitleMax = 256
+
+export const notebooksKernelConfigCreateBodyVersionMin = -2147483648
+export const notebooksKernelConfigCreateBodyVersionMax = 2147483647
+
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
-    cpu_cores: zod
+    title: zod.string().max(notebooksKernelConfigCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
+    content: zod.json().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+    version: zod
         .number()
+        .min(notebooksKernelConfigCreateBodyVersionMin)
+        .max(notebooksKernelConfigCreateBodyVersionMax)
         .optional()
-        .describe("CPU cores for the notebook's sandbox kernel; must be a supported option."),
-    memory_gb: zod
-        .number()
-        .optional()
-        .describe("Memory in GB for the notebook's sandbox kernel; must be a supported option."),
-    idle_timeout_seconds: zod
-        .number()
-        .optional()
-        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
+        .describe(
+            'Version number for optimistic concurrency control. Must match the current version when updating content.'
+        ),
+    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 /**
- * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
 export const NotebooksKernelStatusRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    short_id: zod.string(),
-})
-
-/**
- * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
- */
-export const NotebooksSqlV2RunsRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    run_id: zod.string().describe('ID of the run, as returned by the run dispatch endpoint.'),
-    short_id: zod.string(),
-})
-
-/**
- * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
- */
-export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    run_id: zod.string().describe('ID of the run, as returned by the run dispatch endpoint.'),
-    short_id: zod.string(),
-})
-
-/**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
- */
-export const NotebooksSqlV2StateRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(

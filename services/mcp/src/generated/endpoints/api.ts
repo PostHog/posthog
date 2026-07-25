@@ -46,7 +46,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
                 'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
-            .unknown()
+            .json()
             .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
@@ -67,7 +67,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Target a specific version for updates (defaults to current version).'),
         bucket_overrides: zod
-            .record(zod.string(), zod.unknown())
+            .record(zod.string(), zod.json())
             .nullish()
             .describe(
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
@@ -119,7 +119,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
                 'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
-            .unknown()
+            .json()
             .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
@@ -140,7 +140,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Target a specific version for updates (defaults to current version).'),
         bucket_overrides: zod
-            .record(zod.string(), zod.unknown())
+            .record(zod.string(), zod.json())
             .nullish()
             .describe(
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
@@ -437,10 +437,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
-                                                'starts_with',
-                                                'not_starts_with',
-                                                'ends_with',
-                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -501,10 +497,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -560,10 +552,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -621,10 +609,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -679,10 +663,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -737,10 +717,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -802,10 +778,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
-                                                'starts_with',
-                                                'not_starts_with',
-                                                'ends_with',
-                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -860,10 +832,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -918,10 +886,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -980,10 +944,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1038,10 +998,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1141,10 +1097,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1199,10 +1151,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1257,10 +1205,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1315,10 +1259,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1369,10 +1309,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1427,10 +1363,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1481,10 +1413,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1539,10 +1467,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1600,10 +1524,6 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
-                                        'starts_with',
-                                        'not_starts_with',
-                                        'ends_with',
-                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -1671,7 +1591,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.enum(['cache', 'force', 'direct']), zod.null()])
         .default(endpointsRunCreateBodyRefreshDefault),
     variables: zod
-        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+        .union([zod.record(zod.string(), zod.json()), zod.null()])
         .optional()
         .describe(
             'Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{\"event_name\": \"$pageview\"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{\"$browser\": \"Chrome\"}`   - `date_from`\/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.'

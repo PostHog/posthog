@@ -197,17 +197,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
-        slack_summary_cadence: zod
-            .union([
-                zod
-                    .enum(['daily', 'weekly', 'monthly'])
-                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
-            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -271,7 +260,7 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
         .max(accountsNotebooksCreateBodyTitleMax)
         .nullish()
         .describe('Human-readable title of the account notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.json().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 
@@ -409,17 +398,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
-        slack_summary_cadence: zod
-            .union([
-                zod
-                    .enum(['daily', 'weekly', 'monthly'])
-                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
-            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -430,20 +408,6 @@ export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this account.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const AccountsSummariesListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 export const AnnouncementsListParams = /* @__PURE__ */ zod.object({
@@ -770,13 +734,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Account sources only: column in the view whose value is written to the property.'),
         column_property_map: zod
-            .unknown()
+            .json()
             .optional()
             .describe(
                 'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
             ),
         column_descriptions: zod
-            .unknown()
+            .json()
             .optional()
             .describe(
                 "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
@@ -1163,7 +1127,7 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
             'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .describe(
             'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
@@ -1244,7 +1208,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .optional()
         .describe(
             'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'

@@ -133,7 +133,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 .nullish()
                                                 .describe('Group type index when using group-based filters.'),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .describe(
                                                     'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                                 ),
@@ -143,10 +143,6 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -155,10 +151,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -189,7 +185,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                                 ),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .optional()
                                                 .describe(
                                                     'Optional value. Runtime behavior determines whether this is ignored.'
@@ -327,7 +323,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                                 ),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
                                                 ),
@@ -356,7 +352,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 .describe(
                                                     'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                                 ),
-                                            value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                            value: zod.json().describe('Value to compare flag evaluation against.'),
                                         }),
                                     ])
                                 )
@@ -696,9 +692,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                     .describe(
-                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
+                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                     )
                     .optional()
                     .describe(
@@ -731,9 +727,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                     .describe(
-                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
+                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                     )
                     .optional()
                     .describe(
@@ -857,7 +853,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .min(surveysCreateBodyResponseSamplingLimitMin)
         .max(surveysCreateBodyResponseSamplingLimitMax)
         .nullish(),
-    response_sampling_daily_limits: zod.unknown().optional(),
+    response_sampling_daily_limits: zod.json().optional(),
     enable_partial_responses: zod
         .boolean()
         .nullish()
@@ -872,9 +868,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
         ),
-    translations: zod.unknown().optional(),
+    translations: zod.json().optional(),
     _create_in_folder: zod.string().optional(),
-    form_content: zod.unknown().optional(),
+    form_content: zod.json().optional(),
 })
 
 export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
@@ -986,7 +982,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .nullish()
                                                 .describe('Group type index when using group-based filters.'),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .describe(
                                                     'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                                 ),
@@ -996,10 +992,6 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1008,10 +1000,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -1042,7 +1034,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                                 ),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .optional()
                                                 .describe(
                                                     'Optional value. Runtime behavior determines whether this is ignored.'
@@ -1180,7 +1172,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                                 ),
                                             value: zod
-                                                .unknown()
+                                                .json()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
                                                 ),
@@ -1209,7 +1201,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .describe(
                                                     'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                                 ),
-                                            value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                            value: zod.json().describe('Value to compare flag evaluation against.'),
                                         }),
                                     ])
                                 )
@@ -1549,9 +1541,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                     .describe(
-                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
+                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                     )
                     .optional()
                     .describe(
@@ -1584,9 +1576,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                     .describe(
-                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
+                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                     )
                     .optional()
                     .describe(
@@ -1710,7 +1702,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(surveysPartialUpdateBodyResponseSamplingLimitMin)
         .max(surveysPartialUpdateBodyResponseSamplingLimitMax)
         .nullish(),
-    response_sampling_daily_limits: zod.unknown().optional(),
+    response_sampling_daily_limits: zod.json().optional(),
     enable_partial_responses: zod
         .boolean()
         .nullish()
@@ -1725,9 +1717,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
         ),
-    translations: zod.unknown().optional(),
+    translations: zod.json().optional(),
     _create_in_folder: zod.string().optional(),
-    form_content: zod.unknown().optional(),
+    form_content: zod.json().optional(),
 })
 
 export const SurveysDestroyParams = /* @__PURE__ */ zod.object({

@@ -86,29 +86,6 @@ export const StreamlitAppsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * @summary Create an app version from source code
- */
-export const StreamlitAppsCreateVersionFromSourceCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    short_id: zod.string(),
-})
-
-export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
-
-export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zod.object({
-    source: zod
-        .string()
-        .max(streamlitAppsCreateVersionFromSourceCreateBodySourceMax)
-        .describe(
-            "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version."
-        ),
-})
-
-/**
  * @summary Start the app sandbox
  */
 export const StreamlitAppsStartCreateParams = /* @__PURE__ */ zod.object({

@@ -65,16 +65,15 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
-                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -111,10 +110,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
-                choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                 searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemRequiredDefault),
-                default: zod.unknown().optional(),
+                default: zod.json().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
@@ -127,11 +126,11 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .record(
             zod.string(),
             zod.object({
-                value: zod.unknown().optional(),
+                value: zod.json().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()).optional(),
+                bytecode: zod.array(zod.json()).optional(),
                 order: zod.number().optional(),
-                transpiled: zod.unknown().optional(),
+                transpiled: zod.json().optional(),
             })
         )
         .optional()
@@ -144,12 +143,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsCreateBodyFiltersOneSourceDefault),
-            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
+            actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            bytecode: zod.json().optional(),
+            transpiled: zod.json().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
         })
@@ -165,10 +164,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+                bytecode: zod.json().optional().describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -206,12 +202,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
-                            choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                             searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemRequiredDefault),
-                            default: zod.unknown().optional(),
+                            default: zod.json().optional(),
                             secret: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemSecretDefault),
@@ -227,14 +223,14 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     .record(
                         zod.string(),
                         zod.object({
-                            value: zod.unknown().optional(),
+                            value: zod.json().optional(),
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode: zod.array(zod.json()).optional(),
                             order: zod.number().optional(),
-                            transpiled: zod.unknown().optional(),
+                            transpiled: zod.json().optional(),
                         })
                     )
                     .optional(),
@@ -246,10 +242,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                 '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsCreateBodyMappingsItemFiltersSourceDefault),
-                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
                     })
                     .optional(),
@@ -319,16 +315,15 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
-                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -365,10 +360,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
-                choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                 searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemRequiredDefault),
-                default: zod.unknown().optional(),
+                default: zod.json().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
@@ -381,11 +376,11 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(
             zod.string(),
             zod.object({
-                value: zod.unknown().optional(),
+                value: zod.json().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()).optional(),
+                bytecode: zod.array(zod.json()).optional(),
                 order: zod.number().optional(),
-                transpiled: zod.unknown().optional(),
+                transpiled: zod.json().optional(),
             })
         )
         .optional()
@@ -398,12 +393,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsPartialUpdateBodyFiltersOneSourceDefault),
-            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
+            actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+            bytecode: zod.json().optional(),
+            transpiled: zod.json().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
         })
@@ -419,10 +414,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+                bytecode: zod.json().optional().describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -460,12 +452,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
-                            choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                             searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemRequiredDefault),
-                            default: zod.unknown().optional(),
+                            default: zod.json().optional(),
                             secret: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemSecretDefault),
@@ -481,14 +473,14 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .record(
                         zod.string(),
                         zod.object({
-                            value: zod.unknown().optional(),
+                            value: zod.json().optional(),
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode: zod.array(zod.json()).optional(),
                             order: zod.number().optional(),
-                            transpiled: zod.unknown().optional(),
+                            transpiled: zod.json().optional(),
                         })
                     )
                     .optional(),
@@ -500,10 +492,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault),
-                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                        properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
                     })
                     .optional(),
@@ -597,16 +589,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'warehouse_source_webhook',
                             'site_app',
                             'transformation',
-                            'transformation_log',
                         ])
                         .describe(
-                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             name: zod
                 .string()
@@ -633,7 +624,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                     email: zod.email().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
                     is_email_verified: zod.boolean().nullish(),
-                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.json()).nullish(),
                     role_at_organization: zod
                         .union([
                             zod
@@ -663,7 +654,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().optional(),
+            bytecode: zod.json().optional(),
             transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
@@ -693,12 +684,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
-                        choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                         searchable: zod.boolean().optional(),
                         required: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemRequiredDefault),
-                        default: zod.unknown().optional(),
+                        default: zod.json().optional(),
                         secret: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemSecretDefault),
@@ -720,14 +711,14 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .record(
                     zod.string(),
                     zod.object({
-                        value: zod.unknown().optional(),
+                        value: zod.json().optional(),
                         templating: zod
                             .enum(['hog', 'liquid'])
                             .optional()
                             .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                        bytecode: zod.array(zod.unknown()).optional(),
+                        bytecode: zod.array(zod.json()).optional(),
                         order: zod.number().optional(),
-                        transpiled: zod.unknown().optional(),
+                        transpiled: zod.json().optional(),
                     })
                 )
                 .optional()
@@ -740,12 +731,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                         )
                         .default(hogFunctionsInvocationsCreateBodyConfigurationOneFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().optional(),
-                    transpiled: zod.unknown().optional(),
+                    actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                    events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                    data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                    properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                    bytecode: zod.json().optional(),
+                    transpiled: zod.json().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
                 })
@@ -762,7 +753,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                         hash: zod.string().describe('Hog expression used to compute the masking hash.'),
                         bytecode: zod
-                            .unknown()
+                            .json()
                             .optional()
                             .describe('Compiled bytecode for the hash expression. Auto-generated.'),
                     }),
@@ -802,14 +793,14 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
-                                    choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    choices: zod.array(zod.record(zod.string(), zod.json())).optional(),
                                     searchable: zod.boolean().optional(),
                                     required: zod
                                         .boolean()
                                         .default(
                                             hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemRequiredDefault
                                         ),
-                                    default: zod.unknown().optional(),
+                                    default: zod.json().optional(),
                                     secret: zod
                                         .boolean()
                                         .default(
@@ -834,14 +825,14 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .record(
                                 zod.string(),
                                 zod.object({
-                                    value: zod.unknown().optional(),
+                                    value: zod.json().optional(),
                                     templating: zod
                                         .enum(['hog', 'liquid'])
                                         .optional()
                                         .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                                    bytecode: zod.array(zod.unknown()).optional(),
+                                    bytecode: zod.array(zod.json()).optional(),
                                     order: zod.number().optional(),
-                                    transpiled: zod.unknown().optional(),
+                                    transpiled: zod.json().optional(),
                                 })
                             )
                             .optional(),
@@ -855,12 +846,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     .default(
                                         hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemFiltersSourceDefault
                                     ),
-                                actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                bytecode: zod.unknown().optional(),
-                                transpiled: zod.unknown().optional(),
+                                actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                bytecode: zod.json().optional(),
+                                transpiled: zod.json().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
                             })
@@ -885,7 +876,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .optional()
                         .describe("Programming language: 'hog' or 'javascript'."),
                     inputs_schema: zod
-                        .unknown()
+                        .json()
                         .describe('Schema defining configurable inputs for functions created from this template.'),
                     type: zod
                         .string()
@@ -896,11 +887,11 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusMax)
                         .optional()
                         .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    category: zod.json().optional().describe('Category tags for organizing templates.'),
                     free: zod.boolean().optional().describe('Whether available on free plans.'),
                     icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                    filters: zod.unknown().optional().describe('Default event filters.'),
-                    masking: zod.unknown().optional().describe('Default PII masking configuration.'),
+                    filters: zod.json().optional().describe('Default event filters.'),
+                    masking: zod.json().optional().describe('Default PII masking configuration.'),
                     mapping_templates: zod
                         .array(
                             zod.object({
@@ -915,10 +906,10 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Whether this mapping should match all events by default, hiding the event filter UI.'
                                     ),
-                                filters: zod.unknown().optional().describe('Event filters specific to this mapping.'),
-                                inputs: zod.unknown().optional().describe('Input values specific to this mapping.'),
+                                filters: zod.json().optional().describe('Event filters specific to this mapping.'),
+                                inputs: zod.json().optional().describe('Input values specific to this mapping.'),
                                 inputs_schema: zod
-                                    .unknown()
+                                    .json()
                                     .optional()
                                     .describe('Additional input schema fields specific to this mapping.'),
                             })
@@ -967,11 +958,11 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('Full function configuration to test.'),
     globals: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .optional()
         .describe('Mock global variables available during test invocation.'),
     clickhouse_event: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .optional()
         .describe('Mock ClickHouse event data to test the function with.'),
     mock_async_functions: zod

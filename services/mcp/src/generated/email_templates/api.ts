@@ -268,19 +268,19 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
                     .optional()
                     .describe('Target column id. Required for add_content and move_content.'),
                 patch: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         "update_\* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi<\/p>'}} changes only the block's text."
                     ),
                 content: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         "add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc."
                     ),
                 row: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         'add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it.'

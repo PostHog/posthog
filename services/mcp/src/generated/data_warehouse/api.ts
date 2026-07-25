@@ -28,8 +28,8 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
-    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
-    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+    default_value: zod.json().optional().describe('Default value used when a query references this variable.'),
+    values: zod.json().optional().describe('Allowed values for List variables. Null for other variable types.'),
 })
 
 export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -58,8 +58,8 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
-    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
-    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+    default_value: zod.json().optional().describe('Default value used when a query references this variable.'),
+    values: zod.json().optional().describe('Allowed values for List variables. Null for other variable types.'),
 })
 
 export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({

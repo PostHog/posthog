@@ -203,7 +203,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -228,7 +228,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -253,7 +253,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -318,7 +318,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .default(loopsCreateBodyTriggersItemEnabledDefault)
                         .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
                     config: zod
-                        .unknown()
+                        .json()
                         .optional()
                         .describe(
                             'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
@@ -518,7 +518,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -543,7 +543,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -568,7 +568,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                                 'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
                             ),
                         params: zod
-                            .record(zod.string(), zod.unknown())
+                            .record(zod.string(), zod.json())
                             .optional()
                             .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
                     })
@@ -633,7 +633,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .default(loopsPartialUpdateBodyTriggersItemEnabledDefault)
                         .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
                     config: zod
-                        .unknown()
+                        .json()
                         .optional()
                         .describe(
                             'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
@@ -686,7 +686,7 @@ export const LoopsPreviewCreateBody = /* @__PURE__ */ zod.object({
             'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
         ),
     payload: zod
-        .unknown()
+        .json()
         .optional()
         .describe('Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context.'),
 })
@@ -888,7 +888,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
             ),
-        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        json_schema: zod.json().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
             .optional()

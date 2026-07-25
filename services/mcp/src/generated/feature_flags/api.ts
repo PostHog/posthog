@@ -150,7 +150,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .describe(
                                                 'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                             ),
@@ -160,10 +160,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
-                                                'starts_with',
-                                                'not_starts_with',
-                                                'ends_with',
-                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -172,10 +168,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
@@ -202,7 +198,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .optional()
                                             .describe(
                                                 'Optional value. Runtime behavior determines whether this is ignored.'
@@ -324,7 +320,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
                                     }),
                                     zod.object({
@@ -349,7 +345,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe(
                                                 'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
-                                        value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                        value: zod.json().describe('Value to compare flag evaluation against.'),
                                     }),
                                 ])
                             )
@@ -518,7 +514,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .describe(
                                                 'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
                                             ),
@@ -528,10 +524,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
-                                                'starts_with',
-                                                'not_starts_with',
-                                                'ends_with',
-                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -540,10 +532,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
@@ -570,7 +562,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .optional()
                                             .describe(
                                                 'Optional value. Runtime behavior determines whether this is ignored.'
@@ -692,7 +684,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
-                                            .unknown()
+                                            .json()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
                                     }),
                                     zod.object({
@@ -717,7 +709,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe(
                                                 'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
-                                        value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                        value: zod.json().describe('Value to compare flag evaluation against.'),
                                     }),
                                 ])
                             )
@@ -917,10 +909,7 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
         ),
-    groups: zod
-        .unknown()
-        .optional()
-        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+    groups: zod.json().optional().describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
 })
 
 /**
@@ -1015,7 +1004,7 @@ export const FeatureFlagsBulkKeysRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
     ids: zod
-        .array(zod.unknown())
+        .array(zod.json())
         .optional()
         .describe(
             'Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.'
@@ -1130,7 +1119,7 @@ export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.objec
 })
 
 export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
-    condition: zod.record(zod.string(), zod.unknown()).describe('The release condition to evaluate'),
+    condition: zod.record(zod.string(), zod.json()).describe('The release condition to evaluate'),
     group_type_index: zod
         .number()
         .nullish()
@@ -1186,7 +1175,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n\* `FeatureFlag` - feature flag'
         ),
     payload: zod
-        .unknown()
+        .json()
         .describe(
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true\/false to enable\/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
@@ -1257,7 +1246,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n\* `FeatureFlag` - feature flag'
         ),
     payload: zod
-        .unknown()
+        .json()
         .optional()
         .describe(
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true\/false to enable\/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."

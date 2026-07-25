@@ -53,7 +53,7 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
             .max(earlyAccessFeatureCreateBodyDocumentationUrlMax)
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
-        payload: zod.unknown().optional().describe('Arbitrary JSON metadata associated with this feature.'),
+        payload: zod.json().optional().describe('Arbitrary JSON metadata associated with this feature.'),
         feature_flag_id: zod
             .number()
             .optional()

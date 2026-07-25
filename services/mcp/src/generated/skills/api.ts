@@ -77,7 +77,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
-        metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        metadata: zod.record(zod.string(), zod.json()).optional().describe('Arbitrary key-value metadata.'),
         owners: zod
             .array(zod.string())
             .max(llmSkillsCreateBodyOwnersMax)
@@ -229,7 +229,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
-    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+    metadata: zod.record(zod.string(), zod.json()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
             zod.object({

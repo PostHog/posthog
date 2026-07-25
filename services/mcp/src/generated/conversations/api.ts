@@ -79,7 +79,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match)."
+            "Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match)."
         ),
     sla: zod
         .enum(['at-risk', 'breached', 'on-track'])
@@ -162,9 +162,9 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('SLA deadline set via workflows. Null means no SLA.'),
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod.array(zod.json()).optional(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).
@@ -212,7 +212,7 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
             .describe(
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod.json().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 

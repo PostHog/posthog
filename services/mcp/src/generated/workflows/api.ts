@@ -51,6 +51,8 @@ export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyActionsItemTypeMax = 100
+
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -85,7 +87,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
                         ),
-                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                    bytecode: zod.json().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
             ])
@@ -97,7 +99,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .union([
                 zod.object({
                     filters: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                        .array(zod.record(zod.string(), zod.json()))
                         .optional()
                         .describe(
                             "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
@@ -113,12 +115,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                 '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                             )
                                             .default(hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault),
-                                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        bytecode: zod.unknown().optional(),
-                                        transpiled: zod.unknown().optional(),
+                                        actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        bytecode: zod.json().optional(),
+                                        transpiled: zod.json().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
                                     })
@@ -138,7 +140,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                             'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
                         ),
                     bytecode: zod
-                        .unknown()
+                        .json()
                         .optional()
                         .describe("Compiled server-side from 'filters'. Do not set; ignored if sent."),
                 }),
@@ -217,12 +219,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                     )
                                     .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
-                                actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                bytecode: zod.unknown().optional(),
-                                transpiled: zod.unknown().optional(),
+                                actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                bytecode: zod.json().optional(),
+                                transpiled: zod.json().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
                             }),
@@ -231,29 +233,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .enum([
-                            'trigger',
-                            'function',
-                            'function_email',
-                            'function_sms',
-                            'function_push',
-                            'delay',
-                            'wait_until_condition',
-                            'wait_until_time_window',
-                            'conditional_branch',
-                            'random_cohort_branch',
-                            'exit',
-                        ])
+                        .string()
+                        .max(hogFlowsCreateBodyActionsItemTypeMax)
                         .describe(
-                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
-                        )
-                        .describe(
-                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                         ),
                     config: zod
                         .union([
                             zod
-                                .record(zod.string(), zod.unknown())
+                                .record(zod.string(), zod.json())
                                 .describe(
                                     'Config for every action type except wait_until_condition — see the field description for per-type shapes.'
                                 ),
@@ -273,19 +261,19 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                                 hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
                                                             ),
                                                         actions: zod
-                                                            .array(zod.record(zod.string(), zod.unknown()))
+                                                            .array(zod.record(zod.string(), zod.json()))
                                                             .optional(),
                                                         events: zod
-                                                            .array(zod.record(zod.string(), zod.unknown()))
+                                                            .array(zod.record(zod.string(), zod.json()))
                                                             .optional(),
                                                         data_warehouse: zod
-                                                            .array(zod.record(zod.string(), zod.unknown()))
+                                                            .array(zod.record(zod.string(), zod.json()))
                                                             .optional(),
                                                         properties: zod
-                                                            .array(zod.record(zod.string(), zod.unknown()))
+                                                            .array(zod.record(zod.string(), zod.json()))
                                                             .optional(),
-                                                        bytecode: zod.unknown().optional(),
-                                                        transpiled: zod.unknown().optional(),
+                                                        bytecode: zod.json().optional(),
+                                                        transpiled: zod.json().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
                                                     }),
@@ -320,19 +308,19 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                                     hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
                                                                 ),
                                                             actions: zod
-                                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                                .array(zod.record(zod.string(), zod.json()))
                                                                 .optional(),
                                                             events: zod
-                                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                                .array(zod.record(zod.string(), zod.json()))
                                                                 .optional(),
                                                             data_warehouse: zod
-                                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                                .array(zod.record(zod.string(), zod.json()))
                                                                 .optional(),
                                                             properties: zod
-                                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                                .array(zod.record(zod.string(), zod.json()))
                                                                 .optional(),
-                                                            bytecode: zod.unknown().optional(),
-                                                            transpiled: zod.unknown().optional(),
+                                                            bytecode: zod.json().optional(),
+                                                            transpiled: zod.json().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
                                                         }),
@@ -360,10 +348,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
-                        .unknown()
+                        .json()
                         .optional()
                         .describe(
                             'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
@@ -431,7 +419,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
                         ),
-                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                    bytecode: zod.json().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
             ])
@@ -443,7 +431,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.object({
                     filters: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                        .array(zod.record(zod.string(), zod.json()))
                         .optional()
                         .describe(
                             "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
@@ -461,12 +449,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                             .default(
                                                 hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault
                                             ),
-                                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        bytecode: zod.unknown().optional(),
-                                        transpiled: zod.unknown().optional(),
+                                        actions: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        events: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        data_warehouse: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        properties: zod.array(zod.record(zod.string(), zod.json())).optional(),
+                                        bytecode: zod.json().optional(),
+                                        transpiled: zod.json().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
                                     })
@@ -486,7 +474,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                             'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
                         ),
                     bytecode: zod
-                        .unknown()
+                        .json()
                         .optional()
                         .describe("Compiled server-side from 'filters'. Do not set; ignored if sent."),
                 }),
@@ -578,13 +566,13 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Action id. Required for update_action, remove_action, replace_action_edges.'),
                 patch: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         "update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input."
                     ),
                 action: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         'add_action only. A full action node {id, name, type, config, ...}; same shape as in actions.'
@@ -708,7 +696,7 @@ export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .optional()
         .describe('Test trigger payload, typically {event, person, groups}.'),
     mock_async_functions: zod
@@ -725,7 +713,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsInvocationsCreateBodyUseDraftDefault)
         .describe(
-            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override."
         ),
 })
 
@@ -901,7 +889,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("IANA timezone for interpreting the RRULE (default 'UTC')."),
     variables: zod
-        .unknown()
+        .json()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })

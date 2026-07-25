@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     stripEnumMinLength,
     stripUuidFormat,
-    useJsonSchemaForUnconstrainedValues,
+    replaceUnconstrainedValuesWithJsonSchema,
 } from '../../scripts/lib/schema-transforms.mjs'
 
 describe('stripEnumMinLength', () => {
@@ -206,7 +206,7 @@ describe('stripUuidFormat', () => {
     })
 })
 
-describe('useJsonSchemaForUnconstrainedValues', () => {
+describe('replaceUnconstrainedValuesWithJsonSchema', () => {
     it('preserves structured JSON branches for unconstrained generated tool inputs', () => {
         const generatedSource = `
 export const EndpointInput = zod.object({
@@ -215,7 +215,7 @@ export const EndpointInput = zod.object({
 })
 `
 
-        const transformed = useJsonSchemaForUnconstrainedValues(generatedSource)
+        const transformed = replaceUnconstrainedValuesWithJsonSchema(generatedSource)
 
         expect(transformed).toContain("query: zod.json().optional().describe('A HogQL or insight query.')")
         expect(transformed).toContain('payload: zod.record(zod.string(), zod.json())')
@@ -225,6 +225,6 @@ export const EndpointInput = zod.object({
     it('does not modify unrelated generated Zod expressions', () => {
         const generatedSource = 'const schema = zod.object({ name: zod.string(), tags: zod.array(zod.string()) })'
 
-        expect(useJsonSchemaForUnconstrainedValues(generatedSource)).toBe(generatedSource)
+        expect(replaceUnconstrainedValuesWithJsonSchema(generatedSource)).toBe(generatedSource)
     })
 })

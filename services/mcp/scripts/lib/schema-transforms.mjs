@@ -58,6 +58,6 @@ export function stripUuidFormat(obj) {
  * the OpenAPI document: the source schema is still accurately unconstrained,
  * and the conversion is specific to MCP's JSON tool-input contract.
  */
-export function useJsonSchemaForUnconstrainedValues(generatedSource) {
+export function replaceUnconstrainedValuesWithJsonSchema(generatedSource) {
     return generatedSource.replace(/\bzod\.unknown\(\)/g, 'zod.json()')
 }

@@ -118,7 +118,7 @@ export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Serialized autocapture-style element chain from the element up to the document root.'),
     element_context: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .optional()
         .describe('Structured element metadata (inferred selectors, attributes, component hints).'),
     viewport: zod

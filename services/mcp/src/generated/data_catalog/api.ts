@@ -96,7 +96,7 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
     definition: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .nullish()
         .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
     source_insight_short_id: zod
@@ -165,7 +165,7 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
     definition: zod
-        .record(zod.string(), zod.unknown())
+        .record(zod.string(), zod.json())
         .nullish()
         .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
     source_insight_short_id: zod
@@ -301,7 +301,7 @@ export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.ob
         .string()
         .max(dataCatalogRelationshipProposalsCreateBodyFieldNameMax)
         .describe('Accessor the join adds to the source table.'),
-    configuration: zod.unknown().optional().describe('Extra join configuration, e.g. a field mapping.'),
+    configuration: zod.json().optional().describe('Extra join configuration, e.g. a field mapping.'),
     confidence: zod
         .number()
         .min(dataCatalogRelationshipProposalsCreateBodyConfidenceMin)
@@ -309,7 +309,7 @@ export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.ob
         .nullish()
         .describe('Discovery confidence in this join, 0-1.'),
     reasoning: zod.string().optional().describe('Why this join is proposed.'),
-    evidence: zod.unknown().optional().describe('Sampling evidence: match rates, sample values.'),
+    evidence: zod.json().optional().describe('Sampling evidence: match rates, sample values.'),
 })
 
 /**

@@ -453,7 +453,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
                     ),
                 sceneParams: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'
@@ -522,7 +522,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
                     ),
                 sceneParams: zod
-                    .unknown()
+                    .json()
                     .optional()
                     .describe(
                         'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'

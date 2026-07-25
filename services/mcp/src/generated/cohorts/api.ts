@@ -69,7 +69,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                         values: zod.array(
                             zod.union([
                                 zod.object({
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('behavioral'),
@@ -96,13 +96,13 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.object({
                                                         type: zod.enum(['event', 'element']),
                                                         key: zod.string(),
-                                                        value: zod.unknown(),
+                                                        value: zod.json(),
                                                         operator: zod.union([zod.string(), zod.null()]).optional(),
                                                     }),
                                                     zod.object({
                                                         type: zod.literal('hogql'),
                                                         key: zod.string(),
-                                                        value: zod.unknown().optional(),
+                                                        value: zod.json().optional(),
                                                     }),
                                                 ])
                                             ),
@@ -113,7 +113,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
                                 }),
                                 zod.object({
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('cohort'),
@@ -125,8 +125,8 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                 }),
                                 zod.object({
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod.unknown().optional(),
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    value: zod.json().optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('person'),
@@ -138,8 +138,8 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                 zod
                                     .object({
                                         operator: zod.union([zod.string(), zod.null()]).optional(),
-                                        value: zod.unknown().optional(),
-                                        bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                        value: zod.json().optional(),
+                                        bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                         bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                         conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                         type: zod.literal('person_metadata'),
@@ -153,19 +153,18 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.'
                                     ),
-                                zod.unknown(),
+                                zod.json(),
                             ])
                         ),
                     })
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
-                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod.json().optional(),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
@@ -225,7 +224,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         values: zod.array(
                             zod.union([
                                 zod.object({
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('behavioral'),
@@ -254,13 +253,13 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.object({
                                                         type: zod.enum(['event', 'element']),
                                                         key: zod.string(),
-                                                        value: zod.unknown(),
+                                                        value: zod.json(),
                                                         operator: zod.union([zod.string(), zod.null()]).optional(),
                                                     }),
                                                     zod.object({
                                                         type: zod.literal('hogql'),
                                                         key: zod.string(),
-                                                        value: zod.unknown().optional(),
+                                                        value: zod.json().optional(),
                                                     }),
                                                 ])
                                             ),
@@ -271,7 +270,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
                                 }),
                                 zod.object({
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('cohort'),
@@ -285,8 +284,8 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 }),
                                 zod.object({
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod.unknown().optional(),
-                                    bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                    value: zod.json().optional(),
+                                    bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('person'),
@@ -300,8 +299,8 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 zod
                                     .object({
                                         operator: zod.union([zod.string(), zod.null()]).optional(),
-                                        value: zod.unknown().optional(),
-                                        bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                        value: zod.json().optional(),
+                                        bytecode: zod.union([zod.array(zod.json()), zod.null()]).optional(),
                                         bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                         conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                         type: zod.literal('person_metadata'),
@@ -315,19 +314,18 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.'
                                     ),
-                                zod.unknown(),
+                                zod.json(),
                             ])
                         ),
                     })
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
-                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod.json().optional(),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
