@@ -11,6 +11,7 @@ pub mod chunk;
 pub mod completion;
 pub mod condition;
 pub mod ids;
+pub mod ledger;
 pub mod partition;
 pub mod pinned;
 pub mod plan;
@@ -25,7 +26,7 @@ pub use chunk::{
     ScannedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, BehavioralShapeHashError, ReconcileTile, SeedTile,
+    BehavioralShapeHash, BehavioralShapeHashError, ReconcileCompleteMarker, ReconcileTile, SeedTile,
 };
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
@@ -40,6 +41,7 @@ pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     UtcMillis, UtcMsRange, UtcRangeError,
 };
+pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,

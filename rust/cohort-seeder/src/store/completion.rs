@@ -19,8 +19,8 @@ use std::fmt;
 
 use crate::domain::{
     BehavioralShapeHash, BehavioralShapeHashError, CompletionParts, CompletionPhase,
-    CompletionStatus, DispatchEpoch, MarkerWatch, PartitionBitmap, PartitionBitmapError,
-    ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
+    CompletionStatus, DispatchEpoch, MarkerWatch, ObservationEnds, PartitionBitmap,
+    PartitionBitmapError, ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -29,8 +29,8 @@ use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 /// byte-identical and the composed SQL is a compile-time constant (mirrors `runs::run_columns!`).
 macro_rules! completion_columns {
     () => {
-        "id, team_id, status, chunks_planned_at, reconcile_dispatched_at, reconcile_observed_at, \
-         reconcile_hwms, marker_watch"
+        "id, team_id, status, created_at, chunks_planned_at, reconcile_dispatched_at, \
+         reconcile_observed_at, reconcile_hwms, marker_watch"
     };
 }
 
@@ -111,7 +111,7 @@ const RUNS_WITH_ALL_CHUNKS_CONFIRMED: &str = concat!(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionOperation {
     RecordDispatch,
-    PersistWatch,
+    PersistEnds,
     PersistObservations,
     MarkCompleted,
     RecordPartial,
@@ -124,7 +124,7 @@ impl fmt::Display for CompletionOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::RecordDispatch => "record-dispatch",
-            Self::PersistWatch => "persist-watch",
+            Self::PersistEnds => "persist-ends",
             Self::PersistObservations => "persist-observations",
             Self::MarkCompleted => "mark-completed",
             Self::RecordPartial => "record-partial",
@@ -344,27 +344,36 @@ pub async fn confirm_reconciling(
     Ok(claimed.map(ClaimRow::into_claim))
 }
 
-/// Persist the watcher's resume state (`marker_watch`) under the dispatch fence.
-pub async fn persist_marker_watch(
+/// Record the captured observation ends under the dispatch fence — the once-per-dispatch write that
+/// arms the settlement proof. It patches only the `ends` key: the observer holds discovery-time
+/// positions, so writing the whole document would race the watch task's position flush and regress
+/// the watcher's coverage (safe in direction, but on an idle topic nothing would ever repair it and
+/// the run could never mint a proof).
+pub async fn persist_observation_ends(
     pool: &PgPool,
     run_id: RunId,
     epoch: DispatchEpoch,
-    watch: &MarkerWatch,
+    ends: &ObservationEnds,
 ) -> Result<(), CompletionStoreError> {
     let updated = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
-        SET marker_watch = $3, updated_at = now()
+        SET marker_watch = jsonb_set(
+                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'positions', '{}'::jsonb)),
+                '{ends}', $3::jsonb, true
+            ),
+            updated_at = now()
         WHERE id = $1 AND reconcile_dispatched_at = $2 AND status = 'reconciling'
         RETURNING id
         "#,
     )
     .bind(run_id)
     .bind(epoch.as_datetime())
-    .bind(Json(watch))
+    .bind(Json(ends))
+    .bind(i64::from(MARKER_WATCH_SCHEMA))
     .fetch_optional(pool)
     .await?;
-    fence(updated, run_id, CompletionOperation::PersistWatch)
+    fence(updated, run_id, CompletionOperation::PersistEnds)
 }
 
 /// OR-merge observed marker bits into every named cohort and advance the watcher positions, in one
@@ -733,6 +742,9 @@ pub async fn runs_with_all_chunks_confirmed(
 pub struct DiscoveredCompletion {
     pub run_id: RunId,
     pub team_id: TeamId,
+    /// When the run was created. The observer uses it to age the oldest not-yet-observed run for the
+    /// stalled-observation pager gauge.
+    pub created_at: DateTime<Utc>,
     pub phase: CompletionPhase,
 }
 
@@ -777,6 +789,7 @@ fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
     Some(DiscoveredCompletion {
         run_id: row.id,
         team_id: TeamId(row.team_id),
+        created_at: row.created_at,
         phase,
     })
 }
@@ -834,6 +847,7 @@ struct CompletionRunRow {
     id: RunId,
     team_id: i32,
     status: String,
+    created_at: DateTime<Utc>,
     chunks_planned_at: Option<DateTime<Utc>>,
     reconcile_dispatched_at: Option<DateTime<Utc>>,
     reconcile_observed_at: Option<DateTime<Utc>>,

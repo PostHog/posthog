@@ -312,6 +312,29 @@ impl WatchPositions {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (MembershipPartition, NextOffset)> + '_ {
+        self.0
+            .iter()
+            .map(|(&partition, &offset)| (partition, offset))
+    }
+
+    /// Advance a partition's position to the later of its current and `offset`. The watcher reads a
+    /// single global consumer, so positions must never regress even when a re-assignment re-reads an
+    /// earlier offset; taking the max keeps the persisted resume state monotone.
+    ///
+    /// A partition this position set does not already name is ignored rather than inserted. Such a
+    /// partition appeared after the dispatch captured its start offsets, so the run never read it
+    /// from the beginning; inserting it would claim coverage of everything below `offset`. Leaving
+    /// it absent keeps [`ObservationEnds::caught_up`] fail-closed — the run holds until a
+    /// re-dispatch recaptures a start position for it.
+    pub fn advance(&mut self, partition: MembershipPartition, offset: NextOffset) {
+        if let Some(current) = self.0.get_mut(&partition) {
+            if offset > *current {
+                *current = offset;
+            }
+        }
+    }
 }
 
 impl Serialize for WatchPositions {
@@ -341,8 +364,23 @@ impl ObservationEnds {
         self.0.insert(partition, offset);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    /// The membership end-watermarks captured at the liveness pass have the same shape as the
+    /// watcher's start positions — both are next-to-read offsets keyed by membership partition.
+    pub fn from_positions(positions: &WatchPositions) -> Self {
+        Self(positions.0.clone())
+    }
+
+    /// How many captured-end partitions the watcher has not yet read to — the reconcile marker-watch
+    /// lag, for the observer's hold gauge. Zero exactly when [`Self::caught_up`] mints a proof.
+    pub fn behind(&self, positions: &WatchPositions) -> usize {
+        self.0
+            .iter()
+            .filter(|(partition, end)| {
+                positions
+                    .get(**partition)
+                    .is_none_or(|position| position.get() < end.get())
+            })
+            .count()
     }
 
     /// A [`SettleProof`] is minted only when the watcher has read to or past every captured end. A

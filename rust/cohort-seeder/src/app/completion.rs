@@ -2,50 +2,63 @@
 //! poll arm after `fill_claim_slots`, it discovers seeding/reconciling behavioral runs, transitions a
 //! fully-confirmed run `seeding → reconciling`, produces the reconcile control tiles, and persists the
 //! dispatch record (produce HWMs + marker-watch start positions + fence epoch) through the same store
-//! path the CLI uses. Consumers/observers are PR-C — this producer never reads markers.
+//! path the CLI uses. Its second, independently gated half publishes the marker-watch directives and
+//! runs the per-run observation pass; either half alone is a valid configuration.
 //!
 //! Dispatch runs in a spawned task, never inline: producing `cohorts × COHORT_PARTITION_COUNT` control
 //! tiles and awaiting their delivery acks can exceed the orchestrator's liveness deadline. An
 //! in-flight set dedupes tasks on this replica; the CAS plus INV-3's ruling-fence semantics (a later
 //! `record` sets the fence, the processor supersedes duplicate tiles) make cross-replica duplicates
 //! safe.
+//!
+//! Per-run lag readings are aggregated here, not inside the observation pass: a tick observes many
+//! runs, so a gauge set per run would be last-writer-wins and would never clear once the last laggard
+//! settled.
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
+use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinError;
-use tracing::warn;
+use tracing::{info, warn};
 
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 
 use crate::config::Config;
 use crate::domain::{
-    CompletionPhase, DispatchEpoch, MarkerWatch, ProducedOffset, ReconcileHwms, ReconcileHwmsError,
-    RunId,
+    CompletionPhase, DispatchEpoch, DispatchedReconcile, MarkerWatch, PartitionBitmap,
+    ProducedOffset, ReconcileHwms, ReconcileHwmsError, RunId,
 };
 use crate::kafka::producer::{CaptureOffsetsError, SeedTileProducer};
 use crate::observability::metrics::{
     RECONCILE_CAS_LOST, RECONCILE_DISPATCHES, RECONCILE_DISPATCHES_IN_FLIGHT,
-    RECONCILE_RECORD_INVALID, RUNS_RECONCILING,
+    RECONCILE_LIVENESS_LAGGING_PARTITIONS, RECONCILE_MARKER_WATCH_LAG,
+    RECONCILE_OBSERVATION_STALLED_AGE_SECONDS, RECONCILE_RECORD_INVALID,
+    RECONCILE_ZERO_MARKER_RUNS, RUNS_OBSERVED, RUNS_RECONCILING,
 };
 use crate::store::completion::{
     cas_run_reconciling, confirm_reconciling, discover_completions,
     mark_run_observed_unreconcilable, runs_with_all_chunks_confirmed, CompletionStoreError,
-    ReconcilingClaim,
+    DiscoveredCompletion, ObservationParticipation, ReconcilingClaim,
 };
 use crate::store::runs::ReconcileRunError;
 
+use super::observe::{
+    observe_run, CommittedOffsetSource, ObservationStore, ObserveError, ObserveStep, ObserveTarget,
+    PgObservationStore, TopicOffsetSource,
+};
 use super::reconcile_dispatch::{
     execute_reconcile_dispatch, prepare_reconcile_dispatch, CertifiedDispatch,
     CompletionRequirement, PrepareReconcileDispatchError, PreparedDispatch, ReconcileDispatchError,
     ReconcileDispatchReceipt, RegisterBackfillConfirmation,
 };
+use super::watch::{WatchDirective, WatchDirectives};
 
 /// Timeout for the blocking Kafka metadata and watermark calls the dispatch makes.
 const KAFKA_METADATA_TIMEOUT: Duration = Duration::from_secs(10);
@@ -94,6 +107,38 @@ pub enum AutoDispatchPolicyError {
     PartitionCountMismatch { configured: u32 },
 }
 
+/// Whether the reconcile observer (marker watcher + observation pass) is armed. A separate gate from
+/// [`AutoDispatchPolicy`]: observation can run against CLI-dispatched runs without auto-dispatch, and
+/// auto-dispatch can run without the observer (a two-step rollout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservePolicy {
+    Disabled,
+    Enabled,
+}
+
+impl ObservePolicy {
+    pub fn from_config(config: &Config) -> Result<Self, ObservePolicyError> {
+        if !config.seeder_reconcile_observer_enabled {
+            return Ok(Self::Disabled);
+        }
+        if config.cohort_partition_count != COHORT_PARTITION_COUNT {
+            return Err(ObservePolicyError::PartitionCountMismatch {
+                configured: config.cohort_partition_count,
+            });
+        }
+        Ok(Self::Enabled)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ObservePolicyError {
+    #[error(
+        "the reconcile observer requires COHORT_PARTITION_COUNT == {expected}, got {configured}",
+        expected = COHORT_PARTITION_COUNT
+    )]
+    PartitionCountMismatch { configured: u32 },
+}
+
 /// Whether a spawned task starts a fresh dispatch (CAS out of `seeding`) or re-dispatches an
 /// already-`reconciling` run (confirm claim) to heal a missing or stale dispatch record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,53 +147,99 @@ enum DispatchKind {
     ReDispatch,
 }
 
-/// The owned dependencies a dispatch task needs, cheap to clone into a spawned task.
+/// The dispatch half's dependencies, cheap to clone into a spawned dispatch task.
 #[derive(Clone)]
-struct DispatchContext {
+struct DispatchArm {
     pool: PgPool,
     producer: SeedTileProducer,
     membership_topic: Arc<str>,
     max_inflight: NonZeroUsize,
+    /// Caps how many dispatch tasks this replica runs at once. Every task produces
+    /// `cohorts × COHORT_PARTITION_COUNT` tiles through the producer the chunk pipeline shares, so
+    /// unbounded fan-out would back the core seeding path off its own queue.
+    dispatch_slots: Arc<Semaphore>,
     register_backfill: RegisterBackfillConfirmation,
 }
 
+/// The observation half's dependencies: the store seam, the two broker-read seams, and the channel
+/// the driver republishes the watched-run set on each tick.
+struct ObserveArm {
+    store: Arc<dyn ObservationStore>,
+    committed: Arc<dyn CommittedOffsetSource>,
+    topic_ends: Arc<dyn TopicOffsetSource>,
+    directives: watch::Sender<WatchDirectives>,
+}
+
+/// The completion driver, ticked from the orchestrator poll arm. It carries whichever halves are
+/// armed: `dispatch` transitions confirmed runs into `reconciling` and produces reconcile tiles;
+/// `observe` publishes marker-watch directives and runs the observation pass. Either half alone is a
+/// valid configuration — construction requires at least one, encoded as the driver existing at all.
 pub struct CompletionDriver {
-    context: DispatchContext,
+    pool: PgPool,
     allowlist: TeamAllowlist,
+    dispatch: Option<DispatchArm>,
+    observe: Option<ObserveArm>,
     in_flight: Arc<Mutex<HashSet<RunId>>>,
-    dispatch_slots: Arc<Semaphore>,
+    /// Runs already reported as carrying an unusable dispatch record, so the warn and counter fire
+    /// per broken record rather than per poll tick. Pruned each tick to the runs still in the phase.
+    reported_undispatched: Mutex<HashSet<RunId>>,
 }
 
 impl CompletionDriver {
-    pub fn new(
-        pool: PgPool,
+    /// Base driver with neither half armed. `main` adds the halves the config enables.
+    pub fn new(pool: PgPool, allowlist: TeamAllowlist) -> Self {
+        Self {
+            pool,
+            allowlist,
+            dispatch: None,
+            observe: None,
+            in_flight: Arc::new(Mutex::new(HashSet::new())),
+            reported_undispatched: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Arm automatic reconcile dispatch.
+    pub fn with_dispatch(
+        mut self,
         producer: SeedTileProducer,
-        allowlist: TeamAllowlist,
         membership_topic: String,
         max_inflight: NonZeroUsize,
         max_concurrent_dispatches: NonZeroUsize,
         register_backfill: RegisterBackfillConfirmation,
     ) -> Self {
-        Self {
-            context: DispatchContext {
-                pool,
-                producer,
-                membership_topic: Arc::from(membership_topic),
-                max_inflight,
-                register_backfill,
-            },
-            allowlist,
-            in_flight: Arc::new(Mutex::new(HashSet::new())),
+        self.dispatch = Some(DispatchArm {
+            pool: self.pool.clone(),
+            producer,
+            membership_topic: Arc::from(membership_topic),
+            max_inflight,
             dispatch_slots: Arc::new(Semaphore::new(max_concurrent_dispatches.get())),
-        }
+            register_backfill,
+        });
+        self
     }
 
-    /// One driver pass: classify every discovered run and spawn dispatch tasks for the ones that need
-    /// one. A discovery failure is logged and retried next tick; the dark path (driver absent) costs
-    /// zero queries. Every read is per-tick, never per-run — the pass blocks the orchestrator's
-    /// liveness heartbeat.
+    /// Arm the reconcile observer, publishing directives on `directives` for the marker-watch task.
+    /// The store seam is built over the driver's own pool.
+    pub fn with_observe(
+        mut self,
+        committed: Arc<dyn CommittedOffsetSource>,
+        topic_ends: Arc<dyn TopicOffsetSource>,
+        directives: watch::Sender<WatchDirectives>,
+    ) -> Self {
+        self.observe = Some(ObserveArm {
+            store: Arc::new(PgObservationStore::new(self.pool.clone())),
+            committed,
+            topic_ends,
+            directives,
+        });
+        self
+    }
+
+    /// One driver pass: classify every discovered run, dispatch the ones that need it (dispatch arm),
+    /// and observe the reconciling ones (observe arm). A discovery failure is logged and retried next
+    /// tick; the dark path (driver absent) costs zero queries.
     pub async fn tick(&self) {
-        let discovered = match discover_completions(&self.context.pool, &self.allowlist).await {
+        let discovered = match discover_completions(&self.pool, &self.allowlist).await {
             Ok(discovered) => discovered,
             Err(error) => {
                 warn!(error = %error, "completion discovery failed");
@@ -156,28 +247,93 @@ impl CompletionDriver {
             }
         };
 
+        let now = Utc::now();
         let mut reconciling = 0_u64;
+        let mut oldest_stalled: Option<DateTime<Utc>> = None;
+        let mut directives = Vec::new();
+        let mut undispatched = HashSet::new();
+        // Collected across the loop and resolved with one batched chunk-ledger read below, so the
+        // pass never issues a query per planned run.
         let mut planned = Vec::new();
+        // Worst lag seen this tick, published once below so the gauges read fleet-wide and clear
+        // themselves when nothing is lagging.
+        let mut liveness_lagging = 0_usize;
+        let mut marker_lag = 0_usize;
+
         for completion in discovered {
-            match completion.phase {
-                CompletionPhase::Observed | CompletionPhase::Reconciling(_) => {
+            match &completion.phase {
+                CompletionPhase::Observed => {
                     reconciling += 1;
+                }
+                CompletionPhase::Reconciling(dispatched) => {
+                    reconciling += 1;
+                    // Age from the dispatch, not the run's creation: a run that legitimately spent
+                    // days seeding would otherwise read as stalled-by-days the instant it dispatches.
+                    track_oldest(&mut oldest_stalled, dispatched.epoch.as_datetime());
+                    if let Some(observe) = &self.observe {
+                        // One read per run per tick, shared by the watch directive and the pass.
+                        match observe.store.load_participations(completion.run_id).await {
+                            Ok(participations) => {
+                                directives.push(build_directive(
+                                    &completion,
+                                    dispatched,
+                                    &participations,
+                                ));
+                                let outcome = self
+                                    .observe_reconciling(
+                                        observe,
+                                        &completion,
+                                        dispatched,
+                                        &participations,
+                                    )
+                                    .await;
+                                liveness_lagging = liveness_lagging.max(outcome.liveness_lagging);
+                                marker_lag = marker_lag.max(outcome.marker_lag);
+                            }
+                            Err(error) => {
+                                warn!(error = %error, run_id = ?completion.run_id, "loading participations for the observation pass failed");
+                            }
+                        }
+                    }
                 }
                 CompletionPhase::ReconcilingUndispatched(reason) => {
                     reconciling += 1;
-                    // Count and warn only when a re-dispatch actually starts: the run keeps this
-                    // phase until the in-flight task records one, so counting per tick would turn a
-                    // single healing event into an unbounded rate.
-                    if self.spawn_dispatch(completion.run_id, DispatchKind::ReDispatch) {
+                    track_oldest(&mut oldest_stalled, completion.created_at);
+                    undispatched.insert(completion.run_id);
+                    // A run holds this phase until a re-dispatch records — across a whole
+                    // observe-only rollout window, if auto-dispatch is off. Count and warn once per
+                    // stretch so the signal measures broken dispatch records rather than how many
+                    // ticks have looked at the same one.
+                    let first_sighting =
+                        lock_run_set(&self.reported_undispatched).insert(completion.run_id);
+                    if first_sighting {
                         counter!(RECONCILE_RECORD_INVALID).increment(1);
+                    }
+                    // Only the dispatch arm can heal an undispatched run; observe-only leaves it for a
+                    // CLI re-dispatch.
+                    if self.dispatch.is_some() {
+                        if first_sighting {
+                            warn!(
+                                run_id = ?completion.run_id,
+                                ?reason,
+                                "reconciling run has no usable dispatch record; re-dispatching"
+                            );
+                        }
+                        self.spawn_dispatch(completion.run_id, DispatchKind::ReDispatch);
+                    } else if first_sighting {
                         warn!(
                             run_id = ?completion.run_id,
                             ?reason,
-                            "reconciling run has no usable dispatch record; re-dispatching"
+                            "reconciling run has no usable dispatch record; re-dispatch required (auto-dispatch off)"
                         );
                     }
                 }
-                CompletionPhase::SeedingPlanned => planned.push(completion.run_id),
+                CompletionPhase::SeedingPlanned => {
+                    // Only the dispatch arm consumes these, so observe-only skips the batch read.
+                    if self.dispatch.is_some() {
+                        planned.push(completion.run_id);
+                    }
+                }
                 CompletionPhase::SeedingUnplanned => {}
                 CompletionPhase::SeedingAnomalous => {
                     warn!(
@@ -187,36 +343,121 @@ impl CompletionDriver {
                 }
             }
         }
+
+        // Forget runs that have left the phase, so a later relapse counts as a fresh event.
+        lock_run_set(&self.reported_undispatched).retain(|run_id| undispatched.contains(run_id));
+
         gauge!(RUNS_RECONCILING).set(reconciling as f64);
 
-        match runs_with_all_chunks_confirmed(&self.context.pool, &planned).await {
+        match runs_with_all_chunks_confirmed(&self.pool, &planned).await {
             Ok(confirmed) => {
                 for run_id in confirmed {
-                    let _spawned = self.spawn_dispatch(run_id, DispatchKind::Fresh);
+                    self.spawn_dispatch(run_id, DispatchKind::Fresh);
                 }
             }
             Err(error) => {
                 warn!(error = %error, "reading chunk progress for dispatch failed");
             }
         }
+
+        if let Some(observe) = &self.observe {
+            // send_replace never fails even if the watch task is gone; a dead task is caught by its own
+            // lifecycle deadline.
+            observe
+                .directives
+                .send_replace(WatchDirectives { runs: directives });
+            gauge!(RECONCILE_LIVENESS_LAGGING_PARTITIONS).set(liveness_lagging as f64);
+            gauge!(RECONCILE_MARKER_WATCH_LAG).set(marker_lag as f64);
+            let stalled_age = oldest_stalled
+                .map(|since| (now - since).num_seconds().max(0) as f64)
+                .unwrap_or(0.0);
+            gauge!(RECONCILE_OBSERVATION_STALLED_AGE_SECONDS).set(stalled_age);
+        }
     }
 
-    /// Spawns a dispatch task unless one is already in flight for this run on this replica or the
-    /// driver is at its concurrency budget. Returns whether a task actually started, so callers can
-    /// attribute per-event signals to the event rather than to every poll tick that observes the
-    /// same pending state.
-    ///
-    /// Every task produces `cohorts × COHORT_PARTITION_COUNT` tiles through the producer the chunk
-    /// pipeline shares, so unbounded fan-out would back the core seeding path off its own queue. A
-    /// run that misses the budget keeps its phase and is picked up on a later tick.
-    fn spawn_dispatch(&self, run_id: RunId, kind: DispatchKind) -> bool {
-        let Ok(permit) = Arc::clone(&self.dispatch_slots).try_acquire_owned() else {
-            return false;
+    /// Run the observation pass for one reconciling run, returning what the tick's aggregate gauges
+    /// need. Per-run counters are emitted here, where the step is known.
+    async fn observe_reconciling(
+        &self,
+        observe: &ObserveArm,
+        completion: &DiscoveredCompletion,
+        dispatched: &DispatchedReconcile,
+        participations: &[ObservationParticipation],
+    ) -> ObserveOutcome {
+        let target = ObserveTarget {
+            run_id: completion.run_id,
+            team_id: completion.team_id,
+            epoch: dispatched.epoch,
+            hwms: dispatched.hwms.clone(),
+            watch: dispatched.watch.clone(),
         };
-        if !lock_in_flight(&self.in_flight).insert(run_id) {
-            return false;
+        match observe_run(
+            observe.store.as_ref(),
+            observe.committed.as_ref(),
+            observe.topic_ends.as_ref(),
+            &target,
+            participations,
+        )
+        .await
+        {
+            Ok(ObserveStep::Settled(summary)) => {
+                if summary.completed + summary.partial + summary.shortfall > 0
+                    || summary.zero_markers
+                {
+                    counter!(RUNS_OBSERVED).increment(1);
+                }
+                if summary.zero_markers {
+                    // A counter, not a gauge: a settled run is `Observed` on the next tick, so a
+                    // fleet-wide gate-off would be a single-tick blip most scrapes would miss.
+                    counter!(RECONCILE_ZERO_MARKER_RUNS).increment(1);
+                }
+                ObserveOutcome::default()
+            }
+            Ok(ObserveStep::ObservedAllComplete) => {
+                counter!(RUNS_OBSERVED).increment(1);
+                ObserveOutcome::default()
+            }
+            Ok(ObserveStep::LivenessLagging(partitions)) => ObserveOutcome {
+                liveness_lagging: partitions,
+                ..ObserveOutcome::default()
+            },
+            Ok(ObserveStep::MarkerLagging(lag)) => ObserveOutcome {
+                marker_lag: lag,
+                ..ObserveOutcome::default()
+            },
+            Ok(ObserveStep::EndsCaptured) => ObserveOutcome::default(),
+            Err(ObserveError::Store(CompletionStoreError::CompletionFenceLost {
+                operation,
+                ..
+            })) => {
+                info!(
+                    run_id = ?completion.run_id,
+                    %operation,
+                    "observation lost the dispatch fence; a re-dispatch superseded this pass"
+                );
+                ObserveOutcome::default()
+            }
+            Err(error) => {
+                warn!(error = %error, run_id = ?completion.run_id, "observing the reconciling run failed");
+                ObserveOutcome::default()
+            }
         }
-        let context = self.context.clone();
+    }
+
+    /// Spawns a dispatch task unless the dispatch arm is disarmed, one is already in flight for this
+    /// run on this replica, or the arm is at its concurrency budget. A run that misses the budget
+    /// keeps its phase and is picked up on a later tick.
+    fn spawn_dispatch(&self, run_id: RunId, kind: DispatchKind) {
+        let Some(dispatch) = &self.dispatch else {
+            return;
+        };
+        let Ok(permit) = Arc::clone(&dispatch.dispatch_slots).try_acquire_owned() else {
+            return;
+        };
+        if !lock_run_set(&self.in_flight).insert(run_id) {
+            return;
+        }
+        let context = dispatch.clone();
         let guard = InFlightGuard::enter(Arc::clone(&self.in_flight), run_id);
         let dispatch = tokio::spawn(async move {
             let _permit = permit;
@@ -231,7 +472,42 @@ impl CompletionDriver {
                 warn!(error = %error, run_id = ?run_id, "reconcile dispatch task panicked");
             }
         });
-        true
+    }
+}
+
+/// What one run's observation pass contributed to the tick's aggregate gauges.
+#[derive(Debug, Clone, Copy, Default)]
+struct ObserveOutcome {
+    liveness_lagging: usize,
+    marker_lag: usize,
+}
+
+/// Build a watch directive for one reconciling run from its dispatch record and persisted bits, so
+/// the watcher resumes the fold rather than restarting it.
+fn build_directive(
+    completion: &DiscoveredCompletion,
+    dispatched: &DispatchedReconcile,
+    participations: &[ObservationParticipation],
+) -> WatchDirective {
+    let seeded: Vec<(_, PartitionBitmap)> = participations
+        .iter()
+        .filter(|participation| participation.superseded_at.is_none())
+        .map(|participation| (participation.cohort_id, participation.bits))
+        .collect();
+    WatchDirective {
+        run_id: completion.run_id,
+        team_id: completion.team_id,
+        epoch: dispatched.epoch,
+        start: dispatched.watch.positions.clone(),
+        seeded,
+    }
+}
+
+/// Track the oldest not-yet-observed reconciling run for the stalled-observation pager gauge.
+fn track_oldest(oldest: &mut Option<DateTime<Utc>>, created_at: DateTime<Utc>) {
+    match oldest {
+        Some(current) if *current <= created_at => {}
+        _ => *oldest = Some(created_at),
     }
 }
 
@@ -251,17 +527,15 @@ impl InFlightGuard {
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        lock_in_flight(&self.in_flight).remove(&self.run_id);
+        lock_run_set(&self.in_flight).remove(&self.run_id);
         gauge!(RECONCILE_DISPATCHES_IN_FLIGHT).decrement(1.0);
     }
 }
 
-/// The set stays structurally valid across a panic between lock and mutation, so a poisoned lock is
-/// recoverable rather than fatal.
-fn lock_in_flight(in_flight: &Mutex<HashSet<RunId>>) -> std::sync::MutexGuard<'_, HashSet<RunId>> {
-    in_flight
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// The driver's run sets stay structurally valid across a panic between lock and mutation, so a
+/// poisoned lock is recoverable rather than fatal.
+fn lock_run_set(runs: &Mutex<HashSet<RunId>>) -> std::sync::MutexGuard<'_, HashSet<RunId>> {
+    runs.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// One dispatch attempt. Every failure path logs and leaves the run in a state the next tick retries:
@@ -270,7 +544,7 @@ fn lock_in_flight(in_flight: &Mutex<HashSet<RunId>>) -> std::sync::MutexGuard<'_
 /// produce/record failure leaves the run `reconciling` with no record, which the next tick sees as
 /// `ReconcilingUndispatched` and re-dispatches. On shutdown mid-dispatch the same recovery converges
 /// per the crash-recovery matrix.
-async fn run_dispatch(context: &DispatchContext, run_id: RunId, kind: DispatchKind) {
+async fn run_dispatch(context: &DispatchArm, run_id: RunId, kind: DispatchKind) {
     let claim = match acquire_claim(context, run_id, kind).await {
         Ok(Some(claim)) => claim,
         Ok(None) => {
@@ -354,7 +628,7 @@ async fn run_dispatch(context: &DispatchContext, run_id: RunId, kind: DispatchKi
 }
 
 async fn acquire_claim(
-    context: &DispatchContext,
+    context: &DispatchArm,
     run_id: RunId,
     kind: DispatchKind,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
@@ -520,6 +794,31 @@ mod tests {
             ]))
             .unwrap_err(),
             AutoDispatchPolicyError::PartitionCountMismatch { configured: 8 }
+        );
+    }
+
+    #[test]
+    fn observer_policy_is_a_gate_independent_of_auto_dispatch() {
+        assert_eq!(
+            ObservePolicy::from_config(&config_with(&[])).unwrap(),
+            ObservePolicy::Disabled
+        );
+        // The observer arms without the dispatch flags: the two gates are independent.
+        assert_eq!(
+            ObservePolicy::from_config(&config_with(&[(
+                "SEEDER_RECONCILE_OBSERVER_ENABLED",
+                "true"
+            )]))
+            .unwrap(),
+            ObservePolicy::Enabled
+        );
+        assert_eq!(
+            ObservePolicy::from_config(&config_with(&[
+                ("SEEDER_RECONCILE_OBSERVER_ENABLED", "true"),
+                ("COHORT_PARTITION_COUNT", "8"),
+            ]))
+            .unwrap_err(),
+            ObservePolicyError::PartitionCountMismatch { configured: 8 }
         );
     }
 }
