@@ -31,6 +31,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
+import { LinkedReportsPanel } from './LinkedReportsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { RelatedGroupsPanel } from './RelatedGroupsPanel'
@@ -83,6 +84,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         eventsQuery,
         previousTickets,
         previousTicketsLoading,
+        linkedReports,
+        linkedReportsLoading,
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
@@ -522,6 +525,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 exceptionsQuery={exceptionsQuery}
                                 sessionId={ticket?.session_id}
                                 distinctId={ticket?.distinct_id}
+                            />
+
+                            {/* What the inbox already found for this ticket */}
+                            <LinkedReportsPanel
+                                linkedReports={linkedReports}
+                                linkedReportsLoading={linkedReportsLoading}
                             />
 
                             {/* Previous Tickets Panel */}

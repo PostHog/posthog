@@ -133,6 +133,7 @@ from products.signals.backend.temporal.deletion import SignalReportDeletionWorkf
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
+    fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
@@ -715,6 +716,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
@@ -830,6 +832,10 @@ class SignalReportViewSet(
         source_product_filter = self.request.query_params.get("source_product")
         if not source_product_filter:
             return queryset
+        # `source_id` already implies its product, so its narrower lookup subsumes this one. Skip
+        # rather than run a second ClickHouse query for a strictly wider set.
+        if self.request.query_params.get("source_id"):
+            return queryset
 
         source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
         if not source_products:
@@ -837,6 +843,27 @@ class SignalReportViewSet(
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
+
+    def _apply_signal_report_source_id_filter(self, queryset):
+        """Reports a specific source record contributed to, e.g. one support ticket's reports.
+
+        The owning product asks with the id it already has, instead of reaching into signals.
+        """
+        source_id_filter = self.request.query_params.get("source_id")
+        if not source_id_filter:
+            return queryset
+
+        source_ids = [s.strip() for s in source_id_filter.split(",") if s.strip()]
+        if not source_ids:
+            return queryset
+
+        source_product = self.request.query_params.get("source_product")
+        # A single product narrows the ClickHouse scan; a comma-separated list can't, since the
+        # query takes one product, so leave it unfiltered and let source_id alone select.
+        product = source_product if source_product and "," not in source_product else None
+        by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
+        report_ids = {report_id for ids in by_source.values() for report_id in ids}
+        return queryset.filter(id__in=report_ids)
 
     def _apply_signal_report_scout_filter(self, queryset):
         scout_filter = self.request.query_params.get("scout")
@@ -1305,6 +1332,18 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of source products to include. Reports are kept if at least one of "
                     "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+                ),
+            ),
+            OpenApiParameter(
+                name="source_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of source record ids. Reports are kept if at least one of their "
+                    "contributing signals came from one of these records — e.g. pass a support ticket's UUID to "
+                    "see what the inbox already found for that ticket. Pair with a single source_product to "
+                    "narrow the lookup."
                 ),
             ),
             OpenApiParameter(

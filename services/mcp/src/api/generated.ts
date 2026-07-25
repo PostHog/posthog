@@ -79016,6 +79016,10 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Pair with a single source_product to narrow the lookup.
+     */
+    source_id?: string;
+    /**
      * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
      */
     source_product?: string;
