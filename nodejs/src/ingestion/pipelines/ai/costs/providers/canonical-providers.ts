@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-24 20:27:35 UTC
+// Generated at: 2026-07-26 00:39:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -38,6 +38,7 @@ export type CanonicalProvider =
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
+    | 'claude-on-aws'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
