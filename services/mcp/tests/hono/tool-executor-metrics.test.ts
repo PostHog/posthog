@@ -431,22 +431,10 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
         })
 
-        it('emits exec-level error for framework failures before inner dispatch', async () => {
-            await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                execState()
-            )
-
-            const execErrors = callsFor(mockToolCallsInc, 'exec')
-            expect(execErrors.length).toBeGreaterThan(0)
-            expect(execErrors[0].status).toBe('validation_error')
-
-            expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
-        })
-
         // Dispatcher rejections are agent mistakes, not server faults: they must not
-        // land in the `internal` bucket the error-rate alert watches, and they must
-        // carry a value-free message so the failure is debuggable from analytics.
+        // land in the `internal` bucket the error-rate alert watches, they stay
+        // attributed to `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics.
         it.each([
             ['call nonexistent-tool-xyz {}', 'unknown_tool'],
             ['frobnicate', 'unknown_command'],
@@ -454,6 +442,7 @@ describe('ToolExecutor metrics', () => {
         ])('classifies %s as validation', async (command, reason) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
             expect(trackToolCallExtras('exec')).toMatchObject({
                 $mcp_error_type: 'validation',

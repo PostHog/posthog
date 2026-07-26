@@ -434,39 +434,16 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
     const toolName = tool || 'unknown'
 
-    // Recoverable: agent can fix it via switch-project / projects-get. Skip
-    // exception capture (this is expected user state, not a bug) and return the
-    // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: [${toolName}]: ${error.message}`,
-                },
-            ],
-            isError: true,
-        }
-    }
-
-    // Recoverable: input rejected by the tool's schema before any handler ran —
-    // an agent slip-up, not a bug. The message already names the offending
-    // field(s); skip exception capture like the API 4xx branch below.
-    if (error instanceof ToolInputValidationError) {
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: [${toolName}]: ${error.message}`,
-                },
-            ],
-            isError: true,
-        }
-    }
-
-    // Recoverable: return the guidance so the agent can self-correct, and skip
-    // exception capture — otherwise every slip-up mints a fresh error-tracking issue.
-    if (error instanceof ExecCommandError) {
+    // Recoverable: expected agent or user state, not a bug — no project picked,
+    // input the schema rejected, a mistyped exec command. Each of these classes
+    // pre-formats a message the agent can self-correct from, so return it verbatim
+    // and skip exception capture, which would mint an issue per slip-up.
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof ToolInputValidationError ||
+        error instanceof ExecCommandError
+    ) {
         return {
             content: [
                 {

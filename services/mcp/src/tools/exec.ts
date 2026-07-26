@@ -351,15 +351,9 @@ export function createExecTool(
                             .list()
                             .map((item) => item.id)
                             .join(', ')
-                        if (unknownTopicIds.length === 1) {
-                            throw new ExecCommandError(
-                                `Unknown learning topic: "${unknownTopicIds[0]}". Available: ${available}`,
-                                'unknown_learn_topic'
-                            )
-                        }
                         const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
                         throw new ExecCommandError(
-                            `Unknown learning topics: ${unknownTopics}. Available: ${available}`,
+                            `Unknown learning topic${unknownTopicIds.length === 1 ? '' : 's'}: ${unknownTopics}. Available: ${available}`,
                             'unknown_learn_topic'
                         )
                     }
@@ -540,6 +534,8 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     if (!context) {
+                        // Deliberately untyped: a wiring fault, not an agent mistake, so it
+                        // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
                     const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
