@@ -44,22 +44,22 @@ def remove_deleted_person_data():
     name = f"{DELETED_PERSON_IDS_DICTIONARY}_{uuid.uuid4().hex}"
     qualified = f"{CLICKHOUSE_DATABASE}.{name}"
 
-    # `present` is an unused attribute; the dictionary is only probed with dictHas().
-    sync_execute(
-        f"""
-        CREATE OR REPLACE DICTIONARY {qualified} {ON_CLUSTER_CLAUSE()} (id UUID, present UInt8)
-        PRIMARY KEY id
-        SOURCE(CLICKHOUSE(
-            QUERY 'SELECT id, toUInt8(1) AS present FROM {CLICKHOUSE_DATABASE}.person WHERE is_deleted > 0'
-            USER '{dict_reader_user}' PASSWORD '{dict_reader_password}'
-        ))
-        LAYOUT(COMPLEX_KEY_HASHED())
-        LIFETIME(0)
-        """,
-        workload=Workload.OFFLINE,
-    )
-
     try:
+        # `present` is an unused attribute; the dictionary is only probed with dictHas().
+        sync_execute(
+            f"""
+            CREATE OR REPLACE DICTIONARY {qualified} {ON_CLUSTER_CLAUSE()} (id UUID, present UInt8)
+            PRIMARY KEY id
+            SOURCE(CLICKHOUSE(
+                QUERY 'SELECT id, toUInt8(1) AS present FROM {CLICKHOUSE_DATABASE}.person WHERE is_deleted > 0'
+                USER '{dict_reader_user}' PASSWORD '{dict_reader_password}'
+            ))
+            LAYOUT(COMPLEX_KEY_HASHED())
+            LIFETIME(0)
+            """,
+            workload=Workload.OFFLINE,
+        )
+
         sync_execute(
             f"SYSTEM RELOAD DICTIONARY {ON_CLUSTER_CLAUSE()} {qualified}",
             workload=Workload.OFFLINE,
