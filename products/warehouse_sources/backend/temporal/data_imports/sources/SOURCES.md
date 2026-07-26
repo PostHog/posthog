@@ -170,6 +170,7 @@ the row lists both.
 | courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
+| criteo                           | HTTP                        | requests                                                        | ✅                          |
 | cronitor                         | HTTP                        | requests                                                        | ✅                          |
 | crunchbase                       | HTTP                        | requests                                                        | ✅                          |
 | culture_amp                      | HTTP                        | requests                                                        | ✅                          |
@@ -857,7 +858,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - couchbase
 - crisp
-- criteo
 - crossref
 - crowdstrike_falcon
 - cube_cloud

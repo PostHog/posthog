@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class CriteoSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    report_currency: str | None = None
+    report_timezone: str | None = None
