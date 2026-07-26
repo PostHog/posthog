@@ -15,6 +15,7 @@ import type {
     CIMDVerificationTokenWithValueApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasSourceEditApi,
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
     CanvasSourceResponseApi,
@@ -1485,6 +1486,33 @@ export const desktopFileSystemCanvasBuildsRetrieve = async (
     return apiMutator<CanvasBuildsResponseApi>(getDesktopFileSystemCanvasBuildsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasEditCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/edit/`
+}
+
+/**
+ * Publish per-file edits against the canvas's current source project.
+ *
+ * Diff-aware alternative to sending the complete project: each operation
+ * sets a file's content or (content null) deletes it, applied to the head
+ * the caller read. `expected_current_version_id` is mandatory here —
+ * relative edits against an unverified base could silently merge into
+ * someone else's newer work, so unguarded diff publishes are refused.
+ */
+export const desktopFileSystemCanvasEditCreate = async (
+    projectId: string,
+    id: string,
+    canvasSourceEditApi: CanvasSourceEditApi,
+    options?: RequestInit
+): Promise<CanvasSourcePublishResponseApi> => {
+    return apiMutator<CanvasSourcePublishResponseApi>(getDesktopFileSystemCanvasEditCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasSourceEditApi),
     })
 }
 

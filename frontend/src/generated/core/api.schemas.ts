@@ -2963,50 +2963,33 @@ export interface CanvasBuildsResponseApi {
 }
 
 /**
- * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
+ * One per-file edit: set a file's content, or delete it.
  */
-export type CanvasSourceProjectApiFiles = { [key: string]: string }
-
-/**
- * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
- */
-export type CanvasSourceProjectApiDependencies = { [key: string]: string }
-
-/**
- * A canvas's multi-file source project — the canonical write format for canvas source.
- *
- * Until the canvas build service ships, projects are constrained to the
- * legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
- * `src/canvas.tsx` (the single React component the runtime mounts).
- */
-export interface CanvasSourceProjectApi {
-    /** Source-project schema version. Currently always 1. */
-    schemaVersion: number
-    /** Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported. */
-    files: CanvasSourceProjectApiFiles
-    /** The project's entry HTML file. Currently always "index.html". */
-    entryHtml: string
-    /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
-    dependencies?: CanvasSourceProjectApiDependencies
-    /** Version of the host-injected `ph` canvas SDK the project targets. */
-    canvasSdkVersion?: string
+export interface CanvasSourceEditOperationApi {
+    /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+    path: string
+    /**
+     * The file's complete new content. Null (or omitted) deletes the file.
+     * @nullable
+     */
+    content?: string | null
 }
 
 /**
- * Payload for publishing a complete canvas source project.
+ * Payload for publishing per-file edits against the canvas's current source.
  */
-export interface CanvasSourcePublishApi {
-    /** The complete source project to publish. */
-    project: CanvasSourceProjectApi
+export interface CanvasSourceEditApi {
+    /** Edits applied in order to the canvas's current source project. */
+    operations: CanvasSourceEditOperationApi[]
     /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
     /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
     name?: string
     /**
-     * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
      * @nullable
      */
-    expected_current_version_id?: string | null
+    expected_current_version_id: string | null
 }
 
 /**
@@ -3065,6 +3048,53 @@ export interface CanvasSourceInvalidApi {
     code: string
     /** The validation diagnostics, including at least one error. */
     diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
+ */
+export type CanvasSourceProjectApiFiles = { [key: string]: string }
+
+/**
+ * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+ */
+export type CanvasSourceProjectApiDependencies = { [key: string]: string }
+
+/**
+ * A canvas's multi-file source project — the canonical write format for canvas source.
+ *
+ * Until the canvas build service ships, projects are constrained to the
+ * legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
+ * `src/canvas.tsx` (the single React component the runtime mounts).
+ */
+export interface CanvasSourceProjectApi {
+    /** Source-project schema version. Currently always 1. */
+    schemaVersion: number
+    /** Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported. */
+    files: CanvasSourceProjectApiFiles
+    /** The project's entry HTML file. Currently always "index.html". */
+    entryHtml: string
+    /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+    dependencies?: CanvasSourceProjectApiDependencies
+    /** Version of the host-injected `ph` canvas SDK the project targets. */
+    canvasSdkVersion?: string
+}
+
+/**
+ * Payload for publishing a complete canvas source project.
+ */
+export interface CanvasSourcePublishApi {
+    /** The complete source project to publish. */
+    project: CanvasSourceProjectApi
+    /** Short description of the change, stored on the appended version history entry. */
+    prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+    name?: string
+    /**
+     * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
 }
 
 /**

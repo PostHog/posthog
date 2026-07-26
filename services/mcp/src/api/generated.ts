@@ -13736,6 +13736,36 @@ export namespace Schemas {
     }
 
     /**
+     * One per-file edit: set a file's content, or delete it.
+     */
+    export interface CanvasSourceEditOperation {
+      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      path: string;
+      /**
+         * The file's complete new content. Null (or omitted) deletes the file.
+         * @nullable
+         */
+      content?: string | null;
+    }
+
+    /**
+     * Payload for publishing per-file edits against the canvas's current source.
+     */
+    export interface CanvasSourceEdit {
+      /** Edits applied in order to the canvas's current source project. */
+      operations: CanvasSourceEditOperation[];
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+      name?: string;
+      /**
+         * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
      * 400 body for a publish whose source project failed validation.
      */
     export interface CanvasSourceInvalid {

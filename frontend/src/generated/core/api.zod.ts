@@ -9004,6 +9004,51 @@ export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
 /**
+ * Publish per-file edits against the canvas's current source project.
+ *
+ * Diff-aware alternative to sending the complete project: each operation
+ * sets a file's content or (content null) deletes it, applied to the head
+ * the caller read. `expected_current_version_id` is mandatory here —
+ * relative edits against an unverified base could silently merge into
+ * someone else's newer work, so unguarded diff publishes are refused.
+ */
+export const DesktopFileSystemCanvasEditCreateBody = /* @__PURE__ */ zod
+    .object({
+        operations: zod
+            .array(
+                zod
+                    .object({
+                        path: zod
+                            .string()
+                            .describe(
+                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
+                            ),
+                        content: zod
+                            .string()
+                            .nullish()
+                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                    })
+                    .describe("One per-file edit: set a file's content, or delete it.")
+            )
+            .describe("Edits applied in order to the canvas's current source project."),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        name: zod
+            .string()
+            .optional()
+            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
+        expected_current_version_id: zod
+            .string()
+            .nullable()
+            .describe(
+                'Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.'
+            ),
+    })
+    .describe("Payload for publishing per-file edits against the canvas's current source.")
+
+/**
  * Publish a complete canvas source project as the canvas's new head version.
  *
  * Validates the project first — an error-severity diagnostic rejects the

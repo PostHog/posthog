@@ -82,6 +82,25 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
+    desktop-file-system-canvas-edit-create:
+        operation: desktop_file_system_canvas_edit_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit canvas source files
+        description: >
+            Publish per-file edits against a canvas's current source, without resending the whole project. Each
+            operation sets a file's complete content, or deletes it when `content` is null.
+            `expected_current_version_id` is REQUIRED (from desktop-file-system-canvas-source-retrieve; null only for a
+            never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply,
+            and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to edit.
     desktop-file-system-canvas-partial-update:
         operation: desktop_file_system_canvas_partial_update
         enabled: true

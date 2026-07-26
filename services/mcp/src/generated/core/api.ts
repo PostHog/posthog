@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -761,6 +761,60 @@ export const DesktopFileSystemCanvasBuildsRetrieveParams = /* @__PURE__ */ zod.o
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Publish per-file edits against the canvas's current source project.
+ *
+ * Diff-aware alternative to sending the complete project: each operation
+ * sets a file's content or (content null) deletes it, applied to the head
+ * the caller read. `expected_current_version_id` is mandatory here —
+ * relative edits against an unverified base could silently merge into
+ * someone else's newer work, so unguarded diff publishes are refused.
+ */
+export const DesktopFileSystemCanvasEditCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DesktopFileSystemCanvasEditCreateBody = /* @__PURE__ */ zod
+    .object({
+        operations: zod
+            .array(
+                zod
+                    .object({
+                        path: zod
+                            .string()
+                            .describe(
+                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
+                            ),
+                        content: zod
+                            .string()
+                            .nullish()
+                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                    })
+                    .describe("One per-file edit: set a file's content, or delete it.")
+            )
+            .describe("Edits applied in order to the canvas's current source project."),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        name: zod
+            .string()
+            .optional()
+            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
+        expected_current_version_id: zod
+            .string()
+            .nullable()
+            .describe(
+                'Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.'
+            ),
+    })
+    .describe("Payload for publishing per-file edits against the canvas's current source.")
 
 /**
  * Publish a complete canvas source project as the canvas's new head version.

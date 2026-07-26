@@ -2807,6 +2807,20 @@
             "readOnlyHint": true
         }
     },
+    "desktop-file-system-canvas-edit-create": {
+        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from desktop-file-system-canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Edit canvas source files",
+        "title": "Edit canvas source files",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "desktop-file-system-canvas-partial-update": {
         "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
         "category": "Core",

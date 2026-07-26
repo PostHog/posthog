@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     DesktopFileSystemCanvasBuildsRetrieveParams,
+    DesktopFileSystemCanvasEditCreateBody,
+    DesktopFileSystemCanvasEditCreateParams,
     DesktopFileSystemCanvasPartialUpdateBody,
     DesktopFileSystemCanvasPartialUpdateParams,
     DesktopFileSystemCanvasPublishCreateBody,
@@ -47,6 +49,42 @@ const desktopFileSystemCanvasBuildsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.CanvasBuildsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/builds/`,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasEditCreateSchema = DesktopFileSystemCanvasEditCreateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasEditCreateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasEditCreateParams.shape['id'].describe('ID of the canvas whose source to edit.'),
+    })
+
+const desktopFileSystemCanvasEditCreate = (): ToolBase<
+    typeof DesktopFileSystemCanvasEditCreateSchema,
+    Schemas.CanvasSourcePublishResponse
+> => ({
+    name: 'desktop-file-system-canvas-edit-create',
+    schema: DesktopFileSystemCanvasEditCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasEditCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.operations !== undefined) {
+            body['operations'] = params.operations
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasSourcePublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/edit/`,
+            body,
         })
         return result
     },
@@ -768,6 +806,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'desktop-file-system-canvas-builds-retrieve': desktopFileSystemCanvasBuildsRetrieve,
+    'desktop-file-system-canvas-edit-create': desktopFileSystemCanvasEditCreate,
     'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'desktop-file-system-canvas-publish-create': desktopFileSystemCanvasPublishCreate,
     'desktop-file-system-canvas-source-retrieve': desktopFileSystemCanvasSourceRetrieve,

@@ -42,7 +42,14 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
 
 ## Publish guarded
 
-Publish the **complete** project with `desktop-file-system-canvas-publish-create`:
+Two ways to save, both guarded:
+
+- **Whole project** — `desktop-file-system-canvas-publish-create` with the complete `project`.
+- **Per-file edits** — `desktop-file-system-canvas-edit-create` with `operations` (each sets a
+  file's complete content, or deletes it with `content: null`). Prefer this for small changes to a
+  large project; the guard is mandatory here because a diff's meaning depends on its base.
+
+For a whole-project publish with `desktop-file-system-canvas-publish-create`:
 
 - Always pass `expected_current_version_id` — the `current_version_id` you read (or explicit
   `null` on a first publish). Unguarded publishes can silently clobber concurrent edits.

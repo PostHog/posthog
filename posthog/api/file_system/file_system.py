@@ -254,6 +254,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "publish_canvas",
         "create_canvas",
         "publish_canvas_source",
+        "edit_canvas_source",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -1252,6 +1253,51 @@ class CanvasSourcePublishSerializer(serializers.Serializer):
     )
 
 
+class CanvasSourceEditOperationSerializer(serializers.Serializer):
+    """One per-file edit: set a file's content, or delete it."""
+
+    path = serializers.CharField(
+        help_text='Project-relative path of the file to write or delete (e.g. "src/canvas.tsx").'
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The file's complete new content. Null (or omitted) deletes the file.",
+    )
+
+
+class CanvasSourceEditSerializer(serializers.Serializer):
+    """Payload for publishing per-file edits against the canvas's current source."""
+
+    operations = CanvasSourceEditOperationSerializer(
+        many=True,
+        allow_empty=False,
+        help_text="Edits applied in order to the canvas's current source project.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Optional new display name for the canvas (rewrites the leaf segment of its path).",
+    )
+    expected_current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the "
+            "canvas has never been published). Diff edits against a moved head are rejected with 409 "
+            "version_conflict — they cannot be published unguarded."
+        ),
+    )
+
+
 class CanvasSourcePublishResponseSerializer(serializers.Serializer):
     """Result of a successful source-project publish."""
 
@@ -1707,8 +1753,29 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
         payload = CanvasSourcePublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        project = payload.validated_data["project"]
 
+        return self._publish_source_project(
+            request,
+            dashboard,
+            project=payload.validated_data["project"],
+            prompt=payload.validated_data.get("prompt"),
+            name=payload.validated_data.get("name"),
+            has_expected_version="expected_current_version_id" in payload.validated_data,
+            expected_version_id=payload.validated_data.get("expected_current_version_id"),
+        )
+
+    def _publish_source_project(
+        self,
+        request: Request,
+        dashboard: FileSystem,
+        *,
+        project: dict[str, Any],
+        prompt: str | None,
+        name: str | None,
+        has_expected_version: bool,
+        expected_version_id: str | None,
+    ) -> Response:
+        """Validate + publish a complete source project (shared by publish and edit)."""
         diagnostics = validate_source_project(project)
         if has_errors(diagnostics):
             body = {
@@ -1731,7 +1798,6 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         record_lifecycle: Callable[[FileSystem, dict[str, Any], dict[str, Any]], None] | None = None
         if source_object is not None:
             uploaded = source_object
-            prompt = payload.validated_data.get("prompt")
             task_id = self._request_task_id(request)
             user = request.user if isinstance(request.user, User) else None
 
@@ -1752,10 +1818,10 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         dashboard, conflict, first_publish = self._apply_canvas_publish(
             dashboard,
             code=extract_legacy_code(project),
-            prompt=payload.validated_data.get("prompt"),
-            name=payload.validated_data.get("name"),
-            has_expected_version="expected_current_version_id" in payload.validated_data,
-            expected_version_id=payload.validated_data.get("expected_current_version_id"),
+            prompt=prompt,
+            name=name,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
             record_lifecycle=record_lifecycle,
         )
         if conflict is not None:
@@ -1771,6 +1837,75 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             "diagnostics": diagnostics,
         }
         return Response(CanvasSourcePublishResponseSerializer(response).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_edit_create",
+        request=CanvasSourceEditSerializer,
+        responses={
+            200: CanvasSourcePublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="An edit targeted a missing file, or the edited project failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="canvas/edit", request=CanvasSourceEditSerializer)
+    def edit_canvas_source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish per-file edits against the canvas's current source project.
+
+        Diff-aware alternative to sending the complete project: each operation
+        sets a file's content or (content null) deletes it, applied to the head
+        the caller read. `expected_current_version_id` is mandatory here —
+        relative edits against an unverified base could silently merge into
+        someone else's newer work, so unguarded diff publishes are refused.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasSourceEditSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        project = synthetic_source_project(dashboard.meta or {})
+        diagnostics: list[dict[str, Any]] = []
+        for operation in payload.validated_data["operations"]:
+            path = operation["path"]
+            content = operation.get("content")
+            if content is None:
+                if path not in project["files"]:
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "code": "edit_target_missing",
+                            "message": f"cannot delete {path} — the project has no file at that path",
+                            "path": path,
+                        }
+                    )
+                    continue
+                del project["files"][path]
+            else:
+                project["files"][path] = content
+        if diagnostics:
+            body = {
+                "detail": "The edit could not be applied to the canvas's current source.",
+                "code": "invalid_source_project",
+                "diagnostics": diagnostics,
+            }
+            return Response(CanvasSourceInvalidSerializer(body).data, status=status.HTTP_400_BAD_REQUEST)
+
+        return self._publish_source_project(
+            request,
+            dashboard,
+            project=project,
+            prompt=payload.validated_data.get("prompt"),
+            name=payload.validated_data.get("name"),
+            has_expected_version=True,
+            expected_version_id=payload.validated_data["expected_current_version_id"],
+        )
 
     @staticmethod
     def _request_task_id(request: Request) -> UUID | None:
